@@ -303,7 +303,19 @@ def timeline_inventory(project) -> list[dict]:
     """Read project timeline names, unique ids and settings as plain data."""
     entries = []
     try:
-        count = int(project.GetTimelineCount() or 0)
+        count = project.GetTimelineCount()
+        if count is None:
+            # The bridge answers None for a count it cannot read, and
+            # `None or 0` is ZERO - so an unreadable count used to read
+            # as a project that holds NO TIMELINES, and the build that
+            # measured itself against that inventory believed the
+            # project was empty (measured 2026-10-21, the Ren Scratch
+            # build's stale project handle). An unreadable count is
+            # unreadable, never empty.
+            raise ValueError(
+                "the project returned no timeline count; the inventory "
+                "cannot be read")
+        count = int(count)
         for index in range(1, count + 1):
             timeline = project.GetTimelineByIndex(index)
             if timeline is None:

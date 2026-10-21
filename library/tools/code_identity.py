@@ -298,7 +298,6 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/native_refresh.py',
         'library/tools/reel_replace_guard.py',
         'library/tools/resolve_swapback.py',
-        'library/tools/resolved/server.py',
         'library/tools/spine_contract.py',
         'library/tools/tight_box.py',
         'library/tools/timeline_decisions.py',
@@ -336,7 +335,6 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/resolve_switch_guard.py',
         'library/tools/resolve_transform.py',
         'library/tools/continuity_feasibility.py',
-        'library/tools/resolve_watchdog.py',
         'library/tools/resolved/cancellation.py',
         'library/tools/resolved/jobs.py',
         'library/tools/resolved/scheduler.py',
@@ -691,6 +689,36 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/drt_reader.py",
         "library/tools/edit_state_report.py",
         "library/tools/project_graph/cross_project.py",
+        # The reel builder records the acceptance of a delivered generation
+        # through this module, so a fix to it changes what the cached
+        # rows of this step resolve through (the same chain as the
+        # catalog row).
+        "library/tools/reel_acceptance.py",
+        # The explainer and face-track renderers, the frame-exact
+        # measurement, the occurrence identity, the plan feasibility,
+        # the project reference and the retrieval requirements: the
+        # shared code these steps' cached rows are computed through.
+        "library/tools/explainer_render.py",
+        "library/tools/face_tracks.py",
+        "library/tools/frame_exact.py",
+        "library/tools/occurrence_identity.py",
+        "library/tools/plan_feasibility.py",
+        "library/tools/project_ref.py",
+        "library/tools/retrieval/requirements.py",
+        # The capability registry the catalog reads its operations from,
+        # the write settle the executor waits on, the broker's own path
+        # helper and the source clocks the measurements are read through:
+        # a fix in any of them changes what these cached rows resolve to.
+        "library/tools/capability_coverage.py",
+        "library/tools/resolve_write_settle.py",
+        "library/tools/resolved/broker_paths.py",
+        "library/tools/source_clocks.py",
+        # The shared code this step's cached rows are computed
+        # through, reached by the closure above (the map's rule:
+        # every file the closure reaches is named here).
+        "library/tools/evidence_graph.py",
+        "library/tools/frame_rate.py",
+        "library/tools/mutation_verification.py",
     ),
     "step_1_01_scan_project": (
         "library/tools/alignment_quality.py",
@@ -903,7 +931,6 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/native_refresh.py',
         'library/tools/reel_replace_guard.py',
         'library/tools/resolve_swapback.py',
-        'library/tools/resolved/server.py',
         'library/tools/spine_contract.py',
         'library/tools/tight_box.py',
         'library/tools/timeline_decisions.py',
@@ -941,7 +968,6 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/resolve_switch_guard.py',
         'library/tools/resolve_transform.py',
         'library/tools/continuity_feasibility.py',
-        'library/tools/resolve_watchdog.py',
         'library/tools/resolved/cancellation.py',
         'library/tools/resolved/jobs.py',
         'library/tools/resolved/scheduler.py',
@@ -1300,6 +1326,36 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/drt_reader.py",
         "library/tools/edit_state_report.py",
         "library/tools/project_graph/cross_project.py",
+        # The reel builder records the acceptance of a delivered generation
+        # through this module, so a fix to it changes what the cached
+        # rows of this step resolve through (the same chain as the
+        # catalog row).
+        "library/tools/reel_acceptance.py",
+        # The explainer and face-track renderers, the frame-exact
+        # measurement, the occurrence identity, the plan feasibility,
+        # the project reference and the retrieval requirements: the
+        # shared code these steps' cached rows are computed through.
+        "library/tools/explainer_render.py",
+        "library/tools/face_tracks.py",
+        "library/tools/frame_exact.py",
+        "library/tools/occurrence_identity.py",
+        "library/tools/plan_feasibility.py",
+        "library/tools/project_ref.py",
+        "library/tools/retrieval/requirements.py",
+        # The capability registry the catalog reads its operations from,
+        # the write settle the executor waits on, the broker's own path
+        # helper and the source clocks the measurements are read through:
+        # a fix in any of them changes what these cached rows resolve to.
+        "library/tools/capability_coverage.py",
+        "library/tools/resolve_write_settle.py",
+        "library/tools/resolved/broker_paths.py",
+        "library/tools/source_clocks.py",
+        # The shared code this step's cached rows are computed
+        # through, reached by the closure above (the map's rule:
+        # every file the closure reaches is named here).
+        "library/tools/evidence_graph.py",
+        "library/tools/frame_rate.py",
+        "library/tools/mutation_verification.py",
     ),
     "step_1_02_catalog_footage": (
         # Shared measurement and evidence readers reached by the catalog's
@@ -1340,6 +1396,29 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/editorial_identity.py",
         "library/tools/recovery_instruction.py",
         "library/tools/reel_execution_contract.py",
+        # The reel builder records the acceptance of a delivered generation
+        # through this module, so a fix to it changes what the cached
+        # catalog rows resolve through (the same chain as the row above).
+        "library/tools/reel_acceptance.py",
+        # The explainer and face-track renderers, the frame-exact
+        # measurement, the occurrence identity, the plan feasibility,
+        # the project reference and the retrieval requirements: the
+        # shared code these steps' cached rows are computed through.
+        "library/tools/explainer_render.py",
+        "library/tools/face_tracks.py",
+        "library/tools/frame_exact.py",
+        "library/tools/occurrence_identity.py",
+        "library/tools/plan_feasibility.py",
+        "library/tools/project_ref.py",
+        "library/tools/retrieval/requirements.py",
+        # The capability registry the catalog reads its operations from,
+        # the write settle the executor waits on, the broker's own path
+        # helper and the source clocks the measurements are read through:
+        # a fix in any of them changes what these cached rows resolve to.
+        "library/tools/capability_coverage.py",
+        "library/tools/resolve_write_settle.py",
+        "library/tools/resolved/broker_paths.py",
+        "library/tools/source_clocks.py",
         "library/tools/sound_class.py",
         "library/tools/target_resolution.py",
         "library/tools/timeline_state_reconcile.py",
@@ -1564,7 +1643,6 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/native_refresh.py',
         'library/tools/reel_replace_guard.py',
         'library/tools/resolve_swapback.py',
-        'library/tools/resolved/server.py',
         'library/tools/spine_contract.py',
         'library/tools/tight_box.py',
         'library/tools/timeline_decisions.py',
@@ -1602,7 +1680,6 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/resolve_switch_guard.py',
         'library/tools/resolve_transform.py',
         'library/tools/continuity_feasibility.py',
-        'library/tools/resolve_watchdog.py',
         'library/tools/resolved/cancellation.py',
         'library/tools/resolved/jobs.py',
         'library/tools/resolved/scheduler.py',
@@ -1954,6 +2031,11 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/drt_reader.py",
         "library/tools/edit_state_report.py",
         "library/tools/project_graph/cross_project.py",
+        # The shared code this step's cached rows are computed
+        # through, reached by the closure above (the map's rule:
+        # every file the closure reaches is named here).
+        "library/tools/evidence_graph.py",
+        "library/tools/mutation_verification.py",
     ),
     "step_1_03_semantic_analysis": (
         "library/tools/alignment_quality.py",
@@ -2192,7 +2274,6 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/native_refresh.py',
         'library/tools/reel_replace_guard.py',
         'library/tools/resolve_swapback.py',
-        'library/tools/resolved/server.py',
         'library/tools/spine_contract.py',
         'library/tools/tight_box.py',
         'library/tools/timeline_decisions.py',
@@ -2230,7 +2311,6 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/resolve_switch_guard.py',
         'library/tools/resolve_transform.py',
         'library/tools/continuity_feasibility.py',
-        'library/tools/resolve_watchdog.py',
         'library/tools/resolved/cancellation.py',
         'library/tools/resolved/jobs.py',
         'library/tools/resolved/scheduler.py',
@@ -2585,6 +2665,36 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/drt_reader.py",
         "library/tools/edit_state_report.py",
         "library/tools/project_graph/cross_project.py",
+        # The reel builder records the acceptance of a delivered generation
+        # through this module, so a fix to it changes what the cached
+        # rows of this step resolve through (the same chain as the
+        # catalog row).
+        "library/tools/reel_acceptance.py",
+        # The explainer and face-track renderers, the frame-exact
+        # measurement, the occurrence identity, the plan feasibility,
+        # the project reference and the retrieval requirements: the
+        # shared code these steps' cached rows are computed through.
+        "library/tools/explainer_render.py",
+        "library/tools/face_tracks.py",
+        "library/tools/frame_exact.py",
+        "library/tools/occurrence_identity.py",
+        "library/tools/plan_feasibility.py",
+        "library/tools/project_ref.py",
+        "library/tools/retrieval/requirements.py",
+        # The capability registry the catalog reads its operations from,
+        # the write settle the executor waits on, the broker's own path
+        # helper and the source clocks the measurements are read through:
+        # a fix in any of them changes what these cached rows resolve to.
+        "library/tools/capability_coverage.py",
+        "library/tools/resolve_write_settle.py",
+        "library/tools/resolved/broker_paths.py",
+        "library/tools/source_clocks.py",
+        # The shared code this step's cached rows are computed
+        # through, reached by the closure above (the map's rule:
+        # every file the closure reaches is named here).
+        "library/tools/evidence_graph.py",
+        "library/tools/frame_rate.py",
+        "library/tools/mutation_verification.py",
     ),
     "step_1_04_temporal_index": (
         "library/tools/alignment_quality.py",
@@ -2873,7 +2983,6 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/native_refresh.py',
         'library/tools/reel_replace_guard.py',
         'library/tools/resolve_swapback.py',
-        'library/tools/resolved/server.py',
         'library/tools/spine_contract.py',
         'library/tools/tight_box.py',
         'library/tools/timeline_decisions.py',
@@ -2911,7 +3020,6 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/resolve_switch_guard.py',
         'library/tools/resolve_transform.py',
         'library/tools/continuity_feasibility.py',
-        'library/tools/resolve_watchdog.py',
         'library/tools/resolved/cancellation.py',
         'library/tools/resolved/jobs.py',
         'library/tools/resolved/scheduler.py',
@@ -3247,6 +3355,36 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/drt_reader.py",
         "library/tools/edit_state_report.py",
         "library/tools/project_graph/cross_project.py",
+        # The reel builder records the acceptance of a delivered generation
+        # through this module, so a fix to it changes what the cached
+        # rows of this step resolve through (the same chain as the
+        # catalog row).
+        "library/tools/reel_acceptance.py",
+        # The explainer and face-track renderers, the frame-exact
+        # measurement, the occurrence identity, the plan feasibility,
+        # the project reference and the retrieval requirements: the
+        # shared code these steps' cached rows are computed through.
+        "library/tools/explainer_render.py",
+        "library/tools/face_tracks.py",
+        "library/tools/frame_exact.py",
+        "library/tools/occurrence_identity.py",
+        "library/tools/plan_feasibility.py",
+        "library/tools/project_ref.py",
+        "library/tools/retrieval/requirements.py",
+        # The capability registry the catalog reads its operations from,
+        # the write settle the executor waits on, the broker's own path
+        # helper and the source clocks the measurements are read through:
+        # a fix in any of them changes what these cached rows resolve to.
+        "library/tools/capability_coverage.py",
+        "library/tools/resolve_write_settle.py",
+        "library/tools/resolved/broker_paths.py",
+        "library/tools/source_clocks.py",
+        # The shared code this step's cached rows are computed
+        # through, reached by the closure above (the map's rule:
+        # every file the closure reaches is named here).
+        "library/tools/evidence_graph.py",
+        "library/tools/frame_rate.py",
+        "library/tools/mutation_verification.py",
     ),
     "step_1_05_prosody_analysis": (
         # The legacy step delegates the measurement here.

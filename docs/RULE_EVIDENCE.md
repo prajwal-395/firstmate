@@ -8954,3 +8954,78 @@ that does not land on a millisecond is quantised to the millisecond, which is
 why the exact mapping lives beside the grid rather than in it. And the engine
 still has ONE assumption value (30 fps); what changed is that it is named,
 where it stands and why.
+
+
+## the-build-that-read-through-a-stale-project-handle
+
+**The rule.** A live read RE-RESOLVES the project it is about, and the sections
+that read ONE project are ONE hold. A project handle is not a durable identity:
+it goes stale the moment the cursor moves, and Resolve then answers None for a
+count it read a moment ago.
+
+**What happened.** 2026-10-21, the live Ren Scratch - breaktest build, after
+PRs 3021 (the broker session), 3025, 3027 and 3032 and a confirmed current-main
+broker reload:
+
+```
+ReelBuildError: Resolve returned no timeline count for this project; the
+enumeration cannot be read
+```
+
+The failure was in the ABANDONED-CANDIDATE CLEANUP, and the run's own ledger
+says why. The build took the instance lease in three SEPARATE sections - the
+connect, the promotion recovery and the cleanup - so the instance was FREE in
+the gaps between them. The perf ledger for `run-20261021T020831Z-6880af` shows
+three DIFFERENT broker job ids for three leases (a session holds one), and the
+event log names the holders it waited for: another lane's `resolve_axi` job and
+the shadow watcher's `timeline.observe_current`. A writer took the instance in
+the gap and moved Resolve's cursor to its own project. The build then read
+through the project handle it had captured at connect time, and that handle had
+stopped answering.
+
+Two things were wrong, and they are different failures.
+
+1. **The sections were not ONE hold.** The instance is the fence that stops a
+   writer moving the cursor, and the build released it between the sections that
+   read the project it had just opened.
+2. **The handle was captured once and read through for the whole build.** A
+   cursor that moved was read through rather than refused BY NAME, so the
+   message named neither the cursor nor the project - and the retry could not
+   settle, because a dead handle stays dead.
+
+There was a third, quieter defect on the same path: `reel_replace_guard.
+timeline_inventory` read the count as `count or 0`, so a count the bridge
+answered None for - the unreadable count - read as a project that holds NO
+TIMELINES. A build that measured itself against that inventory believed the
+project was empty.
+
+**The rule.** The sections that read the project Resolve has open - the
+connect, the promotion recovery, the abandoned-candidate cleanup and the
+inventory baseline - are ONE exclusive hold, and each read RE-RESOLVES the
+project inside it (`reel_build._open_project`). A cursor that moved is then
+refused by name: `Resolve's cursor is not on 'Ren Scratch - breaktest': ...`.
+An unreadable count is unreadable, never empty
+(`reel_replace_guard.timeline_inventory` refuses), and a count that will not
+settle names the project whose count would not
+(`reel_build._timeline_count`).
+
+**Where it is.** `library/tools/reel_build.py`: `_open_project` (the re-
+resolution), the one `build reels open project` hold that covers the opening
+reads, and `_timeline_count`'s refusal by name.
+`library/tools/reel_replace_guard.py`: `timeline_inventory` refuses an
+unreadable count instead of reading it as zero.
+`tests/unit/reels/test_reel_build_project_handle.py` names the defect: a cursor
+that moves in every gap between the build's sections cannot stop the build, a
+cursor on another project is refused by name, and an unreadable count is not an
+empty project.
+
+**What it does not fix.** The broker session (PR 3021) still holds the whole
+operation, and it is still the only thing that stops a lane's job from being
+granted BETWEEN two of the build's sections. A writer that never asked the
+broker - an older checkout, a human in Resolve - is fenced by the instance
+flock, and the flock is still released between the build's later sections: the
+placement path re-acquires its project and timeline by identity
+(`_reacquire_current_project_timeline`), and a section that re-resolves now
+refuses rather than reads through, but the cursor can still move between two
+sections that both hold the instance.
+d5c7e0b29 (Read the project Resolve has open, and say so when it is not)

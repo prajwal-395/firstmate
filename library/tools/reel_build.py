@@ -7750,7 +7750,12 @@ def _verify_freeze_tail_after_fusion(project, name: str, freeze,
     item_matches = []
     error = None
     try:
-        timeline_count = project.GetTimelineCount()
+        # The refusal-by-name count, not a raw read: the bridge answers
+        # None for a count it cannot read, and `None + 1` is a TypeError
+        # that says nothing about which project was being read (the
+        # 2026-10-05 "GetTimelineCount None in the freeze post-Fusion
+        # check").
+        timeline_count = _timeline_count(project)
         for index in range(1, timeline_count + 1):
             candidate = project.GetTimelineByIndex(index)
             if candidate is not None and candidate.GetName() == name:
@@ -11560,7 +11565,10 @@ def _timeline_count(project, attempts: int = 5) -> int:
 
     A None here is usually a READ THAT LOST A RACE with a writer, so it
     is retried: the count settles and the enumeration can proceed. The
-    refusal is for a count that never arrives.
+    refusal is for a count that never arrives, and it NAMES the project
+    whose count would not settle - a message that named neither the
+    project nor the cursor sent the reader looking for a writer that
+    was never there (the 2026-10-21 Ren Scratch build).
     """
     for attempt in range(max(1, int(attempts))):
         count = project.GetTimelineCount()
@@ -11568,8 +11576,13 @@ def _timeline_count(project, attempts: int = 5) -> int:
             return int(count)
         if attempt + 1 < attempts:
             _build_sleep(0.4 * (attempt + 1))
+    name = ""
+    try:
+        name = str(project.GetName() or "")
+    except Exception:  # noqa: BLE001 - an unreadable name is no name
+        name = ""
     raise ReelBuildError(
-        "Resolve returned no timeline count for this project; the "
+        f"Resolve returned no timeline count for project {name!r}; the "
         "enumeration cannot be read")
 
 
@@ -12769,6 +12782,31 @@ def _connect_resolve_project(resolve_project_name: str):
     """
     return resolve_project_exactly(
         _connect_resolve().GetProjectManager(), resolve_project_name)
+
+
+def _open_project(resolve, project_name: str):
+    """The project Resolve has OPEN, by exact name, or a refusal by name.
+
+    A project HANDLE goes stale the moment the cursor moves: Resolve then
+    answers None for a count it read a moment ago, and the enumeration
+    dies on a message that names neither the cursor nor the project.
+    Measured 2026-10-21 on the Ren Scratch - breaktest project: the
+    build died on "Resolve returned no timeline count" during the
+    abandoned-candidate cleanup, because the handle it captured at
+    connect time was no longer the project Resolve had open.
+
+    So every section that READS the project re-resolves it inside its own
+    hold, and a cursor that moved is refused BY NAME - the thing the
+    operator can act on - instead of being read through. The lookup is
+    exact: a near match lands on somebody else's project (AGENTS.md 5),
+    so a project that is not the declared one refuses.
+    """
+    try:
+        return resolve_project_exactly(
+            resolve.GetProjectManager(), project_name)
+    except TimelineIngestError as exc:
+        raise ReelBuildError(
+            f"Resolve's cursor is not on {project_name!r}: {exc}") from exc
 
 
 def _reacquire_current_project_timeline(
@@ -15213,10 +15251,15 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
 
     Resolve holds guard their cursor-sensitive sections:
 
-    - connect (`"build reels connect"`, EXCLUSIVE, seconds): the
-      scripting handshake blocks unboundedly while another lane
-      places, so it is ordered behind any in-progress placement
-      rather than contended inside it.
+    - the opening section (`"build reels open project"`, EXCLUSIVE,
+      milliseconds): the scripting handshake, the promotion recovery
+      and the abandoned-candidate cleanup. The handshake blocks
+      unboundedly while another lane places, so it is ordered behind
+      any in-progress placement rather than contended inside it. The
+      three reads it covers are ONE hold because the instance was free
+      between them, and a writer that took it moved the cursor out
+      from under the next read (the 2026-10-21 Ren Scratch build, dead
+      on "Resolve returned no timeline count" in the cleanup).
     - the draw-gain probe (`"draw-gain probe"`, EXCLUSIVE): it
       creates a fixed-name scratch timeline, appends, stills twice
       and deletes - a second concurrent probe would delete the
@@ -15327,41 +15370,65 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     if not master_timeline_name:
         raise ValueError("Missing 'timeline_name' under 'resolve' in project.yaml")
 
-    # The handshake first, under its own short EXCLUSIVE hold: while
-    # another lane places, a connect blocks inside `scriptapp` with no
-    # bound, no diagnostic and no holder to name (measured 2026-09-12)
-    # - so it is ordered behind any in-progress placement rather than
-    # contended inside it. Handles stay valid after the hold releases;
-    # every cursor write below takes its own hold.
-    with resolve_lease("build reels connect", exclusive=True):
+    # The handshake, the promotion recovery and the abandoned-candidate
+    # cleanup are ONE section, under ONE exclusive hold, because all
+    # three read the project Resolve has open.
+    #
+    # They used to be three holds, and the instance was FREE in the gaps
+    # between them - so another writer took it, moved the cursor to its
+    # own project, and the next section read through a handle that
+    # Resolve had stopped answering: "Resolve returned no timeline
+    # count" (measured 2026-10-21 on the Ren Scratch - breaktest
+    # project, in the abandoned-candidate cleanup). The broker session
+    # (PR 3021) closes the gap for a client that runs current main; a
+    # client that does not, or a captain moving the cursor by hand, is
+    # still exposed - so the hold that fences the cursor now covers the
+    # three reads that need it, and each read re-resolves the project
+    # inside it.
+    #
+    # The connect blocks in `scriptapp` with no bound, no diagnostic and
+    # no holder to name (measured 2026-09-12) - so it is ordered behind
+    # any in-progress placement rather than contended inside it. The
+    # section is milliseconds long: the recovery reads a journal
+    # directory and the cleanup enumerates one project.
+    with resolve_lease("build reels open project", exclusive=True):
         resolve = _connect_resolve()
-        project = resolve_project_exactly(
-            resolve.GetProjectManager(), resolve_name)
+        project = _open_project(resolve, resolve_name)
         project_default_resolution = None
         if placement_mode in ("auto", "otio"):
             from library.tools.reel_otio_placement import (
                 project_timeline_resolution as _read_default_resolution)
             project_default_resolution = _read_default_resolution(project)
-    with resolve_lease("recover reel promotions", exclusive=True):
+        # Each read below RE-RESOLVES the project inside this hold: a
+        # handle captured earlier can have gone stale, and a refusal that
+        # names the project Resolve is on beats a count that never
+        # settles.
         recovered_promotions = recover_interrupted_promotions(
-            project, project_folder)
-    if recovered_promotions:
-        raise ReelBuildError(
-            "Recovered interrupted promotion transaction(s) "
-            f"{recovered_promotions}. The committed timelines and revision "
-            "records are now consistent; re-run the build so it prepares "
-            "against that recovered base.")
-    with resolve_lease("cleanup abandoned reel candidates", exclusive=True):
+            _open_project(resolve, resolve_name), project_folder)
+        if recovered_promotions:
+            raise ReelBuildError(
+                "Recovered interrupted promotion transaction(s) "
+                f"{recovered_promotions}. The committed timelines and "
+                "revision records are now consistent; re-run the build so "
+                "it prepares against that recovered base.")
         cleaned_candidates = cleanup_disposable_candidates(
-            project, project_folder)
+            _open_project(resolve, resolve_name), project_folder)
+        # The inventory this build measures itself against is the SAME
+        # read, one moment later: the cleanup may have deleted a
+        # candidate, so the baseline has to be taken after it - and it
+        # has to be taken through a live handle, because a count that
+        # cannot be read reads as an EMPTY project (the count is `or 0`
+        # in `reel_replace_guard.timeline_inventory`, which is how a
+        # stale handle turned into a build that believed the project
+        # held no timelines at all).
+        from library.tools import reel_replace_guard as _inventory_guard
+        build_inventory_before = _inventory_guard.timeline_inventory(
+            _open_project(resolve, resolve_name))
     if cleaned_candidates:
         print(f"  cleaned {len(cleaned_candidates)} unchanged, "
               f"identity-verified candidate(s): {cleaned_candidates}",
               flush=True)
-    from library.tools import reel_replace_guard as _inventory_guard
     from library.tools import plan_provenance as _inventory_provenance
-    with resolve_lease("build reels inventory start", exclusive=False):
-        build_inventory_before = _inventory_guard.timeline_inventory(project)
 
     # The frame this project's reels are DELIVERED in, resolved ONCE and
     # threaded from here: the timeline size, every overlay render, the
@@ -15381,6 +15448,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # timeline.
     from library.tools.overlay_placement import entry_unit_mismatch
     with resolve_lease("build reels entry units", exclusive=False):
+        project = _open_project(resolve, resolve_name)
         unit_refusal = entry_unit_mismatch(project, (reel_width, reel_height))
     if unit_refusal:
         raise ReelBuildError(unit_refusal)
@@ -15623,6 +15691,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # WAITS for the live writer, the way every other writer does.
     with resolve_lease("build reels survey", exclusive=True,
                        edit_ids=_edit_lease_ids):
+        project = _open_project(resolve, resolve_name)
         timeline = None
         for i in range(1, _timeline_count(project) + 1):
             t = project.GetTimelineByIndex(i)
@@ -15703,6 +15772,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     try:
         with resolve_lease("draw-gain probe", exclusive=True,
                            edit_ids=_edit_lease_ids):
+            project = _open_project(resolve, resolve_name)
             gain_record = _gain_probe.calibrate(
                 resolve, project, (reel_width, reel_height),
                 project_folder=project_folder)
@@ -15738,6 +15808,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         from library.tools import drift_check as _drift_start
         with resolve_lease("build reels drift baseline",
                            exclusive=True, edit_ids=_edit_lease_ids):
+            project = _open_project(resolve, resolve_name)
             _drift_start.check_project(
                 project_folder, when="build start", resolve=resolve,
                 project=project, only_reels=sorted(approved_target_names))
@@ -15769,6 +15840,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     _backup_names = {backup_name(final) for final in approved_target_names}
     with resolve_lease("build reels debris check", exclusive=False,
                        edit_ids=_edit_lease_ids):
+        project = _open_project(resolve, resolve_name)
         _debris_found = timelines_by_name(
             project, set(staged_names) | _backup_names)
         stale_staging = [timeline
@@ -15847,6 +15919,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         from library.tools import reel_prebuild_census as _census
         with resolve_lease("build reels prebuild census", exclusive=False,
                            edit_ids=_edit_lease_ids):
+            project = _open_project(resolve, resolve_name)
             prebuild_census = _census.report_prebuild(
                 project, sorted(approved_target_names))
     except Exception as census_failed:  # noqa: BLE001
@@ -15863,6 +15936,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     try:
         with resolve_lease("build reels divergence survey",
                            exclusive=False, edit_ids=_edit_lease_ids):
+            project = _open_project(resolve, resolve_name)
             live_snapshots, live_unread = _divergence.snapshots_for(
                 project, _approved, snapshot_fn=snapshot_timeline)
     except Exception as _reads_failed:                    # noqa: BLE001
@@ -16086,6 +16160,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # so under an EXCLUSIVE hold like the baseline above.
     with resolve_lease("build reels master digest", exclusive=True,
                        edit_ids=_edit_lease_ids):
+        project = _open_project(resolve, resolve_name)
         _master_digest = _need.carried_digest_live(project, timeline)
     # The edit ledger's rows, read ONCE: each reel's own rows ride its
     # derivation digest in `extra` below, so a row on one reel rebuilds
