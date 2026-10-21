@@ -1,5 +1,10 @@
 # Memory admission, measured 2026-10-15
 
+> Superseded for SAM 2 on 2026-10-22: the reservation this doc produced
+> (8 GB) is below the peak measured on the 24 GiB box (10.15 GB), and is
+> now 11 GB. See
+> `docs/benchmarks/2026-10-22-prod006-resource-constrained.md`.
+
 Which scheduler job kinds actually push the captain's Mac to the edge
 beside Resolve, and the reservations that follow. This doc is the
 measurement basis for `MEASURED_MEMORY_RESERVATIONS_GB` in

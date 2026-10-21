@@ -2281,7 +2281,7 @@ _REGISTRY: tuple[Operation, ...] = (
                     "_sam_model_memory_session"),),
                 why="Track resident SAM 2 weights as a model session while "
                     "this batch waits between selected clips; admission "
-                    "waits on live OS memory for its measured 8 GB "
+                    "waits on live OS memory for its measured 11 GB "
                     "reservation "
                     "(resource_scheduler.MEASURED_MEMORY_RESERVATIONS_GB), "
                     "not a static CPU/GPU budget."),

@@ -8,6 +8,7 @@ from pathlib import Path
 repo_root = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(repo_root))
 
+from library.tools import resource_scheduler
 from library.tools.analysis.object_segmentation import get_segmenter
 from library.tools.heavy_work_lock import (
     heavy_work_lock,
@@ -409,6 +410,7 @@ def run_step(raw_footage_files: list, clip_catalog: list, output_dir: str,
     # the model, the same way an empty trigger already returns above.
     segmenter = None
     memory_scope = None
+    memory_refusal = None
     results = []
     declined = []
     reused = []
@@ -511,6 +513,16 @@ def run_step(raw_footage_files: list, clip_catalog: list, output_dir: str,
                     "trigger": wanted[clip_id],
                 })
 
+            except resource_scheduler.MemoryUnavailable as exc:
+                # The model cannot be resident on this machine: the
+                # reservation was refused with a reason. Every clip in
+                # this batch needs the SAME model, so a fresh attempt
+                # per clip would refuse the same way - the batch is
+                # refused ONCE, with the reason, and the capability
+                # degrades to "no matte here" instead of failing.
+                memory_refusal = str(exc)
+                print(f"Refusing the SAM 2 batch: {exc}", file=sys.stderr)
+                break
             except Exception as e:
                 print(f"ERROR: Failed to segment {clip_path}: {e}", file=sys.stderr)
                 if segmenter is None or not segmenter.run_active:
@@ -544,6 +556,11 @@ def run_step(raw_footage_files: list, clip_catalog: list, output_dir: str,
             "segmented": [r["clip_id"] for r in results],
             "declined": declined,
             "reused": reused,
+            # The reason the model could not be resident, when it could
+            # not. Absent when the batch ran: a record of a refusal is
+            # not a record of a measurement.
+            **({"memory_refusal": memory_refusal}
+               if memory_refusal else {}),
         },
     }
 

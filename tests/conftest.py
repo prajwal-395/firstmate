@@ -253,6 +253,30 @@ def _scheduler_memory_is_plentiful():
         _resource_scheduler._memory_available_gb = real
 
 
+@pytest.fixture(autouse=True)
+def _scheduler_swap_is_calm():
+    """The machine's SWAP is machine state, like its free memory.
+
+    A busy box can be paging hard, and the scheduler now refuses a
+    resident model that cannot fit on top of that. A test that means to
+    exercise that guard stubs the reading itself (the PROD-006 tests
+    do); every other test must not depend on how loaded the host
+    happens to be.
+    """
+    from library.tools import resource_scheduler as _resource_scheduler
+
+    real = _resource_scheduler._swap_state_gb
+
+    def _calm_swap():
+        return (0.0, 16.0)
+
+    _resource_scheduler._swap_state_gb = _calm_swap
+    try:
+        yield
+    finally:
+        _resource_scheduler._swap_state_gb = real
+
+
 # ── No unit or scenario test waits on real machine memory ──────────
 #
 # A scheduler job declaring `ram_gb` is admitted against LIVE OS

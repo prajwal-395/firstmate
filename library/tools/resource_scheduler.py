@@ -19,6 +19,15 @@ on macOS; failure to measure refuses their admission.
 Jobs without a RAM reservation do not contend for memory and are not held
 by its guard.
 
+SWAP is a second reading of the same constraint, and it is the one that
+says the machine is ALREADY paging: `perf_resources` reads it (macOS
+`vm.swapusage`, Linux `/proc/meminfo`). A RAM-reserving job is REFUSED -
+not waited for - when the swap device is at or above
+`SWAP_REFUSAL_FRACTION` of its size AND the demand does not fit the
+free memory. A wait for memory that only paging can deliver is a swap
+death with extra steps; a demand that DOES fit is still admitted,
+because refusing work that would have run is its own regression.
+
 The store
 ---------
 SQLite in WAL mode beside the old lock directory. Every state change is
@@ -43,7 +52,8 @@ What a grant really used
 Every grant is sampled while it runs (`TreeSampler`) and kept in the
 `grants` table when it is released;
 `python3 -m library.tools.heavy_work_lock history` sets the measured peak
-cores and resident memory beside each profile, for operational evidence.
+cores, resident memory and the machine's peak swap and memory pressure
+beside each profile, for operational evidence.
 
 The bridge to the old lock
 --------------------------
@@ -72,6 +82,8 @@ from contextlib import closing
 from pathlib import Path
 from typing import Callable, Dict, Optional
 
+from library.tools import perf_resources
+
 RESOURCES = ("ram_gb",) + tuple(
     "native_" + name.replace("-", "_") for name in (
     "ren-graphics-fframes", "resolve-control", "ren-resolved",
@@ -86,17 +98,36 @@ MINIMUM_MEMORY_FLOOR_GB = 2.0
 #: RAM reservations (GB) held only by the job kinds measured pushing the
 #: machine to the edge beside Resolve. Every other profile admits
 #: regardless of free memory. Basis is peak phys_footprint, not RSS:
-#: docs/benchmarks/2026-10-15-memory-admission.md. A reservation sizes
-#: the live-headroom check; nothing here is a static budget that
-#: serializes by accounting.
+#: docs/benchmarks/2026-10-15-memory-admission.md, superseded for SAM 2
+#: by docs/benchmarks/2026-10-22-prod006-resource-constrained.md. A
+#: reservation sizes the live-headroom check; nothing here is a static
+#: budget that serializes by accounting. A reservation is the MEASURED
+#: PEAK of the kind, not its average: the average leaves the tail
+#: unpaged for, and the tail is what swaps the machine to death.
 MEASURED_MEMORY_RESERVATIONS_GB: Dict[str, int] = {
     # One Gemma 4 12B load plus a single inference: 14.43 GB peak
     # footprint against 1.69 GB peak RSS (2026-10-15).
     "semantics.analyse:model_memory": 15,
-    # SAM 2 over a 3 s clip: 7.41 GB peak footprint (2026-10-15).
-    # Longer clips track more frames; re-measure past this shape.
-    "objects.segment:model_memory": 8,
+    # SAM 2 over a 3 s clip: 7.41 GB peak footprint (2026-10-15) - but
+    # the 2026-10-22 measurement on THIS machine reached 10.15 GB peak
+    # footprint over 8 sampled grants (mean 6.55 GB), because the peak
+    # tracks the clip's frame count. Reserving the measured 7.41 GB
+    # admitted a session that then overran its reservation by 2.74 GB
+    # and pushed the machine into swap; the reservation is now the
+    # measured peak plus a margin.
+    "objects.segment:model_memory": 11,
 }
+
+#: The share of the swap device in use at which a RAM-reserving job is
+#: REFUSED instead of admitted. Measured 2026-10-22 on this 24 GiB
+#: machine: 14.0 of 15.4 GB (91%) of swap in use with 6.96 GB available,
+#: while both resident-model stages waited on memory they could not
+#: have. A machine paging at this depth cannot page a resident model's
+#: weights IN: the wait is a swap death with extra steps, so the job is
+#: refused with the reading instead. Below the fraction the swap
+#: device is not the binding constraint and the headroom check decides.
+SWAP_REFUSAL_FRACTION = 0.75
+
 # Resolve's own process, by executable name (`TreeSampler`).
 RESOLVE_PROCESS = "Resolve"
 DB_FILENAME = "resource-scheduler.sqlite3"
@@ -112,6 +143,74 @@ SCHEDULER_POLICY_VERSION = 1
 
 class Cancelled(Exception):
     """A waiter's `cancelled` answered True before it was admitted."""
+
+
+class MemoryUnavailable(ValueError):
+    """This machine cannot host the memory the job asked to reserve.
+
+    A refusal with the reading beside it, never a wait: the caller
+    degrades the capability it wanted (a model that cannot be
+    resident says so) instead of sitting on a grant the machine will
+    never grant. It is a `ValueError` because it refuses a DEMAND the
+    machine cannot satisfy, which is what a `ValueError` has always
+    meant here.
+    """
+
+
+def _swap_state_gb() -> tuple[float | None, float | None]:
+    """Swap in use and swap total, in GB; None where the OS says nothing.
+
+    The reading is the machine's, not this process's: swap is where the
+    WHOLE machine's cold pages live, so a stage's share of it is not
+    separable here. `perf_resources` owns the reading and states that a
+    counter the OS does not expose is absent, never zero.
+    """
+    reading = perf_resources.swap_usage_mb()
+    used_mb, total_mb = reading.get("used_mb"), reading.get("total_mb")
+    scale = 1024.0
+    used = None if used_mb is None else used_mb / scale
+    total = None if total_mb is None else total_mb / scale
+    return used, total
+
+
+def _swap_refusal_reason(demand_gb: float,
+                         already_reserved_gb: float = 0.0) -> str | None:
+    """Why this machine refuses a RAM-reserving job now, or None.
+
+    Two readings have to agree before a job is refused:
+
+    * the SWAP DEVICE is at or above `SWAP_REFUSAL_FRACTION` of its
+      size - the machine is already paging, not briefly busy; and
+    * the demand does not fit the memory the machine has free - so
+      admitting it would page the model's weights in, or eat the
+      headroom the floor keeps.
+
+    A demand that DOES fit is admitted on a paging machine: the swap
+    says the machine is under pressure, not that this job is the wrong
+    size, and refusing work that would have run is its own regression.
+    The message carries the readings, because a refusal a reader
+    cannot check is a refusal nobody trusts.
+    """
+    used, total = _swap_state_gb()
+    if used is None or not total:
+        return None
+    if used / total < SWAP_REFUSAL_FRACTION:
+        return None
+    reading = _memory_available_gb()
+    if reading is None or reading[1] <= 0:
+        # Without a measurement the fit cannot be proven, so the job is
+        # not refused on a reading nobody can check.
+        return None
+    available, physical = reading
+    if available - already_reserved_gb - demand_gb >= _memory_floor_gb(
+            physical):
+        return None
+    return (
+        f"this machine is already paging: {used:.1f} GB of {total:.1f} GB "
+        f"of swap in use ({used / total:.0%}), and "
+        f"{available:.1f} GB of {physical:.0f} GB of memory available. "
+        f"a {demand_gb:g} GB resident model cannot be paged in on top "
+        "of that, so it is refused rather than waited for")
 
 
 def _physical_ram_gb() -> int:
@@ -198,6 +297,29 @@ def _memory_floor_gb(total: float) -> float:
     return max(MINIMUM_MEMORY_FLOOR_GB, total * MEMORY_HEADROOM_FRACTION)
 
 
+def _older_waiter_can_run(older_demand: Dict[str, int],
+                          running_demands) -> bool:
+    """Whether an older waiter could be admitted right now.
+
+    An older waiter that cannot fit the LIVE headroom is not eligible:
+    it is waiting for memory the machine does not have, and it must not
+    serialize work that does fit behind it. A demand with no RAM part
+    is always eligible - it never waits on memory.
+    """
+    older_memory = float(older_demand.get("ram_gb", 0))
+    if not older_memory:
+        return True
+    reading = _memory_available_gb()
+    if reading is None or reading[1] <= 0:
+        # Without a measurement nothing can be proven satisfiable, so
+        # the waiter is not eligible to hold the queue.
+        return False
+    available, total = reading
+    reserved = sum(float(demand.get("ram_gb", 0))
+                   for demand in running_demands)
+    return available - reserved - older_memory >= _memory_floor_gb(total)
+
+
 def _maximum_memory_demand_gb() -> float:
     """Largest reservation that can fit while preserving the memory floor."""
     reading = _memory_available_gb()
@@ -223,6 +345,44 @@ def _capability_demand(phase, cap: Dict[str, int]) -> Dict[str, int]:
         if resource == "ram_gb" and amount:
             result[resource] = amount
     return result
+
+
+_RESOLVE_EXCLUSIVE_PROFILES: set | None = None
+
+
+def resolve_exclusive_profiles() -> set:
+    """The profiles whose work holds Resolve's cursor exclusively.
+
+    Derived from the capability execution policies, the same source the
+    scheduler's other profiles come from: a phase declared
+    `resolve_mode=exclusive` runs beside the captain's own Resolve use,
+    so its grant must record what Resolve was doing at the time. The
+    answer is a SET of profile names, not a demand: Resolve's own lease
+    arbitrates Resolve work, and adding a key to the demand would make
+    the scheduler arbitrate it as well.
+
+    Cached: the registry is fixed for the process, and every admission
+    asks.
+    """
+    global _RESOLVE_EXCLUSIVE_PROFILES
+    if _RESOLVE_EXCLUSIVE_PROFILES is not None:
+        return _RESOLVE_EXCLUSIVE_PROFILES
+    from library.tools import capabilities
+
+    exclusive = set()
+    for capability_id, execution in capabilities.executions():
+        for phase in execution.phases:
+            if phase.resolve_mode == "exclusive":
+                exclusive.add(f"{capability_id}:{phase.name}")
+    _RESOLVE_EXCLUSIVE_PROFILES = exclusive
+    return exclusive
+
+
+def watches_resolve(profile: str) -> bool:
+    """Whether a grant under `profile` samples Resolve beside itself."""
+    if profile in resolve_exclusive_profiles():
+        return True
+    return False
 
 
 def profiles() -> Dict[str, Dict[str, int]]:
@@ -559,11 +719,13 @@ class Scheduler:
             " resolve_peak_rss_gb REAL,"
             " peak_footprint_gb REAL,"
             " resolve_peak_footprint_gb REAL,"
-            " queue_wait_s REAL, execution_s REAL)")
+            " queue_wait_s REAL, execution_s REAL,"
+            " peak_swap_gb REAL, peak_memory_pressure_pct REAL)")
         have = {row[1] for row in conn.execute("PRAGMA table_info(grants)")}
         for column in ("resolve_peak_cores", "resolve_peak_rss_gb",
                        "queue_wait_s", "execution_s",
-                       "peak_footprint_gb", "resolve_peak_footprint_gb"):
+                       "peak_footprint_gb", "resolve_peak_footprint_gb",
+                       "peak_swap_gb", "peak_memory_pressure_pct"):
             if column not in have:     # a table from before the column
                 conn.execute(f"ALTER TABLE grants ADD COLUMN {column} REAL")
         return conn
@@ -713,11 +875,24 @@ class Scheduler:
         if requested_memory:
             maximum_memory = _maximum_memory_demand_gb()
             if requested_memory > maximum_memory:
-                raise ValueError(
+                raise MemoryUnavailable(
                     f"resource scheduler: {owner!r} requests "
                     f"{requested_memory:g} GB RAM, but this machine can "
                     f"provide at most {maximum_memory:g} GB while "
                     "preserving the measured memory floor")
+            # A machine already paging cannot host a resident model, and
+            # a wait for it is a swap death with extra steps: refuse now,
+            # with the reading, so the caller degrades the capability
+            # instead of sitting on a grant that will never arrive.
+            already_reserved = sum(
+                float(item.get("ram_gb", 0))
+                for item in self._running_demands())
+            refusal = _swap_refusal_reason(requested_memory,
+                                           already_reserved)
+            if refusal is not None:
+                raise MemoryUnavailable(
+                    f"resource scheduler: {owner!r} requests "
+                    f"{requested_memory:g} GB RAM, but {refusal}")
         if not _fits([demand], cap):
             raise ValueError(f"resource scheduler: {owner!r} demands "
                              f"{demand}, beyond this machine's {cap}")
@@ -822,6 +997,15 @@ class Scheduler:
                 older_demand = json.loads(raw_demand)
                 if not _fits([older_demand, *running_demands], cap):
                     continue
+                if not _older_waiter_can_run(older_demand, running_demands):
+                    # The older waiter cannot be admitted NOW: its own
+                    # RAM demand does not fit the live headroom, so it is
+                    # not an eligible waiter and must not hold the
+                    # queue. A smaller job that DOES fit is admitted
+                    # rather than waiting behind a job the machine
+                    # cannot run - that wait is how one model stage
+                    # starves another for the whole timeout.
+                    continue
                 contention = set(demand).intersection(older_demand)
                 if contention:
                     return [f"older eligible waiter {owner} (pid {pid})"]
@@ -864,6 +1048,18 @@ class Scheduler:
             row = conn.execute("SELECT demand FROM jobs WHERE token = ? AND"
                                " state = 'running'", (token,)).fetchone()
             return json.loads(row[0]) if row else None
+        return self._transaction(body)
+
+    def _running_demands(self) -> list:
+        """The demands of every job that is running right now.
+
+        The RAM already reserved on this machine, so a new reservation
+        is judged against what the running ones hold.
+        """
+        def body(conn):
+            self._reap(conn)
+            return [json.loads(row[0]) for row in conn.execute(
+                "SELECT demand FROM jobs WHERE state = 'running'")]
         return self._transaction(body)
 
     def timing(self, token: str) -> Optional[tuple[float, float]]:
@@ -953,6 +1149,11 @@ class TreeSampler:
     """
 
     SAMPLE_SECONDS = 2.0
+    #: The machine's peak swap and memory pressure while this grant ran.
+    #: Class defaults, so a sampler built without `__init__` still reads
+    #: them: the reading is evidence, never a reason to fail a sample.
+    peak_swap_gb = None
+    peak_memory_pressure_pct = None
 
     def __init__(self, watch_resolve: bool = False,
                  reservation_gb: float | None = None,
@@ -977,6 +1178,8 @@ class TreeSampler:
         self._over_reservation_reported = False
         self._enforcement_enabled = threading.Event()
         self.samples = 0
+        self.peak_swap_gb = None
+        self.peak_memory_pressure_pct = None
         self._thread = threading.Thread(target=self._loop, daemon=True,
                                         name="heavy-work-sampler")
         self._thread.start()
@@ -1044,6 +1247,12 @@ class TreeSampler:
                     _grown(self._resolve_last, theirs) / elapsed)
         self._last, self._resolve_last, self._last_at = cpu, theirs, now
         self.peak_rss_gb = max(self.peak_rss_gb, rss / 2 ** 20)
+        # The machine's swap and pressure, sampled on the same beat as
+        # the tree: a stage's own share of the swap is not separable
+        # from the machine's, but the PEAK the machine reached while
+        # this stage ran is the number the operator needs, and it was
+        # unmeasured before.
+        self._sample_machine_state()
         if self.watch_resolve:
             self.resolve_peak_rss_gb = max(
                 self.resolve_peak_rss_gb,
@@ -1070,6 +1279,17 @@ class TreeSampler:
                     self.resolve_peak_footprint_gb or 0.0,
                     resolve_footprint)
 
+    def _sample_machine_state(self) -> None:
+        """Record the machine's peak swap and memory pressure so far."""
+        used, _total = _swap_state_gb()
+        if used is not None:
+            self.peak_swap_gb = max(self.peak_swap_gb or 0.0, used)
+        pressure = perf_resources.memory_pressure()
+        pct = pressure.get("pct")
+        if pct is not None:
+            self.peak_memory_pressure_pct = max(
+                self.peak_memory_pressure_pct or 0.0, float(pct))
+
     def stop(self) -> Dict[str, float]:
         """The peaks so far. A release never waits on a measurement: a
         sample still in flight on a starved machine is left behind."""
@@ -1081,6 +1301,12 @@ class TreeSampler:
                 "peak_footprint_gb": (
                     round(self.peak_footprint_gb, 3)
                     if self.peak_footprint_gb is not None else None),
+                "peak_swap_gb": (
+                    round(self.peak_swap_gb, 3)
+                    if self.peak_swap_gb is not None else None),
+                "peak_memory_pressure_pct": (
+                    round(self.peak_memory_pressure_pct, 1)
+                    if self.peak_memory_pressure_pct is not None else None),
                 "samples": self.samples,
                 **({"resolve_peak_cores": round(self.resolve_peak_cores, 2),
                     "resolve_peak_rss_gb": round(self.resolve_peak_rss_gb,
@@ -1142,8 +1368,9 @@ def _record_grant(conn, row, profile: str, used: Dict[str, float]) -> None:
         " started_at, finished_at, cpu_s, peak_cores, peak_rss_gb,"
         " samples, resolve_peak_cores, resolve_peak_rss_gb,"
         " peak_footprint_gb, resolve_peak_footprint_gb,"
-        " queue_wait_s, execution_s)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " queue_wait_s, execution_s, peak_swap_gb,"
+        " peak_memory_pressure_pct)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (row[0], profile, row[1], row[2], row[3], finished,
          used.get("cpu_s"), used.get("peak_cores"), used.get("peak_rss_gb"),
          used.get("samples"), used.get("resolve_peak_cores"),
@@ -1151,7 +1378,9 @@ def _record_grant(conn, row, profile: str, used: Dict[str, float]) -> None:
          used.get("peak_footprint_gb"),
          used.get("resolve_peak_footprint_gb"),
          max(0.0, row[3] - row[2]),
-         max(0.0, finished - row[3])))
+         max(0.0, finished - row[3]),
+         used.get("peak_swap_gb"),
+         used.get("peak_memory_pressure_pct")))
 
 
 def _label(owner: dict) -> str:

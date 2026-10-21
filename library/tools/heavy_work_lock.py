@@ -173,7 +173,8 @@ def take_heavy_lock(owner: str, profile: str = MACHINE,
         # acquire and `_held_state`, or a signal there (SIGTERM to a
         # gate) leaves the grant held with nobody to release it.
         sampler = resource_scheduler.TreeSampler(
-            watch_resolve=bool(demand.get("resolve_cursor")),
+            watch_resolve=(bool(demand.get("resolve_cursor"))
+                           or resource_scheduler.watches_resolve(profile)),
             reservation_gb=demand.get("ram_gb"),
             over_reservation=lambda footprint, reservation:
             _stop_over_reservation(owner, profile, footprint, reservation))
@@ -523,6 +524,17 @@ def _history(days: float) -> str:
                 lines.append(
                     f"            peak phys_footprint max "
                     f"{max(footprints):.2f} GB")
+            swaps = [r["peak_swap_gb"] for r in sampled
+                     if r["peak_swap_gb"] is not None]
+            if swaps:
+                lines.append(
+                    f"            machine peak swap max {max(swaps):.2f} GB")
+            pressures = [r["peak_memory_pressure_pct"] for r in sampled
+                         if r["peak_memory_pressure_pct"] is not None]
+            if pressures:
+                lines.append(
+                    f"            machine peak memory pressure max "
+                    f"{max(pressures):.0f}%")
             watched = [r for r in sampled
                        if r["resolve_peak_cores"] is not None]
             if watched:
@@ -543,8 +555,38 @@ def _history(days: float) -> str:
 
 
 USAGE = ("usage: python -m library.tools.heavy_work_lock "
-         "owns [--profile NAME] | jobs | history [--days N] | "
+         "owns [--profile NAME] | jobs | history [--days N] | machine | "
          "run --owner NAME [--profile NAME] [--ram-gb N] -- COMMAND [ARG ...]")
+
+
+def _machine_reading() -> str:
+    """One reading of what this machine can host right now.
+
+    The scheduler's own view (live available memory, and the swap that
+    says the machine is already paging) beside the OS pressure band.
+    A stage's caller reads this before it reserves anything: a machine
+    that cannot host the weights should be told so, not discovered by
+    a wait.
+    """
+    from library.tools import perf_resources
+
+    reading = resource_scheduler._memory_available_gb()
+    swap_used, swap_total = resource_scheduler._swap_state_gb()
+    pressure = perf_resources.memory_pressure()
+    lines = []
+    if reading is None:
+        lines.append("available memory: not measured")
+    else:
+        available, total = reading
+        lines.append(f"available memory: {available:.1f} GB of {total:.1f} GB")
+    if swap_used is None or not swap_total:
+        lines.append("swap: not measured")
+    else:
+        lines.append(f"swap: {swap_used:.1f} GB of {swap_total:.1f} GB "
+                     f"({swap_used / swap_total:.0%})")
+    lines.append(f"memory pressure: {pressure.get('level')} "
+                 f"({pressure.get('pct')}%)")
+    return "\n".join(lines)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -559,6 +601,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args[:1] == ["history"]:
         print(_history(float(_option(args, "--days", "30"))))
+        return 0
+    if args[:1] == ["machine"]:
+        print(_machine_reading())
         return 0
     if args[:1] == ["run"] and "--" in args:
         separator = args.index("--")

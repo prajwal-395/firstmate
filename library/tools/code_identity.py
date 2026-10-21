@@ -280,6 +280,7 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/brief_attachment.py',
         'library/tools/marker_capture.py',
         'library/tools/mask_seed.py',
+        'library/tools/perf_resources.py',
         'library/tools/progress.py',
         'library/tools/project_model_masks.py',
         'library/tools/provenance.py',
@@ -744,6 +745,16 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/audio_operations.py",
         "library/tools/processing_status.py",
         "library/tools/touchup_direct.py",
+        # Reached by the closure this step already declares: a fix to
+        # any of them changes what the step measured, so they belong
+        # to its identity.
+        "library/tools/analysis/object_grounding.py",
+        "library/tools/compound_transaction.py",
+        "library/tools/semantic_conflict.py",
+        # Reached by the closure this step already declares: a fix to
+        # any of them changes what the step measured, so they belong
+        # to its identity.
+        "library/tools/analysis/detection_coverage.py",
     ),
     "step_1_01_scan_project": (
         "library/tools/alignment_quality.py",
@@ -935,6 +946,7 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/brief_attachment.py',
         'library/tools/marker_capture.py',
         'library/tools/mask_seed.py',
+        'library/tools/perf_resources.py',
         'library/tools/progress.py',
         'library/tools/project_model_masks.py',
         'library/tools/provenance.py',
@@ -1406,6 +1418,16 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/audio_operations.py",
         "library/tools/processing_status.py",
         "library/tools/touchup_direct.py",
+        # Reached by the closure this step already declares: a fix to
+        # any of them changes what the step measured, so they belong
+        # to its identity.
+        "library/tools/analysis/object_grounding.py",
+        "library/tools/compound_transaction.py",
+        "library/tools/semantic_conflict.py",
+        # Reached by the closure this step already declares: a fix to
+        # any of them changes what the step measured, so they belong
+        # to its identity.
+        "library/tools/analysis/detection_coverage.py",
     ),
     "step_1_02_catalog_footage": (
         # Shared measurement and evidence readers reached by the catalog's
@@ -1574,6 +1596,9 @@ STEP_IMPLEMENTATION_DEPS = {
         # machine's measured core count. (Its capabilities read is
         # exempt plumbing.)
         "library/tools/resource_scheduler.py",
+        # Imported by resource_scheduler: the swap and pressure readings
+        # the admission guard refuses on.
+        "library/tools/perf_resources.py",
         # Imported by the catalog handoff to persist assignment artifacts.
         "library/tools/assignment_artifacts.py",
         # Lane B: the catalog stamps the scan's Project Model revision
@@ -1671,6 +1696,7 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/brief_attachment.py',
         'library/tools/marker_capture.py',
         'library/tools/mask_seed.py',
+        'library/tools/perf_resources.py',
         'library/tools/progress.py',
         'library/tools/project_model_masks.py',
         'library/tools/provenance.py',
@@ -2111,6 +2137,16 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/audio_operations.py",
         "library/tools/processing_status.py",
         "library/tools/touchup_direct.py",
+        # Reached by the closure this step already declares: a fix to
+        # any of them changes what the step measured, so they belong
+        # to its identity.
+        "library/tools/analysis/object_grounding.py",
+        "library/tools/compound_transaction.py",
+        "library/tools/semantic_conflict.py",
+        # Reached by the closure this step already declares: a fix to
+        # any of them changes what the step measured, so they belong
+        # to its identity.
+        "library/tools/analysis/detection_coverage.py",
     ),
     "step_1_03_semantic_analysis": (
         "library/tools/alignment_quality.py",
@@ -2179,6 +2215,9 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/heavy_work_lock.py",
         # Imported by heavy_work_lock: admits it by resource demand.
         "library/tools/resource_scheduler.py",
+        # Imported by resource_scheduler: the swap and pressure readings
+        # the admission guard refuses on.
+        "library/tools/perf_resources.py",
         # Its measurement imports: soft-picture ranges and the steadiness
         # reading both land in the cached profile.
         "library/tools/analysis/picture_quality.py",
@@ -2332,6 +2371,7 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/brief_attachment.py',
         'library/tools/marker_capture.py',
         'library/tools/mask_seed.py',
+        'library/tools/perf_resources.py',
         'library/tools/progress.py',
         'library/tools/project_model_masks.py',
         'library/tools/provenance.py',
@@ -2795,6 +2835,16 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/audio_operations.py",
         "library/tools/processing_status.py",
         "library/tools/touchup_direct.py",
+        # Reached by the closure this step already declares: a fix to
+        # any of them changes what the step measured, so they belong
+        # to its identity.
+        "library/tools/analysis/object_grounding.py",
+        "library/tools/compound_transaction.py",
+        "library/tools/semantic_conflict.py",
+        # Reached by the closure this step already declares: a fix to
+        # any of them changes what the step measured, so they belong
+        # to its identity.
+        "library/tools/analysis/detection_coverage.py",
     ),
     "step_1_04_temporal_index": (
         "library/tools/alignment_quality.py",
@@ -3030,6 +3080,9 @@ STEP_IMPLEMENTATION_DEPS = {
         # parallelism the cached index was measured under. (Its own
         # capabilities read is exempt plumbing.)
         "library/tools/resource_scheduler.py",
+        # Imported by resource_scheduler: the swap and pressure readings
+        # the admission guard refuses on.
+        "library/tools/perf_resources.py",
         'library/tools/analysis/footage_frames.py',
         # The retrieval abstention the frame reader and the footage
         # query reach, and the timeline structure the mutation
@@ -3068,6 +3121,7 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/brief_attachment.py',
         'library/tools/marker_capture.py',
         'library/tools/mask_seed.py',
+        'library/tools/perf_resources.py',
         'library/tools/progress.py',
         'library/tools/project_model_masks.py',
         'library/tools/provenance.py',
@@ -3510,6 +3564,16 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/audio_operations.py",
         "library/tools/processing_status.py",
         "library/tools/touchup_direct.py",
+        # Reached by the closure this step already declares: a fix to
+        # any of them changes what the step measured, so they belong
+        # to its identity.
+        "library/tools/analysis/object_grounding.py",
+        "library/tools/compound_transaction.py",
+        "library/tools/semantic_conflict.py",
+        # Reached by the closure this step already declares: a fix to
+        # any of them changes what the step measured, so they belong
+        # to its identity.
+        "library/tools/analysis/detection_coverage.py",
     ),
     "step_1_05_prosody_analysis": (
         # The legacy step delegates the measurement here.
@@ -3525,6 +3589,9 @@ STEP_IMPLEMENTATION_DEPS = {
         # machine's measured core count. (Its capabilities read is
         # exempt plumbing.)
         "library/tools/resource_scheduler.py",
+        # Imported by resource_scheduler: the swap and pressure readings
+        # the admission guard refuses on.
+        "library/tools/perf_resources.py",
     ),
     "step_1_07_ocr_extraction": (
         # The legacy adapter resolves to this capability implementation.
@@ -3537,6 +3604,9 @@ STEP_IMPLEMENTATION_DEPS = {
         # machine's measured core count. (Its capabilities read is
         # exempt plumbing.)
         "library/tools/resource_scheduler.py",
+        # Imported by resource_scheduler: the swap and pressure readings
+        # the admission guard refuses on.
+        "library/tools/perf_resources.py",
     ),
     "step_2_06_music_analysis": (
         # The executed measurement: beat grid, tempo, key and sections.

@@ -28,7 +28,10 @@ def extract_ocr(raw_footage_files: list, project_folder: str = "",
 
     Returns `{"ocr_extraction": {clip_id: result}}`.  A clip whose
     extraction raises is reported on stderr and left out of the result
-    rather than failing the others.
+    rather than failing the others. A recognizer that cannot be loaded
+    at all (not installed, no weights, or no memory for it) leaves the
+    whole map empty and says why on stderr: every clip needs the same
+    reader, so one failure covers the batch.
 
     `backend` selects the recognizer behind this same interface: the
     EasyOCR incumbent by default, or the PaddleOCR-VL MLX text pass
@@ -121,10 +124,21 @@ def extract_ocr(raw_footage_files: list, project_folder: str = "",
             return False
 
     if any(not _cache_is_current(_paths(p)[2]) for p in all_clips):
-        if backend == OCR_BACKEND_EASYOCR:
-            extractor._get_reader()
-        else:
-            extractor._get_mlx()
+        # A recognizer that CANNOT run on this machine degrades the
+        # whole batch - every clip needs the same reader - and says so
+        # plainly, instead of failing the step with a stack trace from
+        # the warm-up. An optional model that cannot be resident is a
+        # missing measurement, not a broken run.
+        try:
+            if backend == OCR_BACKEND_EASYOCR:
+                extractor._get_reader()
+            else:
+                extractor._get_mlx()
+        except (ImportError, OSError, RuntimeError, MemoryError) as exc:
+            print(f"⚠ OCR unavailable ({backend}): {exc}. No on-screen "
+                  "text is measured for this batch; every clip would "
+                  "fail the same way.", file=sys.stderr)
+            return {"ocr_extraction": {}}
 
     def _one(clip_path):
         clip_id, out_subdir, out_file = _paths(clip_path)

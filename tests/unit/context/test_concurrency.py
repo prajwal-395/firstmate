@@ -393,7 +393,7 @@ def test_only_measured_edge_pushers_carry_a_ram_reservation():
     assert resource_scheduler.demand_for(
         "semantics.analyse:model_memory") == {"ram_gb": 15}
     assert resource_scheduler.demand_for(
-        "objects.segment:model_memory") == {"ram_gb": 8}
+        "objects.segment:model_memory") == {"ram_gb": 11}
     rest = {name: demand for name, demand in profiles.items()
             if name not in
             resource_scheduler.MEASURED_MEMORY_RESERVATIONS_GB}
@@ -1297,7 +1297,7 @@ def test_model_memory_reservation_admits_only_bounded_nested_inference(
 def test_sam_memory_session_carries_its_measured_reservation():
     memory = resource_scheduler.demand_for("objects.segment:model_memory")
     inference = resource_scheduler.demand_for("objects.segment:inference")
-    assert memory == {"ram_gb": 8}
+    assert memory == {"ram_gb": 11}
     assert inference == {}
 
 
