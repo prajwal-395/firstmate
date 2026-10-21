@@ -1481,3 +1481,65 @@ def test_a_ruling_alone_is_not_an_answer():
             "format": edit_spec.FORMAT,
             "request": "the opening feels slow",
             "ruling": {"outcome": "accepted"}})
+
+
+def test_an_insert_names_an_item_the_reel_cannot_hold_yet():
+    """The defect: `ren revise` refuses a program that names an item the
+    recorded reel does not carry, and an INSERT names the identity the
+    NEW item will carry - so a cutaway could not be planned through the
+    front door at all. The algebra already says which operations address
+    an existing item, and the check now reads the same answer."""
+    from library.tools import revise
+
+    snapshot = {"tracks": [{"type": "video", "index": 1, "name": "Akshita",
+                            "clips": [{"unique_id": "clip-1"}]}]}
+    minted = "b7a1c0de-1111-4a2b-9c3d-000000000001"
+    operations = [
+        {"op": "clip.insert", "unique_id": minted, "track_type": "video",
+         "track_index": 2, "record_in": 1038, "record_out": 1091},
+        {"op": "broll.insert", "unique_id": minted, "track_type": "video",
+         "track_index": 2, "record_in": 600, "record_out": 700},
+    ]
+    assert revise._missing_targets(operations, snapshot) == []
+    stale = [{"op": "clip.trim", "unique_id": "clip-gone",
+              "in_frame": 1, "out_frame": 2}]
+    assert revise._missing_targets(stale, snapshot) == ["clip-gone"]
+    present = [{"op": "clip.trim", "unique_id": "clip-1",
+                "in_frame": 1, "out_frame": 2}]
+    assert revise._missing_targets(present, snapshot) == []
+
+
+def test_the_frozen_timeline_carries_the_reel_s_audio_rows():
+    """The defect: the frozen timeline listed the PICTURE rows only, so a
+    model could not name the dialogue clip it wanted to change - the
+    front door asked "which item did you mean by <id>?" about an id the
+    model had never been shown."""
+    from library.tools import edit_spec
+
+    snapshot = {"tracks": [
+        {"type": "video", "index": 1, "name": "Akshita",
+         "clips": [{"unique_id": "v-1", "name": "LC4932.MXF"}]},
+        {"type": "audio", "index": 1, "name": "",
+         "clips": [{"unique_id": "a-1", "name": "LC4932.MXF"}]},
+    ]}
+    rows = edit_spec._timeline_rows(snapshot)
+    assert [row["row"] for row in rows] == ["V1", "A1"]
+    assert rows[1]["items"][0]["unique_id"] == "a-1"
+
+
+def test_an_unobserved_reel_does_not_ask_a_question_nobody_can_answer():
+    """The defect: a reel nobody has observed lists nothing, and the
+    resolver turned EVERY program target into a question - a question the
+    model has no items to answer from. The request proceeds, and the
+    execution resolves the target against the LIVE timeline."""
+    from library.tools import edit_spec
+
+    spec = {"program": {"kind": "edit_program", "ops": [
+        {"op": "clip.set_enabled",
+         "params": {"unique_id": "lt-1", "enabled": False}}]}}
+    edit_spec._clarify_unlisted_program_targets(spec, {"available": False})
+    assert "status" not in spec["program"]["ops"][0]
+    listed = {"available": True, "rows": [{"row": "V1", "items": [
+        {"unique_id": "other"}]}]}
+    edit_spec._clarify_unlisted_program_targets(spec, listed)
+    assert spec["program"]["ops"][0]["status"] == "needs_clarification"

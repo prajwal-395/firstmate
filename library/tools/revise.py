@@ -61,6 +61,7 @@ import shlex
 import subprocess
 import sys
 import uuid
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict
 from pathlib import Path
 
@@ -436,6 +437,34 @@ def _program_ops(spec: dict) -> list[dict]:
             for op in spec["program"]["ops"]]
 
 
+def _missing_targets(operations: Sequence[dict], snapshot: Mapping) -> list[str]:
+    """The operations that name an item the recorded reel does not carry.
+
+    An operation that CREATES an item names the identity the new item
+    will carry, so the reel cannot hold it yet: asking whether the
+    recorded timeline carries it refuses every cutaway, every added
+    marker and every added overlay before the first write. The algebra
+    already answers which operations address an EXISTING item (`item`),
+    and this reads the same answer the referent resolver reads, so the
+    two cannot disagree about which id is a lookup and which is a name
+    being minted.
+    """
+    from library.tools import edit_algebra
+
+    known = _items(snapshot)
+    missing: list[str] = []
+    for op in operations:
+        target = str(op.get("unique_id") or "")
+        if not target:
+            continue
+        algebra_op = edit_algebra.get(op.get("op"))
+        if algebra_op is None or not algebra_op.item:
+            continue
+        if target not in known:
+            missing.append(target)
+    return missing
+
+
 def _compile_revision_program(program: dict, *, project: str, reel: str,
                               record: dict):
     """Approve and compile this revision's atomic program with its provenance.
@@ -804,8 +833,7 @@ def _patch(project: str, record: dict, spec: dict, verdict: dict,
             what, why,
             f"run `ren revise {shlex.quote(project)} --id "
             f"{record['revise_id']} --retranslate`")
-    missing = [op["unique_id"] for op in operations if op.get("unique_id")
-               and str(op["unique_id"]) not in _items(snapshot)]
+    missing = _missing_targets(operations, snapshot)
     if missing:
         raise ReviseRefused(
             f"the program names items {reel} does not carry: {missing}",

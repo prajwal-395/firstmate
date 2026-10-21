@@ -19,6 +19,7 @@ import os
 import shlex
 import sys
 import uuid
+from collections.abc import Mapping
 from pathlib import Path
 
 from library.tools import (
@@ -1645,19 +1646,7 @@ def _reel_timeline(project_folder: str, reel: str) -> dict:
     except Exception as exc:  # noqa: BLE001 - an unread reel lists nothing
         return {"available": False, "reel": reel,
                 "reason": f"the reel's items are not recorded: {exc}"}
-    rows = []
-    for track in snapshot.get("tracks") or []:
-        if not str(track.get("type") or "").lower().startswith("v"):
-            continue
-        rows.append({
-            "row": f"V{int(track['index'])}",
-            "name": track.get("name") or "",
-            "items": [{key: clip.get(key) for key in (
-                "unique_id", "name", "source_file", "source_in_frame",
-                "source_out_frame", "record_in", "record_out",
-                "track_type", "track_index", "speed", "enabled",
-                "transform")} for clip in track.get("clips") or []],
-        })
+    rows = _timeline_rows(snapshot)
     return {"available": True, "reel": reel,
             "generation": str(head.generation),
             "fps": snapshot.get("fps"),
@@ -1667,6 +1656,32 @@ def _reel_timeline(project_folder: str, reel: str) -> dict:
                 {key: marker.get(key) for key in ("frame", "color", "name")}
                 for marker in (snapshot.get("markers") or {}).get(
                     "timeline") or []]}
+
+
+def _timeline_rows(snapshot: Mapping) -> list[dict]:
+    """The reel's rows as the model may address them: picture AND audio.
+
+    The AUDIO rows are the reel's too: a change to a dialogue clip is a
+    change to the reel, and a model that cannot see the audio rows cannot
+    name the item it wants to change - it can only ask a question nobody
+    can answer.
+    """
+    rows: list[dict] = []
+    for track in snapshot.get("tracks") or []:
+        kind = str(track.get("type") or "").lower()
+        if not kind.startswith(("v", "a")):
+            continue
+        prefix = "V" if kind.startswith("v") else "A"
+        rows.append({
+            "row": f"{prefix}{int(track['index'])}",
+            "name": track.get("name") or "",
+            "items": [{key: clip.get(key) for key in (
+                "unique_id", "name", "source_file", "source_in_frame",
+                "source_out_frame", "record_in", "record_out",
+                "track_type", "track_index", "speed", "enabled",
+                "transform")} for clip in track.get("clips") or []],
+        })
+    return rows
 
 
 def _current_edit(outputs: dict) -> list:
@@ -1968,13 +1983,22 @@ def _clarify_unlisted_program_targets(spec: dict, timeline: dict) -> None:
 
     A model supplied target is only a lookup hint. If the frozen timeline
     does not contain that id, no executable operation may carry it forward.
+
+    A reel that was NEVER OBSERVED lists nothing, and then the model has
+    no items to choose from: a question it cannot answer is a question
+    that holds the note for nothing. The request proceeds, and the
+    execution resolves the target against the LIVE timeline, which
+    refuses an id that is not there.
     """
     program = spec.get("program")
     if not isinstance(program, dict):
         return
+    rows = timeline.get("rows") or []
+    if not rows:
+        return
     listed = {
         str(item["unique_id"])
-        for row in timeline.get("rows") or []
+        for row in rows
         for item in row.get("items") or []
         if item.get("unique_id")
     }
