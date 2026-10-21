@@ -1,0 +1,219 @@
+{
+ "schema": "ren_object_identity_frames/1",
+ "manifest_version": 1,
+ "name": "vi007b-object-identity-calibration",
+ "purpose": "The calibration stills: the D-01 podcast frames plus LCATL0011 at the same seconds. The tuning worktree may read these labels; the held-out set's seconds do not overlap them.",
+ "scope": "geo-podcast",
+ "split": "object",
+ "sampling_schedule": "calibration stills: one independent pass each",
+ "frames": [
+  {
+   "frame_id": "LC4930-t020",
+   "clip_id": "LC4930",
+   "time_s": 20.0,
+   "angle_group": "71933672a43263224aaaddb5dab071d4c78c60610c502077323ed86a2b0c552c",
+   "source": {
+    "clip": "LC4930",
+    "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LC4930.MXF",
+    "timestamp_s": 20.0,
+    "width": 3840,
+    "height": 2160
+   }
+  },
+  {
+   "frame_id": "LC4930-t080",
+   "clip_id": "LC4930",
+   "time_s": 80.0,
+   "angle_group": "71933672a43263224aaaddb5dab071d4c78c60610c502077323ed86a2b0c552c",
+   "source": {
+    "clip": "LC4930",
+    "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LC4930.MXF",
+    "timestamp_s": 80.0,
+    "width": 3840,
+    "height": 2160
+   }
+  },
+  {
+   "frame_id": "LC4930-t140",
+   "clip_id": "LC4930",
+   "time_s": 140.0,
+   "angle_group": "71933672a43263224aaaddb5dab071d4c78c60610c502077323ed86a2b0c552c",
+   "source": {
+    "clip": "LC4930",
+    "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LC4930.MXF",
+    "timestamp_s": 140.0,
+    "width": 3840,
+    "height": 2160
+   }
+  },
+  {
+   "frame_id": "LC4930-t170",
+   "clip_id": "LC4930",
+   "time_s": 170.0,
+   "angle_group": "71933672a43263224aaaddb5dab071d4c78c60610c502077323ed86a2b0c552c",
+   "source": {
+    "clip": "LC4930",
+    "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LC4930.MXF",
+    "timestamp_s": 170.0,
+    "width": 3840,
+    "height": 2160
+   }
+  },
+  {
+   "frame_id": "LCATL0011-t020",
+   "clip_id": "LCATL0011",
+   "time_s": 20.0,
+   "angle_group": "71933672a43263224aaaddb5dab071d4c78c60610c502077323ed86a2b0c552c",
+   "source": {
+    "clip": "LCATL0011",
+    "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0011.MXF",
+    "timestamp_s": 20.0,
+    "width": 3840,
+    "height": 2160
+   }
+  },
+  {
+   "frame_id": "LCATL0011-t080",
+   "clip_id": "LCATL0011",
+   "time_s": 80.0,
+   "angle_group": "71933672a43263224aaaddb5dab071d4c78c60610c502077323ed86a2b0c552c",
+   "source": {
+    "clip": "LCATL0011",
+    "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0011.MXF",
+    "timestamp_s": 80.0,
+    "width": 3840,
+    "height": 2160
+   }
+  },
+  {
+   "frame_id": "LCATL0011-t140",
+   "clip_id": "LCATL0011",
+   "time_s": 140.0,
+   "angle_group": "71933672a43263224aaaddb5dab071d4c78c60610c502077323ed86a2b0c552c",
+   "source": {
+    "clip": "LCATL0011",
+    "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0011.MXF",
+    "timestamp_s": 140.0,
+    "width": 3840,
+    "height": 2160
+   }
+  },
+  {
+   "frame_id": "LCATL0011-t200",
+   "clip_id": "LCATL0011",
+   "time_s": 200.0,
+   "angle_group": "71933672a43263224aaaddb5dab071d4c78c60610c502077323ed86a2b0c552c",
+   "source": {
+    "clip": "LCATL0011",
+    "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0011.MXF",
+    "timestamp_s": 200.0,
+    "width": 3840,
+    "height": 2160
+   }
+  },
+  {
+   "frame_id": "LC4931-t020",
+   "clip_id": "LC4931",
+   "time_s": 20.0,
+   "angle_group": "daa4bb0d27d1db03eb3cb142e91859183bb58722eebfdc5802c9e7d90746abaf",
+   "source": {
+    "clip": "LC4931",
+    "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LC4931.MXF",
+    "timestamp_s": 20.0,
+    "width": 3840,
+    "height": 2160
+   }
+  },
+  {
+   "frame_id": "LC4931-t080",
+   "clip_id": "LC4931",
+   "time_s": 80.0,
+   "angle_group": "daa4bb0d27d1db03eb3cb142e91859183bb58722eebfdc5802c9e7d90746abaf",
+   "source": {
+    "clip": "LC4931",
+    "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LC4931.MXF",
+    "timestamp_s": 80.0,
+    "width": 3840,
+    "height": 2160
+   }
+  },
+  {
+   "frame_id": "LC4931-t140",
+   "clip_id": "LC4931",
+   "time_s": 140.0,
+   "angle_group": "daa4bb0d27d1db03eb3cb142e91859183bb58722eebfdc5802c9e7d90746abaf",
+   "source": {
+    "clip": "LC4931",
+    "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LC4931.MXF",
+    "timestamp_s": 140.0,
+    "width": 3840,
+    "height": 2160
+   }
+  },
+  {
+   "frame_id": "LC4931-t200",
+   "clip_id": "LC4931",
+   "time_s": 200.0,
+   "angle_group": "daa4bb0d27d1db03eb3cb142e91859183bb58722eebfdc5802c9e7d90746abaf",
+   "source": {
+    "clip": "LC4931",
+    "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LC4931.MXF",
+    "timestamp_s": 200.0,
+    "width": 3840,
+    "height": 2160
+   }
+  },
+  {
+   "frame_id": "LCATL0012-t020",
+   "clip_id": "LCATL0012",
+   "time_s": 20.0,
+   "angle_group": "daa4bb0d27d1db03eb3cb142e91859183bb58722eebfdc5802c9e7d90746abaf",
+   "source": {
+    "clip": "LCATL0012",
+    "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0012.MXF",
+    "timestamp_s": 20.0,
+    "width": 3840,
+    "height": 2160
+   }
+  },
+  {
+   "frame_id": "LCATL0012-t080",
+   "clip_id": "LCATL0012",
+   "time_s": 80.0,
+   "angle_group": "daa4bb0d27d1db03eb3cb142e91859183bb58722eebfdc5802c9e7d90746abaf",
+   "source": {
+    "clip": "LCATL0012",
+    "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0012.MXF",
+    "timestamp_s": 80.0,
+    "width": 3840,
+    "height": 2160
+   }
+  },
+  {
+   "frame_id": "LCATL0012-t140",
+   "clip_id": "LCATL0012",
+   "time_s": 140.0,
+   "angle_group": "daa4bb0d27d1db03eb3cb142e91859183bb58722eebfdc5802c9e7d90746abaf",
+   "source": {
+    "clip": "LCATL0012",
+    "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0012.MXF",
+    "timestamp_s": 140.0,
+    "width": 3840,
+    "height": 2160
+   }
+  },
+  {
+   "frame_id": "LCATL0012-t200",
+   "clip_id": "LCATL0012",
+   "time_s": 200.0,
+   "angle_group": "daa4bb0d27d1db03eb3cb142e91859183bb58722eebfdc5802c9e7d90746abaf",
+   "source": {
+    "clip": "LCATL0012",
+    "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0012.MXF",
+    "timestamp_s": 200.0,
+    "width": 3840,
+    "height": 2160
+   }
+  }
+ ]
+}

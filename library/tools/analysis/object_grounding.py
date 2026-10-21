@@ -456,11 +456,20 @@ def detect_window(source_file: str | Path, *, phrases: Any,
                   start_s: float, end_s: float,
                   producer: Producer,
                   sample_fps: float = DEFAULT_SAMPLE_FPS,
+                  resolve_identity: bool = True,
                   workdir: str | Path | None = None) -> dict[str, Any]:
     """Measure one window for the named objects, and say what it covered.
 
     The answer carries the detections, the coverage map (inspected and
     unexamined seconds), the producer that answered and what it cost.
+
+    With `resolve_identity` (the default) each detection also carries
+    the IDENTITY of the object it saw: one id per object across the
+    window, and the visibility state of that object in each inspected
+    frame. A request that names an object then resolves to an object
+    rather than to a pile of boxes - and the identity travels into the
+    Project Model's rows, so the next query for the same object reads
+    the identity instead of paying for the pass again.
     """
     names = phrases_of(phrases)
     geometry = probe_source(source_file)
@@ -485,11 +494,28 @@ def detect_window(source_file: str | Path, *, phrases: Any,
         detection["time_seconds"] = round(index / geometry["fps"], 6)
         detection["frame_width"] = geometry["width"]
         detection["frame_height"] = geometry["height"]
+    identities: list[dict[str, Any]] = []
+    if resolve_identity:
+        identities = resolve_window_identities(
+            detections, images=images, indices=indices, geometry=geometry)
+        by_detection = {
+            (round(float(row["time_s"]), 3),
+             tuple(round(float(value), 6) for value in row["box"])):
+            (row["entity_id"], row.get("state"))
+            for row in identities if row.get("box")}
+        for detection in detections:
+            key = (round(float(detection["time_seconds"]), 3),
+                   tuple(round(float(value), 6)
+                         for value in detection["box"]))
+            found = by_detection.get(key)
+            if found is not None:
+                detection["entity_id"], detection["visibility"] = found
     inspected = coverage_intervals(indices, fps=geometry["fps"],
                                    sample_fps=float(sample_fps))
     scope = {"start_s": float(start_s), "end_s": float(end_s)}
     return {
         "detections": detections,
+        "identities": identities,
         "coverage": {
             "scope": scope,
             "sample_rate_hz": float(sample_fps),
@@ -519,6 +545,51 @@ PRODUCER = "library.tools.analysis.object_grounding"
 """The producer the request-driven rows name."""
 
 
+# ── the identity of what was detected ─────────────────────────────────────
+
+def resolve_window_identities(detections: list[dict[str, Any]], *,
+                              images: list[Path], indices: list[int],
+                              geometry: dict[str, Any]) -> list[dict[str, Any]]:
+    """Give one window's detections the identity of the object they saw.
+
+    The identity half of the object lane
+    (:mod:`library.tools.analysis.object_identity`) does the work; this
+    is the request path's call into it, and the shape it hands back:
+    one row per detection, carrying the identity and the visibility
+    state of that object in that frame.
+
+    The appearance of an object is NOT measured here: a window is one
+    source, so there is no second clip to match the appearance against,
+    and the frames are about to be deleted.
+    """
+    from library.tools.analysis import object_identity
+
+    by_image: dict[str, list[dict[str, Any]]] = {}
+    for row in detections:
+        by_image.setdefault(str(row.get("image") or ""), []).append(row)
+    frames: list[object_identity.Frame] = []
+    observed: list[object_identity.ObservedDetection] = []
+    for index, image in zip(indices, images):
+        frame_id = f"frame-{index:06d}"
+        time_s = index / float(geometry["fps"])
+        frames.append(object_identity.Frame(
+            frame_id=frame_id, clip_id="request-window", time_s=time_s,
+            image=str(image), width=int(geometry["width"]),
+            height=int(geometry["height"]), scope="request-window"))
+        for row in by_image.get(image.name, []):
+            box = tuple(float(value) for value in (row.get("box") or []))
+            if len(box) != 4:
+                continue
+            observed.append(object_identity.ObservedDetection(
+                clip_id="request-window", frame_id=frame_id, time_s=time_s,
+                phrase=str(row.get("phrase") or row.get("label") or ""),
+                box=box, score=float(row.get("score") or 0.0),
+                image=str(image)))
+    resolution = object_identity.resolve(frames, observed,
+                                          measure_appearance=False)
+    return resolution.observations
+
+
 def detection_value(detection: dict[str, Any], *, query: str) -> dict[str, Any]:
     """The evidence value one detection carries.
 
@@ -538,6 +609,8 @@ def detection_value(detection: dict[str, Any], *, query: str) -> dict[str, Any]:
         "time_seconds": detection.get("time_seconds"),
         "frame_width": detection.get("frame_width"),
         "frame_height": detection.get("frame_height"),
+        "entity_id": detection.get("entity_id"),
+        "visibility": detection.get("visibility"),
     }
 
 
@@ -768,6 +841,8 @@ def detection_rows(matches: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "box": value.get("box"),
             "frame_index": value.get("frame_index"),
             "time_seconds": value.get("time_seconds"),
+            "entity_id": value.get("entity_id"),
+            "visibility": value.get("visibility"),
             "interval": {
                 "clock_id": interval.get("clock_id"),
                 "start": interval.get("start"),

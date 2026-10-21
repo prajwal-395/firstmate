@@ -1,0 +1,102 @@
+{
+  "annotation": {
+    "access_audit_id": "vi007b-object-identity-held-out-audit-001",
+    "access_audit_sha256": "b43159f22bf8632b12b303e97b1731d74b66774859980c667c95f31a40dcdfe9",
+    "annotation_id": "vi007b-object-identity-held-out-v1",
+    "label_set_sha256": "9ee1799468afcb54953dfbf2b06b2887e6d7d20e80bc67ec5a1b03f022a095f1",
+    "review_status": "author_reviewed_against_stills",
+    "source_ids": [
+      "LC4930",
+      "LCATL0011",
+      "LC4931",
+      "LCATL0012"
+    ],
+    "split": "held_out",
+    "tuning_access": false
+  },
+  "by_class": {
+    "laptop": {
+      "cross_clip_abstentions": 1,
+      "cross_clip_entities": 1,
+      "cross_clip_entities_scored": 0,
+      "cross_clip_identity_accuracy": null,
+      "detection_precision": 0.42105263157894735,
+      "detection_recall": 0.9411764705882353,
+      "fragmentations": 0,
+      "identity_false_negatives": 15,
+      "identity_false_positives": 36,
+      "identity_switches": 13,
+      "identity_true_positives": 2,
+      "idf1": 0.07272727272727272,
+      "predicted_observations": 38,
+      "prediction_abstentions": 0,
+      "state_transition_accuracy": null,
+      "state_transitions_scored": 0,
+      "state_transitions_unscored": 0,
+      "visibility_counts": {
+        "absent": 30,
+        "occluded": 13,
+        "visible": 17
+      },
+      "visible_gt_observations": 17
+    },
+    "person": {
+      "cross_clip_abstentions": 2,
+      "cross_clip_entities": 2,
+      "cross_clip_entities_scored": 0,
+      "cross_clip_identity_accuracy": null,
+      "detection_precision": 0.39215686274509803,
+      "detection_recall": 1.0,
+      "fragmentations": 0,
+      "identity_false_negatives": 18,
+      "identity_false_positives": 49,
+      "identity_switches": 16,
+      "identity_true_positives": 2,
+      "idf1": 0.056338028169014086,
+      "predicted_observations": 51,
+      "prediction_abstentions": 0,
+      "state_transition_accuracy": null,
+      "state_transitions_scored": 0,
+      "state_transitions_unscored": 0,
+      "visibility_counts": {
+        "absent": 20,
+        "visible": 20
+      },
+      "visible_gt_observations": 20
+    }
+  },
+  "cost": {
+    "failures": [],
+    "frames_processed": 20,
+    "frames_requested": 20,
+    "measurement_scope": "20 frames over 4 clips",
+    "model_pass_seconds_per_processed_frame": 10.80675,
+    "peak_rss_mb": 423.36,
+    "wall_seconds": 216.135
+  },
+  "hard_case_coverage": {
+    "complete": true,
+    "lookalike_pairs": 1,
+    "occlusion_cases": 1
+  },
+  "iou_threshold": 0.5,
+  "prediction_abstentions": 0,
+  "producer": {
+    "name": "per-frame-detector",
+    "revision": "object-continuity-predictions-v1/1",
+    "sampling_schedule": "held-out stills: LC4930 and LCATL0011 at 15/45/75/105/135/165 s, LC4931 and LCATL0012 at 30/90/150/210 s; one independent pass each",
+    "threshold": {
+      "ambiguity_margin": 0.05,
+      "iou": 0.3,
+      "link": 0.62,
+      "link_margin": 0.08
+    }
+  },
+  "schema": "object-continuity-score-v1",
+  "scorer_wall_seconds": 0.0035439579805824906,
+  "visibility_counts": {
+    "absent": 50,
+    "occluded": 13,
+    "visible": 37
+  }
+}

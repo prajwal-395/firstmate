@@ -1490,8 +1490,22 @@ def _object_extension(model: dict[str, Any], plan: dict[str, Any],
         model, phrases=phrases, scope=scope)
     table = object_grounding.coverage_table(
         detections, frames_inspected=int(coverage.get("frames_inspected") or 0))
+    identities: dict[str, dict[str, Any]] = {}
+    for row in detections:
+        entity_id = row.get("entity_id")
+        if not entity_id:
+            continue
+        entry = identities.setdefault(entity_id, {
+            "phrase": row.get("query"), "detections": 0, "frames": [],
+            "visibility": {}})
+        entry["detections"] += 1
+        if row.get("frame_index") is not None:
+            entry["frames"].append(row["frame_index"])
+        if row.get("visibility"):
+            entry["visibility"][str(row["frame_index"])] = row["visibility"]
     return {"detections": detections, "coverage_map": coverage,
-            "coverage_by_category": table}
+            "coverage_by_category": table,
+            "identities": identities}
 
 
 def _answer(status: str, *, results: list[dict[str, Any]],
