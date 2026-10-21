@@ -1054,24 +1054,6 @@ def resolve_lease(purpose: str, exclusive: bool = True,
                 wait_seconds = max(0.0, time.time() - acquire_start)
                 if not waited_on and _entry_captain is not None:
                     waited_on = _entry_captain.describe()
-                # A session that names a project verifies it BY EXACT
-                # NAME before this section runs: the session holds the
-                # broker's turn, so no other lane can move the cursor to
-                # its own project - but the project the session opened
-                # is the one every write inside it belongs in, and a
-                # project that is not it is refused by name rather than
-                # written into (measured 2026-10-21: four lanes failed
-                # on a project another lane had left open).
-                session = resolve_session.current_session()
-                if session is not None:
-                    if session.opened_project:
-                        resolve_session.verify_project(session)
-                    elif project:
-                        # The session is about the project the first
-                        # section inside it names: it opens that project
-                        # and reads it back by exact name, and every
-                        # section after this one verifies the name.
-                        resolve_session.adopt_project(session, project)
                 lease = Lease(owner=owner or default_owner(), purpose=purpose,
                               pid=os.getpid(), host=socket.gethostname(),
                               since=time.time(),
@@ -1097,6 +1079,24 @@ def resolve_lease(purpose: str, exclusive: bool = True,
                                           purpose=purpose, exclusive=exclusive,
                                           broker_job=broker_job, **_edit_fields) as held:
                         try:
+                            # A session that names a project verifies it
+                            # BY EXACT NAME before the section body runs.
+                            # The handshake uses Resolve's scripting API,
+                            # so the instance lease and its held-state must
+                            # be established first. The session holds the
+                            # broker's turn as well, preventing another
+                            # lane from moving the cursor between sections.
+                            session = resolve_session.current_session()
+                            if session is not None:
+                                if session.opened_project:
+                                    resolve_session.verify_project(session)
+                                elif project:
+                                    # The first section that names a
+                                    # project adopts it, opens it and reads
+                                    # it back by exact name. Later sections
+                                    # verify the same project before writes.
+                                    resolve_session.adopt_project(
+                                        session, project)
                             yield lease
                         finally:
                             held["held_s"] = round(time.time() - granted_at, 3)

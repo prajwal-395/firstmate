@@ -1555,10 +1555,41 @@
         "outcome": "failed: ReelBuildError",
         "wall_seconds": 34.699,
         "detail": "Resolve returned no timeline count from the build project handle after the run waited 19.951 seconds for Resolve leases; the independent read after the run saw Ren Scratch - breaktest open."
+      },
+      {
+        "run_id": "run-20261020T234909Z-801dcc",
+        "outcome": "failed: ReelBuildError",
+        "wall_seconds": 31.538,
+        "detail": "Reran on the reloaded main broker after the full-frame planner fix. Resolve again returned no timeline count from the build project handle; the post-run cursor read still showed Ren Scratch - breaktest. The build profile recorded 20.928 seconds waiting on Resolve leases and a 5.178 second Resolve hold."
+      },
+      {
+        "run_id": "run-20261021T020831Z-6880af",
+        "outcome": "failed: ReelBuildError",
+        "wall_seconds": 36.552,
+        "detail": "Reran after Firstmate confirmed the current-main broker reload. Resolve again returned no timeline count during abandoned-candidate cleanup. Profile: Resolve lease waits 11.821s + 7.898s + 11.896s; Resolve holds 0.032s + 0.000s + 4.058s. Broker was responsive and the command used the serving broker."
+      },
+      {
+        "run_id": "run-20261021T021943Z-b65951",
+        "outcome": "failed: TimelineIngestError",
+        "wall_seconds": 0.715,
+        "detail": "One retry after Firstmate stopped extra brokers. The serving broker was available, but Resolve had a different project open when the build connected, so the build refused before timeline enumeration. Profile: 0.030s Resolve lease wait and 0.020s Resolve hold. No second retry made; vep-fix-abandoned-cleanup owns the session issue."
+      },
+      {
+        "run_id": "run-20261021T085408Z-0f06a6",
+        "outcome": "failed: ReelBuildError",
+        "wall_seconds": 1529.249,
+        "detail": "Rebased onto current main and invoked the build entry point decorated with resolve_session (PR 3021). The exclusive session claim 6eb7a591b606008b waited 663.842s and held for 3.615s. Inside that session, the fresh project read refused because Resolve had Ren Scratch - axi001 open instead of Ren Scratch - breaktest. No reel build or timeline mutation occurred."
       }
     ],
     "successful_runs": 0,
-    "finding": "No successful real reels build is established. Repeated project-switch instability during separate Resolve calls prevents the build from retaining a valid project handle; do not claim a successful build profile."
+    "finding": "No successful real reels build is established. The latest build held one exclusive resolve_session, but its opening read refused because the target Ren Scratch project was not open; earlier runs also hit the timeline-count failure. The session must arrange the target project open before the build reads it.",
+    "last_run_profile": {
+      "total_wall_seconds": 1529.249,
+      "resolve_lease_wait_seconds": 663.842,
+      "resolve_hold_seconds": 3.615,
+      "outcome": "failed: ReelBuildError",
+      "broker_session_job_id": "6eb7a591b606008b"
+    }
   },
   "timeline": {
     "end_frame_inclusive": 1906,
@@ -1574,16 +1605,70 @@
     "qualification_registry_import": "imported via library.tools.axi_qualification; row remains unqualified"
   },
   "build_recovery": {
-    "status": "blocked_by_shared_resolve_interleaving",
-    "required": "A build session that owns its scratch project through the Resolve operations, or a stable exclusive slot with no other lane switching projects.",
+    "status": "blocked_by_repeated_resolve_project_state_failures",
+    "required": "The supported exclusive session must have the exact Ren Scratch target open before the build opening reads and hold the whole multi-call build; current session refused on Ren Scratch - axi001 instead of Ren Scratch - breaktest.",
     "evidence_run_ids": [
       "run-20261020T232232Z-83e7f3",
-      "run-20261020T232337Z-ba74ad"
+      "run-20261020T232337Z-ba74ad",
+      "run-20261020T234909Z-801dcc",
+      "run-20261021T020831Z-6880af",
+      "run-20261021T021943Z-b65951",
+      "run-20261021T085408Z-0f06a6"
     ],
     "last_run_profile": {
-      "total_wall_seconds": 34.699,
-      "resolve_lease_wait_seconds": 19.951,
-      "outcome": "failed: ReelBuildError"
-    }
+      "total_wall_seconds": 1529.249,
+      "resolve_lease_wait_seconds": 663.842,
+      "resolve_hold_seconds": 3.615,
+      "outcome": "failed: ReelBuildError",
+      "broker_session_job_id": "6eb7a591b606008b"
+    },
+    "post_run_cursor_readback": {
+      "project": "Ren Scratch - breaktest",
+      "timeline": "Breaktest - Reel 13 - selected dc7fa3f8"
+    },
+    "latest_attempt": "resolve_session was claimed, but the target project was not open inside it; build refused before timeline enumeration or reel placement."
+  },
+  "single_call_evidence_20261021": {
+    "method": "resolve-axi only; read-only broker calls against the serving Resolve broker",
+    "timeline_read": {
+      "project": "Ren Scratch - breaktest",
+      "timeline": "Breaktest - Reel 13 - selected dc7fa3f8",
+      "timeline_id": "dc7fa3f8-f59a-417f-8c95-3725f631f5db",
+      "source": "live refresh",
+      "verified_at": "2026-10-21T02:09:33Z",
+      "start_frame": 0,
+      "end_frame_inclusive": 1906,
+      "frames": 1907,
+      "fps": 23.976,
+      "track_counts": {
+        "video1": 5,
+        "video2": 2,
+        "video3": 1,
+        "video4": 45,
+        "video5": 2,
+        "video6": 2,
+        "video7": 1,
+        "video8": 1,
+        "audio1": 4,
+        "audio2": 2
+      },
+      "markers": {
+        "clip_marker": 2,
+        "timeline_marker": 2
+      }
+    },
+    "items_read": {
+      "project": "Ren Scratch - breaktest",
+      "timeline": "Breaktest - Reel 13 - selected dc7fa3f8",
+      "timeline_id": "dc7fa3f8-f59a-417f-8c95-3725f631f5db",
+      "source": "live refresh",
+      "verified_at": "2026-10-21T02:09:44Z",
+      "clips": 65,
+      "placed_frames": 11633,
+      "source_range_convention": "source_out inclusive; record_out exclusive",
+      "transforms_requested": true,
+      "AudioSyncOffset": "not read by this command; no value claimed"
+    },
+    "scope_note": "These single-call reads capture the live current breaktest timeline structure, marker totals, source ranges, and transforms. They do not establish the preservation invariant, delivery QA, a no-hole result, or a successful build."
   }
 }

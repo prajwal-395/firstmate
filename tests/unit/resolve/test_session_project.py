@@ -95,8 +95,15 @@ def fake_resolve(monkeypatch):
         manager.current = name
 
     state["switch"] = _default_switch
+
+    def _connect():
+        assert resolve_lock.held(), (
+            "a session's project readback must happen under the instance "
+            "lease before the section can proceed")
+        return _FakeResolve(state["manager"])
+
     monkeypatch.setattr("library.tools.marker_feedback.connect_resolve",
-                        lambda: _FakeResolve(state["manager"]))
+                        _connect)
     monkeypatch.setattr("library.tools.qualification_project.switch_project",
                         _switch)
     return state
@@ -127,13 +134,14 @@ def test_a_session_whose_project_does_not_open_refuses_by_name(fake_resolve):
 
 
 def test_a_write_inside_a_session_refuses_when_the_project_changed(fake_resolve):
-    """The project is verified before a write, not after it."""
+    """The project is verified under the instance lease before a write."""
     with sessions.resolve_session("a build", project="Ren Scratch - breaktest") as session:
         assert session.opened_project == "Ren Scratch - breaktest"
         # Another lane (or a hand) left a different project open.
         fake_resolve["manager"].current = "Podcast (field test)"
         with pytest.raises(SessionProjectRefused) as refused:
-            sessions.verify_project(session)
+            with resolve_lock.resolve_lease("a write"):
+                pass
         message = str(refused.value)
         assert "Ren Scratch - breaktest" in message
         assert "Podcast (field test)" in message
@@ -146,12 +154,13 @@ def test_a_session_that_names_no_project_opens_nothing(fake_resolve):
         assert "switched" not in fake_resolve
 
 
-def test_the_lease_inside_a_session_verifies_the_project(fake_resolve):
-    """Every section inside the session checks the project before it runs.
+def test_session_project_readback_is_under_the_instance_lease(fake_resolve):
+    """Every section checks the project under lease before it runs.
 
     The lease is the point where a write happens, so the check is
     there: a section that would write into another lane's project is
-    refused by name.
+    refused by name. Connecting before the instance lease is established
+    violates the scriptapp boundary and refuses before this check can run.
     """
     with sessions.resolve_session("a build", project="Ren Scratch - breaktest"):
         fake_resolve["manager"].current = "Podcast (field test)"
