@@ -107,3 +107,12 @@ leg is `not_measured` for the same reason: no overlay expectations.
 
 The incident behind the contract, the measurements, and what it does not fix:
 [docs/RULE_EVIDENCE.md](RULE_EVIDENCE.md#the-review-that-folded-a-technical-failure-into-a-score).
+
+## Where a human reviews with it
+
+QA-007 built the SURFACE a human reviewer is handed: a blind set of
+delivered videos, the brief and its constraints, this rubric as a form,
+and a results record that keeps every reviewer's rows and names the
+disagreement where it happened.
+
+[docs/BLIND_REVIEW_PACK.md](BLIND_REVIEW_PACK.md).

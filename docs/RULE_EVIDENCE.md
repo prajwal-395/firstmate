@@ -9488,6 +9488,108 @@ either: this scratch project holds no compiled manifest, so no caption intent
 was supplied and the captions were judged by reading the file, not against a
 plan. Both are reported `not_measured`, with the citation, rather than passing
 on what did run.
+## the-review-that-had-one-opinion
+
+**The rule:** A human editorial review of delivered videos is BLIND - the
+reviewer is not told which candidate or model produced the video - it is
+given the brief, the constraints and the reference material, it is asked
+the engine's own rubric ALONGSIDE one overall acceptance decision, and the
+DISAGREEMENT among reviewers is recorded rather than resolved into one
+opinion. `library/tools/editorial_acceptance/blind_review.py` owns the
+surface.
+
+**The captain's punch list, 2026-10-20, QA-007**: "Support human editorial
+review on a blind evaluation set." Five things are asked of it: reviewers
+inspect delivered videos without knowing which candidate or model produced
+them; they are given the original brief, constraints and relevant
+reference material; they use a structured rubric alongside an overall
+acceptance decision; disagreement among reviewers is recorded instead of
+treating one subjective opinion as absolute truth; and acceptable work is
+distinguished from work that requires significant human repair.
+
+**What existed before.** Two blind surfaces, and neither is the thing the
+punch list asks for. `library/tools/blind_comparison.py` is a blind
+head-to-head between Ren's treatment and a professional editor's: it
+shows the evaluator two PLAN SUMMARIES, in an order that says nothing
+about the origin, and records which SIDE was preferred. It carries no
+delivered video, no brief, no rubric and no acceptance decision, and it
+has no panel. `library/tools/blind_label_pilot.py` shows a labeller CLIP
+WINDOWS with a present/absent/unsure or acceptable/unacceptable judgement
+and no brief behind them. The eight-leg rubric and the judge's panel
+existed (QA-006, PR 3088) but they grade ONE file for ONE judge and had
+no SET of delivered videos, no human reviewer form, and no vocabulary that
+separates ACCEPTABLE work from work that needs SIGNIFICANT HUMAN REPAIR.
+
+**What the pack is.** A directory a reviewer can be handed: the delivered
+videos under opaque names with their container metadata stripped, the
+brief's public half, the constraints, the reference material, and one
+self-contained HTML form. The form's answers come back as a file, and the
+results record is computed from those files. The pack builds the SURFACE
+and it records what the humans said; it does not review anything itself.
+
+**The blinding, and where it stops.** The pack's own fields carry no
+producer: the entries are opaque digests, the media are copies under those
+ids, the order is a digest of the pack id and the candidate id rather
+than the order the candidates arrived in, and the reviewer-facing view is
+REFUSED if any origin string appears in it anywhere - including in the
+brief, the constraints or the references. The blinding does NOT cover the
+PICTURE: a deliverable that shows its producer in the frame is not made
+blind by renaming it, and the pack says so rather than claiming a
+guarantee it cannot keep.
+
+**What the record refuses.** A reviewer who leaves a leg out has not
+answered the rubric; a judgment with no evidence is an opinion, and the
+pack grades a reviewer's rows with the SAME contract the engine grades an
+agent's with; a decision outside the three-value vocabulary is refused; an
+answers file for another pack is refused. One reviewer's malformed rows
+are recorded against that reviewer and do NOT erase the other reviewers'
+readings.
+
+**What the record keeps.** Every reviewer's rows, score and decision; the
+legs they agreed on and the legs they did not; and the engine's own
+objective measurements published BESIDE the panel's reading. A candidate
+two reviewers judged differently has standing `disagreement` - not the
+average of the two, and not the more confident of the two, because the
+average of two opinions is not an opinion anybody held. A human's
+approval is an opinion about the edit and does not clear a measured
+defect.
+
+**MEASURED on two scratch deliverables and two SIMULATED reviewers**
+(Ren's own `ren-scratch-bench-demo` export, 79.6s, 1080x1920, 2026-10-22;
+`docs/benchmarks/blind_review_pack_proof.py`). No reviewer is contacted:
+the proof is of the SURFACE, not of the deliverables. The two candidates
+are the export brought to the delivery spec's loudness, and a copy of it
+with the same two defects QA-006 seeded - 2.08s cut out of the middle of
+a spoken sentence and a 0.709s undeclared black flash at the seam - so
+the two differ in exactly one thing. The strict reader sees the broken
+sentence and the black flash; the lenient reader sees a reel that plays.
+
+| | the clean candidate | the defect candidate |
+|---|---|---|
+| standing | `acceptable` (2/2 reviewers agreed) | `disagreement` |
+| reviewers' subjective scores | 1.0 and 1.0 | 0.75 and 1.0 |
+| legs disagreed | 0 of 8 | 2 of 8 (`narrative_coherence`, `shot_quality`) |
+| engine's objective failures | none | `audio_continuity`, `shot_quality` |
+| the reviewer's verdict | `pass` for both readers | `fail` for both readers |
+
+Denominators, from the same run: 222 of 224 leg readings agreed; 1 of 2
+candidates reached one standing and 1 of 2 is a disagreement; 3 of 4
+recorded decisions were `acceptable` and 1 of 4 was
+`requires_significant_repair`; 0 of 2 reviews were refused.
+
+**Before and after**, measured by the same script against the base commit
+(`c9265dc2`): files carrying an acceptance-decision vocabulary 0 -> 1; a
+blind review pack 0 -> 1; a reviewer's form 0 -> 1; a blind results
+record 0 -> 1; the pre-existing blind head-to-head's evaluator view
+carried a delivered video: no.
+
+**What it does not fix.** It does not make a human's reading reproducible,
+and it does not decide who is right when two reviewers disagree - it
+records that they did. It does not blind the picture. It does not review:
+the pack is a surface, and a reviewer who never fills in the form has
+produced no review at all, which the record reports as an unanswered
+entry rather than as an absence.
+
 ### the-replacement-that-changed-every-occurrence
 
 **The captain's punch list, 2026-10-20, AXI-007**: "A replacement changes

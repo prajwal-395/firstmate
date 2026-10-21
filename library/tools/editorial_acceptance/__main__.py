@@ -25,9 +25,11 @@ the independent judge; without one, the editorial half of a task is
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib
 import json
 import sys
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -293,6 +295,171 @@ def _review(args: argparse.Namespace, brief_set: dict[str, Any]) -> int:
     return 0
 
 
+def _blind_pack(args: argparse.Namespace,
+                brief_set: dict[str, Any]) -> int:
+    """Build one BLIND review pack (QA-007).
+
+    The pack is the surface a human reviewer is handed: the delivered
+    videos under opaque names, the brief, the constraints, the reference
+    material and the rubric form. Which candidate or model produced each
+    video is recorded in the pack's PRIVATE half and is nowhere in the
+    reviewer's half.
+    """
+    from library.tools.editorial_acceptance import blind_review
+
+    if not args.candidates:
+        raise SystemExit("--blind-pack needs --candidates")
+    if not args.pack_dir:
+        raise SystemExit("--blind-pack needs --pack-dir")
+    candidates = _candidates(args.candidates)
+    brief = _public_brief(brief_set, args)
+    constraints = _constraints(args.constraints)
+    references = _references(args.references)
+    objective = _objective_rows(candidates, args.platform,
+                                declared_black=_spans(args.declared_black),
+                                declared_silence=_spans(args.declared_silence))
+    pack = blind_review.build_pack(
+        pack_id=_pack_id(args, candidates),
+        brief=brief, candidates=candidates, out_dir=args.pack_dir,
+        constraints=constraints, references=references, objective=objective)
+    pack_dir = Path(args.pack_dir)
+    private = pack_dir / "pack.private.json"
+    private.write_text(json.dumps(pack, indent=2, sort_keys=True,
+                                  ensure_ascii=False) + "\n",
+                       encoding="utf-8")
+    form = pack_dir / "review-form.html"
+    form.write_text(blind_review.render_form(pack), encoding="utf-8")
+    print(json.dumps({
+        "pack_id": pack["pack_id"],
+        "pack_dir": str(pack_dir),
+        "entries": len(pack["entries"]),
+        "reviewer_form": str(form),
+        "private_half": str(private),
+        "metadata_stripped": all(
+            entry["metadata_stripped"] for entry in pack["entries"]),
+    }, indent=2))
+    print(f"wrote {private}")
+    print(f"wrote {form}")
+    return 0
+
+
+def _candidates(path: str) -> list[dict[str, Any]]:
+    """The delivered videos under review, and who produced each one."""
+    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    if isinstance(raw, dict):
+        raw = raw.get("candidates")
+    if not isinstance(raw, list) or not raw:
+        raise SystemExit(f"{path} holds no candidates")
+    return [row for row in raw if isinstance(row, dict)]
+
+
+def _constraints(path: str | None) -> list[str]:
+    """The constraints the reviewer is given, in the requester's words."""
+    if not path:
+        return []
+    target = Path(path)
+    if not target.is_file():
+        return [item.strip() for item in path.split(",") if item.strip()]
+    raw = json.loads(target.read_text(encoding="utf-8"))
+    if isinstance(raw, dict):
+        raw = raw.get("constraints")
+    if not isinstance(raw, list):
+        raise SystemExit(f"{path} does not hold a list of constraints")
+    return [str(item).strip() for item in raw if str(item).strip()]
+
+
+def _references(path: str | None) -> list[dict[str, Any]]:
+    """The reference material the reviewer is given."""
+    if not path:
+        return []
+    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    if isinstance(raw, dict):
+        raw = raw.get("references")
+    if not isinstance(raw, list):
+        raise SystemExit(f"{path} does not hold a list of references")
+    return [row for row in raw if isinstance(row, dict)]
+
+
+def _pack_id(args: argparse.Namespace,
+             candidates: Sequence[Mapping[str, Any]]) -> str:
+    """The pack's id: the caller's, or one derived from what is in it."""
+    if args.pack_id:
+        return str(args.pack_id)
+    digest = hashlib.sha256(json.dumps(
+        sorted(str(candidate.get("candidate_id") or "")
+               for candidate in candidates),
+        ensure_ascii=False).encode("utf-8")).hexdigest()
+    return f"pack-{digest[:12]}"
+
+
+def _objective_rows(candidates: Sequence[Mapping[str, Any]],
+                    platform: str,
+                    declared_black: Sequence[tuple[float, float]] = (),
+                    declared_silence: Sequence[tuple[float, float]] = (),
+                    ) -> dict[str, list[dict[str, Any]]]:
+    """The engine's own measurements of each delivered file.
+
+    These are NOT shown to the reviewer - a measurement would anchor a
+    human's reading - and they are published beside the panel's reading
+    in the results, so a human's approval cannot clear a measured defect.
+    """
+    if not platform:
+        return {}
+    from library.tools import delivery_spec
+    from library.tools.editorial_acceptance import judgement
+
+    spec = delivery_spec.resolve_delivery_spec(platform)
+    measured = {}
+    for candidate in candidates:
+        path = Path(str(candidate.get("path") or ""))
+        if not path.is_file():
+            continue
+        rows = judgement.objective_legs(
+            str(path), spec=spec,
+            declared_black_spans=list(declared_black),
+            declared_silence_spans=list(declared_silence))
+        measured[str(candidate.get("candidate_id") or "")] = [
+            dict(row) for row in rows]
+    return measured
+
+
+def _blind_results(args: argparse.Namespace) -> int:
+    """The results record: every reviewer's reading, and the disagreement."""
+    from library.tools.editorial_acceptance import blind_review
+
+    if not args.pack:
+        raise SystemExit("--blind-results needs --pack")
+    if not args.answers:
+        raise SystemExit("--blind-results needs --answers")
+    pack = json.loads(Path(args.pack).read_text(encoding="utf-8"))
+    files = sorted(Path(args.answers).glob("*.json")) \
+        if Path(args.answers).is_dir() else [Path(args.answers)]
+    answers = [json.loads(path.read_text(encoding="utf-8"))
+               for path in files]
+    record = blind_review.results(pack, answers)
+    out = runner.write_report(record, args.report)
+    print(json.dumps({
+        "pack_id": record["pack_id"],
+        "counts": record["counts"],
+        "decision_counts": record["decision_counts"],
+        "denominators": record["denominators"],
+        "candidates": [{
+            "entry_id": candidate["entry_id"],
+            "candidate_id": candidate["candidate_id"],
+            "standing": candidate["standing"],
+            "standing_reason": candidate["standing_reason"],
+            "reviewer_scores": {
+                row["reviewer"]: row["subjective_score"]
+                for row in candidate["reviewers"]},
+            "decisions": candidate["decisions"],
+            "leg_disagreements": candidate["leg_disagreements"],
+            "objective_failures": candidate["objective_failures"],
+        } for candidate in record["candidates"]],
+    }, indent=2))
+    print(f"wrote {out}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="ren accept",
@@ -354,6 +521,36 @@ def main(argv: list[str] | None = None) -> int:
                              "transcriber's own is 94ms, and it costs "
                              "minutes per file; the words are the same "
                              "either way.")
+    parser.add_argument("--blind-pack", action="store_true",
+                        help="build a blind review pack (QA-007): the "
+                             "delivered videos under opaque names, the "
+                             "brief, the constraints, the reference "
+                             "material and the rubric form")
+    parser.add_argument("--blind-results", action="store_true",
+                        help="read a blind pack and the reviewer's answers "
+                             "files, and write the results record: every "
+                             "reviewer's score, and where they disagreed")
+    parser.add_argument("--candidates", default=None,
+                        help="a JSON file holding the delivered videos "
+                             "under review - candidate_id, path and the "
+                             "origin the pack hides")
+    parser.add_argument("--pack-dir", default=None,
+                        help="where the blind pack's media, references and "
+                             "reviewer form are written")
+    parser.add_argument("--pack", default=None,
+                        help="the pack's PRIVATE half, for --blind-results")
+    parser.add_argument("--answers", default=None,
+                        help="one reviewer's answers file, or a directory "
+                             "of them, for --blind-results")
+    parser.add_argument("--constraints", default=None,
+                        help="the constraints the reviewer is given: a "
+                             "JSON file, or a comma-separated list")
+    parser.add_argument("--references", default=None,
+                        help="a JSON file holding the reference material "
+                             "the reviewer is given")
+    parser.add_argument("--pack-id", default=None,
+                        help="the pack's id; one is derived from its "
+                             "candidates when this is not given")
     parser.add_argument("--list", action="store_true",
                         help="print the briefs and their coverage, and stop")
     parser.add_argument("--json", action="store_true",
@@ -368,6 +565,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.review:
         return _review(args, brief_set)
+    if args.blind_pack:
+        return _blind_pack(args, brief_set)
+    if args.blind_results:
+        return _blind_results(args)
     if args.list or not args.records:
         return _list_briefs(brief_set, catalogue)
     judge = _load_factory(args.judge)() if args.judge else None

@@ -731,7 +731,14 @@ VERBS = (
                 "retrieval, planning, execution and final quality measured "
                 "separately - and writes the acceptance report. `--judge "
                 "module:attribute` names the independent judge; without one the "
-                "editorial half is not_measured rather than scored."),
+                "editorial half is not_measured rather than scored. "
+                "`--blind-pack` builds a BLIND review pack (QA-007): the "
+                "delivered videos under opaque names, the brief, the "
+                "constraints, the reference material and the rubric form a "
+                "human reviewer is handed. `--blind-results` reads that pack "
+                "and the reviewers' answers files, and writes the record that "
+                "keeps every reviewer's score and names where they "
+                "disagreed."),
 
     Verb("worker", "Fabric", "This machine's Ren Fabric worker: its manifest, and whether a task's requirements match it",
          effects=("read", "resolve_read"),
