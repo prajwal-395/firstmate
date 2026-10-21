@@ -624,6 +624,39 @@ def validate_response(step_id: str, raw_text: str, project_folder: str):
     return parsed
 
 
+def record_answer_cost(project_folder, request_id, request: dict,
+                       response_text, *, capability: str = "") -> dict | None:
+    """Record what the host model's answer cost, once.
+
+    The handshake is where Ren and a host model meet, so it is where the
+    cost of that meeting is known: the MATERIALIZED request is what the
+    model read and the answer text is what it wrote. Both are measured
+    into the performance ledger by `library/tools/model_cost.py`, so a
+    run's cost is visible whether the answer was taken inside a step's
+    capability or outside one (a touch-up's edit spec, a reel's visual
+    ask).
+
+    The same answer read twice is recorded once - the host was paid for
+    it once - and a DIFFERENT answer to the same request is recorded
+    again. `None` means the exchange was already recorded.
+    """
+    from library.tools import model_cost
+
+    prompt = str((request or {}).get("prompt") or "")
+    context = (request or {}).get("context")
+    if not isinstance(context, str):
+        context = (json.dumps(context, ensure_ascii=False, sort_keys=True)
+                   if context else "")
+    if not isinstance(response_text, str):
+        response_text = json.dumps(response_text, ensure_ascii=False,
+                                   sort_keys=True)
+    return model_cost.record_answer(
+        project_folder, exchange_id=str(request_id),
+        request_text=prompt + "\n" + context,
+        response_text=response_text,
+        capability=capability)
+
+
 def _assert_layout_agrees() -> None:
     """The layout owns the directory names; this module must agree."""
     try:

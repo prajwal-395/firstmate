@@ -1431,6 +1431,24 @@ def _motion_path(project_folder: str, reel_number: int, area) -> str:
                         motion_request_stem(reel_number) + ".json")
 
 
+def _record_motion_answer_cost(project_folder: str, reel_number: int,
+                               request, response_path: str) -> None:
+    """What the host model was paid for this answer, recorded once.
+
+    The motion ask and its answer are two files; what the host read and
+    wrote is measured from them. A cost never breaks a build.
+    """
+    from library.tools import llm_handshake
+    try:
+        with open(response_path, "r", encoding="utf-8") as handle:
+            text = handle.read()
+    except OSError:
+        return
+    llm_handshake.record_answer_cost(
+        project_folder, motion_request_stem(reel_number), request or {}, text,
+        capability="reel_motion")
+
+
 def _read_motion_plan_file(path: str) -> Optional[list]:
     if not os.path.isfile(path):
         return None
@@ -1889,6 +1907,8 @@ def read_motion_answer(project_folder: str,
             response_payload = json.load(handle)
     except (OSError, ValueError):
         return None
+    _record_motion_answer_cost(project_folder, reel_number, request,
+                                response_path)
     response_basis = _response_basis(response_payload)
     if response_basis is not None:
         if response_basis != expected_basis:

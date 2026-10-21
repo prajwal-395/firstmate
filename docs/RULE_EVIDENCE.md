@@ -8593,3 +8593,47 @@ unattributed and still refuses - the attribution is a proof that the live state 
 the state a Ren write recorded, not a guess about who moved it. The gate still
 refuses a timeline whose outstanding transaction may have written, and the
 captain's `--accept-editor-changes` is still the only way to accept a loss.
+
+## the-model-cost-that-was-never-recorded
+
+**The rule:** A model answer's cost is a ledger row, and it is written once.
+`library/tools/model_cost.py`.
+
+**What happened.** Measured on 2026-10-20 against the Ren-owned scratch project
+`ren-scratch-breaktest`: the performance ledger held 3,622 rows across 80 runs, and NOT ONE of
+them carried a cost - no token count and no byte count. `ren profile`'s cost section read
+empty for every one of those 80 runs, so the captain's planning-versus-execution cost question
+had no answer at all - on any run, on any machine.
+
+The plumbing existed and worked: `library/tools/analysis/vision_pipeline_v3.py` writes a
+`gemma_inference` span carrying `input_tokens`/`output_tokens`, and `library/tools/model_task.py`
+wrote a `host_model` span carrying them. The rows were missing because the model calls that
+actually HAPPENED were not ledger-attached. A host model answering a touch-up's edit spec or a
+reel's visual ask runs outside any pipeline capability, where `perf_ledger.record` finds no
+ledger to write into and drops the row. (The local VLM planning pass never ran on that machine
+at all: it stalled, which is a separate defect - a cost record for a pass that never ran would be
+worse than no record.)
+
+**Where it is.** `library/tools/model_cost.py` owns the exchange: the row and the once-only rule
+- the marker is the exchange id AND the answer's digest, so a host that answered twice is paid
+for twice, while the same answer read again is not paid for twice. The COUNT is not this
+module's: `library/tools/token_measure.py` counts, names the tokenizer that counted, and leaves
+a count ABSENT where no tokenizer ran rather than estimating one under a real tokenizer's name.
+`library/tools/llm_handshake.py::record_answer_cost` is the handshake's half: it measures what
+the host read (the MATERIALIZED request) against what it wrote (the answer). The callers are
+the paths that take an answer - the touch-up's edit spec (`library/tools/edit_spec.py`), the
+reel's visual asks (`library/tools/reel_semantic_visual.py`, `library/tools/reel_look.py`) and a
+pipeline step's hybrid call (`library/tools/model_task.py`). The row lands in the ledger
+attached to the capability that is working, and in the project's own ledger when there is none,
+so a run that asks a model something outside a step still has a cost.
+`library/tools/perf_report.py::model_cost` reads it back, and the profile's cost section prints
+it beside the decision cost.
+
+**What it does not fix.** The UNIT is the machine's: where a tokenizer ran, the row carries
+token counts and names the tokenizer; where none ran, the token fields are ABSENT and the exact
+byte count is the measure (the engine's venv has no `tiktoken`, so on that machine the count is
+in bytes). The TIME the host took is not measured when the answer was already on disk - the
+engine did not wait for it - so the row carries no wall rather than one invented from a file's
+timestamp. And a run that asked no model anything reads its model cost as UNMEASURED, never as
+a measured zero.
+

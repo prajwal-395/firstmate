@@ -309,6 +309,63 @@ def waits(rows: list[dict[str, Any]], run_id: str) -> dict[str, Any]:
 
 # ── PERF-005: what one verified editorial decision cost ───────────
 
+def model_cost(rows: list[dict[str, Any]], run_id: str) -> dict[str, Any]:
+    """What the run's MODEL calls cost, in the unit that was measured.
+
+    The text a host model read and wrote, per model layer, summed over
+    the run's rows. A run that asked no model anything has no cost here
+    and says so: `measured` is False, which is not the same as a
+    measured zero.
+
+    The unit is the one the row was measured in: TOKENS where a
+    tokenizer ran (`tokenizer` names it), and exact BYTES where none did.
+    A token count is never reported under a tokenizer that did not run,
+    and a byte count is never reported as a token count.
+    """
+    layers: dict[str, dict[str, Any]] = {}
+    tokenizers: set[str] = set()
+    for row in rows:
+        if row.get("kind") != perf_ledger.SPAN:
+            continue
+        if row.get("run_id") != run_id:
+            continue
+        layer = str(row.get("layer") or "")
+        if layer not in perf_ledger.MODEL_LAYERS:
+            continue
+        bucket = layers.setdefault(layer, {"input_tokens": 0,
+                                           "output_tokens": 0,
+                                           "input_bytes": 0,
+                                           "output_bytes": 0,
+                                           "calls": 0,
+                                           "tokens_measured": False})
+        if row.get("input_tokens") is not None or row.get("output_tokens") is not None:
+            bucket["tokens_measured"] = True
+        bucket["input_tokens"] += int(row.get("input_tokens") or 0)
+        bucket["output_tokens"] += int(row.get("output_tokens") or 0)
+        bucket["input_bytes"] += int(row.get("input_bytes") or 0)
+        bucket["output_bytes"] += int(row.get("output_bytes") or 0)
+        bucket["calls"] += int(row.get("calls") or 0)
+        name = row.get("tokenizer")
+        if isinstance(name, str) and name:
+            tokenizers.add(name)
+    token_count = any(values["input_tokens"] or values["output_tokens"]
+                      for values in layers.values())
+    unit = ("tokens" if token_count else
+            ("bytes" if any(values["input_bytes"] or values["output_bytes"]
+                            for values in layers.values()) else "unmeasured"))
+    return {
+        "measured": bool(layers),
+        "unit": unit,
+        "tokenizers": sorted(tokenizers),
+        "layers": {name: dict(values) for name, values in sorted(layers.items())},
+        "input_tokens": sum(v["input_tokens"] for v in layers.values()),
+        "output_tokens": sum(v["output_tokens"] for v in layers.values()),
+        "input_bytes": sum(v["input_bytes"] for v in layers.values()),
+        "output_bytes": sum(v["output_bytes"] for v in layers.values()),
+        "calls": sum(v["calls"] for v in layers.values()),
+    }
+
+
 def _run_cost(rows: list[dict[str, Any]],
               run_id: str | None) -> dict[str, float | None]:
     """The measured cost of a set of rows, per dimension.
@@ -599,22 +656,49 @@ def render_tasks(report: dict[str, Any]) -> list[str]:
 
 
 def render_cost(report: dict[str, Any]) -> list[str]:
-    """The cost of one verified editorial decision."""
+    """The cost of one verified editorial decision, and what the model cost."""
     cost = report.get("cost_per_decision") or {}
     verified = cost.get("verified_decisions")
+    out: list[str] = []
     if not verified:
-        return ["", ("Cost per verified editorial decision: none "
-                     "verified in this ledger yet.")]
-    out = ["", (f"Cost per verified editorial decision "
-                f"({verified} verified"
-                f", {cost.get('unverified_decisions', 0)} unverified):")]
-    for name in COST_DIMENSIONS:
-        value = cost.get("per_verified_decision", {}).get(name)
-        out.append(f"  {name:<14} "
-                   f"{'unmeasured' if value is None else value}")
-    mean = cost.get("mean_decision_wall_s")
-    if mean is not None:
-        out.append(f"  a decision itself took {mean:.1f}s of wall")
+        out.extend(["", ("Cost per verified editorial decision: none "
+                         "verified in this ledger yet.")])
+    else:
+        out.extend(["", (f"Cost per verified editorial decision "
+                        f"({verified} verified"
+                        f", {cost.get('unverified_decisions', 0)} unverified):")])
+        for name in COST_DIMENSIONS:
+            value = cost.get("per_verified_decision", {}).get(name)
+            out.append(f"  {name:<14} "
+                       f"{'unmeasured' if value is None else value}")
+        mean = cost.get("mean_decision_wall_s")
+        if mean is not None:
+            out.append(f"  a decision itself took {mean:.1f}s of wall")
+    out.extend(render_model_cost(report))
+    return out
+
+
+def render_model_cost(report: dict[str, Any]) -> list[str]:
+    """What the run's model calls cost, in the unit that was measured."""
+    cost = report.get("model_cost") or {}
+    if not cost.get("measured"):
+        return ["", ("Model cost in this run: unmeasured - no model call "
+                     "in this run recorded a cost.")]
+    unit = cost.get("unit") or "unmeasured"
+    tokenizers = cost.get("tokenizers") or []
+    how = (f"measured, {', '.join(tokenizers)}" if tokenizers
+           else ("measured, utf8_bytes - no tokenizer ran" if unit == "bytes"
+                 else "measured"))
+    out = ["", f"Model cost in this run ({how}):"]
+    for name, values in (cost.get("layers") or {}).items():
+        measured = values.get("tokens_measured")
+        tokens_in = values.get("input_tokens") if measured else None
+        tokens_out = values.get("output_tokens") if measured else None
+        out.append(f"  {name:<20} {_count_text(tokens_in):>9} in, "
+                   f"{_count_text(tokens_out):>8} out, "
+                   f"{values.get('input_bytes', 0):>9} B in, "
+                   f"{values.get('output_bytes', 0):>8} B out across "
+                   f"{values.get('calls', 0)} call(s)")
     return out
 
 
@@ -658,6 +742,13 @@ def render_waits(report: dict[str, Any]) -> list[str]:
                f"{access.get('unmeasured_inference_s', 0):.1f}s across "
                f"{access.get('unmeasured_inferences', 0)} call(s)")
     return out
+
+
+def _count_text(value: int | None) -> str:
+    """A count, or the word that says it was never measured."""
+    if value is None:
+        return "unmeasured"
+    return str(value)
 
 
 def _pct(value: float | None) -> str:

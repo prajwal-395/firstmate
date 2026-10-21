@@ -44,7 +44,7 @@ from library.tools import (
     decided_value,
     direction_contradiction,
     llm_handshake,
-    perf_ledger,
+    model_cost,
     pipeline_skills,
     token_measure,
     undetermined,
@@ -1007,17 +1007,18 @@ def _answer_by_handshake(key, project_folder, prompt, constraints,
             # tokenizer as the question's.
             output_measure = token_measure.measure_text(res_content)
 
-            # The host model's wait, priced.  The price is the count of
-            # the text that was filed, under the tokenizer that counted
-            # it, and it says which tokenizer that was.
-            perf_ledger.record(
-                "host_model", _agent_clock() - start_time_llm,
-                backend="agent", calls=1, tokens_estimated=False,
-                input_tokens=filed_input["tokens"],
-                output_tokens=output_measure["tokens"],
-                input_bytes=filed_input["bytes"],
-                output_bytes=output_measure["bytes"],
-                tokenizer=filed_input["tokenizer"])
+            # The host model's wait, priced - ONCE. The price is the
+            # count of the text that was filed, under the tokenizer that
+            # counted it, and it says which tokenizer that was. The same
+            # answer read again cost the host nothing more, and a cost
+            # recorded twice is a cost the captain did not pay.
+            model_cost.record_answer(
+                project_folder, exchange_id=key,
+                response_text=res_content,
+                backend="agent",
+                wall_s=_agent_clock() - start_time_llm,
+                input_measure=filed_input,
+                output_measure=output_measure)
             if logger:
                 logger.log(
                     step_id=key,

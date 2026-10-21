@@ -373,6 +373,30 @@ def write_request(moment, transcript: dict, ranges, project_folder: str,
     return path
 
 
+def _record_answer_cost(project_folder: str, request_id: str,
+                        response_path: str, capability: str) -> None:
+    """What the host model was paid for this answer, recorded once.
+
+    The ask and its answer are two files; what the host read and wrote
+    is measured from them, so the reel's visual planning has a cost a
+    profile can show. A cost never breaks a build: a request that cannot
+    be read back simply records nothing.
+    """
+    from library.tools import llm_handshake
+    from library.tools.project_layout import Area, ProjectLayout
+    try:
+        request_path = os.path.join(
+            str(ProjectLayout(project_folder).read_dir(Area.LLM_REQUESTS)),
+            request_id + ".json")
+        request = llm_handshake.read_request(request_path)
+        with open(response_path, "r", encoding="utf-8") as handle:
+            text = handle.read()
+    except Exception:  # noqa: BLE001 - a missing ask costs nothing to record
+        return
+    llm_handshake.record_answer_cost(
+        project_folder, request_id, request, text, capability=capability)
+
+
 def read_answer(project_folder: str, reel_number: int) -> Optional[list]:
     """The model's answer for this reel, or None when unanswered.
 
@@ -392,6 +416,8 @@ def read_answer(project_folder: str, reel_number: int) -> Optional[list]:
             payload = json.load(handle)
     except (OSError, ValueError):
         return None
+    _record_answer_cost(project_folder, request_stem(reel_number), path,
+                        "reel_semantic")
     if isinstance(payload, list):
         return payload
     if isinstance(payload, dict) and isinstance(
@@ -1060,6 +1086,8 @@ def read_span_answer(project_folder: str, reel_number: int) -> Optional[list]:
             payload = json.load(handle)
     except (OSError, ValueError):
         return None
+    _record_answer_cost(project_folder, span_request_stem(reel_number), path,
+                        "reel_span")
     if isinstance(payload, list):
         return payload
     if isinstance(payload, dict) and isinstance(

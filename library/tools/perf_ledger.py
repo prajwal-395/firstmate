@@ -208,6 +208,13 @@ STAGE_LAYERS = {
 #: counting it as a stage would charge the same seconds twice.
 SUMMARY_LAYERS = {"reel_edit"}
 
+#: The layers a MODEL call is recorded under. A profile's model cost is
+#: the tokens these layers carry - `host_model` for a host model that
+#: answered Ren (the file handshake) and `gemma_inference` for the local
+#: VLM. A layer that is not one of these is not a model call, so it adds
+#: nothing to the model cost.
+MODEL_LAYERS = ("host_model", "gemma_inference")
+
 
 def stage_of(layer: str) -> str | None:
     """The stage a span layer belongs to, or None when it is unclassified.
@@ -299,6 +306,20 @@ FOLD_BELOW_PCT = 1.0
 def ledger_path(project_folder) -> Path:
     from library.tools.project_layout import Area, ProjectLayout
     return ProjectLayout(project_folder).read_dir(Area.LOGS) / LEDGER_FILE
+
+
+def attached_ledger_path() -> Path | None:
+    """The ledger THIS process is writing into, or None.
+
+    A run attaches the ledger to the capability that is working, and
+    every row written while it is attached lands in that ledger. A
+    caller outside a capability (a host-model answer taken by a verb, a
+    reel's visual ask read during a build) still has to record what the
+    model cost, so it asks here where the attached ledger is; with none
+    attached it writes the project's own ledger instead.
+    """
+    path = _env(LEDGER_ENV)
+    return Path(path) if path else None
 
 
 def _append(path, row: dict[str, Any], *, required: bool = False) -> None:
@@ -1255,6 +1276,7 @@ def report_sections(rows: list[dict[str, Any]],
         "tasks": perf_report.task_latency(rows, run_id),
         "cost_per_decision": perf_report.cost_per_verified_decision(
             rows, run_id),
+        "model_cost": perf_report.model_cost(rows, run_id),
         "resources": perf_report.resource_summary(rows, run_id),
         "model_access": perf_report.model_access(rows, run_id),
         "project_open": perf_report.project_open(rows, run_id),

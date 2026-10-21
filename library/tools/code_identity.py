@@ -575,6 +575,27 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/hearing_settings.py',
         'library/tools/hooks.py',
         'library/tools/model_task.py',
+        # The cost of a model answer, reached through model_task: a
+        # fix to the costing changes what a step's own identity is.
+        'library/tools/model_cost.py',
+        # The count a model answer is priced in, reached through
+        # model_task: the tokenizer that produced the figure is part
+        # of what the step measured.
+        'library/tools/token_measure.py',
+        # The delivery and overlay code the catalog's executor
+        # closure reaches: a fix to any of them changes what the
+        # step's cached rows resolve through.
+        'library/tools/delivery_identity.py',
+        'library/tools/overlay_media.py',
+        'library/tools/reel_export.py',
+        # The caption rewrite the catalog's closure reaches: a fix to
+        # how a caption is redrawn changes what the step measured.
+        'library/tools/caption_rewrite.py',
+        'library/tools/touchup_phases.py',
+        # The broker session the catalog's executor closure holds
+        # across a multi-call Resolve operation: a fix to it changes
+        # what the step's cached rows resolve through.
+        'library/tools/resolve_session.py',
         'library/tools/music_bed.py',
         'library/tools/orphan_removal.py',
         'library/tools/qa_findings.py',
@@ -1156,6 +1177,27 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/hearing_settings.py',
         'library/tools/hooks.py',
         'library/tools/model_task.py',
+        # The cost of a model answer, reached through model_task: a
+        # fix to the costing changes what a step's own identity is.
+        'library/tools/model_cost.py',
+        # The count a model answer is priced in, reached through
+        # model_task: the tokenizer that produced the figure is part
+        # of what the step measured.
+        'library/tools/token_measure.py',
+        # The delivery and overlay code the catalog's executor
+        # closure reaches: a fix to any of them changes what the
+        # step's cached rows resolve through.
+        'library/tools/delivery_identity.py',
+        'library/tools/overlay_media.py',
+        'library/tools/reel_export.py',
+        # The caption rewrite the catalog's closure reaches: a fix to
+        # how a caption is redrawn changes what the step measured.
+        'library/tools/caption_rewrite.py',
+        'library/tools/touchup_phases.py',
+        # The broker session the catalog's executor closure holds
+        # across a multi-call Resolve operation: a fix to it changes
+        # what the step's cached rows resolve through.
+        'library/tools/resolve_session.py',
         'library/tools/music_bed.py',
         'library/tools/orphan_removal.py',
         'library/tools/qa_findings.py',
@@ -1790,6 +1832,27 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/hearing_settings.py',
         'library/tools/hooks.py',
         'library/tools/model_task.py',
+        # The cost of a model answer, reached through model_task: a
+        # fix to the costing changes what a step's own identity is.
+        'library/tools/model_cost.py',
+        # The count a model answer is priced in, reached through
+        # model_task: the tokenizer that produced the figure is part
+        # of what the step measured.
+        'library/tools/token_measure.py',
+        # The delivery and overlay code the catalog's executor
+        # closure reaches: a fix to any of them changes what the
+        # step's cached rows resolve through.
+        'library/tools/delivery_identity.py',
+        'library/tools/overlay_media.py',
+        'library/tools/reel_export.py',
+        # The caption rewrite the catalog's closure reaches: a fix to
+        # how a caption is redrawn changes what the step measured.
+        'library/tools/caption_rewrite.py',
+        'library/tools/touchup_phases.py',
+        # The broker session the catalog's executor closure holds
+        # across a multi-call Resolve operation: a fix to it changes
+        # what the step's cached rows resolve through.
+        'library/tools/resolve_session.py',
         'library/tools/music_bed.py',
         'library/tools/orphan_removal.py',
         'library/tools/qa_findings.py',
@@ -2396,6 +2459,30 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/hearing_settings.py',
         'library/tools/hooks.py',
         'library/tools/model_task.py',
+        # The cost of a model answer, reached through model_task: a
+        # fix to the costing changes what a step's own identity is.
+        'library/tools/model_cost.py',
+        # The count a model answer is priced in, reached through
+        # model_task: the tokenizer that produced the figure is part
+        # of what the step measured.
+        'library/tools/token_measure.py',
+        # The delivery and overlay code the catalog's executor
+        # closure reaches: a fix to any of them changes what the
+        # step's cached rows resolve through.
+        'library/tools/delivery_identity.py',
+        'library/tools/overlay_media.py',
+        'library/tools/reel_export.py',
+        # The caption rewrite the catalog's closure reaches: a fix to
+        # how a caption is redrawn changes what the step measured.
+        'library/tools/caption_rewrite.py',
+        'library/tools/touchup_phases.py',
+        # The VLM progress the semantic analysis records while it
+        # waits: a fix to it changes what that step measured.
+        'library/tools/vision_progress.py',
+        # The broker session the catalog's executor closure holds
+        # across a multi-call Resolve operation: a fix to it changes
+        # what the step's cached rows resolve through.
+        'library/tools/resolve_session.py',
         'library/tools/music_bed.py',
         'library/tools/orphan_removal.py',
         'library/tools/qa_findings.py',
@@ -3048,6 +3135,27 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/hearing_settings.py',
         'library/tools/hooks.py',
         'library/tools/model_task.py',
+        # The cost of a model answer, reached through model_task: a
+        # fix to the costing changes what a step's own identity is.
+        'library/tools/model_cost.py',
+        # The count a model answer is priced in, reached through
+        # model_task: the tokenizer that produced the figure is part
+        # of what the step measured.
+        'library/tools/token_measure.py',
+        # The delivery and overlay code the catalog's executor
+        # closure reaches: a fix to any of them changes what the
+        # step's cached rows resolve through.
+        'library/tools/delivery_identity.py',
+        'library/tools/overlay_media.py',
+        'library/tools/reel_export.py',
+        # The caption rewrite the catalog's closure reaches: a fix to
+        # how a caption is redrawn changes what the step measured.
+        'library/tools/caption_rewrite.py',
+        'library/tools/touchup_phases.py',
+        # The broker session the catalog's executor closure holds
+        # across a multi-call Resolve operation: a fix to it changes
+        # what the step's cached rows resolve through.
+        'library/tools/resolve_session.py',
         'library/tools/music_bed.py',
         'library/tools/orphan_removal.py',
         'library/tools/qa_findings.py',

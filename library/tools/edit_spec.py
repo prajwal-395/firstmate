@@ -1949,7 +1949,8 @@ def load_response_spec(project_folder: str, request_id: str) -> dict:
             f"edit spec response is not ready: {path}; answer the matching "
             "LLM_REQUEST_READY file, then rerun `ren spec resolve`.")
     try:
-        response = json.loads(path.read_text(encoding="utf-8"))
+        raw_response = path.read_text(encoding="utf-8")
+        response = json.loads(raw_response)
     except (OSError, ValueError) as exc:
         raise EditSpecError(f"cannot read edit spec response {path}: {exc}") from exc
     if not isinstance(response, dict):
@@ -1966,6 +1967,12 @@ def load_response_spec(project_folder: str, request_id: str) -> dict:
     except (OSError, ValueError, AttributeError) as exc:
         raise EditSpecError(
             f"cannot read edit spec request {request_path}: {exc}") from exc
+    # What the host model was paid for this answer, recorded once. The
+    # touch-up's planning is the model's cost; a profile that cannot see
+    # it cannot answer what planning cost against what building cost.
+    llm_handshake.record_answer_cost(
+        project_folder, request_id, request, raw_response,
+        capability="edit_spec")
     source_note_id = context.get("source_note_id", "")
     if response.get("source_note_id", source_note_id) != source_note_id:
         raise EditSpecError(
