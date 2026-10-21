@@ -6,6 +6,7 @@ only media probed is the committed synthetic fixture.
 """
 from __future__ import annotations
 
+from fractions import Fraction
 from pathlib import Path
 
 import pytest
@@ -787,3 +788,152 @@ def test_same_tick_on_two_sources_answers_per_clock():
     assert swap.map_tick(
         frame_map, second["from"]["clock_id"], 1_440_000) == 840_000
     validate_project_model(model)
+
+
+# ── A-10: the reel boundary is anchored to the frame grid ─────────
+
+
+RATES = ((24, 1), (25, 1), (30, 1), (60, 1),
+         (24000, 1001), (30000, 1001), (60000, 1001))
+"""Every rate the benchmark measures: the three whole rates and the
+three NTSC-family rates, which no float spells exactly."""
+
+SPAN_FRAMES = (1, 2, 3, 5, 10, 24, 25, 30, 48, 60, 100, 120, 240, 300,
+               600, 1000, 1800, 3600)
+"""The span lengths the benchmark measures, in frames."""
+
+
+def _grid_placement(num: int, den: int, frames: int, **extra) -> dict:
+    """A placement whose source span is an exact number of frames."""
+    fps = Fraction(num, den)
+    placement = {
+        "source_file": "/m/a.MXF",
+        "source_fps": float(fps),
+        "source_in": float(Fraction(frames) / fps),
+        "source_out": float(Fraction(2 * frames) / fps),
+        "record_frame": 0,
+        "record_frames": frames,
+        "track_type": "video", "track_index": 1, "track_name": "A-Roll",
+        "master_start": 0.0, "master_end": 1.0,
+    }
+    placement.update(extra)
+    return placement
+
+
+def test_the_clip_use_source_span_lands_on_the_source_frame_grid():
+    """A-10: the clip use's source span must convert to whole frames.
+
+    The strict adapter converts the span to frames with ``scale_exact``
+    and refuses a fractional result (``inexact_tick``), so a span a
+    tick off the source's frame grid is a build that REFUSES on
+    ordinary NTSC footage. The span was read off the float seconds the
+    build recorded, and ``floor``/``ceil`` of a float second is a tick
+    off the grid often enough to matter: measured before the fix, 19
+    of 126 spans were off it.
+    """
+    off_grid = []
+    for num, den in RATES:
+        for frames in SPAN_FRAMES:
+            model = rpm.blank_model("project-grid")
+            rpm.clip_uses_from_placements(
+                model, "reel-01", "Reel 01",
+                [_grid_placement(num, den, frames)],
+                {("video", 1): "a_roll"}, None, 24.0)
+            assert model["clip_uses"], (num, den, frames)
+            use = model["clip_uses"][0]
+            clock = next(row for row in model["clocks"]
+                         if row["id"] == use["source_interval"]["clock_id"])
+            ticks_per_second = int(clock["ticks_per_second"])
+            for tick in (use["source_interval"]["start"],
+                         use["source_interval"]["end"]):
+                if (tick * num) % (ticks_per_second * den):
+                    off_grid.append((num, den, frames, tick))
+    assert off_grid == [], f"{len(off_grid)} spans off the frame grid"
+
+
+def test_the_clip_use_timeline_span_lands_on_the_reel_frame_grid():
+    """A-10: the timeline span is read off the reel's frame grid too.
+
+    The adapter converts the timeline interval with the same exact
+    predicate, so a span a tick off the reel's grid refuses the build
+    exactly as the source span did.
+    """
+    off_grid = []
+    for num, den in RATES:
+        fps = Fraction(num, den)
+        for frames in SPAN_FRAMES:
+            model = rpm.blank_model("project-reel-grid")
+            placement = {
+                "source_file": "/m/a.MXF",
+                "source_fps": float(fps),
+                "source_in": 0.0,
+                "source_out": float(Fraction(frames) / fps),
+                # No record frame: the writer falls back to the
+                # recorded seconds, which is where the off-grid span
+                # came from.
+                "record_start": 1.0,
+                "track_type": "video", "track_index": 1,
+                "track_name": "A-Roll",
+                "master_start": 0.0, "master_end": 1.0,
+            }
+            rpm.clip_uses_from_placements(
+                model, "reel-01", "Reel 01", [placement],
+                {("video", 1): "a_roll"}, None, float(fps))
+            assert model["clip_uses"], (num, den, frames)
+            use = model["clip_uses"][0]
+            clock = next(row for row in model["clocks"]
+                         if row["id"] == use["timeline_interval"]["clock_id"])
+            ticks_per_second = int(clock["ticks_per_second"])
+            for tick in (use["timeline_interval"]["start"],
+                         use["timeline_interval"]["end"]):
+                if (tick * num) % (ticks_per_second * den):
+                    off_grid.append((num, den, frames, tick))
+    assert off_grid == [], f"{len(off_grid)} spans off the frame grid"
+
+
+def test_the_frame_map_carries_the_measured_retime_rate():
+    """A-10: a piece played at three times its source speed is
+    recorded as ``retimed`` at ``3/1``.
+
+    The map wrote ``one_to_one`` at ``1/1`` for every piece whatever
+    the build did, so the map said the footage played at its own speed
+    when it played three times as fast.
+    """
+    model = rpm.blank_model("project-retime")
+    placement = {
+        "source_file": "/m/a.MXF", "source_fps": 24.0,
+        "source_in": 0.0, "source_out": 3.0,
+        "record_frame": 0, "record_frames": 24,
+        "rate": 3.0,
+        "track_type": "video", "track_index": 1, "track_name": "A-Roll",
+        "master_start": 0.0, "master_end": 1.0,
+    }
+    rpm.build_reel_fragment(
+        model, "Reel 01", [placement], _track_plan(), fps=24.0,
+        validate=False)
+    frame_map = next(row for row in model["frame_maps"]
+                     if row["id"] == "map:reel-01")
+    segment = frame_map["segments"][0]
+    assert segment["mapping_kind"] == "retimed"
+    assert segment["rate"] == {"numerator": 3, "denominator": 1}
+    # The rate is the placement's speed: three source frames for every
+    # reel frame, which is what the source and timeline intervals say.
+    source = model["clip_uses"][0]["source_interval"]
+    timeline = model["clip_uses"][0]["timeline_interval"]
+    assert source["end"] - source["start"] == 3 * (timeline["end"]
+                                                    - timeline["start"])
+
+
+def test_a_placement_at_its_own_speed_stays_one_to_one():
+    """A-10: a piece the build played at its own speed is still
+    ``one_to_one`` at ``1/1`` - the retime rate says what happened,
+    and it says nothing when nothing happened."""
+    model = rpm.blank_model("project-one-to-one")
+    rpm.build_reel_fragment(
+        model, "Reel 01", _placements(), _track_plan(), fps=24.0,
+        validate=False)
+    frame_map = next(row for row in model["frame_maps"]
+                     if row["id"] == "map:reel-01")
+    for segment in frame_map["segments"]:
+        assert segment["mapping_kind"] == "one_to_one"
+        assert segment["rate"] == {"numerator": 1, "denominator": 1}

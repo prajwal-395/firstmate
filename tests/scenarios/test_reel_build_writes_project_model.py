@@ -129,8 +129,14 @@ def test_a_real_reel_build_writes_a_linked_model(tmp_path):
                   if row["role"] == "a_roll"]
     assert len(video_uses) == 2
     first = video_uses[0]
-    assert first["source_interval"]["start"] == 13_200_000
-    assert first["source_interval"]["end"] == 13_800_000
+    # The source span is the SOURCE's own frames: the build resolved
+    # the in-point to the first 23.976 frame on or after 110.0 s
+    # (2638) and played 120 of them, which is what the model records.
+    # The float seconds the build recorded (110.0 s) are not a frame
+    # boundary of a 24000/1001 source, and the strict adapter refuses
+    # a span it cannot convert exactly.
+    assert first["source_interval"]["start"] == 13_203_190
+    assert first["source_interval"]["end"] == 13_803_790
     assert first["timeline_interval"]["start"] == 0
     assert first["timeline_interval"]["end"] == 600_000
 

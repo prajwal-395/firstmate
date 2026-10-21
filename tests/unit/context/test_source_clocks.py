@@ -1,9 +1,15 @@
+from fractions import Fraction
+
 import pytest
 
 from library.tools.source_clocks import (
     SourceClock,
+    frame_count,
+    frame_grid_ticks,
+    frame_index_ceil,
     frame_span_ticks,
     from_model_clock,
+    rational_frame_rate,
     sample_span_ticks,
     tick_to_frame,
     tick_to_sample,
@@ -98,3 +104,51 @@ def test_from_model_clock_refuses_unmeasured_rates():
     with pytest.raises(ValueError):
         from_model_clock("sha256:abc", {"ticks_per_second": 1000,
                                         "frame_rate": None})
+
+
+def test_a_measured_rate_becomes_the_exact_rational_it_is():
+    """A float is the nearest double to a rate, not the rate: 23.976
+    means 24000/1001 and 29.97 means 30000/1001."""
+    assert rational_frame_rate(23.976) == Fraction(24000, 1001)
+    assert rational_frame_rate(29.97) == Fraction(30000, 1001)
+    assert rational_frame_rate(59.94) == Fraction(60000, 1001)
+    assert rational_frame_rate(24.0) == Fraction(24, 1)
+    assert rational_frame_rate(25.0) == Fraction(25, 1)
+    assert rational_frame_rate(12.5) == Fraction(25, 2)
+    assert rational_frame_rate(0) is None
+    assert rational_frame_rate(-24) is None
+    assert rational_frame_rate(float("nan")) is None
+    assert rational_frame_rate("x") is None
+
+
+def test_a_clock_that_cannot_hold_a_whole_frame_has_no_frame_grid():
+    """120 kHz holds 24000/1001 exactly (5005 ticks a frame) and holds
+    29 fps not at all: the answer is None, never a rounded count."""
+    assert frame_grid_ticks(120_000, Fraction(24000, 1001)) == 5005
+    assert frame_grid_ticks(120_000, Fraction(24, 1)) == 5000
+    assert frame_grid_ticks(1000, Fraction(24000, 1001)) is None
+    assert frame_grid_ticks(0, Fraction(24, 1)) is None
+
+
+def test_the_in_point_never_falls_before_the_edge():
+    """The build's own reading: the first frame on or after the edge.
+
+    A float carries the boundary a hair either side of it, and the
+    hair must not push the in-point into the frame before the word
+    the caption plan starts on.
+    """
+    rate = Fraction(24000, 1001)
+    assert frame_index_ceil(0.0, rate) == 0
+    assert frame_index_ceil(float(Fraction(100) / rate), rate) == 100
+    # The boundary as a float, a hair under: still that frame.
+    under = float(Fraction(100) / rate) - 1e-12
+    assert frame_index_ceil(under, rate) == 100
+    # Past the boundary: the frame after it.
+    assert frame_index_ceil(float(Fraction(101) / rate), rate) == 101
+
+
+def test_a_span_counts_the_frames_the_build_planned():
+    rate = Fraction(24, 1)
+    assert frame_count(5.0, rate) == 120
+    assert frame_count(1.0 / 24, rate) == 1
+    assert frame_count(0.0, rate) == 0

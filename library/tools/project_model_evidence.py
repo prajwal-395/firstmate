@@ -115,6 +115,7 @@ try:
     from library.tools.evidence_lifecycle import (
         normalize_envelope_preprocessing, typed_confidence,
     )
+    from library.tools import source_clocks
 except ImportError:  # imported as `tools.*` from inside library/
     from tools import (
         conversation_clock,
@@ -137,6 +138,7 @@ except ImportError:  # imported as `tools.*` from inside library/
     from tools.evidence_lifecycle import (
         normalize_envelope_preprocessing, typed_confidence,
     )
+    from tools import source_clocks
 
 TICKS_PER_SECOND = 1000
 """Millisecond source clocks: lanes measure float seconds, so integer
@@ -513,19 +515,53 @@ class _Builder:
         return link_id
 
 
+def _measured_source_frame_rate(catalog: list, clip_ids: list[str]
+                                ) -> tuple[dict[str, int] | None, str | None]:
+    """The measured frame rate of a source, as an exact rational.
+
+    The catalog carries what the probe measured: the nominal rate, the
+    average and whether the file is variable. A variable-frame-rate
+    file has NO constant frame grid - its nominal rate is a number the
+    container claims and the frames do not keep - so it gets no rate,
+    and the clock says nothing rather than naming one that is not
+    there. The reason travels with the answer.
+    """
+    for clip in catalog or ():
+        if not isinstance(clip, dict):
+            continue
+        if clip_ids and clip.get("clip_id") not in clip_ids:
+            continue
+        if clip.get("is_vfr"):
+            return None, ("variable frame rate: the file keeps no "
+                          "constant frame grid")
+        rate = source_clocks.rational_frame_rate(clip.get("frame_rate"))
+        if rate is None:
+            continue
+        return ({"numerator": int(rate.numerator),
+                 "denominator": int(rate.denominator)}, None)
+    return None, None
+
+
 def _migrate_digest(builder: _Builder, digest: str, asset_uri: str,
                     clip_ids: list[str], duration: float | None,
-                    root: Path | None, roster: list[dict]) -> None:
+                    root: Path | None, roster: list[dict],
+                    frame_rate: dict[str, int] | None = None) -> None:
     """Migrate every measured lane of one source digest."""
     asset_id = _asset_id(digest)
     clock_id = _clock_id(digest)
-    builder.model["clocks"].append({
+    clock_row = {
         "id": clock_id,
         "domain": {"kind": "source", "asset_id": asset_id,
                    "stream_id": _stream_id(digest)},
         "ticks_per_second": TICKS_PER_SECOND,
-        "frame_rate": None,
-    })
+        # The source's MEASURED frame rate, as the exact rational it
+        # is. Without it the clock cannot answer a frame question at
+        # all: the exact frame/sample mapping (`source_clocks`) has no
+        # rate to build from, and every conversion against this clock
+        # is a guess.
+        "frame_rate": frame_rate,
+    }
+    builder.model["clocks"].append(clock_row)
     m0 = source_memory.read_m0(digest, root)
     m0_freshness = "unknown"
     if m0 is not None and m0.get("content_digest") != digest:
@@ -551,6 +587,16 @@ def _migrate_digest(builder: _Builder, digest: str, asset_uri: str,
         source_streams = [{"index": 0, "metadata_status": "unavailable"}]
         builder.notes.append(f"{digest[:12]}: M0 absent; asset kept for "
                              f"catalog parity with kind other")
+    if kind != "video" and clock_row.get("frame_rate") is not None:
+        # An audio-only source has no frame grid: the rate the catalog
+        # measured belongs to no stream this source carries, so the
+        # clock gives it back.
+        clock_row["frame_rate"] = None
+    elif kind == "video" and clock_row.get("frame_rate") is None:
+        builder.notes.append(
+            f"{digest[:12]}: no measured frame grid; the source clock "
+            f"carries no frame rate, so a frame question against it "
+            f"cannot be answered exactly")
     for source_stream in source_streams:
         stream_index = int(source_stream.get("index", 0))
         capture_provenance = source_stream.get("capture_metadata_provenance")
@@ -4108,8 +4154,12 @@ def migrate_project_evidence(project_folder: str, *,
         m0 = source_memory.read_m0(digest, root)
         duration = (m0 or {}).get("duration_seconds")
         durations[digest] = duration
+        frame_rate, frame_rate_reason = _measured_source_frame_rate(
+            catalog, clip_ids)
+        if frame_rate_reason:
+            builder.notes.append(f"{digest[:12]}: {frame_rate_reason}")
         _migrate_digest(builder, digest, uri, clip_ids, duration, root,
-                        roster)
+                        roster, frame_rate)
         _migrate_m3_frames(builder, digest, _asset_id(digest),
                            _clock_id(digest), root)
     _materialize_multicam_transforms(builder, sorted(seen), durations, root)

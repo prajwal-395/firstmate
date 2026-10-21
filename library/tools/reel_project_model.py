@@ -69,6 +69,11 @@ try:
 except ImportError:  # imported as ``tools.*`` from inside library/
     from tools import evidence_contract
 
+try:
+    from library.tools import source_clocks
+except ImportError:  # imported as ``tools.*`` from inside library/
+    from tools import source_clocks
+
 TICKS_PER_SECOND = 120_000
 """120 kHz ticks preserve millisecond evidence and common frame rates.
 
@@ -378,20 +383,95 @@ def ensure_provenance(model: dict[str, Any]) -> None:
 
 
 def _frame_rate(fps: Any) -> dict[str, int] | None:
-    try:
-        value = float(fps)
-        if not math.isfinite(value) or value <= 0:
-            return None
-        standard_rates = (Fraction(24000, 1001), Fraction(30000, 1001),
-                          Fraction(60000, 1001))
-        rate = next((candidate for candidate in standard_rates
-                     if abs(value - float(candidate)) <= 0.001),
-                    Fraction(str(value)).limit_denominator(100_000))
-        if TICKS_PER_SECOND * rate.denominator % rate.numerator:
-            return None
-    except (TypeError, ValueError, ZeroDivisionError):
+    """A measured rate as the clock row's rational, or None.
+
+    The rate must also TILE this engine's tick grid: a rate whose
+    frame is not a whole number of ticks has no exact frame grid here,
+    and the clock says nothing rather than naming a rate it cannot
+    hold.
+    """
+    rate = source_clocks.rational_frame_rate(fps)
+    if rate is None:
+        return None
+    if TICKS_PER_SECOND * rate.denominator % rate.numerator:
         return None
     return {"numerator": rate.numerator, "denominator": rate.denominator}
+
+
+def _clock_frame_rate(model: dict[str, Any], clock_id: str) -> Fraction | None:
+    """The clock's own frame rate, as an exact rational, or None."""
+    row = next((clock for clock in model.get("clocks") or []
+                if isinstance(clock, dict) and clock.get("id") == clock_id),
+               None)
+    if row is None:
+        return None
+    rate = row.get("frame_rate")
+    if not isinstance(rate, dict):
+        return None
+    try:
+        return Fraction(int(rate["numerator"]), int(rate["denominator"]))
+    except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        return None
+
+
+def _frame_grid_span(start_seconds: Any, end_seconds: Any,
+                     rate: Fraction | None, ticks_per_second: int
+                     ) -> tuple[int, int] | None:
+    """The exact tick bounds of the frame grid covering a span.
+
+    ``floor``/``ceil`` of a float second puts a bound a tick off the
+    frame grid, and the strict adapter refuses a span it cannot
+    convert exactly (``inexact_tick``) - so a build that measured a
+    frame boundary and wrote it as a float second was refused on
+    ordinary NTSC footage. The frame grid is where the boundary
+    really is, and the reading is the build's own
+    (``reel_build._resolve_source_frame_span``): the first frame ON OR
+    AFTER the requested edge - never before it, because an in-point
+    moved earlier plays speech the caption plan excluded - and then
+    the planned frame duration.
+
+    ``None`` when the clock has no frame grid to read the span off -
+    the caller keeps its own reading rather than inventing one.
+    """
+    if rate is None:
+        return None
+    per_frame = source_clocks.frame_grid_ticks(ticks_per_second, rate)
+    if per_frame is None:
+        return None
+    try:
+        start_seconds = float(start_seconds)
+        end_seconds = float(end_seconds)
+    except (TypeError, ValueError):
+        return None
+    if not (math.isfinite(start_seconds) and math.isfinite(end_seconds)):
+        return None
+    start = source_clocks.frame_index_ceil(start_seconds, rate)
+    duration = source_clocks.frame_count(end_seconds - start_seconds, rate)
+    if duration <= 0:
+        # The span is shorter than one frame: there is no frame grid
+        # that covers it, and the caller keeps what it measured.
+        return None
+    return (start * per_frame, (start + duration) * per_frame)
+
+
+def _exact_speed(value: Any) -> Fraction | None:
+    """A placement's measured speed as an exact rational, or None.
+
+    The build reads the speed back off Resolve, so this is a
+    measurement, not a declaration - and it is written into the frame
+    map as the fraction it is (``3.0`` is ``3/1``, ``1.1`` is
+    ``11/10``), never as a rounded decimal.
+    """
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number) or number <= 0:
+        return None
+    try:
+        return Fraction(str(number)).limit_denominator(1000)
+    except (ValueError, ZeroDivisionError):
+        return None
 
 
 def _ticks_per_second(model: dict[str, Any], clock_id: str) -> int:
@@ -835,6 +915,7 @@ def clip_uses_from_placements(model: dict[str, Any], reel_slug: str,
     evidence_ids: list[str] = []
     skipped: list[dict[str, Any]] = []
     use_id_by_index: dict[int, str] = {}
+    speed_by_use_id: dict[str, Fraction] = {}
     seen_content: dict[tuple, int] = {}
     total_master = 0.0
     total_reel = 0.0
@@ -850,10 +931,24 @@ def clip_uses_from_placements(model: dict[str, Any], reel_slug: str,
             skipped.append({"index": index, "reason": "no source file"})
             continue
         asset_id, source_clock = asset
+        source_tps = _ticks_per_second(model, source_clock)
+        # The SOURCE span is read off the source's own frame grid.
+        # `floor`/`ceil` of the float seconds the build recorded put
+        # the bound a tick off that grid, and the strict adapter
+        # refuses a span it cannot convert exactly (`inexact_tick`).
         source = sec_to_ticks(place.get("source_in"), place.get("source_out"),
-                              _ticks_per_second(model, source_clock))
+                              source_tps)
+        if source is not None:
+            source = (_frame_grid_span(place.get("source_in"),
+                                       place.get("source_out"),
+                                       _clock_frame_rate(model, source_clock),
+                                       source_tps) or source)
         reel_tps = _ticks_per_second(model, reel_clock)
         reel_frame_ticks = _frame_ticks(model, reel_clock, fps)
+        # The speed the build applied, when the placement carries one:
+        # a retimed piece plays its source faster, and the frame map
+        # has to say so.
+        speed = _exact_speed(place.get("rate"))
         if (place.get("record_frame") is not None
                 and place.get("record_frames") is not None and fps > 0):
             try:
@@ -868,11 +963,27 @@ def clip_uses_from_placements(model: dict[str, Any], reel_slug: str,
             except (TypeError, ValueError, OverflowError):
                 reel_span = None
         else:
-            reel_span = sec_to_ticks(place.get("record_start"),
-                                  float(place.get("record_start", 0.0))
-                                  + max(float(place.get("source_out", 0.0))
-                                        - float(place.get("source_in", 0.0)), 0.0),
-                                  reel_tps)
+            record_start = float(place.get("record_start", 0.0))
+            try:
+                source_seconds = max(
+                    float(place.get("source_out", 0.0))
+                    - float(place.get("source_in", 0.0)), 0.0)
+            except (TypeError, ValueError):
+                source_seconds = 0.0
+            if speed is not None and speed != 1:
+                # A retimed piece occupies less of the reel than the
+                # source it plays: the source seconds it covers are
+                # divided by the speed they play at.
+                source_seconds = source_seconds / float(speed)
+            reel_span = sec_to_ticks(record_start,
+                                     record_start + source_seconds,
+                                     reel_tps)
+            if reel_span is not None:
+                reel_span = (_frame_grid_span(record_start,
+                                              record_start + source_seconds,
+                                              _clock_frame_rate(model,
+                                                                reel_clock),
+                                              reel_tps) or reel_span)
         if source is None:
             skipped.append({"index": index, "reason": "empty source span"})
             continue
@@ -969,6 +1080,8 @@ def clip_uses_from_placements(model: dict[str, Any], reel_slug: str,
                 entity_links, use_role)
         use_ids.append(use_id)
         use_id_by_index[index] = use_id
+        if speed is not None:
+            speed_by_use_id[use_id] = speed
         try:
             total_master += max(float(place.get("master_end", 0.0))
                                 - float(place.get("master_start", 0.0)), 0.0)
@@ -991,7 +1104,8 @@ def clip_uses_from_placements(model: dict[str, Any], reel_slug: str,
             "after": {"reel_seconds": round(total_reel, 3)},
         })
     return {"use_ids": use_ids, "evidence_ids": sorted(set(evidence_ids)),
-            "skipped": skipped, "use_id_by_index": use_id_by_index}
+            "skipped": skipped, "use_id_by_index": use_id_by_index,
+            "speed_by_use_id": speed_by_use_id}
 
 
 def static_transforms_from_placements(
@@ -1429,13 +1543,17 @@ def titles_from_segments(model: dict[str, Any], reel_slug: str,
 
 
 def frame_map_for_reel(model: dict[str, Any], reel_slug: str,
-                       reel_clock: str, use_ids: list[str]) -> str:
+                       reel_clock: str, use_ids: list[str],
+                       speeds: dict[str, Fraction] | None = None) -> str:
     """The source-to-reel frame map: what source ranges became the reel.
 
-    One ``one_to_one`` segment per clip use (``retimed`` with the
-    measured rate where a placement played at speed), so the map is
-    the edit decision the build placed, readable by the FilmCraft
-    adapter without re-deriving it.
+    One segment per clip use. The segment says how the source range
+    became the reel range: ``one_to_one`` with a rate of ``1/1`` for a
+    piece that played at its own speed, ``retimed`` with the MEASURED
+    rate for a piece the build played faster or slower (``3/1`` for a
+    piece played at three times its source speed). The map is the edit
+    decision the build placed, readable by the FilmCraft adapter
+    without re-deriving it.
 
     A reel cut from several sources carries one segment per source
     clock; ``from_clock`` names the first segment's clock only, and
@@ -1448,6 +1566,7 @@ def frame_map_for_reel(model: dict[str, Any], reel_slug: str,
     model["frame_maps"] = [row for row in model.get("frame_maps") or []
                            if not (isinstance(row, dict)
                                    and row.get("id") == map_id)]
+    speeds = speeds if isinstance(speeds, dict) else {}
     segments = []
     for use_id in use_ids:
         use = next((row for row in model.get("clip_uses") or []
@@ -1455,11 +1574,19 @@ def frame_map_for_reel(model: dict[str, Any], reel_slug: str,
                    None)
         if use is None:
             continue
+        speed = speeds.get(use_id)
+        if isinstance(speed, Fraction) and speed != 1:
+            mapping_kind = "retimed"
+            rate = {"numerator": int(speed.numerator),
+                    "denominator": int(speed.denominator)}
+        else:
+            mapping_kind = "one_to_one"
+            rate = {"numerator": 1, "denominator": 1}
         segments.append({
             "from": dict(use["source_interval"]),
             "to": dict(use["timeline_interval"]),
-            "mapping_kind": "one_to_one",
-            "rate": {"numerator": 1, "denominator": 1},
+            "mapping_kind": mapping_kind,
+            "rate": rate,
             "source_clip_use": use_id,
         })
     model.setdefault("frame_maps", []).append({
@@ -1579,7 +1706,8 @@ def build_reel_fragment(model: dict[str, Any], reel_name: str,
                and use.get("role") == "end_card"
                for use in model.get("clip_uses") or [])]
     report["frame_map"] = frame_map_for_reel(
-        model, reel_slug, reel_clock, uses["use_ids"] + end_card_use_ids)
+        model, reel_slug, reel_clock, uses["use_ids"] + end_card_use_ids,
+        uses.get("speed_by_use_id"))
     if validate:
         validate_project_model(model)
     return report

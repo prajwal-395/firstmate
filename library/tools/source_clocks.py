@@ -25,8 +25,94 @@ clock, and cross-source joins keep going through the measured
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from fractions import Fraction
+from typing import Any
+
+STANDARD_FRAME_RATES = (Fraction(24000, 1001), Fraction(30000, 1001),
+                        Fraction(60000, 1001))
+"""The three NTSC-family rates, spelled as the exact rationals they are.
+
+No float spells ``24000/1001`` exactly, and a rate that arrives as a
+float has already lost the fraction that makes it exact. These three
+are the rates most footage carries, so they are recognised by name
+before any float is turned into a fraction.
+"""
+
+
+def rational_frame_rate(value: Any) -> Fraction | None:
+    """A measured frame rate as the exact rational it is.
+
+    A measured rate arrives as a float (``23.976``), and a float is
+    not a rate: it is the nearest double to one. The three NTSC-family
+    rates are recognised first (no float spells them, and every camera
+    that ships one means exactly that fraction), and any other measured
+    rate becomes the shortest fraction that names it. ``None`` when the
+    value is not a rate at all.
+    """
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number) or number <= 0:
+        return None
+    for candidate in STANDARD_FRAME_RATES:
+        if abs(number - float(candidate)) <= 0.001:
+            return candidate
+    try:
+        return Fraction(str(number)).limit_denominator(100_000)
+    except (ValueError, ZeroDivisionError):
+        return None
+
+
+def frame_grid_ticks(ticks_per_second: int, rate: Fraction) -> int | None:
+    """The exact ticks one frame covers on a clock, or ``None``.
+
+    A clock whose tick grid cannot hold a whole frame has no frame
+    grid: the answer is ``None``, never a rounded tick count that
+    pretends one frame is exactly that many ticks.
+    """
+    if ticks_per_second <= 0 or rate is None or rate <= 0:
+        return None
+    numerator = ticks_per_second * rate.denominator
+    if numerator % rate.numerator:
+        return None
+    return numerator // rate.numerator
+
+
+FRAME_EPSILON = Fraction(1, 10 ** 9)
+"""How close to a frame edge a float second may sit and still be it.
+
+A float carries the frame boundary a hair either side of it, and the
+hair is the difference between a frame and the frame after it. One
+billionth of a frame is far below any measurement and far above that
+hair.
+"""
+
+
+def frame_index_ceil(seconds: float, rate: Fraction) -> int:
+    """The first frame ON OR AFTER a time.
+
+    The build's own reading of a source edge: the in-point must not
+    fall before the edge the caption plan set, because a word that
+    starts earlier than the plan says plays speech the plan excluded.
+    """
+    exact = Fraction(seconds) * rate
+    whole = math.floor(exact)
+    if exact - whole <= FRAME_EPSILON:
+        return whole
+    return whole + 1
+
+
+def frame_count(seconds: float, rate: Fraction) -> int:
+    """How many frames a span covers, as the build counts them.
+
+    The planned duration in whole frames, rounded - the same count
+    ``reel_build._resolve_source_frame_span`` gives Resolve.
+    """
+    exact = Fraction(seconds) * rate
+    return round(exact)
 
 
 @dataclass(frozen=True)

@@ -1631,3 +1631,67 @@ def test_source_signal_membership_enumerates_existing_ids_once(monkeypatch):
     assert len(builder.model["signals"]) == 200
     evidence._materialize_source_signals(builder, D1, "asset", "clock", None)
     assert len(builder.model["signals"]) == 200
+
+
+def _one_source_project(tmp_path, digest: str, catalog_row: dict):
+    """A project with one catalogued source and its M0 lane."""
+    project = tmp_path / "proj"
+    memory = tmp_path / "memory"
+    _write(memory / digest / "source.json", {
+        "content_digest": digest, "size_bytes": 100,
+        "duration_seconds": 10.0, "video_streams": [{"index": 0}]})
+    catalog = [catalog_row]
+    _write(project / "pipeline_data.json", {
+        "capability_outputs": {"footage.catalog": {"clip_catalog": catalog}},
+        "source_fingerprints": {
+            "clip_001": {"path": "/nonexistent/c.mov",
+                         "content_digest": digest}}})
+    return project, memory
+
+
+def test_the_migrated_source_clock_carries_the_measured_frame_rate(tmp_path):
+    """A-10: the migrated source clock carried NO frame rate, so the
+    exact frame mapping had nothing to build from: ``from_model_clock``
+    refused every migrated source, and the machinery that converts a
+    tick to the frame or the sample that holds it was a reader with no
+    producer. The clock now carries the rate the probe measured, as
+    the exact rational it is.
+    """
+    from library.tools import source_clocks
+
+    digest = "digest-ccc-003"
+    project, memory = _one_source_project(
+        tmp_path, digest,
+        {"clip_id": "clip_001", "source_file": "/nonexistent/c.mov",
+         "path": "/nonexistent/c.mov",
+         "frame_rate": 29.97, "frame_rate_nominal": 29.97,
+         "avg_frame_rate": 29.97, "is_vfr": False})
+    model, _report = evidence.migrate_project_evidence(
+        str(project), memory_root=str(memory))
+    clock = next(row for row in model["clocks"]
+                 if row["domain"]["kind"] == "source")
+    assert clock["frame_rate"] == {"numerator": 30000, "denominator": 1001}
+    built = source_clocks.from_model_clock(digest, clock)
+    assert (built.fps_num, built.fps_den) == (30000, 1001)
+
+
+def test_a_variable_frame_rate_source_gets_no_frame_grid(tmp_path):
+    """A-10: a variable-frame-rate file keeps no constant frame grid.
+
+    Its nominal rate is a number the container claims and the frames
+    do not keep, so the clock says nothing: publishing the nominal
+    rate would be a lie the model then measures every frame against.
+    """
+    digest = "digest-ddd-004"
+    project, memory = _one_source_project(
+        tmp_path, digest,
+        {"clip_id": "clip_001", "source_file": "/nonexistent/c.mov",
+         "path": "/nonexistent/c.mov",
+         "frame_rate": 60.0, "frame_rate_nominal": 60.0,
+         "avg_frame_rate": 24.0, "is_vfr": True})
+    model, report = evidence.migrate_project_evidence(
+        str(project), memory_root=str(memory))
+    clock = next(row for row in model["clocks"]
+                 if row["domain"]["kind"] == "source")
+    assert clock["frame_rate"] is None
+    assert any("frame grid" in note for note in report["notes"])
