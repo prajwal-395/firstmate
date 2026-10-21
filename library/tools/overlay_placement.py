@@ -417,7 +417,24 @@ def apply_placement_transform(timeline, track_index: int,
                 f"transform was not judged")
     refused = []
     pending = []
-    from library.tools.transform_write_log import set_property
+    from library.tools.transform_write_log import (
+        already_holds,
+        set_property,
+        stored_transform,
+    )
+
+    # What the item CARRIES, read once off the handle that has not been
+    # written through. A property already at the wanted value is not
+    # changed by writing it, so the write is skipped - the placement is
+    # the same, and the read-back below judges the value either way.
+    # Measured on reel 13 (2026-10-21): 365 of the 420 overlay writes
+    # were values the placed item already carried.
+    stored = stored_transform(placed_item)
+    # The properties THIS call has already written: a later value for one
+    # of them must be written, even when the item already carried it
+    # before this call (the declared zoom rides after the per-axis zoom
+    # and overrides it).
+    written: set = set()
 
     item_identity = {
         "track": f"V{track_index}", "record_frame": int(record_frame),
@@ -433,6 +450,9 @@ def apply_placement_transform(timeline, track_index: int,
         value = placement.get(key)
         if value is None:
             continue
+        if already_holds(stored, prop, value) and prop not in written:
+            pending.append((prop, float(value)))
+            continue
         try:
             ok = set_property(
                 placed_item, prop, value, item_identity=item_identity,
@@ -442,10 +462,14 @@ def apply_placement_transform(timeline, track_index: int,
         if not ok:
             refused.append(f"{prop}={value}")
             continue
+        written.add(prop)
         pending.append((prop, float(value)))
     for prop, key in (("ZoomX", "zoom_x"), ("ZoomY", "zoom_y")):
         value = placement.get(key)
         if value is None:
+            continue
+        if already_holds(stored, prop, value) and prop not in written:
+            pending.append((prop, float(value)))
             continue
         try:
             ok = set_property(
@@ -456,6 +480,7 @@ def apply_placement_transform(timeline, track_index: int,
         if not ok:
             refused.append(f"{prop}={value}")
             continue
+        written.add(prop)
         pending.append((prop, float(value)))
     zoom = placement.get("zoom")
     if zoom is not None:
@@ -474,6 +499,10 @@ def apply_placement_transform(timeline, track_index: int,
             zoom_value = None
         if zoom_value is not None:
             for prop in ("ZoomX", "ZoomY"):
+                if (already_holds(stored, prop, zoom_value)
+                        and prop not in written):
+                    pending.append((prop, zoom_value))
+                    continue
                 try:
                     ok = set_property(
                         placed_item, prop, zoom_value,
@@ -483,6 +512,7 @@ def apply_placement_transform(timeline, track_index: int,
                 if not ok:
                     refused.append(f"{prop}={zoom_value:g}")
                     continue
+                written.add(prop)
                 pending.append((prop, zoom_value))
     if pending:
         # Read the values back off a FRESH handle, never the item

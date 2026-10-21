@@ -273,6 +273,49 @@ def values_agree(wanted: Any, actual: Any) -> bool:
     return actual == wanted
 
 
+def stored_transform(item: Any) -> dict:
+    """The transform values the item CARRIES, read once.
+
+    `GetProperty()` with no argument is the only reading that says what
+    an item carries (the live qualification of 2026-10-02); a
+    single-key read answers for one key only, and answers FALSY for a
+    key the item does not carry. The read must happen off a handle that
+    has not been written through, because a write handle echoes back
+    what it was given.
+
+    Returns `{}` when the read is unavailable: the caller then writes
+    every value, which is the safe direction.
+    """
+    try:
+        whole = item.GetProperty()
+    except Exception:  # noqa: BLE001 - an unreadable item is written
+        return {}
+    if not isinstance(whole, dict):
+        return {}
+    return whole
+
+
+def already_holds(stored: dict, property_name: str, value: Any) -> bool:
+    """Whether the item already carries this value - a READ-BACK, not an
+    assumption.
+
+    A property already at the wanted value is not changed by writing it,
+    so skipping the write leaves the timeline identical. The proof that
+    it is the same is the read: `stored` must come from
+    `stored_transform`, read before any write.
+
+    Only the four numeric transform properties are compared: `Scaling`
+    is a dictionary in Resolve, and a value that was not read is not
+    compared at all - the write happens.
+    """
+    if property_name not in NUMERIC_TRANSFORM_PROPERTIES:
+        return False
+    current = stored.get(property_name)
+    if current is None:
+        return False
+    return values_agree(value, current)
+
+
 def record_transform_write(property_name: str, new_value: Any, *,
                            item_identity: Any, old_value: Any = _MISSING,
                            caller_site: dict | None = None,
