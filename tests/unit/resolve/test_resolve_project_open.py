@@ -292,3 +292,99 @@ def test_the_touch_path_opens_the_project_it_edits(tmp_path, monkeypatch):
 
     assert receipt["status"] == "applied_direct", receipt
     assert opened == [project.GetName()]
+
+
+class _SilentManager(_FakeManager):
+    """A Project Manager whose save answers NOTHING.
+
+    The measured behaviour of this bridge (2026-10-21): `SaveProject()`
+    answers None, and the engine read that None as "the save failed" -
+    so every borrow on the machine refused with "Resolve would not save
+    it", and no lane could open a scratch project at all.
+    """
+
+    def SaveProject(self):
+        self.saved.append(self.current)
+        return None
+
+
+def test_a_save_that_answers_nothing_does_not_refuse_a_ren_project(
+        monkeypatch):
+    """Defect: a None answer is SILENCE, not a refusal.
+
+    Ren's own projects are disposable and rebuildable, so an unknown
+    save does not stop the borrow - and it must not stop EVERY borrow
+    on the machine, which is what reading None as a refusal did.
+    """
+    from library.tools import qualification_project, resolve_project_open
+
+    _lease(monkeypatch)
+    manager = _SilentManager("Ren Qualification",
+                              ["Ren Qualification", "Ren Scratch - a reel"])
+    monkeypatch.setattr(qualification_project, "switch_project",
+                        lambda m, name, **_kw: m.LoadProject(name))
+    monkeypatch.setattr(qualification_project, "restore",
+                        lambda _r, found: None)
+    resolve = _FakeResolve(manager)
+
+    with resolve_project_open.opened(resolve, "Ren Scratch - a reel") as project:
+        assert project.GetName() == "Ren Scratch - a reel"
+
+
+def test_a_save_that_answers_nothing_still_refuses_a_captains_project(
+        monkeypatch):
+    """The captain's project is not borrowed on an UNKNOWN save."""
+    from library.tools import qualification_project, resolve_project_open
+
+    _lease(monkeypatch)
+    manager = _SilentManager("Podcast (field test)",
+                              ["Podcast (field test)", "Project B"])
+    monkeypatch.setattr(qualification_project, "switch_project",
+                        lambda m, name, **_kw: m.LoadProject(name))
+    monkeypatch.setattr(qualification_project, "restore",
+                        lambda _r, found: None)
+    resolve = _FakeResolve(manager)
+
+    with pytest.raises(resolve_project_open.ProjectOpenRefused,
+                       match="could not save"):
+        with resolve_project_open.opened(resolve, "Project B"):
+            pass
+
+
+def test_a_save_that_is_refused_still_refuses_a_ren_project(monkeypatch):
+    """A save that said NO is a refusal, whoever the project is."""
+    from library.tools import qualification_project, resolve_project_open
+
+    _lease(monkeypatch)
+    manager = _FakeManager("Ren Qualification",
+                            ["Ren Qualification", "Project B"])
+    manager.SaveProject = lambda: False
+    monkeypatch.setattr(qualification_project, "switch_project",
+                        lambda m, name, **_kw: m.LoadProject(name))
+    monkeypatch.setattr(qualification_project, "restore",
+                        lambda _r, found: None)
+    resolve = _FakeResolve(manager)
+
+    with pytest.raises(resolve_project_open.ProjectOpenRefused,
+                       match="could not save"):
+        with resolve_project_open.opened(resolve, "Project B"):
+            pass
+
+
+def test_the_save_outcome_names_what_the_call_said():
+    """The outcome is read from what the call RETURNED, never guessed."""
+    from library.tools.resolve_project_open import save_outcome
+
+    class _Manager:
+        def __init__(self, answer):
+            self.answer = answer
+
+        def SaveProject(self):
+            if isinstance(self.answer, Exception):
+                raise self.answer
+            return self.answer
+
+    assert save_outcome(_Manager(True))[0] == "saved"
+    assert save_outcome(_Manager(False))[0] == "refused"
+    assert save_outcome(_Manager(None))[0] == "unknown"
+    assert save_outcome(_Manager(RuntimeError("no")))[0] == "refused"

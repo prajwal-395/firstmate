@@ -462,8 +462,15 @@ def borrowed(resolve, *, qualification_only: bool = False):
         # project Resolve starts with refuses a save ("could not save
         # 'Untitled Project'; not borrowing", 2026-10-20), which is
         # what stopped every live qualification run from beginning.
-        if reopenable and not manager.SaveProject():
-            raise QualificationError(f"could not save {name!r}; not borrowing")
+        if reopenable:
+            from library.tools.resolve_project_open import (
+                ren_owned, save_outcome)
+
+            outcome, why = save_outcome(manager)
+            if outcome == "refused" or (
+                    outcome == "unknown" and not ren_owned(name)):
+                raise QualificationError(
+                    f"could not save {name!r} ({why}); not borrowing")
     token = _BORROWED_ISOLATION.set(True)
     try:
         begin_qualification_session(name)

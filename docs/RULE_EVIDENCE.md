@@ -10978,3 +10978,52 @@ refuses a door that reads a request with any model but the canonical
 one. The adapter is `library/tools/legacy_transaction.py`; the audit
 and the measurement are in `docs/AXI-004_CONSOLIDATION.md`.
 
+
+## the-save-that-answered-nothing
+
+**The punch list, AXI-009, 2026-10-21.** The live qualification of
+`caption_fix` on a real reel could not start: every borrow on the machine
+refused with
+
+    cannot switch from 'Ren Qualification': Resolve would not save it;
+    not borrowing an unsavable project
+
+**What was wrong.** `manager.SaveProject()` answers **None** on this
+Resolve - the measured silence of a boolean on this bridge, the same
+silence `GetIsProjectDirty` was measured answering on 2026-10-13. The
+engine read that silence as a PROVEN REFUSAL (`if not manager.SaveProject()`)
+and refused the borrow. A refusal of the borrow refuses EVERY project
+switch: no lane could open a scratch project, and the qualification could
+not reach the reel it had to qualify.
+
+**Measured, 2026-10-21**, on the machine's own broker (pid 22242, built
+from main): `manager.SaveProject()` returned `None` on the open project,
+and the borrow refused. The engine already knew the bridge's silence
+("a boolean dirty check is not used because the scripting bridge answers
+`GetIsProjectDirty` with None ... so any such check would refuse every
+project on this Resolve, forever") - and read the same silence as a
+proven failure one call further on.
+
+**The rule.** An answer that says NOTHING is UNKNOWN, and unknown is not
+a refusal. The outcome of a save is read from what the call RETURNED -
+`saved`, `refused` (it said no) or `unknown` (it said nothing) - and the
+three are three different things. A refusal still refuses. A CAPTAIN's
+project is still never borrowed on an unknown save. REN's own projects -
+the scratch projects and the qualification project - are disposable and
+rebuildable, so an unknown save does not stop them.
+
+`library/tools/resolve_project_open.py` owns the reading (`save_outcome`,
+`ren_owned`); the scratch-project open path and the qualification borrow
+both read through it.
+
+**And the navigation that cannot be read back.** The same run measured
+that the Project Manager's FOLDER NAVIGATION does not work through the
+API on this build: `OpenFolder` answers `None`, `GetCurrentFolder()`
+answers `None` before and after the open, `GetFoldersInCurrentFolder()`
+keeps answering the ROOT's folders, and `LoadProject` by name answers
+`None` for a project in another folder. The engine's own read-back
+(`qualification_project._open_project_folder_path`) refuses with "Resolve
+did not read back project folder" - a read-back that cannot read back,
+refusing a navigation that cannot be measured either way. A project in a
+folder the machine is not in is therefore UNREACHABLE, and the only
+projects a run can reach are the ones in the folder the machine is in.

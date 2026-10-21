@@ -78,6 +78,48 @@ def _report(message: str) -> None:
         pass
 
 
+def ren_owned(name: str) -> bool:
+    """Whether a project name belongs to REN's own namespace.
+
+    Ren's scratch projects and the qualification project are Ren's own:
+    they are disposable and rebuildable (`ren qualification ensure`
+    recreates what is missing in the qualification project, and a
+    scratch project is created by the run that uses it).  A CAPTAIN's
+    project is not, and a borrow of one is held to the strict rule.
+    """
+    text = str(name or "").strip()
+    if not text:
+        return False
+    return text in {"Ren Qualification", "Resolve Qualification"} \
+        or text.startswith("Ren Scratch - ")
+
+
+def save_outcome(manager) -> tuple[str, str]:
+    """What the save of the borrowed project actually did.
+
+    The bridge answers None for a boolean on this Resolve - measured for
+    `GetIsProjectDirty` on 2026-10-13, and measured again for
+    `SaveProject()` on 2026-10-21, when every borrow on the machine
+    refused with "Resolve would not save it" while the save call had
+    answered NOTHING.  A None answer is UNKNOWN, not a proven refusal:
+    reading it as a refusal refuses every borrow, forever, on a machine
+    where the answer is silence.
+
+    Returns `(outcome, why)` where outcome is `saved`, `refused` (the
+    call said no) or `unknown` (the call said nothing).
+    """
+    try:
+        result = manager.SaveProject()
+    except Exception as exc:  # noqa: BLE001 - a raised save is a refusal
+        return "refused", f"the save raised {type(exc).__name__}: {exc}"
+    if result is True:
+        return "saved", ""
+    if result is False:
+        return "refused", "Resolve refused the save"
+    return "unknown", ("the bridge answered None for the save - the "
+                       "measured silence of a boolean on this Resolve")
+
+
 @contextlib.contextmanager
 def opened(resolve, name: str):
     """The project `name` OPEN, under the lease the caller holds.
@@ -125,13 +167,18 @@ def opened(resolve, name: str):
     # The save protects the borrowed project's unsaved work from the
     # reload the restore does. A project Resolve cannot reopen by name
     # is never reloaded, so there is nothing to save either.
-    if found.get("reopenable", True) and not manager.SaveProject():
-        raise ProjectOpenRefused(
-            what=f"could not save {found['project']!r}; not opening {name!r}",
-            why="the borrowed project could not be saved, and reopening it "
-                "would lose whatever it holds that Resolve has not written",
-            fix="wait for the session holding that project to finish, then "
-                "re-run the same command")
+    if found.get("reopenable", True):
+        outcome, why = save_outcome(manager)
+        if outcome == "refused" or (
+                outcome == "unknown" and not ren_owned(found.get("project"))):
+            raise ProjectOpenRefused(
+                what=f"could not save {found['project']!r}; not opening "
+                     f"{name!r}",
+                why=f"the borrowed project could not be saved ({why}), and "
+                    "reopening it would lose whatever it holds that Resolve "
+                    "has not written",
+                fix="wait for the session holding that project to finish, "
+                    "then re-run the same command")
     qualification_project.switch_project(manager, name)
     live = manager.GetCurrentProject()
     if live is None or (live.GetName() or "") != name:

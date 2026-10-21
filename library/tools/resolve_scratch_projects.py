@@ -190,20 +190,27 @@ def _starting_state(resolve, manager, *, save: bool = True) -> dict:
     if project is None:
         raise ScratchProjectError("Resolve has no current project to restore")
     name = project.GetName()
-    if save and not manager.SaveProject():
+    if save:
+        from library.tools.resolve_project_open import save_outcome
+
         # An untitled project holds no work - it is what a relaunch of
         # Resolve leaves behind, and it cannot be saved because it has
         # no name. Refusing to leave it would leave EVERY scratch
         # operation stuck, with no way out that does not need a person
         # in Resolve's UI. An empty one is not borrowed work, so it is
         # left as it is.
-        if (str(name) == "Untitled Project"
-                and not int(project.GetTimelineCount() or 0)):
-            pass
-        else:
+        empty = (str(name) == "Untitled Project"
+                 and not int(project.GetTimelineCount() or 0))
+        outcome, why = save_outcome(manager)
+        if outcome == "refused" and not empty:
             raise ScratchProjectError(
-                f"cannot switch from {name!r}: Resolve would not save it; "
-                "not borrowing an unsavable project")
+                f"cannot switch from {name!r}: Resolve would not save it "
+                f"({why}); not borrowing unsavable work")
+        if (outcome == "unknown" and not empty
+                and not _ren_owned_origin(name)):
+            raise ScratchProjectError(
+                f"cannot switch from {name!r}: {why}, and a project that "
+                "is not Ren's own is not borrowed on an unknown save")
     timeline = project.GetCurrentTimeline()
     return {
         "project": name,

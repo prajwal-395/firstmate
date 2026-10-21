@@ -583,8 +583,38 @@ def _import_report(path: Path) -> dict:
             "stdout": proc.stdout.strip(), "stderr": proc.stderr.strip()}
 
 
+def _open_project_folder(manager, project_dir: str) -> None:
+    """The Project Manager folder the scratch project lives in.
+
+    A project is listed in the CURRENT folder, and the current folder
+    is whatever the last lane left the Project Manager on - so a run
+    that names a project in another folder has to walk there first. The
+    path is the project's OWN declaration (`resolve.folder`), read from
+    its project.yaml.
+    """
+    from library.tools import qualification_project
+
+    folder = ""
+    try:
+        import yaml
+
+        with open(os.path.join(project_dir, "project.yaml"),
+                  encoding="utf-8") as handle:
+            declared = yaml.safe_load(handle) or {}
+        folder = str(((declared.get("resolve") or {}).get("folder")) or "")
+    except (OSError, ValueError, ImportError) as exc:
+        print(f"the project folder could not be read ({exc}); the run "
+              "continues in the Project Manager's current folder",
+              file=sys.stderr)
+    if not folder:
+        return
+    path = tuple(segment for segment in folder.split("/") if segment)
+    qualification_project._open_project_folder_path(manager, path)
+
+
 def _open_scratch_project(resolve, manager, project_name: str,
-                          source_timeline: str = ""):
+                          source_timeline: str = "",
+                          project_dir: str = ""):
     """The Ren-owned scratch project, open.
 
     The scratch project's lifecycle owns the origin: it saves what was
@@ -607,6 +637,7 @@ def _open_scratch_project(resolve, manager, project_name: str,
         # copy of the reel, and puts the caption back.
         return None, current
     origin = True
+    _open_project_folder(manager, project_dir)
     resolve_scratch_projects.open_project(resolve, manager, project_name)
     project = manager.GetCurrentProject()
     if project is None or project.GetName() != project_name:
@@ -805,6 +836,15 @@ def _run_on(project, resolve, manager, evidence: dict, project_name: str,
                 project, case["new_file"],
                 str(case["card"]["source_path"]),
                 project_dir)
+    # The MEASURED state the evidence was earned in: the dimensions the
+    # runtime reports, read under the same lease the run wrote under.
+    from library.tools import axi_qualification_state
+
+    evidence["qualification_state"] = axi_qualification_state.inspect(
+        project=project_name, timeline=copy_name,
+        operations=[{"op": "caption_fix",
+                     "unique_id": str(card.get("unique_id"))}],
+        resolve=resolve)
 
 
 def main() -> int:
@@ -839,7 +879,8 @@ def main() -> int:
                     resolve = connect_resolve()
                     manager = resolve.GetProjectManager()
                     origin, project = _open_scratch_project(
-                        resolve, manager, project_name, source_timeline)
+                        resolve, manager, project_name, source_timeline,
+                        project_dir)
                     run_project = str(project.GetName() or "")
                     run_dir = project_dir
                     if run_project != project_name:
@@ -897,6 +938,24 @@ def main() -> int:
 
     EVIDENCE_PATH.write_text(json.dumps(evidence, indent=1, default=str)
                              + "\n", encoding="utf-8")
+    # The report, and the row it earns.  A row is written only when the
+    # run earned one: the promotion is the importer's decision, never
+    # this script's.
+    measured = (evidence.get("qualification_state") or {})
+    if measured.get("inspected"):
+        report = _build_report(evidence, measured.get("state") or {})
+        path = REPORT_DIR / (f"{PAIR[0]}__{PAIR[1]}.json")
+        path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n",
+                        encoding="utf-8")
+        evidence["report"] = str(path)
+        evidence["imported"] = _import_report(path)
+        EVIDENCE_PATH.write_text(
+            json.dumps(evidence, indent=1, default=str) + "\n",
+            encoding="utf-8")
+    else:
+        evidence["report"] = (
+            "not built: the qualification state was not measured "
+            f"({measured.get('reason')})")
     print(json.dumps({"evidence": str(EVIDENCE_PATH),
                       "cases": [{"id": case["id"],
                                  "passed": case.get("passed"),
