@@ -123,6 +123,7 @@ from typing import Any, Optional, Sequence
 from library.tools import brand_library as _brandlib
 from library.tools import reel_clock as _reel_clock
 from library.tools import motion_graphics_vocabulary as _mg
+from library.tools.render_cache import drawing_digest, short_digest
 from library.tools.remotion_batch import (
     RemotionBatchError,
     RenderJob,
@@ -806,6 +807,46 @@ class PlannedCard:
 
     def reel_end(self, fps: float) -> float:
         return self.reel_end_frame / fps
+
+
+def card_render_name(prefix: str, props: dict) -> str:
+    """What a rendered card is CALLED: its slot, and the pixels it draws.
+
+    The readable half is the slot - ``reel_13_span_15`` - and the digest
+    of the DRAWING INPUTS rides beside it, so the name is the card's
+    identity rather than its address.
+
+    **Why the digest, measured 2026-10-20.**  The slot is keyed by the
+    reel NUMBER, and a number is not an identity: a project can hold
+    SEVERAL reels numbered 13 (a re-proposal, a variant of the same
+    moment), and every one of them rendered its span segments to
+    ``reel_13_span_15.mov``.  One build renders them all, so the file
+    that reaches the timeline is whichever reel rendered last, while
+    each reel places the length IT measured off its own card.  The reel
+    whose length differed met a media pool item describing the OTHER
+    reel's file, the Fusion pass sized that item's comp from the pool's
+    frame count, and the whole reel was refused at the end of a
+    placement that had already cost minutes:
+
+        CompWindowUncovered: REFUSING to build [V1:14] reel_picture_14:
+        GlobalOut 9 stops before comp frame 47, so the last 38 of the
+        48 frames this item plays have no media under them.
+
+    A digest of the drawing inputs is what the caption layer already
+    does (``library/tools/subtitle_segment_id``): two artefacts that
+    differ in any drawing input digest differently and cannot collide,
+    and two that agree are the same pixels, which is the sharing rather
+    than the collision.  A rebuild of the same plan digests the same, so
+    the file - and the pool item that describes it - is reused; a
+    re-planned card is a new file, so no pool item ever describes a
+    file that has changed under it.
+
+    The digest is over the PROPS, which are the whole drawing input.
+    The renderer's own identity is deliberately NOT in the name: a
+    renderer change moves pixels, not the plan, and renaming every card
+    on a renderer upgrade would churn the pool for nothing.
+    """
+    return f"{prefix}_{short_digest(drawing_digest(props or {}))}"
 
 
 def resolve_declaration(brand_effect: dict[str, Any] | None,
@@ -1975,7 +2016,8 @@ def _plan_one(declaration: dict, index: int, reel_start_frame: int,
         duration_seconds=declaration["duration_seconds"],
         duration_frames=duration_frames,
         props=props,
-        render_name=f"reel_{facts.reel_number:02d}_card_{index:02d}",
+        render_name=card_render_name(
+            f"reel_{facts.reel_number:02d}_card_{index:02d}", props),
         resolved_runs=resolved,
     )
 
@@ -2447,7 +2489,8 @@ def _plan_span(declaration: dict, index: int, facts: ReelFacts,
             duration_seconds=duration_frames / fps,
             duration_frames=duration_frames,
             props=props,
-            render_name=f"reel_{facts.reel_number:02d}_span_{position:02d}",
+            render_name=card_render_name(
+                f"reel_{facts.reel_number:02d}_span_{position:02d}", props),
             resolved_runs=resolved,
         ))
     return planned

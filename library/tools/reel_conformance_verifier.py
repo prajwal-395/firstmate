@@ -786,7 +786,17 @@ def card_items(video_items: Sequence[TimelineItem],
 #: to spot an item that LOOKS like a full-frame element and is not in
 #: the plan - the other direction of the same gate.  Identification of a
 #: PLANNED element is by exact name (`card_items`).
-CARD_NAME_SHAPE = re.compile(r"^reel_\d+_(card_\d+|span_\d+)$")
+#:
+#: The digest suffix is OPTIONAL, not absent: a current render is
+#: `reel_13_span_15_<digest>` (the drawing inputs decide the file, so
+#: two reels numbered 13 cannot share one - see
+#: `full_frame_element.card_render_name`), while renders written before
+#: 2026-10-20 carry no digest and live timelines still place those
+#: files.  A shape that required the digest would read every pre-digest
+#: card as an out-of-band element, and a shape that forbade it would
+#: read every current one the same way.
+CARD_NAME_SHAPE = re.compile(
+    r"^reel_\d+_(card_\d+|span_\d+)(_[0-9a-f]{8})?$")
 
 
 def check_full_frame_cards(reel_name: str,
