@@ -120,8 +120,35 @@ test_guard_reads_the_subcommand_not_the_word() {
   pass "the guard refuses the stash subcommand and ignores the word in a message"
 }
 
+# The hand-off must never reach this guard again. A PATH entry can name the
+# guard's directory through a symlink, and the same directory can appear twice
+# under two names, so the hand-off compares physical paths before it picks the
+# next git. A guard that handed off to itself would recurse until the process
+# was killed, so the assertion here is that the command finishes at all.
+test_guard_never_hands_off_to_itself() {
+  local repo="$TMP_ROOT/recursion/repo" guard="$TMP_ROOT/recursion/guard"
+  local link="$TMP_ROOT/recursion/link-guard" out rc
+  mkdir -p "$TMP_ROOT/recursion"
+  git init -q -b main "$repo" || fail "could not initialize the recursion fixture repo"
+  echo base >"$repo/file.txt"
+  git -C "$repo" add file.txt
+  git -C "$repo" -c user.email=t@e.invalid -c user.name=t commit -q -m base
+  install_guard "$guard"
+  ln -sfn "$guard" "$link"
+
+  run_bounded 30 "$TMP_ROOT/recursion/out" env PATH="$link:$PATH" git -C "$repo" status --porcelain
+  rc=$?
+  assert_equals 0 "$rc" "the guard must not hand off to itself through a symlinked PATH entry"
+
+  run_bounded 30 "$TMP_ROOT/recursion/out2" env PATH="$guard:$link:$PATH" git -C "$repo" status --porcelain
+  rc=$?
+  assert_equals 0 "$rc" "the guard must not hand off to itself when its directory is on PATH twice"
+  pass "the guard hands off to the real git and never to itself"
+}
+
 test_guard_refuses_stash_and_keeps_git_working
 test_guard_reads_the_subcommand_not_the_word
+test_guard_never_hands_off_to_itself
 
 # --- the spawned worker -----------------------------------------------------
 

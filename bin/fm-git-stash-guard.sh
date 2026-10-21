@@ -53,7 +53,12 @@ write_guard() {
 # real git still runs.
 set -u
 
-SELF_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+# The directory this guard was found under, as the PATH entry named it, and the
+# same directory resolved physically. The two differ when the PATH entry is a
+# symlink, and a guard that hands off to itself would recurse forever.
+SELF_ENTRY=$(dirname -- "${BASH_SOURCE[0]}")
+SELF_DIR=$(cd -- "$SELF_ENTRY" 2>/dev/null && pwd -P) || SELF_DIR=$SELF_ENTRY
+SELF_BASE=${SELF_ENTRY##*/}
 
 # The subcommand is the first argument that is neither a global git option nor
 # the value of one.
@@ -94,33 +99,46 @@ if [ "$subcommand" = "stash" ]; then
   exit 128
 fi
 
-# Hand off to the next git on PATH that is not this guard. The comparison is
-# made on physical paths, because a PATH entry can name this guard through a
-# symlinked directory (/tmp against /private/tmp), and a guard that hands off
-# to itself would recurse forever. This guard's own directory also leaves PATH
-# for the hand-off, so the git that runs is never this guard again, whatever
-# the next match on PATH is.
-rest_path=$PATH
-kept=()
-IFS=':' read -r -a path_entries <<<"$PATH"
-for entry in "${path_entries[@]}"; do
-  entry_real=$(cd -- "$entry" 2>/dev/null && pwd -P) || entry_real=
-  if [ -n "$entry_real" ] && [ "$entry_real" = "$SELF_DIR" ]; then
+# Hand off to the next git on PATH that is not this guard. This guard's own
+# directory also leaves PATH for the hand-off, so the git that runs is never
+# this guard again, whatever the next match on PATH is.
+rest_path=
+remaining=${PATH:-}
+while [ -n "$remaining" ]; do
+  case "$remaining" in
+  *:*)
+    entry=${remaining%%:*}
+    remaining=${remaining#*:}
+    ;;
+  *)
+    entry=$remaining
+    remaining=
+    ;;
+  esac
+  if [ "$entry" = "$SELF_ENTRY" ]; then
     continue
   fi
-  kept+=("$entry")
+  if [ "${entry##*/}" = "$SELF_BASE" ]; then
+    entry_real=$(cd -- "$entry" 2>/dev/null && pwd -P) || entry_real=
+    [ "$entry_real" = "$SELF_DIR" ] && continue
+  fi
+  if [ -z "$rest_path" ]; then
+    rest_path=$entry
+  else
+    rest_path=$rest_path:$entry
+  fi
 done
-if [ "${#kept[@]}" -gt 0 ]; then
-  rest_path=$(IFS=:; printf '%s' "${kept[*]}")
+
+if [ -z "$rest_path" ]; then
+  rest_path=${PATH:-}
 fi
 
 next_git=
 while IFS= read -r candidate; do
   [ -n "$candidate" ] || continue
+  [ "$candidate" = "$SELF_ENTRY/git" ] && continue
   candidate_real=$(cd -- "$(dirname -- "$candidate")" 2>/dev/null && pwd -P)/$(basename -- "$candidate")
-  if [ "$candidate_real" = "$SELF_DIR/git" ]; then
-    continue
-  fi
+  [ "$candidate_real" = "$SELF_DIR/git" ] && continue
   next_git=$candidate
   break
 done < <(type -p -a git 2>/dev/null)
