@@ -26,6 +26,20 @@ a Resolve ``Still`` backed by a PNG, or a Resolve ``Video`` backed by a
 rendered movie. A file name is not a kind, and a file on disk is not a
 measurement (AGENTS.md 10.3).
 
+Resolve labels a media-pool item by the STREAMS it carries, not by the
+kind of media it is: a rendered card that carries an audio stream reads
+``Video + Audio``, and it is still a video - the lower third the
+captain placed by hand is exactly such a file. The label is read
+through the qualification dimensions' own enumeration of Resolve's
+labels (``axi_qualification_dimensions.media_kind``), so the two
+cannot disagree about what Resolve said.
+
+What separates a rendered card from a DIALOGUE clip is not the label
+but the media's own alpha plane: a rendered overlay carries one (that
+is what lets it composite over the picture) and a dialogue clip does
+not. :func:`alpha_plane` measures it, and the route refuses a video
+without one by name.
+
 ``tests/unit/resolve/test_overlay_video_media.py``.
 """
 
@@ -88,7 +102,15 @@ def classify(clip: Mapping) -> tuple[str | None, str]:
 
     The clip is a READ of a timeline item: it carries the media's own
     kind (``media_type``) and the file behind it (``source_file``).
+
+    The media's own kind is read as a FAMILY - a still, a video, an
+    audio - because Resolve's label names the STREAMS the file carries
+    and not the kind of media it is: a rendered card with an audio
+    stream reads ``Video + Audio``, and refusing it would refuse the
+    lower third the captain placed by hand.
     """
+    from library.tools.axi_qualification_dimensions import media_kind
+
     source = str((clip or {}).get("source_file") or "")
     media_type = str((clip or {}).get("media_type") or "")
     extension = os.path.splitext(source)[1].lower()
@@ -96,14 +118,15 @@ def classify(clip: Mapping) -> tuple[str | None, str]:
         return None, "the item carries no source path"
     if not media_type:
         return None, "the media's own kind could not be read"
-    if media_type == "Still":
+    family = media_kind({"media_type": media_type})
+    if family == "still":
         if extension == ".png":
             return PNG_STILL, ""
         return None, (
             f"a {media_type} backed by "
             f"{extension or 'a file with no extension'} is not a native "
             "PNG still")
-    if media_type == "Video":
+    if family == "video":
         if extension in VIDEO_EXTENSIONS:
             return RENDERED_VIDEO, ""
         return None, (
@@ -113,6 +136,38 @@ def classify(clip: Mapping) -> tuple[str | None, str]:
     return None, (
         f"a {media_type} is neither a native PNG still nor a rendered "
         "movie overlay")
+
+
+def alpha_plane(path: str, timeout: int = 30) -> bool | None:
+    """Whether the media's own video stream carries an alpha plane.
+
+    ``None`` when the file cannot be read: an unknown answer is not a
+    "no" (AGENTS.md 10.4).
+
+    Measured with ffmpeg's ``alphaextract`` on ONE frame, the same
+    mechanism the full alpha instrument uses
+    (``transition_overlay.measure_alpha``): a file with no alpha plane
+    fails the filter ("Requested planes not available"), and that
+    failure IS the answer. A rendered overlay carries an alpha plane
+    and a dialogue clip does not, and that difference is what keeps a
+    dialogue clip out of the overlay routes.
+    """
+    if not path or not os.path.isfile(str(path)):
+        return None
+    command = ["ffmpeg", "-v", "error", "-i", str(path),
+               "-vf", "alphaextract", "-frames:v", "1", "-f", "null", "-"]
+    try:
+        result = subprocess.run(
+            command, capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=timeout, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    stderr = str(result.stderr or "")
+    if "Requested planes not available" in stderr:
+        return False
+    if result.returncode != 0:
+        return None
+    return True
 
 
 def alpha_ink_box(kind: str, path: str, source_frame: int = 0, *,

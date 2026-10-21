@@ -6,7 +6,9 @@ contract the harness itself carries, so a defect in the harness is named
 before it costs a live run:
 
 * every operation the punch list names for the overlay family has a
-  scenario, on every carrier the lane claims;
+  scenario, on every carrier the lane claims - unless the carrier
+  DECLARES the operations it is measured on, which is a statement
+  about the carrier and not a silent gap;
 * every scenario names an operation the algebra declares, and a
   carrier kind the engine's own media enumeration knows;
 * a scenario that expects a refusal is judged as a refusal, and a
@@ -22,6 +24,11 @@ before it costs a live run:
 
 from __future__ import annotations
 
+import shutil
+import subprocess
+
+import pytest
+
 from library.tools import edit_algebra, overlay_media
 from tests.live import axi_overlay_qualification as lane
 
@@ -31,8 +38,23 @@ def _scenario(scenario_id: str) -> lane.Scenario:
 
 
 def test_every_overlay_operation_has_a_scenario_on_every_carrier():
+    """Every carrier is measured on the operations it DECLARES.
+
+    A carrier may narrow itself to the operations it is about - the
+    name bar is measured on the move, and the footage is measured on the
+    move the captain asked for - but it says so, and the narrowing is
+    never a silent gap.
+    """
     for operation in lane.OVERLAY_OPERATIONS:
         for carrier in lane.CARRIERS:
+            declared = carrier.operations or lane.OVERLAY_OPERATIONS
+            if operation not in declared:
+                assert not any(scenario.operation == operation
+                               and scenario.carrier == carrier.id
+                               for scenario in lane.SCENARIOS), (
+                    f"{carrier.id} declares {declared} and also runs "
+                    f"{operation}")
+                continue
             assert any(scenario.operation == operation
                        and scenario.carrier == carrier.id
                        for scenario in lane.SCENARIOS), (
@@ -86,6 +108,72 @@ def test_a_refusal_never_produces_a_qualification_row():
                             "native transform is not what places it"}]
     rows, _gaps = lane._registry_rows({"scenarios": []}, evidence)
     assert not rows
+
+
+def test_the_carriers_that_differ_only_in_the_streams_they_carry():
+    """The two new carriers are the two halves of the widened label.
+
+    The name bar is a rendered card that ALSO carries an audio stream,
+    so Resolve calls it "Video + Audio"; the footage is a video with an
+    audio stream and no alpha plane.  One is an overlay and one is not,
+    and the label does not tell them apart.
+    """
+    name_bar = next(carrier for carrier in lane.CARRIERS
+                    if carrier.id == "rendered_video_with_audio")
+    footage = next(carrier for carrier in lane.CARRIERS
+                   if carrier.id == "dialogue_video")
+    assert name_bar.expects_refusal is False
+    assert footage.expects_refusal is True
+    assert _scenario("position_rendered_video_with_audio").expectation \
+        == "commit"
+    assert _scenario("position_dialogue_video").expectation == "refuse"
+
+
+@pytest.mark.skipif(shutil.which("ffprobe") is None,
+                    reason="ffprobe is not on PATH here, so the carriers' "
+                           "own streams cannot be measured.")
+def test_the_carriers_carry_exactly_the_streams_they_claim():
+    """The lane's own assets are what the run measures.
+
+    A carrier that claims to carry an audio stream and does not would
+    measure a different thing than the one it names; a carrier that
+    claims to be footage and carries an alpha plane would not be the
+    footage the route has to refuse.
+    """
+    from library.tools import overlay_media
+
+    name_bar = lane.audio_carrying_overlay_path("unit")
+    footage = lane.dialogue_clip_path("unit")
+    assert _streams(name_bar)["audio"], (
+        "the name bar carrier carries no audio stream, so Resolve would "
+        "not label it 'Video + Audio' and the run would measure the "
+        "wrong thing")
+    assert overlay_media.alpha_plane(str(name_bar)) is True
+    assert _streams(footage)["audio"], (
+        "the footage carrier carries no audio stream")
+    assert overlay_media.alpha_plane(str(footage)) is False, (
+        "the footage carrier carries an alpha plane, so it is an "
+        "overlay and not the footage the route has to refuse")
+
+
+def _streams(path) -> dict:
+    """What the file's own streams are."""
+    import json
+
+    result = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries",
+         "stream=codec_type,pix_fmt", "-of", "json", str(path)],
+        capture_output=True, text=True, encoding="utf-8", check=False)
+    streams = {"audio": False, "video": False, "pix_fmt": ""}
+    if result.returncode != 0:
+        return streams
+    for stream in json.loads(result.stdout or "{}").get("streams", []):
+        if stream.get("codec_type") == "audio":
+            streams["audio"] = True
+        if stream.get("codec_type") == "video":
+            streams["video"] = True
+            streams["pix_fmt"] = str(stream.get("pix_fmt") or "")
+    return streams
 
 
 def test_a_pair_without_an_executor_is_reported_instead_of_promoted():
@@ -239,6 +327,7 @@ def test_the_broker_script_defines_every_name_it_uses():
               .replace("__AXI_PROJECT__", "P")
               .replace("__AXI_TIMELINE__", "T")
               .replace("__AXI_PROJECT_DIR__", "/tmp")
+              .replace("__AXI_ENGINE_ROOT__", '"/tmp"')
               .replace("__AXI_OWNED__", "{}")
               .replace("__AXI_CASES__", "{}")
               .replace("__AXI_CASE_ASSETS__", "{}")

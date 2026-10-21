@@ -324,3 +324,122 @@ def test_a_resize_that_keeps_the_source_aspect_is_delivered(tmp_path):
     expected = tuple(map(float, record["absolute_box"]))
     assert placed[0] == pytest.approx(expected[0], abs=0.5)
     assert placed[2] == pytest.approx(expected[2], abs=0.5)
+
+
+# ── The name bar: a rendered card that carries an AUDIO stream ───────
+#
+# The live refusal (the round-2 benchmark, §5.3): "edit 0
+# (`position_overlay`) targets unsupported media
+# '.../b-soft-focus-craig.mov' - this route covers a native PNG still or
+# a rendered movie overlay, and a Video + Audio is neither a native PNG
+# still nor a rendered movie overlay".
+#
+# The name bar IS a rendered overlay - ProRes 4444 with an alpha plane
+# - and Resolve labels it "Video + Audio" because the LABEL names the
+# streams the file carries and not the kind of media it is.  The gate
+# read the label as the kind, so it refused the graphic the captain
+# placed by hand.
+
+
+def _rendered_card_with_audio(path):
+    """A rendered overlay that ALSO carries an audio stream.
+
+    The name bar's own shape: an alpha plane to composite with, and a
+    silent audio stream that makes Resolve label the pool item
+    "Video + Audio".
+    """
+    duration = 6 / 24
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-y",
+         "-f", "lavfi",
+         "-i", (f"color=c=white@0.5:s={CANVAS[0]}x{CANVAS[1]}:"
+                f"d={duration}:r=24,format=yuva444p10le"),
+         "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo",
+         "-c:v", "prores_ks", "-profile:v", "4",
+         "-pix_fmt", "yuva444p10le", "-c:a", "pcm_s16le", "-shortest",
+         str(path)],
+        check=True, capture_output=True, text=True, encoding="utf-8")
+    return str(path)
+
+
+def _dialogue_clip(path):
+    """A real dialogue clip: video AND audio, and NO alpha plane.
+
+    The footage every reel is cut from.  It is the media the widened
+    label must not let through.
+    """
+    duration = 6 / 24
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-y",
+         "-f", "lavfi",
+         "-i", (f"color=c=blue:s={CANVAS[0]}x{CANVAS[1]}:"
+                f"d={duration}:r=24"),
+         "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+         "-shortest", str(path)],
+        check=True, capture_output=True, text=True, encoding="utf-8")
+    return str(path)
+
+
+def test_a_rendered_card_that_carries_an_audio_stream_is_accepted(tmp_path):
+    """The name bar is a rendered overlay, and it is now addressable.
+
+    Resolve labels it "Video + Audio" because it carries an audio
+    stream.  The label names the streams, not the kind of media, so the
+    gate must read the KIND out of it - and the kind is a rendered
+    overlay.
+    """
+    path = _rendered_card_with_audio(
+        tmp_path / "b-soft-focus-craig.mov")
+    qualification = _qualify(
+        _clip(path, "Video + Audio"),
+        {"op": "position_overlay", "row": "V3", "item": 0,
+         "dx": 40.0, "dy": 0.0})
+    assert [entry["kind"] for entry in qualification.in_place] == [
+        "overlay_position"]
+    assert qualification.in_place[0]["media_kind"] == "rendered_video"
+
+
+def test_a_dialogue_clip_is_refused_by_name(tmp_path):
+    """Widening the label must not let the footage through.
+
+    A dialogue clip is a video with an audio stream and no alpha
+    plane: there is nothing to composite over the picture, so it is
+    not an overlay and the route says so by name.
+    """
+    path = _dialogue_clip(tmp_path / "b-dialogue.mov")
+    with pytest.raises(reel_touchup.TouchupRefused) as refused:
+        _qualify(_clip(path, "Video + Audio"),
+                 {"op": "position_overlay", "row": "V3", "item": 0,
+                  "dx": 40.0, "dy": 0.0})
+    assert "no alpha plane" in str(refused.value)
+    assert "footage" in str(refused.value)
+
+
+def test_the_pool_label_names_the_streams_and_not_the_kind(tmp_path):
+    """The kind is read out of Resolve's label, not out of the streams.
+
+    "Video + Audio" is a video; "Still" is a still; "Audio" is neither
+    of the two the overlay routes cover.
+    """
+    path = _rendered_card_with_audio(tmp_path / "bar.mov")
+    kind, _why = overlay_media.classify(
+        {"source_file": path, "media_type": "Video + Audio"})
+    assert kind == overlay_media.RENDERED_VIDEO
+    kind, _why = overlay_media.classify(
+        {"source_file": path, "media_type": "Video"})
+    assert kind == overlay_media.RENDERED_VIDEO
+    kind, why = overlay_media.classify(
+        {"source_file": path, "media_type": "Audio"})
+    assert kind is None
+    assert "neither a native PNG still nor a rendered movie overlay" in why
+
+
+def test_an_unreadable_media_is_not_measured_as_carrying_no_alpha(tmp_path):
+    """An unknown answer is not a "no" (AGENTS.md 10.4).
+
+    A file that is not there cannot be measured, so the instrument says
+    so instead of reporting the absence of an alpha plane.
+    """
+    assert overlay_media.alpha_plane(str(tmp_path / "absent.mov")) is None
+

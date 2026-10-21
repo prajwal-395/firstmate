@@ -141,12 +141,21 @@ class Carrier:
     (the comp draws the overlay, so the native transform is not what
     places it), and a scenario that expects that refusal is a
     correctly-refused outcome, never a qualification.
+
+    ``operations`` narrows the carrier to the operations it is
+    measured on; ``None`` means every operation in the family.
+
+    ``expects_refusal`` says the carrier is NOT an overlay at all, and
+    every operation on it must be refused by name.  The footage a reel
+    is cut from is the media the widened label must not let through.
     """
 
     id: str
     label: str
     media_kind: str
     carries_comp: bool = False
+    operations: tuple[str, ...] | None = None
+    expects_refusal: bool = False
 
 
 CARRIERS: tuple[Carrier, ...] = (
@@ -158,6 +167,22 @@ CARRIERS: tuple[Carrier, ...] = (
     Carrier("fusion_composition",
             "a rendered movie overlay that already carries a Fusion "
             "composition", "rendered_video", carries_comp=True),
+    # The name bar the captain placed by hand: a rendered card that also
+    # carries an AUDIO stream, so Resolve labels the pool item "Video +
+    # Audio".  The label names the streams the file carries, not the
+    # kind of media it is, and the route used to refuse the card for
+    # that reason alone.
+    Carrier("rendered_video_with_audio",
+            "a rendered movie overlay that ALSO carries an audio stream "
+            "- the name bar the captain placed by hand",
+            "rendered_video", operations=("overlay.position",)),
+    # The footage every reel is cut from: a video with an audio stream
+    # and NO alpha plane.  It is not an overlay, and the route must say
+    # so by name rather than move it.
+    Carrier("dialogue_video",
+            "a real dialogue clip - video and audio, and no alpha plane",
+            "rendered_video", operations=("overlay.position",),
+            expects_refusal=True),
 )
 
 #: The operations the punch list names for the overlay family.
@@ -165,6 +190,26 @@ OVERLAY_OPERATIONS: tuple[str, ...] = (
     "overlay.add", "overlay.remove", "overlay.position", "overlay.resize",
     "overlay.replace", "overlay.entry_motion",
 )
+
+#: The scenarios a focused run measures (comma separated).  Unset runs
+#: the whole family.
+SCENARIO_FILTER_ENV = "REN_AXI_OVERLAY_SCENARIOS"
+
+#: Where a focused run writes its report, so a partial run never
+#: overwrites the family report.
+REPORT_PATH_ENV = "REN_AXI_OVERLAY_REPORT"
+
+#: The rendered card that ALSO carries an audio stream - the name bar
+#: the captain placed by hand.  Its path is an environment variable
+#: because the asset lives on the machine that rendered it, and a lane
+#: that cannot find one draws its own instead of measuring nothing.
+AUDIO_OVERLAY_ENV = "REN_AXI_OVERLAY_AUDIO_MOV"
+
+#: The checkout this run MEASURES.  The broker runs the machine's
+#: checkout, so a lane measuring a BRANCH names it here and the run
+#: imports the modules under test from it.  Unset measures the broker's
+#: own checkout, which is what a run against merged code measures.
+ENGINE_ROOT_ENV = "REN_AXI_OVERLAY_ENGINE_ROOT"
 
 #: The checks each operation is judged by, and the evidence each one is
 #: computed from.  The names are the ACCEPTANCE CONTRACT's own
@@ -262,13 +307,18 @@ def _scenarios() -> tuple[Scenario, ...]:
     composition expects the refusal the touch-up path gives by name, for
     the operations that refuse such a target; the insertion and the
     removal are ordinary work on such a carrier and are expected to
-    commit.
+    commit.  A carrier that is not an overlay at all - the footage a
+    reel is cut from - expects the refusal by name on every operation
+    it is measured on.
     """
     rows: list[Scenario] = []
     for carrier in CARRIERS:
-        for operation in OVERLAY_OPERATIONS:
+        operations = carrier.operations or OVERLAY_OPERATIONS
+        for operation in operations:
             refuses = carrier.carries_comp and operation in COMP_REFUSES
-            if carrier.carries_comp and operation in ROUTE_DECIDED:
+            if carrier.expects_refusal:
+                expectation = "refuse"
+            elif carrier.carries_comp and operation in ROUTE_DECIDED:
                 expectation = "route"
             else:
                 expectation = "refuse" if refuses else "commit"
@@ -280,6 +330,27 @@ def _scenarios() -> tuple[Scenario, ...]:
 
 
 SCENARIOS: tuple[Scenario, ...] = _scenarios()
+
+
+def selected_scenarios() -> tuple[Scenario, ...]:
+    """The scenarios THIS run measures.
+
+    ``REN_AXI_OVERLAY_SCENARIOS`` names a subset (comma separated), so a
+    focused run measures the carriers it is about and the report says
+    which rows it covers.  Nothing is selected by default: an unset
+    variable runs the whole family.
+    """
+    raw = os.environ.get(SCENARIO_FILTER_ENV, "").strip()
+    if not raw:
+        return SCENARIOS
+    wanted = {name.strip() for name in raw.split(",") if name.strip()}
+    chosen = tuple(row for row in SCENARIOS if row.id in wanted)
+    unknown = sorted(wanted - {row.id for row in SCENARIOS})
+    if unknown:
+        raise ValueError(
+            "the scenario filter names rows this lane does not run: "
+            + ", ".join(unknown))
+    return chosen
 
 #: The operations whose pair the registry may promote.  A pair with no
 #: executor is reported as a gap, never written as a row: promoting it
@@ -419,8 +490,68 @@ def prepare_assets(stamp: str = "") -> dict:
         f"/tmp/fm-axi008-{tag or 'run'}-lower-third-replacement.mov")
     shutil.copyfile(owned["rendered_video"], replacement)
     owned["rendered_video_replacement"] = str(replacement)
+    # The card that ALSO carries an audio stream, and the footage that
+    # carries none of the overlay's marks.
+    owned["rendered_video_with_audio"] = str(
+        audio_carrying_overlay_path(tag))
+    owned["dialogue_video"] = str(dialogue_clip_path(tag))
     return {"owned": owned, "rendered_source": str(source or ""),
             "copied": owned["rendered_video"]}
+
+
+def audio_carrying_overlay_path(tag: str = "") -> Path:
+    """A rendered card that ALSO carries an audio stream.
+
+    The name bar the captain placed by hand is exactly this: a ProRes
+    4444 card with an alpha plane and a silent audio stream, which
+    makes Resolve label the pool item "Video + Audio".  The production
+    asset is COPIED when the machine names one; otherwise the lane
+    renders the same shape from its own movie, so the two carriers
+    differ in exactly the thing under test - the streams the file
+    carries.
+    """
+    raw = os.environ.get(AUDIO_OVERLAY_ENV, "").strip()
+    source = Path(raw).expanduser() if raw else None
+    if source is not None and source.is_file():
+        copied = Path(f"/tmp/fm-axi008-{tag or 'run'}-name-bar.mov")
+        shutil.copyfile(source, copied)
+        return copied
+    movie = rendered_movie_overlay_path(tag)
+    path = Path(f"/tmp/fm-axi008-{tag or 'run'}-name-bar.mov")
+    command = ["ffmpeg", "-y", "-v", "error", "-i", str(movie),
+               "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo",
+               "-c:v", "copy", "-c:a", "pcm_s16le", "-shortest", str(path)]
+    result = subprocess.run(command, capture_output=True, text=True,
+                            encoding="utf-8", errors="replace", timeout=120,
+                            check=False)
+    if result.returncode != 0 or not path.is_file():
+        raise RuntimeError(
+            "the card that carries an audio stream could not be rendered: "
+            + (result.stderr.strip() or "ffmpeg said nothing"))
+    return path
+
+
+def dialogue_clip_path(tag: str = "") -> Path:
+    """A real dialogue clip: video, audio, and NO alpha plane.
+
+    It is the media the widened label must not let through - the route
+    has to tell it apart from a rendered card by what the media IS, not
+    by what Resolve called it.
+    """
+    path = Path(f"/tmp/fm-axi008-{tag or 'run'}-dialogue.mov")
+    command = ["ffmpeg", "-y", "-v", "error",
+               "-f", "lavfi", "-i", "testsrc2=s=320x240:d=4:r=24",
+               "-f", "lavfi", "-i", "sine=frequency=220:duration=4",
+               "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+               "-shortest", str(path)]
+    result = subprocess.run(command, capture_output=True, text=True,
+                            encoding="utf-8", errors="replace", timeout=120,
+                            check=False)
+    if result.returncode != 0 or not path.is_file():
+        raise RuntimeError(
+            "the dialogue clip could not be rendered: "
+            + (result.stderr.strip() or "ffmpeg said nothing"))
+    return path
 
 
 # ── The live batch ────────────────────────────────────────────────────
@@ -434,8 +565,36 @@ BROKER_SCRIPT = '''
 import contextlib, io, json, os, shutil, sys, tempfile, time
 from pathlib import Path
 
-from library.tools import (edit_patch, overlay_media, overlay_verify,
-                           reel_touchup)
+#: The checkout THIS run measures.  The broker runs the MACHINE's
+#: checkout, so a lane that measures a BRANCH has to say which code it
+#: is measuring: the modules under test are imported from here, and the
+#: ones the broker already imported are replaced.  Empty means the
+#: broker's own checkout, which is what a run against merged code
+#: measures.
+ENGINE_ROOT = __AXI_ENGINE_ROOT__
+if ENGINE_ROOT:
+    import library.tools
+    library.tools.__path__ = [
+        os.path.join(ENGINE_ROOT, "library", "tools")] + list(
+            library.tools.__path__)
+    # The package ATTRIBUTE shadows the import: `from library.tools
+    # import overlay_media` hands back the module the broker already
+    # imported, whether or not the module is still in sys.modules.  So
+    # the attribute goes too, and the module under test is the one the
+    # checkout under test carries.
+    for _stale in ("library.tools.overlay_media",
+                   "library.tools.reel_touchup"):
+        sys.modules.pop(_stale, None)
+    for _name in ("overlay_media", "reel_touchup"):
+        if hasattr(library.tools, _name):
+            delattr(library.tools, _name)
+    from library.tools import overlay_media, reel_touchup
+    library.tools.overlay_media = overlay_media
+    library.tools.reel_touchup = reel_touchup
+else:
+    from library.tools import overlay_media, reel_touchup
+
+from library.tools import edit_patch, overlay_verify
 
 PROJECT = "__AXI_PROJECT__"
 TIMELINE = "__AXI_TIMELINE__"
@@ -791,6 +950,45 @@ def compare_frames(before_path, after_path):
     return {"changed_pixels": int((delta >= 24).sum())}
 
 
+def _expected_ink_box(item_row, record, properties):
+    """Where the GRAPHIC is, in delivery-frame pixels.
+
+    The projected box is the item's canvas, and the graphic inside it
+    may not fill it - the name bar is a 514x480 card whose ink sits in
+    the lower left of it.  The frames show the INK, so the expectation
+    is the canvas box moved by the asset's own ink offset, measured off
+    the asset with the engine's own instrument
+    (``overlay_media.alpha_ink_box``).
+
+    None when the asset's ink cannot be measured: an unknown offset is
+    not a zero offset.
+    """
+    path = str(item_row.get("source_path") or "")
+    if not path:
+        return None
+    try:
+        source_frame = (SAMPLE_FRAME - int(item_row["record_in"])
+                        + int(item_row.get("source_in") or 0))
+    except (KeyError, TypeError, ValueError):
+        return None
+    kind = overlay_media.kind_for_path(path)
+    if kind is None:
+        return None
+    try:
+        ink = overlay_media.alpha_ink_box(kind, path, source_frame)
+    except Exception:  # noqa: BLE001 - an unmeasurable asset is not a zero
+        return None
+    if not ink:
+        return None
+    canvas = record.get("absolute_box")
+    if not canvas:
+        return None
+    zoom_x = float(properties.get("ZoomX", 1.0) or 1.0)
+    zoom_y = float(properties.get("ZoomY", 1.0) or 1.0)
+    return [canvas[0] + ink[0] * zoom_x, canvas[1] + ink[1] * zoom_y,
+            canvas[0] + ink[2] * zoom_x, canvas[1] + ink[3] * zoom_y]
+
+
 def apply_properties(item, properties, label):
     """Write the lowered properties through EditPatch, as the touch-up does."""
     project = manager.GetCurrentProject()
@@ -910,7 +1108,7 @@ for case_id, case in CASES.items():
     evidence = {"case": case_id}
     output_dir = tempfile.mkdtemp(prefix="fm-axi008-{}".format(case_id))
     try:
-        evidence.update(run_case(case, output_dir))
+        evidence.update(run_case(case, output_dir, evidence))
     except Exception as exc:  # noqa: BLE001 - a live failure is evidence
         evidence["error"] = type(exc).__name__ + ": " + str(exc)
     evidence["elapsed_seconds"] = time.perf_counter() - started
@@ -918,7 +1116,11 @@ for case_id, case in CASES.items():
     results.append(evidence)
 
 removed_media = remove_owned_media()
-result = {"results": results, "removed_media": removed_media}
+result = {"results": results, "removed_media": removed_media,
+          "engine_root": ENGINE_ROOT,
+          "measured_code": {
+              "overlay_media": getattr(overlay_media, "__file__", ""),
+              "reel_touchup": getattr(reel_touchup, "__file__", "")}}
 '''
 
 
@@ -992,8 +1194,14 @@ def gate(case, owned):
     return qualification, None
 
 
-def run_case(case, output_dir):
-    """Run one scenario and return its evidence."""
+def run_case(case, output_dir, evidence):
+    """Run one scenario and return its evidence.
+
+    The evidence dict is the caller's, and it is FILLED as the case
+    runs: a case that fails half way still says what it measured
+    before it failed, and the label Resolve gave the media is part of
+    that.
+    """
     carrier = case["carrier"]
     asset_key = CASE_ASSETS[carrier]
     owned = OWNED[asset_key]
@@ -1005,8 +1213,8 @@ def run_case(case, output_dir):
     for asset in list(OWNED.values()) + [replacement]:
         if asset:
             names.add(os.path.basename(asset))
-    evidence = {"carrier": carrier, "operation": case["operation"],
-                "expectation": case["expectation"], "asset": owned}
+    evidence.update({"carrier": carrier, "operation": case["operation"],
+                     "expectation": case["expectation"], "asset": owned})
     cleanup(names)
     evidence["recovery_before"] = settle_recovery(
         "the qualification lane clears this copy before a scenario")
@@ -1059,6 +1267,10 @@ def run_case(case, output_dir):
     evidence["qualification_state"] = qualification_state(
         case["operation"], str(handle.GetUniqueId()))
 
+    # What Resolve CALLS the media is recorded before the kind is read
+    # from it: the label names the streams the file carries, and a row
+    # that refused has to show the label it refused.
+    evidence["media_type"] = item_row.get("media_type")
     kind, why = overlay_media.classify({
         "source_file": item_row.get("source_path"),
         "media_type": item_row.get("media_type")})
@@ -1100,6 +1312,8 @@ def run_case(case, output_dir):
             evidence["after"] = live_state()
             return evidence
         evidence["projected"] = record
+        evidence["expected_ink_box"] = _expected_ink_box(
+            item_row, record, properties)
         evidence["write"] = apply_properties(handle, properties,
                                              case["case_id"])
         evidence["recovery_after"] = settle_recovery(
@@ -1211,7 +1425,7 @@ def _cases() -> dict:
             "expectation": scenario.expectation,
             "checks": list(scenario.checks),
         }
-        for scenario in SCENARIOS
+        for scenario in selected_scenarios()
     }
 
 
@@ -1282,9 +1496,19 @@ def expected_box(operation: str, evidence: dict) -> list | None:
     The geometry operations project their own box; the others keep the
     placement the carrier already had, so their expectation is the
     item's own drawn box.
+
+    A projected box is the item's CANVAS, and the graphic inside that
+    canvas may not fill it: the name bar is a 514x480 card whose ink
+    sits in the lower left of it.  What the frames show is the INK, so
+    the expectation is the canvas box moved by the asset's own ink
+    offset - measured off the asset, never assumed.  A carrier whose
+    ink fills its canvas (the PNG still) is unaffected.
     """
     projected = (evidence.get("projected") or {}).get("absolute_box")
     if projected:
+        ink = evidence.get("expected_ink_box")
+        if ink:
+            return list(ink)
         return list(projected)
     state = evidence.get("after") or evidence.get("before") or {}
     row = _target(state, evidence)
@@ -1553,7 +1777,7 @@ def build_report(results: list[dict]) -> dict:
     a zero.
     """
     rows = []
-    for scenario in SCENARIOS:
+    for scenario in selected_scenarios():
         evidence = next((row for row in results
                          if row.get("case") == scenario.id), None)
         if evidence is None:
@@ -1824,10 +2048,17 @@ def write_registry_documents(report: dict, results: list[dict]) -> list[str]:
             evidence.get("qualification_state") or {})
     REGISTRY_DIR.mkdir(parents=True, exist_ok=True)
     written = []
+    # A FOCUSED run writes its documents beside the family's, never over
+    # them: a document is the evidence a promotion reads, and evidence
+    # from two carriers is not evidence from one.
+    directory = REGISTRY_DIR
+    if os.environ.get(SCENARIO_FILTER_ENV, "").strip():
+        directory = REGISTRY_DIR / "focused"
+    directory.mkdir(parents=True, exist_ok=True)
     for (operation, backend), rows in sorted(groups.items()):
         document = qualification_result(operation, rows, measured[(operation,
                                                                    backend)])
-        path = REGISTRY_DIR / f"{operation}__{backend}__axi-overlay.json"
+        path = directory / f"{operation}__{backend}__axi-overlay.json"
         path.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n",
                         encoding="utf-8")
         written.append(str(path))
@@ -1852,11 +2083,16 @@ def run_batch(*, stamp: str | None = None,
     owned["replacement"] = owned.get("rendered_video_replacement", "")
     case_assets = {"png_still": "png_still",
                    "rendered_video": "rendered_video",
-                   "fusion_composition": "rendered_video"}
-    source_out = {"png_still": 47, "rendered_video": 119}
+                   "fusion_composition": "rendered_video",
+                   "rendered_video_with_audio": "rendered_video_with_audio",
+                   "dialogue_video": "dialogue_video"}
+    source_out = {"png_still": 47, "rendered_video": 119,
+                  "rendered_video_with_audio": 47, "dialogue_video": 47}
     script = (BROKER_SCRIPT.replace("__AXI_PROJECT__", PROJECT)
               .replace("__AXI_TIMELINE__", timeline)
               .replace("__AXI_PROJECT_DIR__", "@FM_QUAL_PROJECT_DIR@")
+              .replace("__AXI_ENGINE_ROOT__", repr(
+                  os.environ.get(ENGINE_ROOT_ENV, "").strip()))
               .replace("__AXI_OWNED__", repr(owned))
               .replace("__AXI_CASES__", repr(_cases()))
               .replace("__AXI_CASE_ASSETS__", repr(case_assets))
@@ -1885,6 +2121,9 @@ def run_batch(*, stamp: str | None = None,
     report["assets"] = assets
     report["timeline"] = timeline
     report["project"] = PROJECT
+    report["engine_root"] = payload.get("engine_root") or (
+        os.environ.get(ENGINE_ROOT_ENV, "").strip())
+    report["measured_code"] = payload.get("measured_code") or {}
     report["receipt_state"] = receipt.get("state")
     rows, gaps = _registry_rows(report, results)
     report["registry_rows"] = rows
@@ -1901,9 +2140,10 @@ def main(argv: list[str] | None = None) -> int:
     argv = list(argv if argv is not None else sys.argv[1:])
     stamp = argv[0] if argv else str(int(perf_counter()))
     report = run_batch(stamp=stamp)
-    REPORT_DIR.mkdir(parents=True, exist_ok=True)
-    REPORT_PATH.write_text(json.dumps(report, indent=1, default=str),
-                           encoding="utf-8")
+    path = Path(os.environ.get(REPORT_PATH_ENV, "").strip() or REPORT_PATH)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(report, indent=1, default=str),
+                    encoding="utf-8")
     print(json.dumps(report.get("counts"), indent=1))
     return 0
 

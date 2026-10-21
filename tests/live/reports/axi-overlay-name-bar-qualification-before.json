@@ -1,0 +1,579 @@
+{
+ "scenarios": [
+  {
+   "id": "position_rendered_video_with_audio",
+   "operation": "overlay.position",
+   "carrier": "rendered_video_with_audio",
+   "expectation": "commit",
+   "status": "failed",
+   "reason": "RuntimeError: the carrier is not an overlay media kind: a Video + Audio is neither a native PNG still nor a rendered movie overlay",
+   "checks": {},
+   "elapsed_seconds": 9.286080666992348
+  },
+  {
+   "id": "position_dialogue_video",
+   "operation": "overlay.position",
+   "carrier": "dialogue_video",
+   "expectation": "refuse",
+   "status": "failed",
+   "reason": "RuntimeError: the carrier is not an overlay media kind: a Video + Audio is neither a native PNG still nor a rendered movie overlay",
+   "checks": {},
+   "elapsed_seconds": 8.718401082995115
+  }
+ ],
+ "counts": {
+  "scenarios": 2,
+  "measured": 0,
+  "refused": 0,
+  "failed": 2,
+  "unmeasured": 0,
+  "expected_refusals": 1
+ },
+ "assets": {
+  "owned": {
+   "png_still": "/tmp/fm-axi008-nb4-lower-third-320x90.png",
+   "rendered_video": "/tmp/fm-axi008-nb4-lower-third.mov",
+   "rendered_video_replacement": "/tmp/fm-axi008-nb4-lower-third-replacement.mov",
+   "rendered_video_with_audio": "/tmp/fm-axi008-nb4-name-bar.mov",
+   "dialogue_video": "/tmp/fm-axi008-nb4-dialogue.mov"
+  },
+  "rendered_source": "",
+  "copied": "/tmp/fm-axi008-nb4-lower-third.mov"
+ },
+ "timeline": "fm-scratch qualify nb4",
+ "project": "Ren Qualification",
+ "engine_root": "/Users/prajwal/.treehouse/firstmate-8bf1b0/3/firstmate/projects/video-editing-pilot",
+ "measured_code": {
+  "overlay_media": "/Users/prajwal/.treehouse/firstmate-8bf1b0/3/firstmate/projects/video-editing-pilot/library/tools/overlay_media.py",
+  "reel_touchup": "/Users/prajwal/.treehouse/firstmate-8bf1b0/3/firstmate/projects/video-editing-pilot/library/tools/reel_touchup.py"
+ },
+ "receipt_state": "done",
+ "registry_rows": [],
+ "promotion_gaps": [
+  {
+   "operation_id": "overlay.add",
+   "backend": "reel_touchup",
+   "reason": "the scenario was not measured"
+  },
+  {
+   "operation_id": "overlay.remove",
+   "backend": "reel_touchup",
+   "reason": "the touch-up route implements remove_overlay, but the algebra declares no implementation evidence for the pair, so the registry refuses to promote it"
+  },
+  {
+   "operation_id": "overlay.position",
+   "backend": "reel_touchup",
+   "reason": "the scenario was not measured"
+  },
+  {
+   "operation_id": "overlay.resize",
+   "backend": "reel_touchup",
+   "reason": "the scenario was not measured"
+  },
+  {
+   "operation_id": "overlay.replace",
+   "backend": "reel_touchup",
+   "reason": "the touch-up route implements swap_pixels, but the algebra declares no implementation evidence for the pair, so the registry refuses to promote it"
+  },
+  {
+   "operation_id": "overlay.entry_motion",
+   "backend": "reel_touchup",
+   "reason": "the touch-up route imports the entry comp, but the algebra declares no implementation evidence for the pair, so the registry refuses to promote it"
+  },
+  {
+   "operation_id": "overlay.add",
+   "backend": "reel_touchup",
+   "reason": "the scenario was not measured"
+  },
+  {
+   "operation_id": "overlay.remove",
+   "backend": "reel_touchup",
+   "reason": "the touch-up route implements remove_overlay, but the algebra declares no implementation evidence for the pair, so the registry refuses to promote it"
+  },
+  {
+   "operation_id": "overlay.position",
+   "backend": "reel_touchup",
+   "reason": "the scenario was not measured"
+  },
+  {
+   "operation_id": "overlay.resize",
+   "backend": "reel_touchup",
+   "reason": "the scenario was not measured"
+  },
+  {
+   "operation_id": "overlay.replace",
+   "backend": "reel_touchup",
+   "reason": "the touch-up route implements swap_pixels, but the algebra declares no implementation evidence for the pair, so the registry refuses to promote it"
+  },
+  {
+   "operation_id": "overlay.entry_motion",
+   "backend": "reel_touchup",
+   "reason": "the touch-up route imports the entry comp, but the algebra declares no implementation evidence for the pair, so the registry refuses to promote it"
+  },
+  {
+   "operation_id": "overlay.add",
+   "backend": "reel_touchup",
+   "reason": "the scenario was not measured"
+  },
+  {
+   "operation_id": "overlay.remove",
+   "backend": "reel_touchup",
+   "reason": "the touch-up route implements remove_overlay, but the algebra declares no implementation evidence for the pair, so the registry refuses to promote it"
+  },
+  {
+   "operation_id": "overlay.position",
+   "backend": "reel_touchup",
+   "reason": "the scenario was not measured"
+  },
+  {
+   "operation_id": "overlay.resize",
+   "backend": "reel_touchup",
+   "reason": "the scenario was not measured"
+  },
+  {
+   "operation_id": "overlay.replace",
+   "backend": "reel_touchup",
+   "reason": "the touch-up route implements swap_pixels, but the algebra declares no implementation evidence for the pair, so the registry refuses to promote it"
+  },
+  {
+   "operation_id": "overlay.entry_motion",
+   "backend": "reel_touchup",
+   "reason": "the touch-up route imports the entry comp, but the algebra declares no implementation evidence for the pair, so the registry refuses to promote it"
+  },
+  {
+   "operation_id": "overlay.position",
+   "backend": "reel_touchup",
+   "reason": "the scenario failed: RuntimeError: the carrier is not an overlay media kind: a Video + Audio is neither a native PNG still nor a rendered movie overlay"
+  },
+  {
+   "operation_id": "overlay.position",
+   "backend": "reel_touchup",
+   "reason": "the scenario failed: RuntimeError: the carrier is not an overlay media kind: a Video + Audio is neither a native PNG still nor a rendered movie overlay"
+  }
+ ],
+ "registry_documents": [],
+ "evidence": [
+  {
+   "case": "position_rendered_video_with_audio",
+   "carrier": "rendered_video_with_audio",
+   "operation": "overlay.position",
+   "expectation": "commit",
+   "asset": "/tmp/fm-axi008-nb4-name-bar.mov",
+   "recovery_before": {
+    "settled": []
+   },
+   "placement": {
+    "argv": [
+     "edit",
+     "place",
+     "--clip",
+     "fm-axi008-nb4-name-bar.mov",
+     "--media",
+     "video",
+     "--track",
+     "3",
+     "--record",
+     "24",
+     "--source-in",
+     "0",
+     "--source-out",
+     "47",
+     "--apply",
+     "--project",
+     "Ren Qualification",
+     "--timeline",
+     "fm-scratch qualify nb4"
+    ],
+    "exit_code": 0,
+    "stdout": "placed:\n  timeline: fm-scratch qualify nb4\n  clip: fm-axi008-nb4-name-bar.mov\n  items_delta: 1\n  placed_media_id: 8759f275-cfd6-4d48-bf34-600171a7ba35\n  verified: yes (the placed item carries the requested media, at the requested place; no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  fm-axi008-nb4-name-bar.mov,24,72,0,47,4b8b1e34-a49c-4177-93e6-f1c368e9b6fe\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify nb4\"`\n",
+    "stderr": ""
+   },
+   "native_scale": {
+    "argv": [
+     "edit_patch.apply_live_patch",
+     "native-scale"
+    ],
+    "exit_code": 0,
+    "stdout": "{\"patch_id\": \"ren-b326352f5ba9818c1892b742139cfb9253062c6791eb586c1dd719e5123f5a3e\", \"status\": \"committed\", \"resolve_write_status\": \"committed\", \"base_generation\": 1, \"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify nb4\", \"requested_operation_count\": 3, \"expected_state\": {\"operations\": [{\"op\": \"clip.set_property\", \"unique_id\": \"4b8b1e34-a49c-4177-93e6-f1c368e9b6fe\", \"key\": \"Scaling\", \"value\": 1.0}, {\"op\": \"clip.set_property\", \"unique_id\": \"4b8b1e34-a49c-4177-93e6-f1c368e9b6fe\", \"key\": \"ZoomX\", \"value\": 1.0}, {\"op\": \"clip.set_property\", \"unique_id\": \"4b8b1e34-a49c-4177-93e6-f1c368e9b6fe\", \"key\": \"ZoomY\", \"value\": 1.0}], \"postconditions\": []}, \"readback\": {\"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify nb4\", \"timeline_id\": \"0d91b53f-0aed-4a7c-bbdc-d2765459ad9e\", \"generation\": 2, \"hash\": \"b57f0a621010597259b590b4dfdbf5408afe862ba43c155802269945cb4c137f\", \"source\": \"patch\", \"patch_id\": \"ren-b326352f5ba9818c1892b742139cfb9253062c6791eb586c1dd719e5123f5a3e\", \"recorded_at\": 1792592365.153915, \"verified_at\": 1792592365.153915, \"model_revision\": null, \"nle_binding_ids\": []}, \"backend\": \"edit_patch\", \"idempotency_key\": \"ren-b326352f5ba9818c1892b742139cfb9253062c6791eb586c1dd719e5123f5a3e\", \"operations\": [{\"index\": 0, \"op\": \"clip.set_property\", \"returned\": true, \"failure\": null}, {\"index\": 1, \"op\": \"clip.set_property\", \"returned\": true, \"failure\": null}, {\"index\": 2, \"op\": \"clip.set_property\", \"returned\": true, \"failure\": null}], \"unrelated_changes\": [], \"acceptance_contracts\": [{\"id\": \"acceptance:clip.set_property\", \"operation\": \"clip.set_property\", \"checks\": [\"operation_readback_matches_request\", \"unrelated_items_unchanged\"], \"structural_source\": \"timeline_readback\", \"passed\": true, \"results\": [{\"check\": \"operation_readback_matches_request\", \"passed\": true, \"status\": \"passed\", \"evidence\": null}, {\"check\": \"unrelated_items_unchanged\", \"passed\": true, \"status\": \"passed\", \"evidence\": true}], \"missing\": [], \"failed\": []}, {\"id\": \"acceptance:clip.set_property\", \"operation\": \"clip.set_property\", \"checks\": [\"operation_readback_matches_request\", \"unrelated_items_unchanged\"], \"structural_source\": \"timeline_readback\", \"passed\": true, \"results\": [{\"check\": \"operation_readback_matches_request\", \"passed\": true, \"status\": \"passed\", \"evidence\": null}, {\"check\": \"unrelated_items_unchanged\", \"passed\": true, \"status\": \"passed\", \"evidence\": true}], \"missing\": [], \"failed\": []}, {\"id\": \"acceptance:clip.set_property\", \"operation\": \"clip.set_property\", \"checks\": [\"operation_readback_matches_request\", \"unrelated_items_unchanged\"], \"structural_source\": \"timeline_readback\", \"passed\": true, \"results\": [{\"check\": \"operation_readback_matches_request\", \"passed\": true, \"status\": \"passed\", \"evidence\": null}, {\"check\": \"unrelated_items_unchanged\", \"passed\": true, \"status\": \"passed\", \"evidence\": true}], \"missing\": [], \"failed\": []}], \"preservation\": {\"status\": \"preserved\", \"changes\": [{\"target\": \"clip:4b8b1e34-a49c-4177-93e6-f1c368e9b6fe\", \"field\": \"transform.Scaling\", \"domain\": \"picture_transform\", \"before\": 0, \"after\": 1, \"authorized\": true}], \"expected\": [{\"target\": \"clip:4b8b1e34-a49c-4177-93e6-f1c368e9b6fe\", \"domain\": \"picture_transform\", \"operation\": \"clip.set_property\", \"fields\": [\"transform.Scaling\"]}, {\"target\": \"clip:4b8b1e34-a49c-4177-93e6-f1c368e9b6fe\", \"domain\": \"picture_transform\", \"operation\": \"clip.set_property\", \"fields\": [\"transform.ZoomX\"]}, {\"target\": \"clip:4b8b1e34-a49c-4177-93e6-f1c368e9b6fe\", \"domain\": \"picture_transform\", \"operation\": \"clip.set_property\", \"fields\": [\"transform.ZoomY\"]}], \"expected_not_observed\": [], \"unrelated_changes\": [], \"unobservable_domains\": [], \"unprovable_reason\": \"\"}, \"preservation_requirements\": [], \"stopped\": null, \"recovery_result\": {\"status\": \"not_attempted\", \"reason\": \"transaction verified\"}, \"journal\": {\"intent_persisted\": true, \"errors\": []}, \"postcondition_failures\": [], \"exclusive_hold_seconds\": 0.9033, \"project_model_commit\": {\"status\": \"not_required\", \"revision\": null}, \"project_model_reconcile\": {\"status\": \"not_required\", \"revision\": null}, \"generation\": 2, \"fingerprint\": \"b57f0a621010597259b590b4dfdbf5408afe862ba43c155802269945cb4c137f\", \"recovery\": null, \"planned\": {\"status\": \"planned\", \"patch_id\": \"ren-b326352f5ba9818c1892b742139cfb9253062c6791eb586c1dd719e5123f5a3e\"}, \"validated\": {\"status\": \"validated\", \"base_generation\": 1}, \"prepared\": {\"status\": \"prepared\", \"journal\": {\"intent_persisted\": true, \"errors\": []}}, \"executing\": {\"status\": \"completed\", \"stopped\": null}, \"applied\": {\"status\": \"applied\", \"operations\": 3, \"requested\": 3, \"complete\": true}, \"verified\": {\"status\": \"verified\", \"acceptance_contracts_passed\": true}, \"committed\": {\"status\": \"committed\", \"generation\": 2, \"project_model\": {\"status\": \"not_required\", \"revision\": null}}, \"promoted\": {\"status\": \"not_requested\"}, \"delivered\": {\"status\": \"not_requested\"}, \"lifecycle\": {\"stage\": \"COMMITTED\", \"ids\": {\"transaction_id\": \"ren-b326352f5ba9818c1892b742139cfb9253062c6791eb586c1dd719e5123f5a3e\", \"idempotency_key\": \"ren-b326352f5ba9818c1892b742139cfb9253062c6791eb586c1dd719e5123f5a3e\", \"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify nb4\"}, \"expected_state\": {\"operations\": [{\"op\": \"clip.set_property\", \"unique_id\": \"4b8b1e34-a49c-4177-93e6-f1c368e9b6fe\", \"key\": \"Scaling\", \"value\": 1.0}, {\"op\": \"clip.set_property\", \"unique_id\": \"4b8b1e34-a49c-4177-93e6-f1c368e9b6fe\", \"key\": \"ZoomX\", \"value\": 1.0}, {\"op\": \"clip.set_property\", \"unique_id\": \"4b8b1e34-a49c-4177-93e6-f1c368e9b6fe\", \"key\": \"ZoomY\", \"value\": 1.0}], \"postconditions\": []}, \"actual_state\": {\"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify nb4\", \"timeline_id\": \"0d91b53f-0aed-4a7c-bbdc-d2765459ad9e\", \"generation\": 2, \"hash\": \"b57f0a621010597259b590b4dfdbf5408afe862ba43c155802269945cb4c137f\", \"source\": \"patch\", \"patch_id\": \"ren-b326352f5ba9818c1892b742139cfb9253062c6791eb586c1dd719e5123f5a3e\", \"recorded_at\": 1792592365.153915, \"verified_at\": 1792592365.153915, \"model_revision\": null, \"nle_binding_ids\": []}, \"affected_changes\": [{\"index\": 0, \"op\": \"clip.set_property\", \"returned\": true, \"failure\": null}, {\"index\": 1, \"op\": \"clip.set_property\", \"returned\": true, \"failure\": null}, {\"index\": 2, \"op\": \"clip.set_property\", \"returned\": true, \"failure\": null}], \"unrelated_changes\": [], \"backend\": \"edit_patch\", \"route_selection\": null, \"verification\": {\"outcome\": {\"status\": \"verified\", \"acceptance_contracts_passed\": true}, \"acceptance_contracts\": [{\"id\": \"acceptance:clip.set_property\", \"operation\": \"clip.set_property\", \"checks\": [\"operation_readback_matches_request\", \"unrelated_items_unchanged\"], \"structural_source\": \"timeline_readback\", \"passed\": true, \"results\": [{\"check\": \"operation_readback_matches_request\", \"passed\": true, \"status\": \"passed\", \"evidence\": null}, {\"check\": \"unrelated_items_unchanged\", \"passed\": true, \"status\": \"passed\", \"evidence\": true}], \"missing\": [], \"failed\": []}, {\"id\": \"acceptance:clip.set_property\", \"operation\": \"clip.set_property\", \"checks\": [\"operation_readback_matches_request\", \"unrelated_items_unchanged\"], \"structural_source\": \"timeline_readback\", \"passed\": true, \"results\": [{\"check\": \"operation_readback_matches_request\", \"passed\": true, \"status\": \"passed\", \"evidence\": null}, {\"check\": \"unrelated_items_unchanged\", \"passed\": true, \"status\": \"passed\", \"evidence\": true}], \"missing\": [], \"failed\": []}, {\"id\": \"acceptance:clip.set_property\", \"operation\": \"clip.set_property\", \"checks\": [\"operation_readback_matches_request\", \"unrelated_items_unchanged\"], \"structural_source\": \"timeline_readback\", \"passed\": true, \"results\": [{\"check\": \"operation_readback_matches_request\", \"passed\": true, \"status\": \"passed\", \"evidence\": null}, {\"check\": \"unrelated_items_unchanged\", \"passed\": true, \"status\": \"passed\", \"evidence\": true}], \"missing\": [], \"failed\": []}]}, \"recovery\": null, \"recovery_result\": {\"status\": \"not_attempted\", \"reason\": \"transaction verified\"}, \"persistence\": {\"status\": \"committed\", \"generation\": 2, \"project_model\": {\"status\": \"not_required\", \"revision\": null}}, \"promotion\": null, \"delivery\": {\"status\": \"not_requested\"}, \"history\": [\"PLANNED\", \"VALIDATED\", \"PREPARED\", \"EXECUTING\", \"APPLIED\", \"VERIFIED\", \"COMMITTED\"]}, \"execution_contract\": {\"status\": \"committed\", \"backend\": \"edit_patch\", \"verification\": {\"status\": \"verified\", \"checks\": [{\"passed\": true, \"operation\": \"clip.set_property\", \"failures\": []}, {\"passed\": true, \"operation\": \"clip.set_property\", \"failures\": []}, {\"passed\": true, \"operation\": \"clip.set_property\", \"failures\": []}], \"missing\": [], \"evidence\": {\"acceptance_check_count\": 3, \"readback_present\": true}, \"layers\": {\"stored_state\": {\"status\": \"verified\", \"checks\": 3}, \"rendered_pixels\": {\"status\": \"not_measured\", \"evidence\": {}}, \"rendered_audio\": {\"status\": \"not_measured\", \"evidence\": {}}}}, \"recovery\": {\"status\": \"not_attempted\", \"action\": \"none\", \"reason\": \"transaction verified\", \"evidence\": {\"recovery_record_present\": true}}, \"limitations\": [], \"receipt\": {\"transaction_id\": \"ren-b326352f5ba9818c1892b742139cfb9253062c6791eb586c1dd719e5123f5a3e\", \"idempotency_key\": \"ren-b326352f5ba9818c1892b742139cfb9253062c6791eb586c1dd719e5123f5a3e\"}}}",
+    "stderr": ""
+   },
+   "before": {
+    "timeline": "0d91b53f-0aed-4a7c-bbdc-d2765459ad9e",
+    "frame_size": [
+     1920,
+     1080
+    ],
+    "items": [
+     {
+      "unique_id": "815f869f-cb16-4e10-b42b-a9d3e71d05b2",
+      "kind": "video",
+      "track": 1,
+      "track_name": "Video 1",
+      "name": "qual_a.mp4",
+      "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4",
+      "media_type": "Video + Audio",
+      "source_in": 0,
+      "source_out": 95,
+      "record_in": 0,
+      "record_out": 96,
+      "transform": {
+       "Pan": 0.0,
+       "Tilt": 0.0,
+       "ZoomX": 1.0,
+       "ZoomY": 1.0,
+       "ZoomGang": true,
+       "RotationAngle": 0.0,
+       "AnchorPointX": 0.0,
+       "AnchorPointY": 0.0,
+       "Pitch": 0.0,
+       "Yaw": 0.0,
+       "FlipX": false,
+       "FlipY": false,
+       "CropLeft": 0.0,
+       "CropRight": 0.0,
+       "CropTop": 0.0,
+       "CropBottom": 0.0,
+       "CropSoftness": 0.0,
+       "CropRetain": false,
+       "DynamicZoomEase": 0,
+       "CompositeMode": 0,
+       "Opacity": 100.0,
+       "Distortion": 0.0,
+       "RetimeProcess": 0,
+       "MotionEstimation": 0,
+       "Scaling": 0,
+       "ResizeFilter": 0,
+       "TransformEnabled": true,
+       "CroppingEnabled": true,
+       "DynamicZoomEnabled": false,
+       "CompositeEnabled": true,
+       "LensCorrectionEnabled": true,
+       "RetimeAndScalingEnabled": true
+      },
+      "enabled": true,
+      "fusion_comps": [],
+      "speed": {
+       "Percentage": 100.0
+      },
+      "cdl": null,
+      "source_size": [
+       1920,
+       1080
+      ],
+      "output_bbox": [
+       0.0,
+       0.0,
+       1920.0,
+       1080.0
+      ]
+     },
+     {
+      "unique_id": "4b8b1e34-a49c-4177-93e6-f1c368e9b6fe",
+      "kind": "video",
+      "track": 3,
+      "track_name": "Motion Graphics",
+      "name": "fm-axi008-nb4-name-bar.mov",
+      "source_path": "/tmp/fm-axi008-nb4-name-bar.mov",
+      "media_type": "Video + Audio",
+      "source_in": 0,
+      "source_out": 47,
+      "record_in": 24,
+      "record_out": 72,
+      "transform": {
+       "Pan": 0.0,
+       "Tilt": 0.0,
+       "ZoomX": 1.0,
+       "ZoomY": 1.0,
+       "ZoomGang": true,
+       "RotationAngle": 0.0,
+       "AnchorPointX": 0.0,
+       "AnchorPointY": 0.0,
+       "Pitch": 0.0,
+       "Yaw": 0.0,
+       "FlipX": false,
+       "FlipY": false,
+       "CropLeft": 0.0,
+       "CropRight": 0.0,
+       "CropTop": 0.0,
+       "CropBottom": 0.0,
+       "CropSoftness": 0.0,
+       "CropRetain": false,
+       "DynamicZoomEase": 0,
+       "CompositeMode": 0,
+       "Opacity": 100.0,
+       "Distortion": 0.0,
+       "RetimeProcess": 0,
+       "MotionEstimation": 0,
+       "Scaling": 1,
+       "ResizeFilter": 0,
+       "TransformEnabled": true,
+       "CroppingEnabled": true,
+       "DynamicZoomEnabled": false,
+       "CompositeEnabled": true,
+       "LensCorrectionEnabled": true,
+       "RetimeAndScalingEnabled": true
+      },
+      "enabled": true,
+      "fusion_comps": [],
+      "speed": {
+       "Percentage": 100.0
+      },
+      "cdl": null,
+      "source_size": [
+       514,
+       480
+      ],
+      "output_bbox": [
+       703.0,
+       300.0,
+       1217.0,
+       780.0
+      ]
+     }
+    ]
+   },
+   "touched_names": [
+    "fm-axi008-nb4-name-bar.mov"
+   ],
+   "carrier_name": "fm-axi008-nb4-name-bar.mov",
+   "carrier_id": "4b8b1e34-a49c-4177-93e6-f1c368e9b6fe",
+   "qualification_state": {
+    "inspected": true,
+    "state": {
+     "resolve_version": "21.1.0.14",
+     "media_type": "video",
+     "clip_composition": "single_video_clip",
+     "linked_audio_configuration": "no_linked_audio",
+     "track_layout": "video+audio",
+     "track_occupancy": "mixed",
+     "timeline_density": "light",
+     "timeline_structure": "multi_item_timeline",
+     "project_settings": "landscape_1920x1080",
+     "frame_rate": "24",
+     "existing_effects": "retiming"
+    },
+    "targets": [
+     "4b8b1e34-a49c-4177-93e6-f1c368e9b6fe"
+    ],
+    "missing_targets": []
+   },
+   "media_type": "Video + Audio",
+   "media_kind": null,
+   "media_kind_reason": "a Video + Audio is neither a native PNG still nor a rendered movie overlay",
+   "error": "RuntimeError: the carrier is not an overlay media kind: a Video + Audio is neither a native PNG still nor a rendered movie overlay",
+   "elapsed_seconds": 9.286080666992348,
+   "output_dir": "/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-axi008-position_rendered_video_with_audiowpabk_9i"
+  },
+  {
+   "case": "position_dialogue_video",
+   "carrier": "dialogue_video",
+   "operation": "overlay.position",
+   "expectation": "refuse",
+   "asset": "/tmp/fm-axi008-nb4-dialogue.mov",
+   "recovery_before": {
+    "settled": []
+   },
+   "placement": {
+    "argv": [
+     "edit",
+     "place",
+     "--clip",
+     "fm-axi008-nb4-dialogue.mov",
+     "--media",
+     "video",
+     "--track",
+     "3",
+     "--record",
+     "24",
+     "--source-in",
+     "0",
+     "--source-out",
+     "47",
+     "--apply",
+     "--project",
+     "Ren Qualification",
+     "--timeline",
+     "fm-scratch qualify nb4"
+    ],
+    "exit_code": 0,
+    "stdout": "placed:\n  timeline: fm-scratch qualify nb4\n  clip: fm-axi008-nb4-dialogue.mov\n  items_delta: 1\n  placed_media_id: 26b653fd-d206-42a3-a357-4f1f481dbdde\n  verified: yes (the placed item carries the requested media, at the requested place; no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  fm-axi008-nb4-dialogue.mov,24,72,0,48,ff7ddb18-e995-4fc7-affe-c7c2975fef5e\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify nb4\"`\n",
+    "stderr": ""
+   },
+   "native_scale": {
+    "argv": [
+     "edit_patch.apply_live_patch",
+     "native-scale"
+    ],
+    "exit_code": 0,
+    "stdout": "{\"patch_id\": \"ren-48e20bce5f178f781b0ca2931e336ae1f50ae2083a6d541c24289b3e7440480b\", \"status\": \"committed\", \"resolve_write_status\": \"committed\", \"base_generation\": 3, \"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify nb4\", \"requested_operation_count\": 3, \"expected_state\": {\"operations\": [{\"op\": \"clip.set_property\", \"unique_id\": \"ff7ddb18-e995-4fc7-affe-c7c2975fef5e\", \"key\": \"Scaling\", \"value\": 1.0}, {\"op\": \"clip.set_property\", \"unique_id\": \"ff7ddb18-e995-4fc7-affe-c7c2975fef5e\", \"key\": \"ZoomX\", \"value\": 1.0}, {\"op\": \"clip.set_property\", \"unique_id\": \"ff7ddb18-e995-4fc7-affe-c7c2975fef5e\", \"key\": \"ZoomY\", \"value\": 1.0}], \"postconditions\": []}, \"readback\": {\"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify nb4\", \"timeline_id\": \"0d91b53f-0aed-4a7c-bbdc-d2765459ad9e\", \"generation\": 4, \"hash\": \"703749b71b01bf7f01f19446d87b578300c8b1820d114fba70d6c4ad9556cfbc\", \"source\": \"patch\", \"patch_id\": \"ren-48e20bce5f178f781b0ca2931e336ae1f50ae2083a6d541c24289b3e7440480b\", \"recorded_at\": 1792592373.942993, \"verified_at\": 1792592373.942993, \"model_revision\": null, \"nle_binding_ids\": []}, \"backend\": \"edit_patch\", \"idempotency_key\": \"ren-48e20bce5f178f781b0ca2931e336ae1f50ae2083a6d541c24289b3e7440480b\", \"operations\": [{\"index\": 0, \"op\": \"clip.set_property\", \"returned\": true, \"failure\": null}, {\"index\": 1, \"op\": \"clip.set_property\", \"returned\": true, \"failure\": null}, {\"index\": 2, \"op\": \"clip.set_property\", \"returned\": true, \"failure\": null}], \"unrelated_changes\": [], \"acceptance_contracts\": [{\"id\": \"acceptance:clip.set_property\", \"operation\": \"clip.set_property\", \"checks\": [\"operation_readback_matches_request\", \"unrelated_items_unchanged\"], \"structural_source\": \"timeline_readback\", \"passed\": true, \"results\": [{\"check\": \"operation_readback_matches_request\", \"passed\": true, \"status\": \"passed\", \"evidence\": null}, {\"check\": \"unrelated_items_unchanged\", \"passed\": true, \"status\": \"passed\", \"evidence\": true}], \"missing\": [], \"failed\": []}, {\"id\": \"acceptance:clip.set_property\", \"operation\": \"clip.set_property\", \"checks\": [\"operation_readback_matches_request\", \"unrelated_items_unchanged\"], \"structural_source\": \"timeline_readback\", \"passed\": true, \"results\": [{\"check\": \"operation_readback_matches_request\", \"passed\": true, \"status\": \"passed\", \"evidence\": null}, {\"check\": \"unrelated_items_unchanged\", \"passed\": true, \"status\": \"passed\", \"evidence\": true}], \"missing\": [], \"failed\": []}, {\"id\": \"acceptance:clip.set_property\", \"operation\": \"clip.set_property\", \"checks\": [\"operation_readback_matches_request\", \"unrelated_items_unchanged\"], \"structural_source\": \"timeline_readback\", \"passed\": true, \"results\": [{\"check\": \"operation_readback_matches_request\", \"passed\": true, \"status\": \"passed\", \"evidence\": null}, {\"check\": \"unrelated_items_unchanged\", \"passed\": true, \"status\": \"passed\", \"evidence\": true}], \"missing\": [], \"failed\": []}], \"preservation\": {\"status\": \"preserved\", \"changes\": [{\"target\": \"clip:ff7ddb18-e995-4fc7-affe-c7c2975fef5e\", \"field\": \"transform.Scaling\", \"domain\": \"picture_transform\", \"before\": 0, \"after\": 1, \"authorized\": true}], \"expected\": [{\"target\": \"clip:ff7ddb18-e995-4fc7-affe-c7c2975fef5e\", \"domain\": \"picture_transform\", \"operation\": \"clip.set_property\", \"fields\": [\"transform.Scaling\"]}, {\"target\": \"clip:ff7ddb18-e995-4fc7-affe-c7c2975fef5e\", \"domain\": \"picture_transform\", \"operation\": \"clip.set_property\", \"fields\": [\"transform.ZoomX\"]}, {\"target\": \"clip:ff7ddb18-e995-4fc7-affe-c7c2975fef5e\", \"domain\": \"picture_transform\", \"operation\": \"clip.set_property\", \"fields\": [\"transform.ZoomY\"]}], \"expected_not_observed\": [], \"unrelated_changes\": [], \"unobservable_domains\": [], \"unprovable_reason\": \"\"}, \"preservation_requirements\": [], \"stopped\": null, \"recovery_result\": {\"status\": \"not_attempted\", \"reason\": \"transaction verified\"}, \"journal\": {\"intent_persisted\": true, \"errors\": []}, \"postcondition_failures\": [], \"exclusive_hold_seconds\": 0.9836, \"project_model_commit\": {\"status\": \"not_required\", \"revision\": null}, \"project_model_reconcile\": {\"status\": \"not_required\", \"revision\": null}, \"generation\": 4, \"fingerprint\": \"703749b71b01bf7f01f19446d87b578300c8b1820d114fba70d6c4ad9556cfbc\", \"recovery\": null, \"planned\": {\"status\": \"planned\", \"patch_id\": \"ren-48e20bce5f178f781b0ca2931e336ae1f50ae2083a6d541c24289b3e7440480b\"}, \"validated\": {\"status\": \"validated\", \"base_generation\": 3}, \"prepared\": {\"status\": \"prepared\", \"journal\": {\"intent_persisted\": true, \"errors\": []}}, \"executing\": {\"status\": \"completed\", \"stopped\": null}, \"applied\": {\"status\": \"applied\", \"operations\": 3, \"requested\": 3, \"complete\": true}, \"verified\": {\"status\": \"verified\", \"acceptance_contracts_passed\": true}, \"committed\": {\"status\": \"committed\", \"generation\": 4, \"project_model\": {\"status\": \"not_required\", \"revision\": null}}, \"promoted\": {\"status\": \"not_requested\"}, \"delivered\": {\"status\": \"not_requested\"}, \"lifecycle\": {\"stage\": \"COMMITTED\", \"ids\": {\"transaction_id\": \"ren-48e20bce5f178f781b0ca2931e336ae1f50ae2083a6d541c24289b3e7440480b\", \"idempotency_key\": \"ren-48e20bce5f178f781b0ca2931e336ae1f50ae2083a6d541c24289b3e7440480b\", \"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify nb4\"}, \"expected_state\": {\"operations\": [{\"op\": \"clip.set_property\", \"unique_id\": \"ff7ddb18-e995-4fc7-affe-c7c2975fef5e\", \"key\": \"Scaling\", \"value\": 1.0}, {\"op\": \"clip.set_property\", \"unique_id\": \"ff7ddb18-e995-4fc7-affe-c7c2975fef5e\", \"key\": \"ZoomX\", \"value\": 1.0}, {\"op\": \"clip.set_property\", \"unique_id\": \"ff7ddb18-e995-4fc7-affe-c7c2975fef5e\", \"key\": \"ZoomY\", \"value\": 1.0}], \"postconditions\": []}, \"actual_state\": {\"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify nb4\", \"timeline_id\": \"0d91b53f-0aed-4a7c-bbdc-d2765459ad9e\", \"generation\": 4, \"hash\": \"703749b71b01bf7f01f19446d87b578300c8b1820d114fba70d6c4ad9556cfbc\", \"source\": \"patch\", \"patch_id\": \"ren-48e20bce5f178f781b0ca2931e336ae1f50ae2083a6d541c24289b3e7440480b\", \"recorded_at\": 1792592373.942993, \"verified_at\": 1792592373.942993, \"model_revision\": null, \"nle_binding_ids\": []}, \"affected_changes\": [{\"index\": 0, \"op\": \"clip.set_property\", \"returned\": true, \"failure\": null}, {\"index\": 1, \"op\": \"clip.set_property\", \"returned\": true, \"failure\": null}, {\"index\": 2, \"op\": \"clip.set_property\", \"returned\": true, \"failure\": null}], \"unrelated_changes\": [], \"backend\": \"edit_patch\", \"route_selection\": null, \"verification\": {\"outcome\": {\"status\": \"verified\", \"acceptance_contracts_passed\": true}, \"acceptance_contracts\": [{\"id\": \"acceptance:clip.set_property\", \"operation\": \"clip.set_property\", \"checks\": [\"operation_readback_matches_request\", \"unrelated_items_unchanged\"], \"structural_source\": \"timeline_readback\", \"passed\": true, \"results\": [{\"check\": \"operation_readback_matches_request\", \"passed\": true, \"status\": \"passed\", \"evidence\": null}, {\"check\": \"unrelated_items_unchanged\", \"passed\": true, \"status\": \"passed\", \"evidence\": true}], \"missing\": [], \"failed\": []}, {\"id\": \"acceptance:clip.set_property\", \"operation\": \"clip.set_property\", \"checks\": [\"operation_readback_matches_request\", \"unrelated_items_unchanged\"], \"structural_source\": \"timeline_readback\", \"passed\": true, \"results\": [{\"check\": \"operation_readback_matches_request\", \"passed\": true, \"status\": \"passed\", \"evidence\": null}, {\"check\": \"unrelated_items_unchanged\", \"passed\": true, \"status\": \"passed\", \"evidence\": true}], \"missing\": [], \"failed\": []}, {\"id\": \"acceptance:clip.set_property\", \"operation\": \"clip.set_property\", \"checks\": [\"operation_readback_matches_request\", \"unrelated_items_unchanged\"], \"structural_source\": \"timeline_readback\", \"passed\": true, \"results\": [{\"check\": \"operation_readback_matches_request\", \"passed\": true, \"status\": \"passed\", \"evidence\": null}, {\"check\": \"unrelated_items_unchanged\", \"passed\": true, \"status\": \"passed\", \"evidence\": true}], \"missing\": [], \"failed\": []}]}, \"recovery\": null, \"recovery_result\": {\"status\": \"not_attempted\", \"reason\": \"transaction verified\"}, \"persistence\": {\"status\": \"committed\", \"generation\": 4, \"project_model\": {\"status\": \"not_required\", \"revision\": null}}, \"promotion\": null, \"delivery\": {\"status\": \"not_requested\"}, \"history\": [\"PLANNED\", \"VALIDATED\", \"PREPARED\", \"EXECUTING\", \"APPLIED\", \"VERIFIED\", \"COMMITTED\"]}, \"execution_contract\": {\"status\": \"committed\", \"backend\": \"edit_patch\", \"verification\": {\"status\": \"verified\", \"checks\": [{\"passed\": true, \"operation\": \"clip.set_property\", \"failures\": []}, {\"passed\": true, \"operation\": \"clip.set_property\", \"failures\": []}, {\"passed\": true, \"operation\": \"clip.set_property\", \"failures\": []}], \"missing\": [], \"evidence\": {\"acceptance_check_count\": 3, \"readback_present\": true}, \"layers\": {\"stored_state\": {\"status\": \"verified\", \"checks\": 3}, \"rendered_pixels\": {\"status\": \"not_measured\", \"evidence\": {}}, \"rendered_audio\": {\"status\": \"not_measured\", \"evidence\": {}}}}, \"recovery\": {\"status\": \"not_attempted\", \"action\": \"none\", \"reason\": \"transaction verified\", \"evidence\": {\"recovery_record_present\": true}}, \"limitations\": [], \"receipt\": {\"transaction_id\": \"ren-48e20bce5f178f781b0ca2931e336ae1f50ae2083a6d541c24289b3e7440480b\", \"idempotency_key\": \"ren-48e20bce5f178f781b0ca2931e336ae1f50ae2083a6d541c24289b3e7440480b\"}}}",
+    "stderr": ""
+   },
+   "before": {
+    "timeline": "0d91b53f-0aed-4a7c-bbdc-d2765459ad9e",
+    "frame_size": [
+     1920,
+     1080
+    ],
+    "items": [
+     {
+      "unique_id": "b7988283-49d5-4610-8179-9d0a965b8ff7",
+      "kind": "video",
+      "track": 1,
+      "track_name": "Video 1",
+      "name": "qual_a.mp4",
+      "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4",
+      "media_type": "Video + Audio",
+      "source_in": 0,
+      "source_out": 95,
+      "record_in": 0,
+      "record_out": 96,
+      "transform": {
+       "Pan": 0.0,
+       "Tilt": 0.0,
+       "ZoomX": 1.0,
+       "ZoomY": 1.0,
+       "ZoomGang": true,
+       "RotationAngle": 0.0,
+       "AnchorPointX": 0.0,
+       "AnchorPointY": 0.0,
+       "Pitch": 0.0,
+       "Yaw": 0.0,
+       "FlipX": false,
+       "FlipY": false,
+       "CropLeft": 0.0,
+       "CropRight": 0.0,
+       "CropTop": 0.0,
+       "CropBottom": 0.0,
+       "CropSoftness": 0.0,
+       "CropRetain": false,
+       "DynamicZoomEase": 0,
+       "CompositeMode": 0,
+       "Opacity": 100.0,
+       "Distortion": 0.0,
+       "RetimeProcess": 0,
+       "MotionEstimation": 0,
+       "Scaling": 0,
+       "ResizeFilter": 0,
+       "TransformEnabled": true,
+       "CroppingEnabled": true,
+       "DynamicZoomEnabled": false,
+       "CompositeEnabled": true,
+       "LensCorrectionEnabled": true,
+       "RetimeAndScalingEnabled": true
+      },
+      "enabled": true,
+      "fusion_comps": [],
+      "speed": {
+       "Percentage": 100.0
+      },
+      "cdl": null,
+      "source_size": [
+       1920,
+       1080
+      ],
+      "output_bbox": [
+       0.0,
+       0.0,
+       1920.0,
+       1080.0
+      ]
+     },
+     {
+      "unique_id": "ff7ddb18-e995-4fc7-affe-c7c2975fef5e",
+      "kind": "video",
+      "track": 3,
+      "track_name": "Motion Graphics",
+      "name": "fm-axi008-nb4-dialogue.mov",
+      "source_path": "/tmp/fm-axi008-nb4-dialogue.mov",
+      "media_type": "Video + Audio",
+      "source_in": 0,
+      "source_out": 48,
+      "record_in": 24,
+      "record_out": 72,
+      "transform": {
+       "Pan": 0.0,
+       "Tilt": 0.0,
+       "ZoomX": 1.0,
+       "ZoomY": 1.0,
+       "ZoomGang": true,
+       "RotationAngle": 0.0,
+       "AnchorPointX": 0.0,
+       "AnchorPointY": 0.0,
+       "Pitch": 0.0,
+       "Yaw": 0.0,
+       "FlipX": false,
+       "FlipY": false,
+       "CropLeft": 0.0,
+       "CropRight": 0.0,
+       "CropTop": 0.0,
+       "CropBottom": 0.0,
+       "CropSoftness": 0.0,
+       "CropRetain": false,
+       "DynamicZoomEase": 0,
+       "CompositeMode": 0,
+       "Opacity": 100.0,
+       "Distortion": 0.0,
+       "RetimeProcess": 0,
+       "MotionEstimation": 0,
+       "Scaling": 1,
+       "ResizeFilter": 0,
+       "TransformEnabled": true,
+       "CroppingEnabled": true,
+       "DynamicZoomEnabled": false,
+       "CompositeEnabled": true,
+       "LensCorrectionEnabled": true,
+       "RetimeAndScalingEnabled": true
+      },
+      "enabled": true,
+      "fusion_comps": [],
+      "speed": {
+       "Percentage": 100.0
+      },
+      "cdl": null,
+      "source_size": [
+       320,
+       240
+      ],
+      "output_bbox": [
+       800.0,
+       420.0,
+       1120.0,
+       660.0
+      ]
+     }
+    ]
+   },
+   "touched_names": [
+    "fm-axi008-nb4-dialogue.mov"
+   ],
+   "carrier_name": "fm-axi008-nb4-dialogue.mov",
+   "carrier_id": "ff7ddb18-e995-4fc7-affe-c7c2975fef5e",
+   "qualification_state": {
+    "inspected": true,
+    "state": {
+     "resolve_version": "21.1.0.14",
+     "media_type": "video",
+     "clip_composition": "single_video_clip",
+     "linked_audio_configuration": "no_linked_audio",
+     "track_layout": "video+audio",
+     "track_occupancy": "mixed",
+     "timeline_density": "light",
+     "timeline_structure": "multi_item_timeline",
+     "project_settings": "landscape_1920x1080",
+     "frame_rate": "24",
+     "existing_effects": "retiming"
+    },
+    "targets": [
+     "ff7ddb18-e995-4fc7-affe-c7c2975fef5e"
+    ],
+    "missing_targets": []
+   },
+   "media_type": "Video + Audio",
+   "media_kind": null,
+   "media_kind_reason": "a Video + Audio is neither a native PNG still nor a rendered movie overlay",
+   "error": "RuntimeError: the carrier is not an overlay media kind: a Video + Audio is neither a native PNG still nor a rendered movie overlay",
+   "elapsed_seconds": 8.718401082995115,
+   "output_dir": "/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-axi008-position_dialogue_videob1vzofak"
+  }
+ ]
+}

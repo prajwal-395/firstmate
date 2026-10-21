@@ -1636,6 +1636,18 @@ def _overlay_media_kind(clip: Mapping, position: int, op: str) -> str:
     through the same transform chain, so the geometry of a move or a
     resize is the same for both. The kind is decided by the media's OWN
     kind and its own container, never by its file name.
+
+    A rendered movie overlay may carry an AUDIO stream: Resolve labels
+    such a file "Video + Audio", because the label names the streams the
+    file carries and not the kind of media it is. The name bar the
+    captain placed by hand is exactly that file, and refusing it refused
+    the graphic the brief was about.
+
+    What separates the rendered card from a DIALOGUE clip is the
+    media's own alpha plane, and it is measured: a rendered overlay
+    carries one and a dialogue clip does not. A video without one is
+    refused by name, so widening the label does not widen the route to
+    the footage.
     """
     from library.tools import overlay_media
 
@@ -1649,6 +1661,24 @@ def _overlay_media_kind(clip: Mapping, position: int, op: str) -> str:
             "use a native PNG still or a rendered movie overlay without a "
             "Fusion treatment")
     if kind == overlay_media.RENDERED_VIDEO:
+        source = str(clip.get("source_file") or "")
+        plane = overlay_media.alpha_plane(source)
+        if plane is None:
+            raise TouchupRefused(
+                f"edit {position} (`{op}`) cannot read the media at "
+                f"{source!r}",
+                "whether the media carries an alpha plane is what tells a "
+                "rendered overlay from a dialogue clip, and it could not "
+                "be measured",
+                "point the request at a readable rendered overlay")
+        if not plane:
+            raise TouchupRefused(
+                f"edit {position} (`{op}`) targets {source!r}, which "
+                "carries no alpha plane",
+                "a rendered overlay carries an alpha plane and a "
+                "dialogue clip does not, so this media is footage and "
+                "not an overlay",
+                "target a rendered overlay or a native PNG still")
         speed = clip.get("speed")
         try:
             normal = speed is not None and abs(float(speed) - 100.0) <= 1e-6

@@ -1,0 +1,216 @@
+{
+  "actual_state": {
+    "checks": {
+      "bounding_box_matches_request": true,
+      "inside_safe_zone": true,
+      "no_unexpected_black_frames": true,
+      "not_clipped": true,
+      "projected_geometry_matches_request": true,
+      "rendered_pixels_match_request": true,
+      "requested_timeline_span": true,
+      "target_identity": true,
+      "unrelated_items_unchanged": true
+    },
+    "measurement": {
+      "clip_composition": "single_video_clip",
+      "existing_effects": "retiming",
+      "frame_rate": "24",
+      "linked_audio_configuration": "no_linked_audio",
+      "media_type": "video",
+      "project_settings": "landscape_1920x1080",
+      "resolve_version": "21.1.0.14",
+      "timeline_density": "light",
+      "timeline_structure": "multi_item_timeline",
+      "track_layout": "video+audio",
+      "track_occupancy": "mixed"
+    },
+    "scenarios": [
+      "position_rendered_video_with_audio"
+    ]
+  },
+  "audio_verification": [
+    "not applicable: this operation writes no audio level; the audio rows are read back unchanged by the same per-item reading"
+  ],
+  "backend": "reel_touchup",
+  "coverage": {
+    "configurations": [
+      "measured_qualification_timeline"
+    ],
+    "dimensions": {
+      "clip_composition": [
+        "single_video_clip"
+      ],
+      "existing_effects": [
+        "retiming"
+      ],
+      "frame_rate": [
+        "24"
+      ],
+      "linked_audio_configuration": [
+        "no_linked_audio"
+      ],
+      "media_type": [
+        "video"
+      ],
+      "project_settings": [
+        "landscape_1920x1080"
+      ],
+      "resolve_version": [
+        "21.1.0.14"
+      ],
+      "timeline_density": [
+        "light"
+      ],
+      "timeline_structure": [
+        "multi_item_timeline"
+      ],
+      "track_layout": [
+        "video+audio"
+      ],
+      "track_occupancy": [
+        "mixed"
+      ]
+    },
+    "source": "measured",
+    "uncovered": {}
+  },
+  "environment": {
+    "platform": "darwin",
+    "resolve_version": "21.1.0.14"
+  },
+  "evidence": "tests/live/reports/axi-overlay-qualification.json#position_rendered_video_with_audio",
+  "expected_state": {
+    "bounding_box_matches_request": true,
+    "inside_safe_zone": true,
+    "no_unexpected_black_frames": true,
+    "not_clipped": true,
+    "projected_geometry_matches_request": true,
+    "rendered_pixels_match_request": true,
+    "requested_timeline_span": true,
+    "target_identity": true,
+    "unrelated_items_unchanged": true
+  },
+  "operation_id": "overlay.position",
+  "preservation_checks": [
+    {
+      "check": "rendered_pixels_match_request",
+      "result": "passed"
+    },
+    {
+      "check": "bounding_box_matches_request",
+      "result": "passed"
+    },
+    {
+      "check": "projected_geometry_matches_request",
+      "result": "passed"
+    },
+    {
+      "check": "target_identity",
+      "result": "passed"
+    },
+    {
+      "check": "unrelated_items_unchanged",
+      "result": "passed"
+    },
+    {
+      "check": "inside_safe_zone",
+      "result": "passed"
+    },
+    {
+      "check": "not_clipped",
+      "result": "passed"
+    },
+    {
+      "check": "no_unexpected_black_frames",
+      "result": "passed"
+    },
+    {
+      "check": "requested_timeline_span",
+      "result": "passed"
+    }
+  ],
+  "preservation_limits": [
+    "one disposable scratch timeline; the checks are the ones the scenarios name: bounding_box_matches_request, inside_safe_zone, no_unexpected_black_frames, not_clipped, projected_geometry_matches_request, rendered_pixels_match_request, requested_timeline_span, target_identity, unrelated_items_unchanged"
+  ],
+  "project_conditions": [
+    "Ren Qualification / a disposable copy of the private scratch timeline",
+    "private target timeline only",
+    "production entry: the built-reel touch-up path (reel_touchup)"
+  ],
+  "qualification_predicates": [
+    {
+      "field": "clip_composition",
+      "operator": "equals",
+      "value": "single_video_clip"
+    },
+    {
+      "field": "existing_effects",
+      "operator": "equals",
+      "value": "retiming"
+    },
+    {
+      "field": "frame_rate",
+      "operator": "equals",
+      "value": "24"
+    },
+    {
+      "field": "linked_audio_configuration",
+      "operator": "equals",
+      "value": "no_linked_audio"
+    },
+    {
+      "field": "media_type",
+      "operator": "equals",
+      "value": "video"
+    },
+    {
+      "field": "project_settings",
+      "operator": "equals",
+      "value": "landscape_1920x1080"
+    },
+    {
+      "field": "resolve_version",
+      "operator": "equals",
+      "value": "21.1.0.14"
+    },
+    {
+      "field": "timeline_density",
+      "operator": "equals",
+      "value": "light"
+    },
+    {
+      "field": "timeline_structure",
+      "operator": "equals",
+      "value": "multi_item_timeline"
+    },
+    {
+      "field": "track_layout",
+      "operator": "equals",
+      "value": "video+audio"
+    },
+    {
+      "field": "track_occupancy",
+      "operator": "equals",
+      "value": "mixed"
+    }
+  ],
+  "recovery_status": "not_required",
+  "resolve_version": "21.1.0.14",
+  "result": "passed",
+  "schema": "ren-axi-qualification-result/v2",
+  "semantic_boundary": {
+    "applies_to": [
+      "overlay.position on reel_touchup in the measured qualification state, on the carriers this lane exercised"
+    ],
+    "does_not_apply_to": [
+      "states or operation/backend pairs not named by this evidence",
+      "a target that carries a Fusion composition: the routes refuse it by name, and a refusal is not a qualification"
+    ]
+  },
+  "supported_media_types": [
+    "video"
+  ],
+  "visual_verification": [
+    "the rendered frames: the overlay's own contribution, taken as the difference between the frame with the overlay enabled and the frame with it disabled, measured in delivery-frame pixels"
+  ]
+}
