@@ -276,18 +276,37 @@ def carry(patch: edit_patch.EditPatch, store: shadow.ShadowStore,
     """`(patch moved onto the head, None)` or `(None, why not)`.
 
     Composes `patch` with every generation recorded since its base, in
-    order. An `observed` generation refuses: its change is unattributed,
-    so nothing can say what it meets. The moved patch must then validate
-    on the head and its preconditions hold there.
+    order. An `observed` generation is a change nobody recorded: the
+    captain's hand edit. It used to refuse outright, because nothing
+    could say what it met. Now it is JUDGED: the difference between the
+    state before that generation and the state after it says what
+    changed, and a hand edit that is provably DISJOINT from this patch
+    does not block it - the patch moves onto the head over that
+    generation and the hand edit stands. A hand edit that DISAGREES
+    with this patch refuses, and the refusal names both sides
+    (`judge_hand_edits`, `library/tools/semantic_conflict.py`).
+
+    A hand edit that cannot be shown to be disjoint still refuses: an
+    absent measurement is not evidence of agreement.
+
+    The moved patch must then validate on the head and its
+    preconditions hold there.
     """
+    patch = edit_patch.EditPatch.from_dict(patch)
+    rows = store.since_with_snapshots(project, timeline_id,
+                                      since=patch.base_generation)
+    if not rows:
+        raise shadow.ShadowError(
+            f"no generation {patch.base_generation} of timeline "
+            f"{timeline_id!r} in project {project!r}")
+    judgment = judge_hand_edits(patch, rows)
+    if judgment["conflict"]:
+        return None, judgment["reason"]
+    if judgment["independent"]:
+        return _carry_python(patch, store, project, timeline_id, rows=rows,
+                             independent_generations=judgment["independent"])
     rust = edit_backend.rust()
     if rust is not None:
-        rows = store.since_with_snapshots(project, timeline_id,
-                                          since=patch.base_generation)
-        if not rows:
-            raise shadow.ShadowError(
-                f"no generation {patch.base_generation} of timeline "
-                f"{timeline_id!r} in project {project!r}")
         row_dicts = [
             {"generation": gen.generation, "source": gen.source,
              "patch": gen.patch, "snapshot": snap,
@@ -310,15 +329,86 @@ def carry(patch: edit_patch.EditPatch, store: shadow.ShadowStore,
         except ValueError as exc:
             return None, str(exc)
         return edit_patch.EditPatch.from_dict(moved_dict), None
-    return _carry_python(patch, store, project, timeline_id)
+    return _carry_python(patch, store, project, timeline_id, rows=rows)
+
+
+def judge_hand_edits(patch, rows) -> dict:
+    """What a hand edit does to this patch.
+
+    A generation nobody recorded is a change the captain made by hand.
+    The difference between the state before it and the state after it
+    says WHAT changed - the source interval, the timeline region, the
+    target, the property keys - and that is enough to tell a hand edit
+    that AGREES with this patch from one that DISAGREES with it.
+
+    The answer is one of three:
+
+    `conflict`    the two disagree about the same editorial decision.
+                  The patch is refused, and the refusal names both
+                  sides: the generation that carried the hand edit and
+                  the patch that would have overwritten it.
+    `independent` the hand edit is provably disjoint from the patch, so
+                  the patch may move onto the head over that
+                  generation. The hand edit stands.
+    `unproven`    nothing here can show the two are disjoint, so the
+                  patch is refused as it was before. An operation this
+                  module cannot describe is one thing it cannot judge,
+                  and it is never read as agreement.
+    """
+    from library.tools import semantic_conflict
+
+    patch = edit_patch.EditPatch.from_dict(patch)
+    answer = {"conflict": False, "reason": "", "independent": (),
+              "unproven": False}
+    base_snapshot = rows[0][1]
+    if semantic_conflict.unreadable_operations(patch.operations,
+                                               base_snapshot):
+        answer["unproven"] = True
+        return answer
+    for index in range(1, len(rows)):
+        gen, snapshot = rows[index]
+        if gen.source != shadow.OBSERVED:
+            continue
+        hand = semantic_conflict.edits_between(
+            rows[index - 1][1], snapshot,
+            origin=semantic_conflict.ORIGIN_CAPTAIN,
+            version=f"generation {gen.generation} (a hand edit)")
+        ren = semantic_conflict.edits_from_operations(
+            patch.operations, base_snapshot,
+            origin=semantic_conflict.ORIGIN_REN,
+            version=f"patch {patch.id!r}")
+        report = semantic_conflict.detect(
+            semantic_conflict.EditSet.of(
+                f"generation {gen.generation} (a hand edit)",
+                semantic_conflict.ORIGIN_CAPTAIN, hand),
+            semantic_conflict.EditSet.of(
+                f"patch {patch.id!r}", semantic_conflict.ORIGIN_REN, ren))
+        if report.conflicts:
+            answer["conflict"] = True
+            answer["reason"] = report.reason()
+            return answer
+        if report.unproven:
+            answer["unproven"] = True
+            answer["independent"] = ()
+            return answer
+        answer["independent"] = tuple(answer["independent"]) + (gen.generation,)
+    return answer
 
 
 def _carry_python(patch: edit_patch.EditPatch, store: shadow.ShadowStore,
-                  project: str, timeline_id: str) -> tuple:
-    """The carry, in Python (the selectable fallback)."""
+                  project: str, timeline_id: str, *,
+                  rows=None,
+                  independent_generations=()) -> tuple:
+    """The carry, in Python (the selectable fallback).
+
+    `independent_generations` are the hand edits a semantic comparison
+    proved disjoint from this patch: they are composed over rather than
+    refused, and the state they left is the base the patch moves onto.
+    """
     moved = patch
-    rows = store.since_with_snapshots(project, timeline_id,
-                                      since=patch.base_generation)
+    if rows is None:
+        rows = store.since_with_snapshots(project, timeline_id,
+                                          since=patch.base_generation)
     if not rows:
         raise shadow.ShadowError(
             f"no generation {patch.base_generation} of timeline "
@@ -328,6 +418,13 @@ def _carry_python(patch: edit_patch.EditPatch, store: shadow.ShadowStore,
     for gen, head_snap in rows[1:]:
         head = gen
         if gen.source == shadow.OBSERVED:
+            if gen.generation in independent_generations:
+                # A hand edit this patch provably does not meet: the
+                # patch moves onto the head over it, and the hand edit
+                # stands.
+                moved = replace(moved, base_generation=gen.generation)
+                base_snap = head_snap
+                continue
             return None, (f"generation {gen.generation} is a change nobody "
                           f"recorded (a hand edit), so nothing can say "
                           f"what it meets")
