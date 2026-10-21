@@ -48,7 +48,11 @@
 # PRIVACY. Each workspace id lives in its gitignored org file
 # (`config/opencode-main-org`, `config/opencode-second-org`;
 # docs/configuration.md owns the schema); no token, key, or workspace id
-# goes in tracked files, commit messages, or PR bodies. Each org id is
+# goes in tracked files, commit messages, or PR bodies. The machine's own
+# console database is found the way the OpenCode CLI reports it, unless
+# FM_OPENCODE_LIVE_DB names it outright; a named database is the only one
+# that database is read from, so a scratch home or a test never reaches the
+# account of the person running the machine. Each org id is
 # declared inherited local material, so secondmate homes converge it from
 # the primary and run the Go tier too. Each pinned database carries the
 # account's own tokens and lives beside it at `config/opencode-main.db` or
@@ -364,8 +368,17 @@ fm_opencode_same_file() {  # <path-a> <path-b>
 
 # fm_opencode_second_live_db: the machine's own console database opencode
 # itself reads, resolved the way `opencode debug paths` reports it.
+# FM_OPENCODE_LIVE_DB names that database outright. When it is set, the
+# lookup never falls back to the machine's own data directory: a caller that
+# names a database gets that database or nothing, so a test or a scratch
+# home can never reach the account of the person running the machine.
 fm_opencode_second_live_db() {
   local data_dir line
+  if [ -n "${FM_OPENCODE_LIVE_DB:-}" ]; then
+    [ -f "$FM_OPENCODE_LIVE_DB" ] || return 1
+    printf '%s\n' "$FM_OPENCODE_LIVE_DB"
+    return 0
+  fi
   if command -v opencode >/dev/null 2>&1; then
     data_dir=$(opencode debug paths 2>/dev/null | sed -n 's/^data[[:space:]]\{1,\}//p' | head -n 1)
     if [ -n "$data_dir" ] && [ -f "$data_dir/opencode.db" ]; then
