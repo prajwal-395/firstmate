@@ -233,6 +233,17 @@ MEASUREMENT_LAYERS = {
 CACHE_DIR = Path(".vision_cache")
 OUTPUT_DIR = Path("pipeline_output")
 
+CLAIM_TYPES = {
+    "scene": "video.scene_segment",
+    "scene_boundary": "video.scene_boundary",
+}
+"""The claims this producer writes, and the registry type each one is
+filed under. The class of a claim is a consequence of that type
+(``claim_provenance``): the producer says how the value was produced,
+and no reader re-guesses it from the value's shape. The scene
+DESCRIPTION is a model's reading of the picture; the scene BOUNDARY is
+the deterministic cut detector's, and the two do not share a class."""
+
 # Action windows
 ACTION_WINDOW_S = 10
 

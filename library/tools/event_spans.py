@@ -121,6 +121,16 @@ from library.tools.ren_refusal import RenRefusal
 
 PREDICATES = ("speaking", "on_screen")
 
+CLAIM_TYPES = {
+    "speaking_span": "event.speaking_span",
+    "visible_span": "event.visible_span",
+    "candidate_span": "event.candidate_span",
+}
+"""The claims this producer writes, and the registry type each one is
+filed under. The class of a claim is a consequence of that type
+(``claim_provenance``): the producer says how the value was produced,
+and no reader re-guesses it from the value's shape."""
+
 UNSHIPPED = {
     "hand_near_mouth": (
         "measured and NOT shipped: on every 2 Hz frame of the four Craig "

@@ -162,6 +162,14 @@ dependency location per machine, outside every checkout)."""
 MEMORY_ROOT_ENV = "PIPELINE_SOURCE_MEMORY_ROOT"
 """Names the memory root outright, for a machine whose layout differs."""
 
+CLAIM_TYPES = {
+    "source_metadata": "media.source_metadata",
+}
+"""The claims this producer writes, and the registry type each one is
+filed under. The class of a claim is a consequence of that type
+(``claim_provenance``): the producer says how the value was produced,
+and no reader re-guesses it from the value's shape."""
+
 # ── The slots ──────────────────────────────────────────────────────
 # A lane writes into its named file and no other. Every slot named below
 # has a writer (the per-slot constants and the writer history under

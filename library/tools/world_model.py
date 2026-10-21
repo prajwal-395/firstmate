@@ -78,6 +78,7 @@ from typing import List, Optional
 
 try:
     from library.tools import (
+        claim_provenance,
         conversation_clock,
         event_spans,
         expression_classifier,
@@ -88,8 +89,10 @@ try:
     from library.tools import span_verification
 except ImportError:  # imported as `tools.*` from inside library/
     from tools import (
+        claim_provenance,
         conversation_clock,
         event_spans,
+        expression_classifier,
         person_entity,
         person_measurements,
         source_memory,
@@ -98,6 +101,9 @@ except ImportError:  # imported as `tools.*` from inside library/
 
 
 STATUS_BUILT = "built"
+
+PROVENANCE_VERSION = 1
+"""The version of the provenance vocabulary a world model carries."""
 
 
 def _overlap(start: float, end: float, lo: float, hi: float) -> bool:
@@ -117,15 +123,25 @@ def _words_at(m1: Optional[dict], lo: float, hi: float) -> List[dict]:
     return words
 
 
-def _speaker_at(m7: Optional[dict], lo: float, hi: float) -> Optional[dict]:
-    """The speaking span covering [lo, hi), or None."""
+def _speakers_at(m7: Optional[dict], lo: float, hi: float) -> List[dict]:
+    """Every speaking span overlapping [lo, hi).
+
+    All of them, not the first: two lanes may disagree about who is
+    speaking in the same second, and a disagreement the join drops is
+    a disagreement nobody can see.
+    """
     if not m7:
-        return None
+        return []
+    spans = []
     for span in (m7.get("predicates") or {}).get("speaking", {}).get("spans") or []:
         if _overlap(span["start"], span["end"], lo, hi):
-            return {"voice_track": span.get("voice_track"),
-                    "face_track": span.get("face_track")}
-    return None
+            spans.append({
+                "voice_track": span.get("voice_track"),
+                "face_track": span.get("face_track"),
+                "start": span.get("start"),
+                "end": span.get("end"),
+            })
+    return spans
 
 
 def _faces_at(m3: Optional[dict], assignment: Optional[List[List[Optional[str]]]],
@@ -160,16 +176,22 @@ def _faces_at(m3: Optional[dict], assignment: Optional[List[List[Optional[str]]]
     return faces
 
 
-def _scene_at(m4: Optional[dict], t: float) -> Optional[dict]:
-    """The M4 scene segment containing time t, or None."""
+def _scenes_at(m4: Optional[dict], t: float) -> List[dict]:
+    """Every M4 scene segment containing time t.
+
+    All of them, not the first: two overlapping segments that describe
+    the same second differently are a disagreement, and the join
+    records it rather than keeping the first and losing the second.
+    """
     if not m4:
-        return None
+        return []
+    scenes = []
     for seg in m4.get("scenes") or []:
         if seg["start"] <= t < seg["end"]:
-            return {k: seg.get(k) for k in
-                    ("start", "end", "location", "type", "lighting",
-                     "notable_features")}
-    return None
+            scenes.append({k: seg.get(k) for k in
+                           ("start", "end", "location", "type", "lighting",
+                            "notable_features")})
+    return scenes
 
 
 def _sound_at(m5: Optional[dict], lo: float, hi: float) -> List[dict]:
@@ -195,16 +217,51 @@ def _events_at(m7: Optional[dict], m8: Optional[dict],
             events["speaking"].append({
                 "voice_track": span.get("voice_track"),
                 "face_track": span.get("face_track"),
+                "start": span.get("start"),
+                "end": span.get("end"),
             })
     for span in (m7.get("candidates") or {}).get("hand_near_mouth", {}).get("spans") or []:
         if _overlap(span["start"], span["end"], lo, hi):
+            verdicts = _verdicts_for_span(span, m8)
             events["hand_near_mouth"].append({
                 "face_track": span.get("face_track"),
                 "start": span["start"],
                 "end": span["end"],
-                "verdicts": _verdicts_for_span(span, m8),
+                "verdicts": verdicts,
+                "verification": _verification_for(verdicts),
             })
     return events
+
+
+def _verification_for(verdicts: List[dict]) -> dict:
+    """What the verifier said about a candidate span.
+
+    A candidate nobody verified is not a candidate nobody refuted: the
+    two states read alike when a world model carries no status, and
+    that is how an unverified detection comes to look like a confirmed
+    one. A verdict is a MODEL's judgement, so it records a status and
+    never raises the candidate's class to a measurement.
+    """
+    if not verdicts:
+        return {"status": "unverified", "verifier": None,
+                "verifier_kind": None, "answers": []}
+    answers = [str(verdict.get("answer") or "") for verdict in verdicts]
+    decided = {answer for answer in answers if answer in ("yes", "no")}
+    if decided == {"yes", "no"}:
+        status = "disputed"
+    elif decided == {"yes"}:
+        status = "verified"
+    elif decided == {"no"}:
+        status = "refuted"
+    else:
+        status = "unverified"
+    return {
+        "status": status,
+        "verifier": "library.tools.span_verification",
+        "verifier_kind": "model",
+        "answers": sorted(set(answers)),
+        "class": claim_provenance.claim_class("verdict"),
+    }
 
 
 def _relationships_at(m10: Optional[dict], lo: float, hi: float) -> dict:
@@ -245,6 +302,7 @@ def _verdicts_for_span(span: dict, m8: Optional[dict]) -> List[dict]:
                 "answer": verdict.get("answer"),
                 "reason": verdict.get("reason"),
                 "model": verdict.get("model"),
+                "frames": verdict.get("frames") or [],
             })
     return verdicts
 
@@ -269,9 +327,126 @@ def _build_multicam(m6: Optional[dict]) -> Optional[dict]:
     """Multicam context from M6, or None when the source is in no group."""
     if not m6:
         return None
-    return {k: m6.get(k) for k in
-            ("group_id", "group_members", "reference_digest",
-             "offset_to_reference_seconds")}
+    block = {k: m6.get(k) for k in
+             ("group_id", "group_members", "reference_digest",
+              "offset_to_reference_seconds")}
+    block["conflicts"] = _multicam_conflicts(m6)
+    return block
+
+
+def _multicam_conflicts(m6: Optional[dict]) -> List[dict]:
+    """Two measurements of this source's offset that disagree.
+
+    The audio n-gram measurement and the Resolve timeline cross-check
+    are both instruments, and they do not always agree. The world model
+    used to carry the n-gram offset alone, so the disagreement was
+    invisible; both readings are kept and the disagreement is named.
+    """
+    conflicts: List[dict] = []
+    if not m6:
+        return conflicts
+    check = m6.get("resolve_cross_check") or {}
+    if check.get("agrees_with_ngram_offset") is False:
+        conflicts.append({
+            "quantity": "offset_to_reference_seconds",
+            "detail": "the audio n-gram measurement and the Resolve "
+                      "timeline cross-check disagree about this source's "
+                      "offset to the reference",
+            "claims": [
+                {"modality": "m6_ngram_measurement",
+                 "value": m6.get("offset_to_reference_seconds"),
+                 "class": "measured"},
+                {"modality": "resolve_timeline_cross_check",
+                 "value": check.get("offset_seconds"),
+                 "class": "measured"},
+            ],
+        })
+    return conflicts
+
+
+def _provenance_for(entry: dict) -> dict:
+    """The provenance of every claim this entry carries.
+
+    Only the claims that are HERE: a lane that was never built leaves
+    no provenance behind, so an absent claim is absent rather than
+    defaulted.
+    """
+    provenance: dict = {}
+    speech = entry.get("speech") or {}
+    events = entry.get("events") or {}
+    if speech.get("words"):
+        provenance["words"] = claim_provenance.tag("words")
+    if speech.get("speakers") or events.get("speaking"):
+        provenance["speaking_span"] = claim_provenance.tag("speaking_span")
+    if entry.get("faces"):
+        provenance["face_box"] = claim_provenance.tag("face_box")
+    if entry.get("scene"):
+        provenance["scene"] = claim_provenance.tag("scene")
+    if entry.get("cinematography"):
+        provenance["scene_boundary"] = claim_provenance.tag("scene_boundary")
+    if (entry.get("sound") or {}).get("events"):
+        provenance["sound_event"] = claim_provenance.tag("sound_event")
+    if events.get("on_screen"):
+        provenance["visible_span"] = claim_provenance.tag("visible_span")
+    if events.get("hand_near_mouth"):
+        provenance["candidate_span"] = claim_provenance.tag("candidate_span")
+        if any(candidate.get("verdicts")
+               for candidate in events["hand_near_mouth"]):
+            provenance["verdict"] = claim_provenance.tag("verdict")
+    if any(entry.get("relationships", {}).get(name)
+           for name in (entry.get("relationships") or {})):
+        provenance["relationship"] = claim_provenance.tag("relationship")
+    return provenance
+
+
+def _conflicts_for(t: int, speakers: List[dict], scenes: List[dict],
+                   events: dict) -> List[dict]:
+    """The observations that disagree about this second.
+
+    Both claims stay where they are; the disagreement is recorded, so a
+    reader can see that two lanes said different things rather than
+    finding one of them silently gone.
+    """
+    conflicts: List[dict] = []
+    face_tracks = {span.get("face_track") for span in speakers
+                   if span.get("face_track")}
+    if len(face_tracks) > 1:
+        conflicts.append({
+            "quantity": "who is speaking",
+            "at": t,
+            "detail": "the speaking predicate attributes this second to "
+                      "more than one face",
+            "claims": [{"modality": "m7_speaking_span",
+                        "value": sorted(face_tracks)}],
+        })
+    scene_readings = {(scene.get("location"), scene.get("type"))
+                      for scene in scenes}
+    if len(scene_readings) > 1:
+        conflicts.append({
+            "quantity": "which scene this second is in",
+            "at": t,
+            "detail": "two scene segments describe this second differently",
+            "claims": [{"modality": "m4_scene_segment",
+                        "value": [f"{location} / {kind}"
+                                  for location, kind in sorted(
+                                      scene_readings, key=str)]}],
+        })
+    for candidate in (events.get("hand_near_mouth") or []):
+        if (candidate.get("verification") or {}).get("status") == "disputed":
+            conflicts.append({
+                "quantity": "whether the candidate happened",
+                "at": t,
+                "detail": "the verifier's verdicts on this candidate "
+                          "disagree with each other",
+                "claims": [{"modality": "m7_candidate_span",
+                            "value": {"face_track": candidate.get("face_track"),
+                                      "start": candidate.get("start"),
+                                      "end": candidate.get("end")}},
+                           {"modality": "m8_verdict",
+                            "value": candidate.get("verification", {}).get(
+                                "answers")}],
+            })
+    return conflicts
 
 
 def build_timeline(duration: float, m1: Optional[dict], m3: Optional[dict],
@@ -283,7 +458,8 @@ def build_timeline(duration: float, m1: Optional[dict], m3: Optional[dict],
 
     One entry per second from 0 to floor(duration). Each entry carries
     every observation that falls within that second, so a query at
-    time T is one array index.
+    time T is one array index, and the class of every claim it carries
+    under `provenance`.
     """
     assignment = None
     if m3 and m3b:
@@ -292,17 +468,26 @@ def build_timeline(duration: float, m1: Optional[dict], m3: Optional[dict],
     timeline = []
     for t in range(int(duration) + 1):
         lo, hi = float(t), float(t + 1)
-        timeline.append({
+        speakers = _speakers_at(m7, lo, hi)
+        scenes = _scenes_at(m4, lo)
+        events = _events_at(m7, m8, lo, hi)
+        entry = {
             "t": t,
             "speech": {"words": _words_at(m1, lo, hi),
-                       "speaker": _speaker_at(m7, lo, hi)},
+                       "speaker": ({"voice_track": speakers[0].get("voice_track"),
+                                    "face_track": speakers[0].get("face_track")}
+                                   if speakers else None),
+                       "speakers": speakers},
             "faces": _faces_at(m3, assignment, lo, hi, m3c),
-            "scene": _scene_at(m4, lo),
+            "scene": scenes[0] if scenes else None,
             "cinematography": _cinematography_at(m4, lo),
             "sound": {"events": _sound_at(m5, lo, hi)},
-            "events": _events_at(m7, m8, lo, hi),
+            "events": events,
             "relationships": _relationships_at(m10, lo, hi),
-        })
+        }
+        entry["provenance"] = _provenance_for(entry)
+        entry["conflicts"] = _conflicts_for(t, speakers, scenes, events)
+        timeline.append(entry)
     return timeline
 
 
@@ -347,14 +532,23 @@ def build_source_world_model(content_digest: str, source_file: str,
         ("m10", m10),
     ) if doc is not None]
 
+    entities = _build_entities(m3b)
+    provenance = {}
+    if entities.get("face_tracks") or entities.get("voice_tracks"):
+        provenance["identity"] = claim_provenance.tag("identity")
+    if m6:
+        provenance["multicam_offset"] = claim_provenance.tag("multicam_offset")
+
     record = {
         "content_digest": content_digest,
         "source_file": os.path.abspath(source_file),
         "status": STATUS_BUILT,
         "duration_seconds": duration,
         "lanes": lanes,
+        "provenance_version": PROVENANCE_VERSION,
+        "provenance": provenance,
         "timeline": timeline,
-        "entities": _build_entities(m3b),
+        "entities": entities,
         "multicam": _build_multicam(m6),
     }
     source_memory.write_world_model(content_digest, record, root)

@@ -102,6 +102,14 @@ trusted to the second."""
 
 SLOT_CLOCK = source_memory.SLOT_CLOCK  # M6 - this module's slot
 
+CLAIM_TYPES = {
+    "multicam_offset": "sync.multicam_offset",
+}
+"""The claims this producer writes, and the registry type each one is
+filed under. The class of a claim is a consequence of that type
+(``claim_provenance``): the producer says how the value was produced,
+and no reader re-guesses it from the value's shape."""
+
 
 def _load_json(path: Path):
     try:

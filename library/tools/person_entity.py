@@ -109,6 +109,14 @@ the gate still cannot false-merge. Full record:
 """
 
 VOICE_MATCH_MIN_SECONDS = 21.0
+
+CLAIM_TYPES = {
+    "identity": "object.track_sample",
+}
+"""The claims this producer writes, and the registry type each one is
+filed under. The class of a claim is a consequence of that type
+(``claim_provenance``): the producer says how the value was produced,
+and no reader re-guesses it from the value's shape."""
 """Speech a voice track must carry before it is matched across sources.
 Every same-person false reject in the study involved a diarizer fragment
 of 4-6 s; 40-window chunks (>= 21 s of speech) pass FAR=0/FRR=0 from 0.30

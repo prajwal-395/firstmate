@@ -33,6 +33,14 @@ from library.tools import person_measurements, source_memory
 M3C_STATUS_MEASURED = "measured"
 M3C_METHOD = "expression-classifier-v2-m2-crops"
 
+CLAIM_TYPES = {
+    "expression": "image.expression_frame",
+}
+"""The claims this producer writes, and the registry type each one is
+filed under. The class of a claim is a consequence of that type
+(``claim_provenance``): the producer says how the value was produced,
+and no reader re-guesses it from the value's shape."""
+
 EXPRESSIONS = ("neutral", "happy", "sad", "angry", "surprised", "fearful",
                "disgusted")
 

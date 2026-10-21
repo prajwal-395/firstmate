@@ -306,6 +306,14 @@ LEGACY_ALIGNER = "wav2vec2"
 #: could not transcribe would pin every later run to empty words.
 UNTRANSCRIBED = "none"
 
+CLAIM_TYPES = {
+    "sound_event": "audio.sound_event",
+}
+"""The claims this producer writes, and the registry type each one is
+filed under. The class of a claim is a consequence of that type
+(``claim_provenance``): the producer says how the value was produced,
+and no reader re-guesses it from the value's shape."""
+
 
 def snap_word_boundaries_to_onsets(
     words: list,

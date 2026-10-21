@@ -88,6 +88,14 @@ LAYOUT = "sources end to end in footage order"
 
 LOCK_OWNER = "source-transcript"
 
+CLAIM_TYPES = {
+    "words": "speech.word",
+}
+"""The claims this producer writes, and the registry type each one is
+filed under. The class of a claim is a consequence of that type
+(``claim_provenance``): the producer says how the value was produced,
+and no reader re-guesses it from the value's shape."""
+
 MEASUREMENT = (
     "Speech heard from the SOURCE footage itself - the per-source "
     "memory's M1 transcript (the hybrid seam through MFA), voices from "

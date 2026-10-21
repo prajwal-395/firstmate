@@ -574,6 +574,17 @@ _REGISTRY: dict[str, dict[str, Any]] = {
         "verification, with the M8 verdicts recorded against it and "
         "whether any affirms it. Candidates are never answers.",
     },
+    "event.verdict": {
+        "unit": "boolean",
+        "kind": EvidenceType.INFERENCE,
+        "producer_kind": "model",
+        "uncertainty_source": "unstated",
+        "requires_resolution": False,
+        "description": "An M8 verdict: a model's yes/no answer about a "
+        "statement over a set of frames, with its reason. It is the "
+        "model's inference about the picture, and it confirms or "
+        "refutes a candidate rather than measuring one.",
+    },
     "relation.candidate_span": {
         "unit": "span",
         "kind": EvidenceType.INFERENCE,

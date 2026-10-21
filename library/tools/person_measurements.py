@@ -65,6 +65,14 @@ BATCH_FRAMES = 2000
 start once, but a helper killed at frame 9,000 of 9,873 would lose
 everything; 2,000 frames is ~70 s warm at the measured 34 ms/frame."""
 
+CLAIM_TYPES = {
+    "face_box": "person.face_box",
+}
+"""The claims this producer writes, and the registry type each one is
+filed under. The class of a claim is a consequence of that type
+(``claim_provenance``): the producer says how the value was produced,
+and no reader re-guesses it from the value's shape."""
+
 LANDMARK_FACE_MIN_IOU = 0.5
 """Landmarks pair to a face box by overlap: the two requests observe
 independently, so an unpaired landmark set is dropped rather than

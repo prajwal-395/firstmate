@@ -92,6 +92,14 @@ INTERVAL_VERDICT_MAX_TOKENS = 120
 VERDICT_MAX_TOKENS = 120
 
 VERIFY_LOCK_OWNER = "span-verification"
+
+CLAIM_TYPES = {
+    "verdict": "event.verdict",
+}
+"""The claims this producer writes, and the registry type each one is
+filed under. The class of a claim is a consequence of that type
+(``claim_provenance``): the producer says how the value was produced,
+and no reader re-guesses it from the value's shape."""
 """New verdicts are VLM inference: taken under the machine's heavy-work
 lock. A question answered entirely from recorded verdicts takes none."""
 

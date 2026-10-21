@@ -94,6 +94,14 @@ from library.tools import (
 
 STATUS_BUILT = "built"
 
+CLAIM_TYPES = {
+    "relationship": "relation.candidate_span",
+}
+"""The claims this producer writes, and the registry type each one is
+filed under. The class of a claim is a consequence of that type
+(``claim_provenance``): the producer says how the value was produced,
+and no reader re-guesses it from the value's shape."""
+
 RELATIONS = ("holding", "pointing", "looking_at")
 """The relationship types an M10 record carries, in record order."""
 
