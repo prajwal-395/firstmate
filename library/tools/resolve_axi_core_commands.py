@@ -37,6 +37,9 @@ source clips; build verified by the pool listing, sync planned with
 re-read), `render queue|start|stop`,
 `project set` (one setting), `project scratch create|import|open|restore|delete`
 (Ren Scratch - prefixed projects only, with origin read-back/restore),
+`project export-timeline` (one named timeline copied out of ANY project
+into a Ren-owned scratch project; the source is read only, never saved,
+and the origin project, timeline and page are restored and read back),
 `timeline duplicate` (versioning), `timeline delete` (exact owned-resource
 retirement), and
 `sense transcribe|cuts|classify|intellisearch|reframe|mask|switch`
@@ -52,12 +55,14 @@ Safety shape, stated once:
   `multicam build`, `color lut|group`, `audio isolate`, `ingest`,
   `relink`,
   `render queue|start|stop`, `project set`,
-  `project scratch create|import|open|restore|delete`, `timeline duplicate`,
+  `project scratch create|import|open|restore|delete`, `project export-timeline`,
+  `timeline duplicate`,
   `timeline delete`,
   `sense *`)
   and `run --unsafe`.
 - No command opens or creates projects except the explicitly named
-  `project scratch` lifecycle, and nothing creates timelines except
+  `project scratch` lifecycle and `project export-timeline`, and
+  nothing creates timelines except
   `project scratch create`. `timeline list/get` use recorded
   generations; `timeline get --refresh-live` requires the exact target
   to be current. Other timeline reads use `GetTimelineByIndex`, never
@@ -7720,6 +7725,43 @@ def cmd_project_scratch(args) -> int:
                     f"{TOOL} project scratch --help")
 
 
+def cmd_project_export_timeline(args) -> int:
+    """Copy one named timeline out of ANY project, into a scratch project.
+
+    The source project is read only: it is never saved and never
+    written, and the project, timeline and page that were open when the
+    command started are restored and read back afterwards.
+    """
+    if not getattr(args, "apply", False):
+        return fail(
+            "the export copies a reel out of a project and creates a "
+            "scratch project; pass --apply once the source and the target "
+            "are right",
+            f"{TOOL} project export-timeline --help")
+    try:
+        from library.tools import reel_export
+        with _lease(exclusive=True):
+            resolve = _connect()
+            manager = resolve.GetProjectManager()
+            if manager is None:
+                raise AxiError("Resolve returned no live Project Manager")
+            result = reel_export.export_into_scratch(
+                resolve, manager,
+                source_project=args.source_project,
+                timeline_name=args.timeline,
+                scratch_project=getattr(args, "scratch", "") or "",
+                fps=getattr(args, "fps", None),
+                width=getattr(args, "width", None),
+                height=getattr(args, "height", None),
+                source_folder=getattr(args, "source_folder", "") or "",
+                archive_dir=getattr(args, "archive", "") or None)
+        emit([kv_block("reel_export", result)])
+        return 0
+    except Exception as exc:  # noqa: BLE001 - lifecycle refusal is user-facing
+        return fail(f"the reel export failed: {exc}",
+                    f"{TOOL} project export-timeline --help")
+
+
 def cmd_timeline_checkpoint(args) -> int:
     """Duplicate and export a timeline checkpoint under the Resolve lease."""
     if not args.apply:
@@ -10396,6 +10438,34 @@ def build_parser() -> Parser:
     q.add_argument("--new-name", default="", help="unused Resolve project name required with --restore")
     q.add_argument("--apply", action="store_true", help="write the checkpoint or import a new project")
     q.set_defaults(func=cmd_project_checkpoint)
+
+    q = psubs.add_parser(
+        "export-timeline",
+        help="copy one named timeline out of any project into a Ren-owned "
+             "scratch project; the source is read only and the origin is "
+             "restored")
+    q.add_argument("--source-project", required=True,
+                   help="the EXACT Resolve project to read the timeline from")
+    q.add_argument("--timeline", required=True,
+                   help="the EXACT timeline name to copy out")
+    q.add_argument("--scratch", default="",
+                   help="new 'Ren Scratch - ' project to import the copy "
+                        "into (default: only the .drt is written)")
+    q.add_argument("--source-folder", default="",
+                   help="Project Manager folder holding the source project "
+                        "(default: the folder that holds it)")
+    q.add_argument("--archive", default="",
+                   help="where to write the .drt (default: the machine's "
+                        "reel-export store)")
+    q.add_argument("--fps", default=None,
+                   help="frame rate of the copy (default: the source's)")
+    q.add_argument("--width", default=None,
+                   help="width of the copy (default: the source's)")
+    q.add_argument("--height", default=None,
+                   help="height of the copy (default: the source's)")
+    q.add_argument("--apply", action="store_true",
+                   help="perform the export and restore the origin project")
+    q.set_defaults(func=cmd_project_export_timeline)
 
     q = psubs.add_parser(
         "scratch", help="create, import, open, restore or delete 'Ren Scratch - ' projects")

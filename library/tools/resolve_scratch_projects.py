@@ -145,17 +145,27 @@ def _name(name: str) -> str:
     return name
 
 
+def scratch_project_name(name: str) -> str:
+    """The validated name of a Ren-owned scratch project.
+
+    The public way in: a caller that creates a scratch project names it
+    here first, so a name that is not Ren's is refused before anything
+    is created rather than half way through a lifecycle.
+    """
+    return _name(name)
+
+
 def _settle_after_lifecycle_call() -> None:
     resolve_switch_guard.note_project_switch()
     resolve_switch_guard.wait_for_settle()
 
 
-def _starting_state(resolve, manager) -> dict:
+def _starting_state(resolve, manager, *, save: bool = True) -> dict:
     project = manager.GetCurrentProject()
     if project is None:
         raise ScratchProjectError("Resolve has no current project to restore")
     name = project.GetName()
-    if not manager.SaveProject():
+    if save and not manager.SaveProject():
         # An untitled project holds no work - it is what a relaunch of
         # Resolve leaves behind, and it cannot be saved because it has
         # no name. Refusing to leave it would leave EVERY scratch
@@ -788,8 +798,16 @@ def _import_qualification_drts(project, archives) -> list[dict]:
 
 
 @contextmanager
-def _preserve_origin(resolve, manager):
-    state = _starting_state(resolve, manager)
+def _preserve_origin(resolve, manager, *, save: bool = True):
+    """Record the origin, and put it back on the way out.
+
+    `save=False` is for a caller that has already established the
+    origin is not ours to write - the reel-level export reads a
+    captain's project and must leave it exactly as it found it
+    (`library/tools/reel_export.py`).  The origin is still restored and
+    read back; it is simply not saved on the way in.
+    """
+    state = _starting_state(resolve, manager, save=save)
     try:
         yield state
     finally:
@@ -966,8 +984,13 @@ def _apply_project_shape(project, name: str, fps: float | None,
     return pending
 
 
-def _read_project_shape(project) -> dict:
-    """Read back the project frame rate and resolution; None where unreadable."""
+def read_project_shape(project) -> dict:
+    """Read back the project frame rate and resolution; None where unreadable.
+
+    A caller that copies a timeline OUT of a project needs the shape it
+    was in, so the copy lands in the same frame rate and resolution
+    rather than Resolve's default.
+    """
     try:
         fps = float(project.GetSetting("timelineFrameRate"))
         fps = fps if math.isfinite(fps) else None
@@ -1018,14 +1041,15 @@ def create(resolve, manager, name: str, fps=None, width=None, height=None) -> di
                 "timeline_count": 1,
                 "owned_artifacts": owned_artifacts,
                 **({"requested": requested} if requested else {}),
-                **_read_project_shape(readback),
+                **read_project_shape(readback),
                 "restored": {"project": state["project"],
                              "timeline": state["timeline"],
                              "page": state["page"], "verified": True}}
 
 
 def import_project(resolve, manager, source: str | Path, name: str, *,
-                   fps=None, width=None, height=None) -> dict:
+                   fps=None, width=None, height=None,
+                   save_origin: bool = True) -> dict:
     """Import a project or timeline into a new, Ren-owned scratch project.
 
     A `.drp` keeps the existing whole-project import behavior. A `.drt`
@@ -1033,6 +1057,12 @@ def import_project(resolve, manager, source: str | Path, name: str, *,
     before the first timeline exists, and imports the timeline there. The
     source is read only; the new project is the only project this operation
     creates or changes.
+
+    `save_origin=False` is for a caller whose origin is a project this
+    operation must not write - the reel-level export copies a timeline out
+    of a captain's project and leaves that project exactly as it found it
+    (`library/tools/reel_export.py`).  The origin is still restored and
+    read back; it is simply not saved on the way in.
     """
     name = _name(name)
     artifact = Path(source).expanduser().resolve()
@@ -1053,7 +1083,7 @@ def import_project(resolve, manager, source: str | Path, name: str, *,
     if _listed(manager, name):
         raise ScratchProjectError(f"project {name!r} already exists in the current folder")
     _refuse_if_another_writer_holds(resolve, manager)
-    with _preserve_origin(resolve, manager) as state:
+    with _preserve_origin(resolve, manager, save=save_origin) as state:
         if suffix == ".drp":
             imported = manager.ImportProject(str(artifact), name)
             _settle_after_lifecycle_call()
@@ -1111,7 +1141,7 @@ def import_project(resolve, manager, source: str | Path, name: str, *,
                     "imported": True, "timeline": current_timeline.GetName(),
                     "timeline_id": current_timeline.GetUniqueId(),
                     "timeline_count": 1, "owned_artifacts": owned_artifacts,
-                    "requested": requested, **_read_project_shape(project),
+                    "requested": requested, **read_project_shape(project),
                     "restored": {"project": state["project"],
                                  "timeline": state["timeline"],
                                  "page": state["page"], "verified": True}}

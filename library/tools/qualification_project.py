@@ -1114,6 +1114,62 @@ def _project_locations(manager, name: str) -> list[tuple[str, ...]]:
     return sorted(locations)
 
 
+def open_project_for_reading(manager, name: str, *, folder: str = ""):
+    """Open an exact project for READING, and put the PM cursor back.
+
+    The read-only half of the switch discipline. The project is opened
+    by its EXACT name - never a near match, because a near match lands
+    on somebody else's project - the Project Manager cursor is restored
+    to where it was, and NOTHING is saved: a project opened for reading
+    is not written.
+
+    The name is looked up in `folder` when one is given, and in every
+    Project Manager folder otherwise. A name that lives in more than one
+    folder is REFUSED: Resolve resolves a name inside the CURRENT folder,
+    so the two copies are different projects and the wrong one is not
+    ours to open.
+
+    This is the opening half of the reel-level export
+    (`library/tools/reel_export.py`); it lives here because this module
+    owns the ONE in-repo LoadProject path.
+
+    `tests/unit/resolve/test_reel_export.py`.
+    """
+    _require_live_manager(manager, f"opening {name!r}")
+    current_path = _current_project_folder_path(manager)
+    try:
+        if folder:
+            path = tuple(segment for segment in
+                         str(folder).replace("\\", "/").split("/")
+                         if segment)
+            _open_project_folder_path(manager, path)
+            listed = manager.GetProjectListInCurrentFolder() or []
+            if name not in listed:
+                raise QualificationError(
+                    f"no project named exactly {name!r} in the Project "
+                    f"Manager folder {'/'.join(path) or '(the root)'!r}; "
+                    f"Resolve lists {listed}")
+        else:
+            locations = _project_locations(manager, name)
+            if not locations:
+                raise QualificationError(
+                    f"no project named exactly {name!r} in the Project Manager")
+            if len(locations) > 1:
+                where = ", ".join("/".join(item) or "(the root)"
+                                  for item in locations)
+                raise QualificationError(
+                    f"{name!r} is filed in more than one Project Manager "
+                    f"folder ({where}); name the folder to read it from")
+            _open_project_folder_path(manager, locations[0])
+        project = switch_project(manager, name)
+        if project is None or (project.GetName() or "") != name:
+            raise QualificationError(
+                f"{name!r} did not read back after the switch")
+        return project
+    finally:
+        _open_project_folder_path(manager, current_path)
+
+
 def _qualification_project_folder(manager) -> tuple[str, ...]:
     """The folder the LIVE qualification project is filed in.
 

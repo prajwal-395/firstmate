@@ -426,8 +426,9 @@ def recovery_archive_import_name(timeline_name: str) -> str:
 def export_timeline_recovery_archive(
         resolve, timeline, timeline_name: str,
         project_folder: str, label: str = "",
-        archive_suffix: str = "") -> dict:
-    """Export one timeline to its `recovery_archives` `.drt`, atomically.
+        archive_suffix: str = "", *,
+        destination: Path | None = None) -> dict:
+    """Export one timeline to a `.drt`, atomically.
 
     The same destination and scratch-staged replace the build's per-reel
     export uses, for a timeline the build did not promote - a refused
@@ -437,38 +438,60 @@ def export_timeline_recovery_archive(
     timelines. `archive_suffix` gives a custom script run its own archive
     without replacing the shared per-reel recovery file.
 
+    `destination` names the `.drt` to write, for an export that does not
+    belong to a Ren project folder - the reel-level export writes its
+    archive into the machine's own export store, because the timeline it
+    reads belongs to somebody else's project
+    (`library/tools/reel_export.py`).  With a `destination` the
+    `project_folder` is unused, and the archive is staged in the
+    destination's own directory so the replace stays on one filesystem.
+
     Best effort by construction: the caller deletes the staging
     whatever happens, so a failed export is reported on the result,
     never raised - a cleanup that failed must not mask the refusal it
     is cleaning up.
     """
     result = {"archived": False}
-    try:
-        from library.tools.project_layout import Area, ProjectLayout
+    if destination is not None:
+        destination = Path(destination).expanduser().resolve()
+        if destination.suffix.lower() != ".drt":
+            result["reason"] = (
+                f"a DRT export destination must be a .drt file: {destination}")
+            return result
+        try:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:  # noqa: BLE001 - archive is best effort
+            result["reason"] = f"export directory unavailable: {exc!r}"
+            return result
+        scratch_dir = destination.parent
+    else:
+        try:
+            from library.tools.project_layout import Area, ProjectLayout
 
-        layout = ProjectLayout(project_folder)
-        archive_dir = (layout.write_dir(Area.REVIEW)
-                       / DRT_RECOVERY_DIRNAME)
-        archive_dir.mkdir(parents=True, exist_ok=True)
-        scratch_dir = layout.write_dir(Area.SCRATCH)
-    except Exception as exc:  # noqa: BLE001 - archive is best effort
-        result["reason"] = f"archive directory unavailable: {exc!r}"
-        return result
+            layout = ProjectLayout(project_folder)
+            archive_dir = (layout.write_dir(Area.REVIEW)
+                           / DRT_RECOVERY_DIRNAME)
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            scratch_dir = layout.write_dir(Area.SCRATCH)
+        except Exception as exc:  # noqa: BLE001 - archive is best effort
+            result["reason"] = f"archive directory unavailable: {exc!r}"
+            return result
 
     export_flag = getattr(resolve, "EXPORT_DRT", None)
     if export_flag is None:
         result["reason"] = "Resolve does not expose EXPORT_DRT"
         return result
 
-    stem = _recovery_archive_stem(timeline_name)
-    if archive_suffix:
-        suffix = "".join(char if char.isalnum() or char in "-_"
-                         else "_" for char in archive_suffix)
-        if not suffix:
-            result["reason"] = "archive suffix contains no safe characters"
-            return result
-        stem += "--" + suffix
-    destination = archive_dir / f"{stem}.drt"
+    if destination is None:
+        stem = _recovery_archive_stem(timeline_name)
+        if archive_suffix:
+            suffix = "".join(char if char.isalnum() or char in "-_"
+                             else "_" for char in archive_suffix)
+            if not suffix:
+                result["reason"] = "archive suffix contains no safe characters"
+                return result
+            stem += "--" + suffix
+        destination = archive_dir / f"{stem}.drt"
     try:
         import tempfile
 
