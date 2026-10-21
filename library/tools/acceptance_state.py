@@ -253,13 +253,23 @@ def _applicability(fact: Any) -> bool | None:
 
 
 def evaluate(facts: Mapping[str, Any],
-             results: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+             results: Mapping[str, Mapping[str, Any]],
+             legs: Sequence[str] | None = None) -> dict[str, Any]:
     """Judge the legs, and say what the task's acceptance is.
 
     `facts` answers which legs apply (see :data:`FACTS`); `results`
     carries what each applicable leg MEASURED.  A leg that applies and
     has no result is unmeasured, and so is a leg whose applicability
     nobody established.
+
+    `legs` narrows the gate to a SUBSET of :data:`LEGS`, for a caller
+    that is measuring something the other legs cannot speak for.  The
+    finished-video benchmark (QA-010) is that caller: it judges a
+    DELIVERED FILE, and the legs about the writes and the timeline a
+    file was built from are not its to answer.  The gate, the
+    vocabulary and the outcomes are the same ones - a subset is not a
+    second gate - and a leg named here that is not a leg of this gate
+    RAISES rather than being ignored.
 
     The outcome, in the order the questions are asked:
 
@@ -276,8 +286,10 @@ def evaluate(facts: Mapping[str, Any],
     `total` legs, and the unmeasured count is never folded into the
     passed one.
     """
+    entries = LEGS if legs is None else tuple(
+        leg(leg_id) for leg_id in legs)
     rows: list[dict[str, Any]] = []
-    for entry in LEGS:
+    for entry in entries:
         fact = facts.get(entry.requires)
         applies = _applicability(fact)
         result = results.get(entry.id)
@@ -378,7 +390,8 @@ def evaluate(facts: Mapping[str, Any],
         "reason": reason,
         "legs": rows,
         "counts": counts,
-        "facts": {name: facts.get(name) for name in FACTS},
+        "facts": {name: facts.get(name) for name in FACTS
+                  if name in {entry.requires for entry in entries}},
     }
 
 

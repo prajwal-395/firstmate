@@ -10438,6 +10438,115 @@ gate is `library/tools/compound_transaction.py`, which reports the scope
 and refuses on the approved work. The measurement and the corpus are in
 `docs/PRESERVATION_AWARE_PLANNING.md`.
 
+## the-benchmark-that-measured-nothing-at-the-end
+
+**The punch list, QA-010, 2026-10-20.** "Establish a finished-video
+acceptance benchmark. Expand beyond the current benchmark, where final
+quality has no measured denominator. Include completed rendered outputs
+from representative editorial assignments. Require independent
+assessment of both technical and creative quality. Track first-pass
+acceptance, revision count, human correction time, and preserved work.
+Quality release gate: At least one representative set of end-to-end
+editorial tasks has completed, delivered, independently reviewed videos.
+No major technical failure can be hidden by an otherwise acceptable
+subjective score."
+
+**What was wrong.** The acceptance harness measured a run of briefs on
+five stages, each on its own denominator, and four of the five had one.
+The fifth did not. `final_quality` - "does the delivered FILE satisfy
+the brief, and pass its technical checks?" - reads `not_measured` for
+every task in the committed report
+(`tests/live/reports/editorial-brief-acceptance.json`: 8 briefs,
+`final_quality` measured 0, not_measured 8). The reason was structural:
+a task record is a record of a RUN, and no run in the corpus had
+produced a delivered file and an assessment to put in it. So the stage
+that should have been the headline of the whole benchmark was the one
+stage with nothing behind it, and the harness's other four stages -
+all of them about the plan - were the only numbers a reader could
+quote.
+
+The punch list's sentence was therefore literally true of the engine as
+it stood: final quality had no measured denominator.
+
+**What was built.** `library/tools/finished_video_benchmark.py` is a
+benchmark over FINISHED VIDEOS, and it is an EXTENSION of what was
+there rather than a second system:
+
+- the MECHANICAL half is the engine's own gates on the delivered file
+  (QA-002 picture, QA-003 captions, QA-004 audio), read through
+  `editorial_acceptance.judgement.objective_legs`, so every number
+  cites a measurement instead of inventing one;
+- the CREATIVE half is the brief's own acceptance criteria, judged
+  against the delivered file by a reviewer who did not see the plan
+  (`editorial_brief_scorer`), so a video is judged against what it was
+  FOR;
+- the two are NEVER COMBINED, because they are not the same unit - one
+  is a measurement and one is a reading - and an unmeasured half is
+  `not_measured`, never a zero;
+- the per-video OUTCOME is the engine's own acceptance gate
+  (`library/tools/acceptance_state.py`, QA-008) run over the four legs
+  a delivered file can answer for itself, so a technical failure is a
+  failure whatever the creative score says;
+- the four numbers the punch list asks for are each measured over the
+  videos that RECORDED them;
+- the release gate is computed, and the hiding it forbids is checked
+  PER VIDEO, because a corpus-level average is where a technical
+  failure would hide behind an acceptable subjective score.
+
+`acceptance_state.evaluate()` takes an optional subset of legs: the
+gate, its vocabulary and its outcomes are unchanged, and a leg it does
+not know raises rather than being ignored.
+
+**Measured, on the finished videos that exist, with the denominators.**
+
+The corpus is every distinct finished render in Ren's own scratch
+projects: the exported launch reel of `ren-scratch-bench-demo`
+(79.573s, 1080x1920) and the rendered baseline the
+`vep-live-workflows-e2e` project kept as the before of its tightening
+workflow (75.776s).
+
+- before: final quality measured 0 of 8 briefs in the committed
+  acceptance report - no denominator at all;
+- after: the benchmark measures 2 finished videos on 2 denominators -
+  the mechanical half 4 of 6 legs measured (1 passed, 3 failed, 2
+  `not_measured` because no caption intent was supplied) and the
+  creative half 9 of 14 criteria measured (3 passed, 6 failed, 5
+  `not_measured` because a file alone cannot answer them);
+- the tracked numbers: first-pass acceptance 0 of 1 recorded first
+  attempts; revision count, human correction time and preserved work
+  `not_measured` on a denominator of 0, because nobody recorded them;
+- the release gate: NOT MET - the corpus holds 2 finished videos where
+  three is the smallest set that can carry a denominator. The other
+  three conditions are met: both videos were delivered, both carry an
+  independent review, and neither carries a technical failure behind an
+  acceptable creative score (both creative readings failed too).
+
+**What the measurement found.** The delivered launch reel fails its own
+audio spec: -23.18 LUFS against the -14.0 target, and 3.253s of picture
+over digital silence at the end. The ending the captain designed IS in
+the file - the TV switching off to black, then the logo card - but
+nothing DECLARED it, so the export's own gate cannot tell an intended
+ending from a defect; the fix is a declaration, not a re-render. The
+name bar's ink box (x 58-480, rows 1308-1402) sits inside the left
+crop band of every vertical platform, so the criterion that asked for it
+to sit inside the safe area is half met and half not. And the caption
+leg is `not_measured` on both videos: the delivered captions had
+nothing to be compared against.
+
+**The rule.** A benchmark over finished work measures the FILE, on two
+denominators that are never combined, and says which one is a
+measurement and which one is a reading. A half that was not measured is
+`not_measured` and never a zero. A technical failure is not cleared by a
+subjective score, and the check for that hiding is per item, not over an
+average. The tracked numbers exist only where a run recorded them, and
+their absence is a number of its own.
+
+`library/tools/finished_video_benchmark.py` is the benchmark;
+`library/tools/acceptance_state.py` is the gate the per-video outcome
+comes from; `ren accept --finished-video <corpus.json>` runs it. The
+corpus, the baseline table and the measurements are in
+`docs/FINISHED_VIDEO_BENCHMARK.md`.
+
 ## the-product-outcome-of-a-generated-edit
 
 **The punch list, PROD-008, 2026-10-20.** "Add product-level feedback

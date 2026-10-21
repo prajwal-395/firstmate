@@ -738,7 +738,12 @@ VERBS = (
                 "human reviewer is handed. `--blind-results` reads that pack "
                 "and the reviewers' answers files, and writes the record that "
                 "keeps every reviewer's score and names where they "
-                "disagreed."),
+                "disagreed. `--finished-video <corpus.json>` measures a "
+                "corpus of FINISHED videos (QA-010): every delivered file "
+                "is judged against its own brief and against the engine's "
+                "own gates, on SEPARATE denominators, and the report "
+                "carries the first-pass acceptance, the revision count, the "
+                "human correction time and the preserved work."),
 
     Verb("worker", "Fabric", "This machine's Ren Fabric worker: its manifest, and whether a task's requirements match it",
          effects=("read", "resolve_read"),

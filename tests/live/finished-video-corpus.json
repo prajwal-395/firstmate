@@ -1,0 +1,231 @@
+{
+  "schema": "ren-finished-video-corpus/1",
+  "corpus_id": "ren-scratch-finished-videos-2026-10-21",
+  "description": "Every FINISHED video a Ren-owned scratch project has delivered on this machine, measured against the brief it was made for. The two files here are the only distinct finished renders in the Ren-owned scratch projects: the exported launch reel of ren-scratch-bench-demo and the rendered baseline of the Reel 13 segment that the live-workflows-e2e project kept as the before of its tightening workflow. The captain's own project is not in here, and neither is any file that is not a finished render.",
+  "brief_set": "library/tools/editorial_acceptance/brief_set.json",
+  "videos": [
+    {
+      "video_id": "ren-scratch-bench-demo-reel-13",
+      "brief_id": "the-whole-job",
+      "path": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo/exports/vep-bench-demo-export.mp4",
+      "platform": "tiktok",
+      "expected_duration_seconds": 79.573333,
+      "has_captions": true,
+      "reviewer": "firstmate lane p-qa010-finished-edit (an agent that did not build the reel)",
+      "saw_the_plan": false,
+      "judgments": [
+        {
+          "id": "hook-chosen",
+          "status": "pass",
+          "rationale": "The reel opens on the claim, not on the throat-clearing: its first words are the company coming back as a healthcare company, which is the same claim the header above the picture states.",
+          "evidence": [
+            {
+              "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo/exports/vep-bench-demo-export.mp4 @ 0.00-3.20s",
+              "observation": "the delivered file's own transcript: 0.00-3.20s 'And that's what happened with that company, why they came back as a healthcare company.' - the reel's first line IS the claim."
+            },
+            {
+              "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo/exports/vep-bench-demo-export.mp4 @ 1.00s",
+              "observation": "the still at 1.00s shows the speaker mid-sentence with the header above the picture reading 'AI called an accounting software company a healthcare company.' - the hook is stated before the first second is over."
+            }
+          ]
+        },
+        {
+          "id": "pauses-removed",
+          "status": "fail",
+          "rationale": "The statement the request asks to be taken out is still in the reel: the opening says the same thing twice, in the first two lines.",
+          "evidence": [
+            {
+              "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo/exports/vep-bench-demo-export.mp4 @ 0.00-5.44s",
+              "observation": "the delivered file's own transcript: 0.00-3.20s 'And that's what happened with that company, why they came back as a healthcare company.' followed by 3.20-5.44s 'Mm-hmm and not an accounting software company, yes.' - the same claim, stated twice, is still in the reel."
+            }
+          ]
+        },
+        {
+          "id": "angle-replaced",
+          "status": "not_measured",
+          "rationale": "WHICH angle was doing nothing is a fact about the plan and the source material. The delivered file shows two camera angles and cannot say that the angle the request names was the one that was replaced.",
+          "evidence": [
+            {
+              "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo/exports/vep-bench-demo-export.mp4 @ 1.00s and @ 37.50s",
+              "observation": "the still at 1.00s is the second camera on the host and the still at 37.50s is the first camera on the other speaker; the file shows that two angles alternate and nothing about which one the request meant."
+            }
+          ]
+        },
+        {
+          "id": "broll-chosen",
+          "status": "fail",
+          "rationale": "No inserted cutaway appears anywhere in the delivered file. Every still taken of it shows the two-camera interview inside the TV frame.",
+          "evidence": [
+            {
+              "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo/exports/vep-bench-demo-export.mp4 @ 1.00, 3.00, 7.00, 11.00, 37.50, 55.00, 70.00, 76.00 and 79.00s",
+              "observation": "nine stills taken across the whole reel, and the harness's own stills at a two-second cadence and at each measured cut (3.13s, 37.33s, 43.29s, 62.69s), all show the two-camera interview inside the TV frame. No cutaway is visible at any of them, and the file's own shot measurement finds only four picture changes in 79.57 seconds."
+            }
+          ]
+        },
+        {
+          "id": "caption-corrected",
+          "status": "not_measured",
+          "rationale": "The request asks for the caption that misstates a NUMBER to say the right number. The brief the reviewer was shown does not say which number, and the delivered file's own captions carry no number in any sampled still, so there is nothing here to read the correction against.",
+          "evidence": []
+        },
+        {
+          "id": "lower-third-adjusted",
+          "status": "fail",
+          "rationale": "The collision is gone - the name bar and the captions no longer overlap - but the name bar does not sit inside the safe area: its left edge is inside the band every vertical platform crops off.",
+          "evidence": [
+            {
+              "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo/exports/vep-bench-demo-export.mp4 @ 1.00s",
+              "observation": "measured off the delivered still: the name bar's ink sits at rows 1308-1402 and the caption's ink at rows 1420-1569, so the two no longer overlap; the same holds at 3.00s."
+            },
+            {
+              "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo/exports/vep-bench-demo-export.mp4 @ 1.00s",
+              "observation": "measured off the delivered still, the name bar's ink box is x 58-480, rows 1308-1402. library.tools.platform_safe_zones:intrusions puts that box inside the LEFT crop band of every vertical platform (tiktok x 0-76, instagram_reels x 0-81, youtube_shorts x 0-95, linkedin x 0-118), so 18px of the name bar's logo is cropped off on the tallest modelled phone."
+            }
+          ]
+        },
+        {
+          "id": "levels-balanced",
+          "status": "fail",
+          "rationale": "The criterion names the loudness check itself, and the export does not pass it: the file's integrated loudness is 9.18 dB under the delivery target.",
+          "evidence": [
+            {
+              "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo/exports/vep-bench-demo-export.mp4",
+              "observation": "library.tools.deliverable_qc:verify_audio_spec (QA-004) on the delivered file: integrated -23.18 LUFS against the -14.0 LUFS target (tolerance +/-1.0), true peak -4.49 dBTP. The criterion asks for the export to pass that check, and it does not."
+            }
+          ]
+        },
+        {
+          "id": "human-work-preserved",
+          "status": "not_measured",
+          "rationale": "Preservation is a comparison with the state before the edit. The reviewer was shown the delivered file alone, and a file cannot say what was in the timeline before the build touched it.",
+          "evidence": []
+        },
+        {
+          "id": "exported",
+          "status": "pass",
+          "rationale": "A finished file exists: it carries a picture stream and a stereo audio stream, at the delivery frame, and it is the file the project exported.",
+          "evidence": [
+            {
+              "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo/exports/vep-bench-demo-export.mp4",
+              "observation": "the delivered file: 79.573s, 1080x1920 at 23.976fps, one video stream and one stereo audio stream, sha256 04343989cec1dface5631e9666a55816d4b38f00b638629d464799b429368f4f."
+            }
+          ]
+        },
+        {
+          "id": "export-verified",
+          "status": "fail",
+          "rationale": "The export was inspected and it does not carry every requested change: the repeated statement is still in the opening, no cutaway appears, the loudness check fails, and the ending plays over 3.25s of undeclared silence with one undeclared black segment.",
+          "evidence": [
+            {
+              "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo/exports/vep-bench-demo-export.mp4 @ 75.70-79.57s",
+              "observation": "the delivered file's own measurements: 3.253s of picture plays over undeclared digital silence at 75.701-79.529s, and the picture spec finds one undeclared black frame segment. The ending the captain designed (the TV switching off to black, then the logo card) is in the file, but nothing declared it, so the export's own gate cannot tell an intended ending from a defect."
+            }
+          ]
+        }
+      ],
+      "history": {
+        "first_attempt_accepted": false,
+        "attempts": null,
+        "human_correction_seconds": null,
+        "preserved_work": null
+      },
+      "sources": {
+        "first_attempt_accepted": "ren-scratch-bench-demo/marker_feedback/ren-request.20261020T222015470723Z.edit_spec_3a9c357ff457419a.markers.json - the captain, on the live timeline: 'This is the launch reel and it is not finished. Please do the whole job on it ...'. The reel was not accepted as it stood.",
+        "attempts": "nobody recorded how many times the reel was built and delivered",
+        "human_correction_seconds": "nobody timed the corrections",
+        "preserved_work": "the run recorded no before/after comparison of the human's own edits",
+        "brief": "the acceptance brief set's 'the-whole-job' brief - the launch-reel request, in the set's own public half"
+      }
+    },
+    {
+      "video_id": "vep-live-workflows-e2e-e2e-011-baseline",
+      "path": "/Users/prajwal/Documents/content_stuff/video_projects/vep-live-workflows-e2e/pipeline_output/live_workflows/evidence/e2e-011/baseline.mp4",
+      "platform": "tiktok",
+      "expected_duration_seconds": 75.776,
+      "has_captions": true,
+      "reviewer": "firstmate lane p-qa010-finished-edit (an agent that did not build the render)",
+      "saw_the_plan": false,
+      "brief": {
+        "id": "tighten-the-dead-air",
+        "title": "Tighten the dialogue without losing a word",
+        "instruction": "Tighten the dialogue in this Reel 13 healthcare accounting firm segment by shortening clear dead-air pauses in the speaker exchange. Keep all spoken words, preserve the linked picture and audio sync, and leave the other shots, captions, and graphics unchanged.",
+        "project_state": {
+          "footage_profile": "two_camera_interview",
+          "existing_adjustments": [
+            "the human corrected the caption timings on the first minute by hand"
+          ],
+          "media_conditions": [
+            "the exchange has two cameras and a dissolve between them"
+          ]
+        },
+        "acceptance_criteria": [
+          {
+            "id": "dead-air-shortened",
+            "statement": "The clear dead-air pauses in the speaker exchange are shorter in this file than they were."
+          },
+          {
+            "id": "all-words-kept",
+            "statement": "Every spoken word is still in the file."
+          },
+          {
+            "id": "picture-and-sync-preserved",
+            "statement": "The picture stays linked to the audio it carries, and in sync with it."
+          },
+          {
+            "id": "others-unchanged",
+            "statement": "The other shots, the captions and the graphics are unchanged."
+          }
+        ]
+      },
+      "judgments": [
+        {
+          "id": "dead-air-shortened",
+          "status": "fail",
+          "rationale": "The shortening is not in this render: the exchange's two longest pauses are still there, and this file is the render the tightening was requested against.",
+          "evidence": [
+            {
+              "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/vep-live-workflows-e2e/pipeline_output/live_workflows/evidence/e2e-011/baseline.mp4 @ 36.94-37.56s and @ 43.08-43.49s",
+              "observation": "the delivered file's own transcript: the longest gaps in the exchange are 0.62s (36.94-37.56s) and 0.41s (43.08-43.49s), and the file's own shot measurement finds four picture changes (3.13s, 37.33s, 43.29s, 62.69s) - the pauses the request names are still in the file."
+            }
+          ]
+        },
+        {
+          "id": "all-words-kept",
+          "status": "not_measured",
+          "rationale": "Whether every spoken word survived is a comparison with the words that were there before, and the reviewer was shown this file alone.",
+          "evidence": []
+        },
+        {
+          "id": "picture-and-sync-preserved",
+          "status": "pass",
+          "rationale": "The picture and the audio travel in one file and no word runs past a cut: the transcript's line starts land on the file's own shot changes.",
+          "evidence": [
+            {
+              "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/vep-live-workflows-e2e/pipeline_output/live_workflows/evidence/e2e-011/baseline.mp4",
+              "observation": "one video stream and one stereo audio stream in one container, and the transcript's line starts (3.20s, 37.56s, 43.49s, 62.66s) land on the file's own measured shot changes (3.13s, 37.33s, 43.29s, 62.69s): no word runs past a cut."
+            }
+          ]
+        },
+        {
+          "id": "others-unchanged",
+          "status": "not_measured",
+          "rationale": "The other shots, the captions and the graphics cannot be compared without the state before the edit, and the reviewer was shown this file alone.",
+          "evidence": []
+        }
+      ],
+      "history": {
+        "first_attempt_accepted": null,
+        "attempts": null,
+        "human_correction_seconds": null,
+        "preserved_work": null
+      },
+      "sources": {
+        "first_attempt_accepted": "this file is the BEFORE of its assignment (the render the tightening was measured against), so it is not a first attempt that could be accepted or refused",
+        "attempts": "nobody recorded how many times the segment was built",
+        "human_correction_seconds": "nobody timed the corrections",
+        "preserved_work": "the run recorded no before/after comparison",
+        "brief": "the human's own request, typed onto the live timeline: vep-live-workflows-e2e/marker_feedback/ren-request.20261020T211439979013Z.edit_spec_1e039e4071304c39.markers.json"
+      }
+    }
+  ]
+}

@@ -39,6 +39,7 @@ CANONICAL_REPORTS = (
     "tests/live/reports/editorial-brief-acceptance.json",
     "tests/live/reports/editorial-request-acceptance.json",
     "tests/live/reports/editorial-request-acceptance-2026-10-20.json",
+    "tests/live/reports/finished-video-benchmark.json",
     "library/tools/axi_qualification_records.json",
 )
 

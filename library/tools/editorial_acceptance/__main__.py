@@ -460,6 +460,39 @@ def _blind_results(args: argparse.Namespace) -> int:
     return 0
 
 
+def _finished_video(args: argparse.Namespace) -> int:
+    """Measure a corpus of FINISHED videos, and write the baseline table.
+
+    The mechanical half and the creative half are printed apart, each on
+    its own denominator, and the four tracked numbers are printed with
+    the denominator each of them was measured over.  There is no
+    combined number to print, because there is no combined number.
+    """
+    from library.tools import finished_video_benchmark as benchmark
+
+    corpus = benchmark.load_corpus(args.finished_video)
+    judge = _load_factory(args.judge)() if args.judge else None
+    report = benchmark.run_benchmark(
+        corpus, judge=judge,
+        align_transcript=not args.no_align_transcript)
+    out = benchmark.write_report(report, args.report)
+    print(benchmark.table_markdown(report))
+    tracked = report["tracked"]
+    print("\ntracked:")
+    print(json.dumps({
+        name: {"denominator": row.get("denominator"),
+               "value": row.get("value"),
+               "status": row.get("status")}
+        for name, row in tracked.items()}, indent=2))
+    print("\nrelease gate: "
+          + ("MET" if report["release_gate"]["met"] else "NOT MET"))
+    for condition in report["release_gate"]["conditions"]:
+        print(f"  [{'met' if condition['met'] else 'NOT MET'}] "
+              f"{condition['id']}: {condition['reason']}")
+    print(f"\nwrote {out}")
+    return 0 if report["release_gate"]["met"] else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="ren accept",
@@ -555,8 +588,15 @@ def main(argv: list[str] | None = None) -> int:
                         help="print the briefs and their coverage, and stop")
     parser.add_argument("--json", action="store_true",
                         help="print the report as JSON")
+    parser.add_argument("--finished-video", default=None,
+                        help="measure a corpus of FINISHED videos - "
+                             "delivered files judged against their own "
+                             "briefs and against the engine's own gates, "
+                             "on separate denominators (QA-010)")
     args = parser.parse_args(argv)
 
+    if args.finished_video:
+        return _finished_video(args)
     brief_set = briefs.load_brief_set(args.briefs)
     catalogue = footage.load_catalogue(args.substrates)
     if args.select:
