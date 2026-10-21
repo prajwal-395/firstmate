@@ -187,6 +187,120 @@ def test_a_project_with_no_assignment_keeps_the_readers_shape(tmp_path):
     assert state["applied"]["counts"] == {"landed": 0, "in_flight": 0,
                                           "planned": 0, "not_applied": 0}
     assert state["verified"]["counts"] == {"verified": 0, "unverified": 0}
+    assert state[view.LEDGER] == {"assignment_id": "", "evidence": [],
+                                  "decisions": [], "unlinked_decisions": [],
+                                  "unused_evidence": []}
+
+
+def test_the_tasks_own_decisions_are_reported_and_not_lost(tmp_path):
+    """The defect: a task's evidence and decisions were durable ON the
+    assignment and INVISIBLE to every reader, so a fresh session could
+    not recover the choices an earlier session made - the answer to
+    "what did you decide, and why" was only in the conversation."""
+    from library.tools import assignment_provenance
+
+    _assignment(tmp_path)
+    assignment_provenance.record_evidence(
+        str(tmp_path), "reels-1", evidence_id="pause-span", kind="transcript",
+        source="speech analysis", locator="clip-1@12-80", detail={"lane": "m1"})
+    assignment_provenance.record_decision(
+        str(tmp_path), "reels-1", decision_id="remove-pause",
+        question="Which pause should be shortened?", answer="clip-1@12-80",
+        evidence_ids=["pause-span"])
+
+    state = view.task_state(str(tmp_path))
+    ledger = state[view.LEDGER]
+    assert [row["id"] for row in ledger["decisions"]] == ["remove-pause"]
+    assert ledger["decisions"][0]["question"] == (
+        "Which pause should be shortened?")
+    assert ledger["decisions"][0]["answer"] == "clip-1@12-80"
+    assert [row["id"] for row in ledger["evidence"]] == ["pause-span"]
+    assert ledger["evidence"][0]["locator"] == "clip-1@12-80"
+    # The plain-text reader names it too: a fresh session reads prose.
+    assert "remove-pause" in view.render(state)
+
+
+def test_an_approved_decision_is_recoverable_after_the_session_ends(tmp_path):
+    """The defect: a correction records the decisions it compiled and
+    who approved them, and NO reader reported them - so a fresh session
+    could not answer "what did you decide, and who said yes"."""
+    _assignment(tmp_path)
+    _revision(tmp_path, "revise_a", status="patched",
+              assignment_id="reels-1",
+              change={"summary": "the pause was shortened"},
+              editorial_decisions={
+                  "intent_id": "revise:revise_a",
+                  "decisions": [{
+                      "decision_id": "revise:revise_a:decision:0",
+                      "statement": "shorten the marked pause",
+                      "state": "approved",
+                      "stated_by": "captain",
+                      "evidence_ids": ["revision-note:note-1"],
+                  }]})
+
+    state = view.task_state(str(tmp_path))
+    decisions = state[view.LEDGER]["decisions"]
+    [decision] = decisions
+    assert decision["id"] == "revise:revise_a:decision:0"
+    assert decision["question"] == "shorten the marked pause"
+    assert decision["decided_by"] == "captain"
+    assert decision["source"] == "revision:revise_a"
+    assert "shorten the marked pause" in view.render(state)
+
+
+def test_the_continuity_row_counts_what_was_proposed_applied_and_verified(
+        tmp_path):
+    """The four words the punchlist uses: proposed, applied, verified,
+    delivered. The row counts them off the SAME records the six answers
+    read, so a reader cannot read a plan as an applied edit."""
+    from library.tools import assignment_artifacts
+
+    _assignment(tmp_path, reels={"moment-1": {"number": 1,
+                                               "name": "Reel 01 - pricing",
+                                               "status": "proposed"}})
+    _revision(tmp_path, "revise_a", status="patched", assignment_id="reels-1",
+              change={"summary": "the pause was shortened"},
+              verification={"state": "axi_verified",
+                            "receipt": {"status": "committed",
+                                        "generation": 7,
+                                        "lifecycle": {"stage": "COMMITTED"},
+                                        "execution_contract": {
+                                            "verification": {
+                                                "status": "verified"}}}})
+    assignment_artifacts.publish_delivery_receipt(
+        str(tmp_path), assignment_id="reels-1",
+        approved_version={"status": "approved", "assignment_id": "reels-1"},
+        files=[{"name": "reel-1.mp4", "path": "/tmp/reel-1.mp4",
+                "platform": "vertical", "exists": True, "status": "ok",
+                "qc": {"passed": True}}],
+        qc={"passed": True}, resume_point={"action": "deliver"})
+
+    row = view.continuity_row(str(tmp_path),
+                              lifecycle.load(str(tmp_path), "reels-1"))
+
+    assert row["proposed"] == 1
+    assert row["applied"] == 1
+    # Two proofs on record: the correction AXI verified, and the
+    # delivered file's own checks. Both are evidence, so both count.
+    assert row["verified"] == 2
+    assert row["delivered"] == 1
+    assert row["resume_point"]["command"]
+    assert [entry["event"] for entry in row["history"]] == ["propose"]
+
+
+def test_a_task_with_nothing_done_says_zero_rather_than_nothing(tmp_path):
+    """A count of zero is a fact; a missing count is silence, and a
+    reader cannot tell them apart."""
+    _assignment(tmp_path)
+
+    row = view.continuity_row(str(tmp_path),
+                              lifecycle.load(str(tmp_path), "reels-1"))
+
+    assert row["proposed"] == 0
+    assert row["applied"] == 0
+    assert row["verified"] == 0
+    assert row["delivered"] == 0
+    assert row["decisions"] == []
 
 
 def test_the_named_assignment_must_exist(tmp_path):

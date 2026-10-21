@@ -105,9 +105,13 @@ Work from the person's GOAL, not from the pipeline's step list:
    Ren understood about the request, what it proposed and on whose
    evidence, what it applied against what it only planned, what it could
    not determine, what it verified, and which corrections are still open.
-   Relay those six in your own words when the person asks what has
-   happened; a plan is not an applied edit, and an applied edit is not a
-   verified result.
+   Its LEDGER is the task's own record: the evidence it rests on and the
+   decisions it made and who approved them. Relay those six in your own
+   words when the person asks what has happened; a plan is not an
+   applied edit, and an applied edit is not a verified result.
+   `ren work-state` and `ren now` name the TASK the project is on and
+   count it in the four words the person uses - proposed, applied,
+   verified, delivered - and `ren now` ranks the act that task waits on.
 2. **Goal** - what should be different when you are done? Ask in chat
    when it is ambiguous; never guess a creative choice.
 3. **Inspect state** - what exists already (section 2).
@@ -303,7 +307,7 @@ it whenever the goal is about what is IN the footage.
 | Why Ren believes something, and what original evidence supports it | `ren evidence <project> --trace <entity\|event\|observation>` (section 3) |
 | Small change to a built reel | `ren dry-run <project> --reel <n>` to plan it, then `ren touch <project> <n>`; `ren undo` reverses the newest act, `ren redo` re-applies it |
 | An editor's note ("the captions are too small", "move the price answer first") | `ren revise <project> "<note>"`, or `--at 0:12 --reel <n>` for a moment in a delivered file (section 7) |
-| What Ren understood about the request, and what it has done with it | `ren assignment-state <project>` (read only): the request's own words, the canonical intent, the ops Ren read out of them, the proposed changes and the evidence behind them, what landed against what is only planned, the uncertainties and blocked capabilities, what was verified against what was not, and each open correction with the command that continues it |
+| What Ren understood about the request, and what it has done with it | `ren assignment-state <project>` (read only): the request's own words, the canonical intent, the ops Ren read out of them, the proposed changes and the evidence behind them, what landed against what is only planned, the uncertainties and blocked capabilities, what was verified against what was not, each open correction with the command that continues it, and the LEDGER - the task's own evidence and the decisions it made and who approved them |
 | What the brief asked for, and what Ren decided | `bin/vep -m library.tools.editorial_intent <project>` prints the canonical intent: what was required, what was preferred, what Ren inferred, and which evidence each request still needs. `bin/vep -m library.tools.editorial_decisions check <decisions.json>` checks a decision record; `... compile <decisions.json> --project <p> --timeline <t>` compiles the APPROVED decisions into the request AXI executes |
 | "N reels about X" from footage | `ren edit <project> --reels N --about "X"`: hears the transcript from the footage when no Resolve cut exists (reused on later runs), selects and judges reels only; then `ren propose <project>` |
 | Reel candidates for approval | `ren propose <project>` |

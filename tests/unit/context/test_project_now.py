@@ -228,6 +228,36 @@ def test_now_bad_config_reports_finding_and_still_answers(tmp_path):
     assert state["next_actions"][0]["command"] == f"ren check {project}"
 
 
+def test_now_names_the_task_and_the_act_it_waits_on(tmp_path):
+    """The defect: `ren now` - the ONE call a fresh session is told to
+    make - never mentioned the TASK. The project had an assignment with
+    work on it, and the ranked actions pointed at the pipeline instead,
+    so a session with no conversation context could not tell what had
+    already been proposed, applied, verified or delivered."""
+    project = _write_project(tmp_path / "show")
+    from library.tools import assignment_lifecycle as lifecycle
+
+    record = lifecycle.create(
+        str(project), "assignment-1", kind="reels",
+        reels={"moment-1": {"number": 1, "name": "Reel 01 - pricing",
+                            "status": "built"}})
+    record["state"] = "review"
+    lifecycle.save(str(project), record)
+
+    state = project_now_state(str(project))
+
+    [task] = state["tasks"]
+    assert task["assignment_id"] == "assignment-1"
+    assert "task assignment-1" in state["summary"]
+    assert "0 proposed" in state["summary"]
+    ids = [action["id"] for action in state["next_actions"]]
+    assert "resume-task-assignment-1" in ids
+    action = next(row for row in state["next_actions"]
+                  if row["id"] == "resume-task-assignment-1")
+    assert action["command"] == f"ren sign-off {project} 'Reel 01 - pricing'"
+    assert action["effects"]
+
+
 def test_now_verb_is_registered_in_both_front_doors():
     from pathlib import Path
 

@@ -15,12 +15,23 @@ receipt.
     verified       what it proved, and what it did not             (AGENT-022)
     corrections    the focused corrections that update this task  (AGENT-023)
 
-and it answers two more that a host cannot get from the six:
+and it answers three more that a host cannot get from the six:
 
     completed      whether the task is DONE - not planned, not
                    applied, not rendered, but done
     blocking       the SMALLEST thing standing in the way, not the
                    whole unfinished workflow
+    ledger         what the task READ and what it DECIDED - the
+                   evidence it rests on and the choices it made, with
+                   the links between them
+
+The LEDGER is the task's own record of its source and its judgements
+(`library/tools/assignment_provenance.py`): the evidence with its
+locators and the decisions with the evidence ids they rest on. It was
+durable on the assignment and INVISIBLE to every reader, so a fresh
+session could not recover the decisions an earlier session made - the
+one thing a person asking "what did you decide, and why" needs. It is
+read from the record that already owns it, never rebuilt.
 
 This is a VIEW, not a store. `project_work_state` is the precedent and the
 rule is the same one: asking what Ren understood must not change what
@@ -46,6 +57,7 @@ import argparse
 import json
 import shlex
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 
 VERSION = 1
@@ -56,12 +68,16 @@ SECTIONS = ("understood", "proposed", "applied", "uncertainties",
 them. One enumeration: a section with no name in this tuple does not
 exist.
 
-Two MORE answers sit beside them, at the top level rather than in this
-tuple, because they are verdicts rather than sections: `completed` (is
-the task done) and `blocking` (the smallest thing in the way). A
-verdict is one answer about the whole task, not a list of things, and
-`resume_point` is already a top-level answer of the same kind.
+THREE MORE answers sit beside them, at the top level rather than in
+this tuple: `completed` (is the task done) and `blocking` (the smallest
+thing in the way) are VERDICTS - one answer about the whole task, not a
+list of things - and `ledger` is the task's own record of what it read
+and what it decided. `resume_point` is a top-level answer of the same
+kind.
 """
+
+LEDGER = "ledger"
+"""The task's evidence and decisions, read from the record that owns them."""
 
 #: A revision's status is read from `revise`, the module that owns the
 #: vocabulary. This module does not restate it: two vocabularies for one
@@ -199,6 +215,30 @@ def _intent(project: str, record: dict) -> dict:
     }
 
 
+def _chain(project: str, record: dict) -> dict:
+    """The task's own ledger: its evidence, its decisions, the links.
+
+    `assignment_provenance` owns the record; this is its reader. A task
+    with no ledger answers with empty lists and an empty chain - never
+    a decision this module made up.
+    """
+    from library.tools import assignment_provenance
+
+    try:
+        chain = assignment_provenance.chain(project, record["assignment_id"])
+    except (FileNotFoundError, ValueError, KeyError, TypeError):
+        return {"assignment_id": record.get("assignment_id", ""),
+                "evidence": [], "decisions": [],
+                "unlinked_decisions": [], "unused_evidence": []}
+    return {
+        "assignment_id": chain.get("assignment_id", ""),
+        "evidence": [dict(row) for row in chain.get("evidence") or []],
+        "decisions": [dict(row) for row in chain.get("decisions") or []],
+        "unlinked_decisions": list(chain.get("unlinked_decisions") or []),
+        "unused_evidence": list(chain.get("unused_evidence") or []),
+    }
+
+
 def _no_intent(reason: str, on_record=None) -> dict:
     """No intent to show, said plainly rather than left blank."""
     return {"intent_id": "", "named_by": "", "desired_outcome": "",
@@ -271,6 +311,35 @@ def _evidence(decisions) -> list[dict]:
     return rows
 
 
+def _approved_decisions(revisions: list[dict]) -> list[dict]:
+    """The decisions the task MADE and that were approved, with their source.
+
+    A correction records the decisions it compiled and who approved them
+    (`editorial_decisions`), and that record is durable on the
+    correction. It is the answer to "what did you decide, and who said
+    yes" - so it is read here rather than left in the record only the
+    compiler reads.
+    """
+    rows = []
+    for revision in revisions:
+        recorded = (revision.get("editorial_decisions") or {}).get("decisions")
+        for decision in recorded or []:
+            if not isinstance(decision, Mapping):
+                continue
+            if decision.get("state") not in (None, "approved"):
+                continue
+            rows.append({
+                "id": decision.get("decision_id") or decision.get("id") or "",
+                "question": decision.get("statement") or "",
+                "answer": decision.get("statement") or "",
+                "basis": ("evidence" if decision.get("evidence_ids")
+                          else "judgement"),
+                "decided_by": decision.get("stated_by") or "",
+                "source": f"revision:{revision.get('revise_id') or ''}",
+            })
+    return rows
+
+
 def _proposed(project: str, record: dict, revisions: list[dict]) -> dict:
     """The changes Ren would make, and the evidence behind them."""
     revision, proposal = _spec_for(project, revisions)
@@ -324,6 +393,7 @@ def _proposed(project: str, record: dict, revisions: list[dict]) -> dict:
     if not source:
         source = "none"
     return {"changes": changes, "evidence": evidence,
+            "decisions": _approved_decisions(revisions),
             "untouched_categories": untouched, "source": source, "note": note}
 
 
@@ -644,6 +714,7 @@ def task_state(project: str, assignment_id: str | None = None) -> dict:
             "version": VERSION, "assignment_id": None, "kind": None,
             "state": None, "stage": "understand",
             **{section: _empty(section) for section in SECTIONS},
+            LEDGER: _empty(LEDGER),
             "completed": _no_task_completed(),
             "blocking": _no_task_blocking(),
             "resume_point": None,
@@ -653,6 +724,8 @@ def task_state(project: str, assignment_id: str | None = None) -> dict:
     revisions = _revisions(root, record)
     intent = _intent(root, record)
     from library.tools import assignment_interaction
+    ledger = _chain(root, record)
+    ledger["decisions"] = ledger["decisions"] + _approved_decisions(revisions)
 
     return {
         "version": VERSION,
@@ -667,9 +740,107 @@ def task_state(project: str, assignment_id: str | None = None) -> dict:
         "uncertainties": _uncertainties(root, record, revisions, intent),
         "verified": _verified(root, record, revisions),
         "corrections": _corrections(root, record, revisions),
+        LEDGER: ledger,
         "completed": _completed(root, record),
         "blocking": _blocking(root, record),
         "resume_point": assignment_spine.resume_point(root, record),
+    }
+
+
+def _spec_proposal_on_record(project: str, revision: dict) -> dict | None:
+    """This revision's translation, as a proposal, when one is on record."""
+    from library.tools import edit_spec
+
+    spec_id = revision.get("spec_id")
+    if not spec_id:
+        return None
+    try:
+        return edit_spec.proposal_for_spec(project, spec_id)
+    except (edit_spec.EditSpecError, OSError, ValueError, KeyError,
+            TypeError):
+        return None
+
+
+def _proposal_count(project: str, record: dict, revisions: list[dict]) -> int:
+    """How many changes the task has proposed, counted once each.
+
+    Three families, and they do not overlap: a proposed REEL, a planned
+    typed EDIT WORKFLOW, and a CORRECTION. A correction that was
+    translated is counted by the changes its own proposal lists; one
+    still waiting for its translation is counted as itself, because it
+    proposed something and the proposal is not on record yet.
+    """
+    reel_proposals = len(_moments(project))
+    workflow_proposals = 0
+    for workflow in (record.get("edit_workflows") or {}).values():
+        if workflow.get("status") in {"verified", "refused"}:
+            continue
+        request = workflow.get("request") or {}
+        workflow_proposals += len(request.get("operations") or [])
+    correction_proposals = 0
+    for revision in revisions:
+        proposal = _spec_proposal_on_record(project, revision)
+        if proposal is not None:
+            correction_proposals += len(proposal.get("planned_changes") or [])
+        elif revision.get("change") or revision.get("note"):
+            # No proposal on record yet: the correction is itself the
+            # proposal, and it is counted once.
+            correction_proposals += 1
+    return reel_proposals + workflow_proposals + correction_proposals
+
+
+def continuity_row(project: str, record: dict) -> dict:
+    """What one assignment has proposed, applied, verified and delivered.
+
+    The COMPACT form of the six answers, for the readers that answer
+    "where were we" rather than "what did Ren understand": `ren
+    work-state` and `ren now`. Every number is counted from the SAME
+    records the six answers read, so the two cannot disagree - a count
+    here is a count there.
+
+    The four counts are the punchlist's four: what was PROPOSED, what
+    was APPLIED, what was VERIFIED and what was DELIVERED. A task with
+    no delivery says zero, and the resume point says what comes next.
+    """
+    revisions = _revisions(project, record)
+    applied = _applied(record, revisions)
+    verified = _verified(project, record, revisions)
+    chain = _chain(project, record)
+    receipts = delivery_receipts(project, record)
+    from library.tools import assignment_spine
+    delivered = [receipt for receipt in receipts
+                 if receipt.get("status") == "complete"]
+    # What the task PROPOSED, counted once each: a proposed reel, a
+    # planned typed edit workflow, or a correction.
+    proposed_count = _proposal_count(project, record, revisions)
+    return {
+        "assignment_id": record.get("assignment_id"),
+        "kind": record.get("kind"),
+        "state": record.get("state"),
+        "proposed": proposed_count,
+        "applied": applied["counts"]["landed"],
+        "in_flight": applied["counts"]["in_flight"],
+        "planned": applied["counts"]["planned"],
+        "not_applied": applied["counts"]["not_applied"],
+        "verified": verified["counts"]["verified"],
+        "unverified": verified["counts"]["unverified"],
+        "delivered": len(delivered),
+        "delivery": {
+            "status": (record.get("delivery") or {}).get("status", ""),
+            "files": list((record.get("delivery") or {}).get("files") or []),
+            "at": (record.get("delivery") or {}).get("at", ""),
+        },
+        "decisions": [
+            {"id": row.get("id"), "question": row.get("question"),
+             "answer": row.get("answer"), "basis": row.get("basis"),
+             "decided_by": row.get("decided_by"), "source": "task"}
+            for row in chain.get("decisions") or []] + _approved_decisions(revisions),
+        "evidence": [
+            {"id": row.get("id"), "kind": row.get("kind"),
+             "source": row.get("source"), "locator": row.get("locator")}
+            for row in chain.get("evidence") or []],
+        "history": [dict(row) for row in (record.get("history") or [])],
+        "resume_point": assignment_spine.resume_point(project, record),
     }
 
 
@@ -710,6 +881,9 @@ def _no_task_blocking() -> dict:
 
 def _empty(section: str) -> dict:
     """An empty answer for one section, with the same keys it always has."""
+    if section == LEDGER:
+        return {"assignment_id": "", "evidence": [], "decisions": [],
+                "unlinked_decisions": [], "unused_evidence": []}
     if section == "applied":
         return {"landed": [], "in_flight": [], "planned": [],
                 "not_applied": [],
@@ -726,8 +900,8 @@ def _empty(section: str) -> dict:
         return {"declared_gaps": [], "blocked_capabilities": [],
                 "open_questions": [], "intent_uncertainty": []}
     if section == "proposed":
-        return {"changes": [], "evidence": [], "untouched_categories": [],
-                "source": "none", "note": ""}
+        return {"changes": [], "evidence": [], "decisions": [],
+                "untouched_categories": [], "source": "none", "note": ""}
     return {"request": "", "request_source": "", "reading": "not_translated",
             "ops": [], "questions": [], "moments": [], "revision_id": None,
             "spec_id": None}
@@ -823,6 +997,17 @@ def render(view: dict) -> str:
             lines.append("  answer with: " + row["answer_with"])
         elif row["status"] not in revise.FINISHED:
             lines.append("  continue with: " + row["resume"])
+    ledger = view.get(LEDGER) or {}
+    for decision in ledger.get("decisions") or []:
+        lines.append(f"Decision {decision.get('id')} "
+                     f"({decision.get('decided_by') or 'unknown'}, "
+                     f"{decision.get('basis') or 'judgement'}): "
+                     f"{decision.get('question')} -> "
+                     f"{decision.get('answer')}")
+    for evidence in ledger.get("evidence") or []:
+        lines.append(f"  evidence {evidence.get('id')}: "
+                     f"{evidence.get('source')} at "
+                     f"{evidence.get('locator')}")
     resume = view.get("resume_point") or {}
     if resume.get("command"):
         lines.append(f"Next: {resume['command']} ({resume.get('why')})")

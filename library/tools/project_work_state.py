@@ -46,6 +46,7 @@ def project_work_state(project_ref: str) -> dict:
         project_config_to_dict,
     )
     from library.tools import (
+        assignment_view,
         captain_edits,
         edit_ledger,
         event_log,
@@ -95,6 +96,7 @@ def project_work_state(project_ref: str) -> dict:
     # records and resume point `ren assignment` answers with.
     from library.tools import assignment_lifecycle, assignment_spine
     assignments = []
+    tasks = []
     for record in assignment_lifecycle.list_records(str(root)):
         checkpoint_id = record.get("checkpoint")
         checkpoint = record.get("operations", {}).get(checkpoint_id, {})
@@ -106,6 +108,11 @@ def project_work_state(project_ref: str) -> dict:
             else "continue",
             "resume_point": assignment_spine.resume_point(str(root), record),
         })
+        # What the task has proposed, applied, verified and delivered.
+        # The row is a PROJECTION of the same records the six answers
+        # read, so a reader that asks "where were we" gets the task's
+        # own account and not a second, looser one.
+        tasks.append(assignment_view.continuity_row(str(root), record))
     run = _json(root / "pipeline_run.json")
     brief = config_data.get("creative_brief") or config_data.get("pipeline", {}).get("creative_brief")
     settled = []
@@ -148,6 +155,7 @@ def project_work_state(project_ref: str) -> dict:
         "pending_approvals": pending_approvals,
         "open_work": open_work,
         "assignments": assignments,
+        "tasks": tasks,
         "last_requested_change": last_request,
         "config_findings": config_findings,
     }
@@ -170,9 +178,20 @@ def _summary(state: dict) -> str:
         + (f"; next: {item['resume_point']['command']}"
            if item["resume_point"].get("command") else "")
         + "." for item in live)
+    # What the task itself has done, in the four words a person asks
+    # for: proposed, applied, verified, delivered. A task with no
+    # delivery says zero rather than staying silent.
+    tasks = state.get("tasks") or []
+    task_text = "".join(
+        f" Task {task['assignment_id']}: {task['proposed']} proposed, "
+        f"{task['applied']} applied, {task['verified']} verified, "
+        f"{task['delivered']} delivered."
+        for task in tasks
+        if task["state"] != "delivered" or task["applied"]
+        or task["verified"] or task["delivered"])
     requested = state["last_requested_change"]
     requested_text = f" Last request: {requested.get('prompt', '').strip()[:180]}" if requested and requested.get("prompt") else ""
-    return f"{project}.{last}{pending}{open_text}{assignment_text}{requested_text}"
+    return f"{project}.{last}{pending}{open_text}{assignment_text}{task_text}{requested_text}"
 
 
 # ── `ren now`: state plus next actions, in one call (LE-09) ──────────
@@ -327,10 +346,10 @@ def _notes_section(root: Path) -> dict:
 
 
 # Next-action ranks, lowest first: a blocking ask outranks a refusal's
-# fix, which outranks an approval, then a resumable run, then whatever
-# pipeline stage is next.
-(_RANK_ASK, _RANK_FIX, _RANK_APPROVAL, _RANK_RESUME, _RANK_BUILD,
- _RANK_NEXT) = range(6)
+# fix, which outranks an approval, then the TASK's own next act, then a
+# resumable run, then whatever pipeline stage is next.
+(_RANK_ASK, _RANK_FIX, _RANK_APPROVAL, _RANK_TASK, _RANK_RESUME, _RANK_BUILD,
+ _RANK_NEXT) = range(7)
 
 
 def _next_actions(*, ref: str, root: Path, base: dict, pipeline: dict,
@@ -400,6 +419,26 @@ def _next_actions(*, ref: str, root: Path, base: dict, pipeline: dict,
                 "effects": ["project_write"],
                 "_rank": _RANK_APPROVAL,
             })
+    # The TASK's own next act, from the same resume point `ren
+    # assignment` answers with. A fresh session that reads only `ren
+    # now` has to learn that the work it is resuming is a task and what
+    # that task has done so far.
+    for task in base.get("tasks") or []:
+        resume_point = task.get("resume_point") or {}
+        command = resume_point.get("command")
+        if not command:
+            continue
+        actions.append({
+            "id": f"resume-task-{task['assignment_id']}",
+            "rank": "task waiting",
+            "why": (f"task {task['assignment_id']} is {task['state']}: "
+                    f"{task['proposed']} proposed, {task['applied']} applied, "
+                    f"{task['verified']} verified, {task['delivered']} "
+                    f"delivered; {resume_point.get('why') or 'it waits'}"),
+            "command": command,
+            "effects": ["read", "project_write"],
+            "_rank": _RANK_TASK,
+        })
     status = run.get("status")
     hold = run.get("hold")
     if hold is not None or status in {"held", "paused", "waiting"}:
@@ -454,7 +493,18 @@ def _next_actions(*, ref: str, root: Path, base: dict, pipeline: dict,
             "_rank": _RANK_NEXT,
         })
     actions.sort(key=lambda action: (action.pop("_rank"), action["id"]))
-    return actions
+    # One command, one action: the task's resume point and the run's
+    # can name the same verb, and a reader shown the same command twice
+    # cannot tell which one is next.
+    unique = []
+    seen_commands = set()
+    for action in actions:
+        command = action.get("command")
+        if command in seen_commands:
+            continue
+        seen_commands.add(command)
+        unique.append(action)
+    return unique
 
 
 def project_now_state(project_ref: str) -> dict:
@@ -560,6 +610,16 @@ def _now_summary(state: dict) -> str:
         parts.append(f"{len(notes['unrouted'])} note(s) unrouted")
     if findings:
         parts.append(f"{len(findings)} config finding(s)")
+    # The task, in the four words the punchlist uses: proposed,
+    # applied, verified, delivered. A fresh session reads this line and
+    # knows what the work already did.
+    for task in state.get("tasks") or []:
+        if task["state"] == "delivered" and not task["delivered"]:
+            continue
+        parts.append(
+            f"task {task['assignment_id']} {task['state']}: "
+            f"{task['proposed']} proposed, {task['applied']} applied, "
+            f"{task['verified']} verified, {task['delivered']} delivered")
     actions = state["next_actions"]
     if actions:
         parts.append(f"Next: {actions[0]['command']}")
