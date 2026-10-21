@@ -10187,6 +10187,73 @@ protection - the rule that keeps a near name off somebody else's project -
 is untouched. Defect-naming test:
 `tests/unit/resolve/test_project_lookup_reaches_the_open_project.py`.
 
+## the-stored-pass-that-answered-a-different-question
+
+**The rule.** A cached analysis is served only under the key it was
+measured with: the source's identity, the model that answered, the
+configuration the question was asked in, and the analysis version. A
+stored measurement under another key is STALE - refused, named, and never
+served as the current answer. And a request measures the frames it needs:
+the frames an earlier pass measured are reused, and only the frames it
+missed are measured.
+
+**What happened.** Measured 2026-10-21 on the repo's request-driven object
+lane (`library/tools/analysis/object_grounding.py`,
+`library/tools/project_model_acquisition.py`).
+
+- The lane had ONE cache and it was the Project Model's own rows, and a
+  row was found by the WINDOW it covered. So a request for a window wider
+  than an earlier pass covered re-measured every frame of the wider
+  window, including the frames the earlier pass had already measured. On
+  the OWLv2 producer - 7.269 s per frame, measured on the M0 fixture -
+  that is the whole cost of the answer paid twice.
+- Nothing recorded WHICH model answered, in WHICH configuration, or by
+  WHICH version of the analysis. A stored pass was therefore served for a
+  request it never answered: the `presence` request (the cheap COCO
+  detector) could be served the `grounded` request's answer, a pass made
+  for "cell phone" could be served for "handheld device", and a pass made
+  by an older version of the analysis was served as the current one. The
+  punch list's "reuse previous evidence without treating stale analysis as
+  current", inverted: the evidence was reused, and the staleness was
+  invisible.
+- The M4 scene-window cache stored the `producer_version` that measured
+  each window and the reader RETURNED that version without COMPARING it,
+  so an older window was served as the current one.
+
+**The fix.** `library/tools/analysis_cache.py` owns the key
+(`AnalysisKey`: source identity, model, configuration, analysis version)
+and the per-source store it is filed in, in the source memory beside the
+other measurements of the same content digest. The unit of reuse is the
+FRAME - a sampled frame is one measured thing, named by its SOURCE frame
+number - so a wider request reuses the frames an earlier pass measured and
+measures only the frames it missed. The pass reports its reused and its
+measured frames, the acquisition ledger carries them as `skipped` rows,
+and a refused stale entry is recorded as `refused_stale` with the
+components that differ. The M4 lane compares the stored
+`producer_version` with the current one and refuses a window that does
+not match.
+
+**Measured.** On a Ren-owned scratch copy of the podcast camera's source
+(90 s of `LC4932.MXF` re-encoded to a 960x540 scratch mp4), with the
+OWLv2 producer and a targeted request over a 20-frame window that
+contains a 10-frame window measured before:
+
+| arm | frames DETECTED | frames reused | analysis seconds |
+|---|---:|---:|---:|
+| before (cache off) | 20 | 0 | 98.4 |
+| after (cache on) | 10 | 10 | 59.6 |
+
+The same request asked again: 20 frames reused, 0 detected, 0.5 s of
+analysis. The two arms' answers are EQUAL - the same detections on the
+same frames, the same coverage map, and the same 22 Project Model rows -
+and the bench exits non-zero if they are not. The frame count is the
+deterministic measure (the same 20 frames of source, half of them
+detected twice); the seconds are the machine's, and its own variance on
+the control request was 28%.
+`docs/benchmarks/2026-10-21-demand-analysis.md` carries the run.
+
+Defect-naming tests: `tests/unit/tools/test_analysis_cache.py`,
+`tests/unit/picture/test_demand_analysis_cache.py`.
 
 
 ## the-boundary-that-named-the-peak-of-a-hold

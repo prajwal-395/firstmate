@@ -257,17 +257,25 @@ def execute_query_acquisition(
         started = time.perf_counter()
         hit = cached(**args)
         cache_elapsed = time.perf_counter() - started
+        # A stored measurement the caller refused is RECORDED: a stale
+        # entry that was not served is a fact about the run, not a
+        # silence.
+        stale = hit.get("stale") if isinstance(hit, Mapping) else None
         if hit is not None and hit.get("sufficient") is True:
             rows.append({**args, "status": "cached", "result": dict(hit),
                          "cost_seconds": round(cache_elapsed, 6),
-                         "peak_rss_gb": 0.0})
+                         "peak_rss_gb": 0.0,
+                         "skipped": [{"kind": "window",
+                                      "lane": lane,
+                                      "reason": "the answer was already measured"}]})
             continue
         producer = producers.get(lane)
         if producer is None:
             rows.append({**args, "status": "deferred",
                          "reason": "required targeted producer unavailable",
                          "cost_seconds": round(cache_elapsed, 6),
-                         "peak_rss_gb": 0.0})
+                         "peak_rss_gb": 0.0,
+                         "refused_stale": stale})
             continue
         step_budget = float(step["cost_budget_seconds"])
         if (cost_ceiling is not None
@@ -285,8 +293,12 @@ def execute_query_acquisition(
             if hit is not None and hit.get("sufficient") is True:
                 rows.append({**args, "status": "cached", "result": dict(hit),
                              "cost_seconds": round(cache_elapsed, 6),
-                             "peak_rss_gb": 0.0})
+                             "peak_rss_gb": 0.0,
+                             "skipped": [{"kind": "window",
+                                          "lane": lane,
+                                          "reason": "the answer was already measured"}]})
                 continue
+            stale = hit.get("stale") if isinstance(hit, Mapping) else stale
             with heavy_work_lock("vi12-query-directed-acquisition",
                                  profile="query_refinement"):
                 result = dict(producer(
@@ -297,27 +309,34 @@ def execute_query_acquisition(
         rss = _finite_nonnegative(result.get("peak_rss_gb"), "producer peak_rss_gb")
         producer_version = result.get("model_version") or result.get("producer_version")
         spent += cost
+        # What the pass did NOT measure is recorded with what it did: a
+        # reader sees the reused frames and the refused stale entries
+        # beside the measurement that was paid for.
+        record = {
+            "refused_stale": stale,
+            "skipped": list(result.get("skipped") or []),
+        }
         if result.get("measured") is False:
-            rows.append({**args, "status": "deferred",
+            rows.append({**args, **record, "status": "deferred",
                          "reason": "producer did not establish complete coverage",
                          "cost_seconds": cost, "peak_rss_gb": rss,
                          "model_version": producer_version})
             continue
         if not isinstance(producer_version, str) or not producer_version.strip():
-            rows.append({**args, "status": "deferred",
+            rows.append({**args, **record, "status": "deferred",
                          "reason": "producer/model version unavailable",
                          "cost_seconds": cost, "peak_rss_gb": rss})
             continue
         lane_budget = float(step["cost_budget_seconds"])
         if (rss > rss_ceiling or cost > lane_budget
                 or (cost_ceiling is not None and spent > cost_ceiling)):
-            rows.append({**args, "status": "deferred",
+            rows.append({**args, **record, "status": "deferred",
                          "reason": "producer exceeded RSS or query cost budget",
                          "cost_seconds": cost, "cost_budget_seconds": lane_budget,
                          "peak_rss_gb": rss,
                          "model_version": producer_version})
             continue
-        rows.append({**args, "status": "acquired", "result": result,
+        rows.append({**args, **record, "status": "acquired", "result": result,
                      "cost_seconds": cost, "cost_budget_seconds": lane_budget,
                      "peak_rss_gb": rss,
                      "model_version": producer_version,

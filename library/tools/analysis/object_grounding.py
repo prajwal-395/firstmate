@@ -373,14 +373,15 @@ def detect_frames(image_paths: list[Path], phrases: list[str], *,
     """
     from library.tools.analysis import open_vocabulary_detect as ovd
 
+    threshold = (float(score_threshold) if score_threshold is not None
+                 else float(ovd.DEFAULT_SCORE_THRESHOLD))
     detections: list[dict[str, Any]] = []
     notes: list[str] = []
     for image_path in image_paths:
         try:
             found = ovd.detect_image(
                 producer.detector, str(image_path), phrases,
-                **({"score_threshold": score_threshold}
-                   if score_threshold is not None else {}))
+                score_threshold=threshold)
         except ovd.DetectorNotAvailable as exc:
             raise ObjectGroundingError(
                 f"the {producer.detector} producer cannot run here: {exc}"
@@ -452,12 +453,73 @@ def unexamined(scope: dict[str, float],
     return gaps
 
 
+def analysis_key(*, source_digest: str, producer: Producer, phrases: list[str],
+                 sample_fps: float = DEFAULT_SAMPLE_FPS,
+                 score_threshold: float | None = None):
+    """The key this request's measurement is filed under.
+
+    Four things, and only four: the SOURCE's identity, the MODEL that
+    answered, the CONFIGURATION the question was asked in, and the
+    ANALYSIS VERSION - the producer's own version, which changes when the
+    method does.  A request that differs in any of them is a different
+    measurement, and its result is not the answer to this one.
+
+    The phrases are part of the configuration: a pass that looked for
+    "cell phone" has not looked for "handheld device", and serving one
+    for the other would answer a question nobody asked.
+    """
+    from library.tools import analysis_cache
+
+    configuration = analysis_cache.configuration_digest({
+        "phrases": sorted(str(name).strip().lower() for name in phrases),
+        "sample_fps": float(sample_fps),
+        "score_threshold": score_threshold,
+        "detector": producer.detector,
+    })
+    return analysis_cache.AnalysisKey(
+        source_identity=str(source_digest),
+        model=producer.id,
+        configuration=configuration,
+        analysis_version=PRODUCER_VERSION,
+    )
+
+
+def analysis_key_block(key: Any) -> dict[str, Any]:
+    """The key as the JSON a row carries: the four parts and the digest."""
+    from library.tools import analysis_cache
+
+    parsed = (key if isinstance(key, analysis_cache.AnalysisKey)
+              else analysis_cache.AnalysisKey.from_dict(key))
+    if parsed is None:
+        return {}
+    return {"key": parsed.to_dict(), "signature": parsed.signature()}
+
+
+def _frame_index_of(detection: dict[str, Any]) -> int:
+    """The source frame a detection was measured on.
+
+    ``-1`` when the detection carries none.  Frame zero is a frame like
+    any other, so the index is read as a value and never as a truthy
+    test.
+    """
+    value = detection.get("frame_index")
+    if value is None:
+        return -1
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return -1
+
+
 def detect_window(source_file: str | Path, *, phrases: Any,
                   start_s: float, end_s: float,
                   producer: Producer,
                   sample_fps: float = DEFAULT_SAMPLE_FPS,
                   resolve_identity: bool = True,
-                  workdir: str | Path | None = None) -> dict[str, Any]:
+                  workdir: str | Path | None = None,
+                  cache: Any = None,
+                  source_digest: str | None = None,
+                  score_threshold: float | None = None) -> dict[str, Any]:
     """Measure one window for the named objects, and say what it covered.
 
     The answer carries the detections, the coverage map (inspected and
@@ -470,20 +532,47 @@ def detect_window(source_file: str | Path, *, phrases: Any,
     rather than to a pile of boxes - and the identity travels into the
     Project Model's rows, so the next query for the same object reads
     the identity instead of paying for the pass again.
+
+    **A frame this lane measured before is measured again only if it was
+    measured by THIS key.**  The cache is asked for the frames this
+    window samples; the frames it holds come back as the answer, and only
+    the frames it does not hold are DETECTED.  A request for a window
+    wider than an earlier pass covered therefore pays for the frames the
+    earlier pass did not measure and nothing else - and the answer is the
+    same answer, because it is the same frames.
+
+    The frames are still EXTRACTED in one pass over the source: the
+    extraction cost is in the source, not in the number of frames asked
+    for, and the identity half needs the frame of every detection -
+    measured or reused - to be on disk beside it.
     """
     names = phrases_of(phrases)
     geometry = probe_source(source_file)
+    if not source_digest:
+        from library.tools import footage_identity
+
+        source_digest = footage_identity.fingerprint(
+            str(source_file))["content_digest"]
+    key_block = analysis_key_block(analysis_key(
+        source_digest=str(source_digest), producer=producer, phrases=names,
+        sample_fps=float(sample_fps), score_threshold=score_threshold))
     indices = sample_frame_indices(
         fps=geometry["fps"], frame_count=geometry["frame_count"],
         start_s=float(start_s), end_s=float(end_s),
         sample_fps=float(sample_fps))
+    cached = cache.lookup(indices) if cache is not None else {}
+    missing = [index for index in indices if index not in cached]
+    position = {index: number for number, index in enumerate(indices)}
     temp_dir = Path(workdir) if workdir else Path(tempfile.mkdtemp(
         prefix="ren-object-request-"))
     temp_dir.mkdir(parents=True, exist_ok=True)
     started = time.perf_counter()
     try:
         images = extract_frames(source_file, indices, temp_dir)
-        detections, notes = detect_frames(images, names, producer=producer)
+        missing_images = [images[position[index]] for index in missing]
+        detections, notes = detect_frames(missing_images, names,
+                                          producer=producer,
+                                          score_threshold=score_threshold)
     finally:
         if workdir is None:
             shutil.rmtree(temp_dir, ignore_errors=True)
@@ -494,16 +583,43 @@ def detect_window(source_file: str | Path, *, phrases: Any,
         detection["time_seconds"] = round(index / geometry["fps"], 6)
         detection["frame_width"] = geometry["width"]
         detection["frame_height"] = geometry["height"]
+    # The reused detections are the same measurements, carried back; the
+    # frame they were measured on is what names them.
+    by_frame: dict[int, list[dict[str, Any]]] = {}
+    for detection in detections:
+        by_frame.setdefault(_frame_index_of(detection), []).append(detection)
+    for index, row in sorted(cached.items()):
+        for detection in row.get("detections") or []:
+            carried = dict(detection)
+            carried["frame_index"] = index
+            carried["time_seconds"] = round(index / geometry["fps"], 6)
+            carried["frame_width"] = geometry["width"]
+            carried["frame_height"] = geometry["height"]
+            by_frame.setdefault(index, []).append(carried)
+    # The answer is in the WINDOW's frame order, and a frame's own
+    # detections keep the order the detector gave them: a reused frame and
+    # a measured frame are the same answer, whichever way the frame was
+    # obtained.
+    measured_detections: list[dict[str, Any]] = []
+    for index in indices:
+        measured_detections.extend(by_frame.get(index, []))
+    # The name of the extracted file is an artefact of THIS pass, so it
+    # is restated against the window's own frame order: two passes over
+    # the same window then carry the same names.
+    for detection in measured_detections:
+        index = _frame_index_of(detection)
+        detection["image"] = f"{position.get(index, 0) + 1:06d}.jpg"
     identities: list[dict[str, Any]] = []
     if resolve_identity:
         identities = resolve_window_identities(
-            detections, images=images, indices=indices, geometry=geometry)
+            measured_detections, images=images, indices=indices,
+            geometry=geometry)
         by_detection = {
             (round(float(row["time_s"]), 3),
              tuple(round(float(value), 6) for value in row["box"])):
             (row["entity_id"], row.get("state"))
             for row in identities if row.get("box")}
-        for detection in detections:
+        for detection in measured_detections:
             key = (round(float(detection["time_seconds"]), 3),
                    tuple(round(float(value), 6)
                          for value in detection["box"]))
@@ -513,8 +629,28 @@ def detect_window(source_file: str | Path, *, phrases: Any,
     inspected = coverage_intervals(indices, fps=geometry["fps"],
                                    sample_fps=float(sample_fps))
     scope = {"start_s": float(start_s), "end_s": float(end_s)}
-    return {
-        "detections": detections,
+    producer_block = {
+        "id": producer.id,
+        "detector": producer.detector,
+        "tier": producer.tier,
+        "measured_fidelity": producer.fidelity,
+        "note": producer.note,
+    }
+    if cache is not None and missing:
+        # The extracted file's name is an artefact of this pass, so it is
+        # not filed: the frame index is what names the measurement.
+        cache.store(
+            {index: {"detections": [
+                {key: value for key, value in row.items() if key != "image"}
+                for row in detections
+                if _frame_index_of(row) == index],
+                "time_seconds": round(index / geometry["fps"], 6)}
+             for index in missing},
+            producer=producer_block,
+            source_fps=geometry["fps"],
+            sample_rate_hz=float(sample_fps))
+    result = {
+        "detections": measured_detections,
         "identities": identities,
         "coverage": {
             "scope": scope,
@@ -526,17 +662,19 @@ def detect_window(source_file: str | Path, *, phrases: Any,
             "source_fps": geometry["fps"],
             "source_frame_count": geometry["frame_count"],
         },
-        "producer": {
-            "id": producer.id,
-            "detector": producer.detector,
-            "tier": producer.tier,
-            "measured_fidelity": producer.fidelity,
-            "note": producer.note,
-        },
+        "producer": producer_block,
         "producer_version": PRODUCER_VERSION,
+        "analysis": key_block,
         "cost_seconds": round(elapsed, 3),
         "notes": notes,
     }
+    if cache is not None:
+        result["cache"] = cache.report()
+        result["cache"]["reused_frames"] = sorted(cached)
+        result["cache"]["measured_frames"] = sorted(missing)
+        result["cache"]["hits"] = len(cached)
+        result["cache"]["misses"] = len(missing)
+    return result
 
 
 # ── the evidence rows ───────────────────────────────────────────────────
@@ -635,6 +773,7 @@ def coverage_value(phrase: str, result: dict[str, Any]) -> dict[str, Any]:
         "frame_width": None,
         "frame_height": None,
         "producer": dict(result.get("producer") or {}),
+        "analysis": dict(result.get("analysis") or {}),
         "looked": {
             "frames": int(coverage.get("frames_inspected") or 0),
             "sample_rate_hz": float(coverage.get("sample_rate_hz") or 0.0),

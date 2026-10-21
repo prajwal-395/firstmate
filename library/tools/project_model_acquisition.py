@@ -97,12 +97,37 @@ def _object_pass_budget(plan: dict[str, Any],
                OBJECT_BUDGET_MARGIN)
 
 
+def _object_analysis_key(plan: dict[str, Any], source_digest: str):
+    """The key this request's object measurement is filed under.
+
+    The producer the requirement selects is part of the key: a pass made
+    by the cheap detector is not the pass a grounded request asks for, and
+    the two may not be served for one another.
+    """
+    phrases = _object_phrases(plan)
+    if not phrases:
+        return None
+    try:
+        producer = object_grounding.select_producer(
+            _object_requirement(plan), phrases)
+    except object_grounding.ObjectGroundingError:
+        return None
+    return object_grounding.analysis_key(
+        source_digest=source_digest, producer=producer, phrases=phrases)
+
+
 def _cached_object_pass(model: dict[str, Any], *, phrases: list[str],
-                        start_s: float, end_s: float) -> dict[str, Any] | None:
+                        start_s: float, end_s: float, key: Any = None
+                        ) -> dict[str, Any] | None:
     """An earlier pass over the same window, or None.
 
     The model's own rows are the cache: a window whose coverage row
     already spans what the query asks about needs no new measurement.
+
+    **A row is the cache only under the key it was measured with.**  A row
+    whose analysis key differs - another model, another configuration,
+    another analysis version - is a DIFFERENT measurement, and it is
+    reported as stale rather than served as the current answer.
     """
     wanted = {phrase.strip().lower() for phrase in phrases if phrase}
     for observation in model.get("observations") or []:
@@ -112,19 +137,44 @@ def _cached_object_pass(model: dict[str, Any], *, phrases: list[str],
             continue
         if object_grounding.phrase_of(observation).lower() not in wanted:
             continue
-        looked = object_grounding.value_of(observation).get("looked") or {}
+        value = object_grounding.value_of(observation)
+        looked = value.get("looked") or {}
         scope = looked.get("scope") or {}
         try:
             covered_start = float(scope.get("start_s"))
             covered_end = float(scope.get("end_s"))
         except (TypeError, ValueError):
             continue
-        if covered_start <= float(start_s) and covered_end >= float(end_s):
-            return {
-                "sufficient": True,
-                "coverage": "sampled",
-                "producer_version": object_grounding.PRODUCER_VERSION,
-            }
+        if not (covered_start <= float(start_s)
+                and covered_end >= float(end_s)):
+            continue
+        if key is not None:
+            from library.tools import analysis_cache
+
+            stored = value.get("analysis") or {}
+            wanted_key = analysis_cache.AnalysisKey.from_dict(
+                key.to_dict() if hasattr(key, "to_dict") else key)
+            stored_key = analysis_cache.AnalysisKey.from_dict(
+                stored.get("key"))
+            if wanted_key is None or stored_key != wanted_key:
+                return {
+                    "sufficient": False,
+                    "stale": {
+                        "reason": "the stored pass was measured under another key",
+                        "differing": analysis_cache.differing_components(
+                            stored.get("key"), wanted_key)
+                        if wanted_key is not None else
+                        list(analysis_cache.KEY_COMPONENTS),
+                        "stored_key": stored.get("key"),
+                        "wanted_key": wanted_key.to_dict()
+                        if wanted_key is not None else None,
+                    },
+                }
+        return {
+            "sufficient": True,
+            "coverage": "sampled",
+            "producer_version": object_grounding.PRODUCER_VERSION,
+        }
     return None
 
 
@@ -133,6 +183,7 @@ def _produce_object_pass(*, project: Path, model: dict[str, Any],
                          asset_id: str, clock_id: str, plan: dict[str, Any],
                          start_s: float, end_s: float,
                          budget_seconds: float, max_peak_rss_gb: float,
+                         root: Path | None = None,
                          ) -> dict[str, Any]:
     """Measure one window for the objects the plan names.
 
@@ -151,6 +202,9 @@ def _produce_object_pass(*, project: Path, model: dict[str, Any],
         }
     producer = object_grounding.select_producer(
         _object_requirement(plan), phrases)
+    key_block = object_grounding.analysis_key(
+        source_digest=source_digest, producer=producer, phrases=phrases)
+    cache = _analysis_cache_frame_cache(source_digest, key_block, root=root)
     source_path = Path(source_file)
     if not source_path.is_file():
         return {
@@ -173,7 +227,8 @@ def _produce_object_pass(*, project: Path, model: dict[str, Any],
         }
     result = object_grounding.detect_window(
         source_path, phrases=phrases, start_s=start_s, end_s=end_s,
-        producer=producer, sample_fps=object_grounding.DEFAULT_SAMPLE_FPS)
+        producer=producer, sample_fps=object_grounding.DEFAULT_SAMPLE_FPS,
+        cache=cache, source_digest=source_digest)
     cost = float(result.get("cost_seconds") or 0.0)
     peak_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     rss_gb = peak_rss / (1024**3 if sys.platform == "darwin" else 1024**2)
@@ -203,7 +258,44 @@ def _produce_object_pass(*, project: Path, model: dict[str, Any],
         "coverage": "sampled" if measured else "incomplete",
         "coverage_map": result.get("coverage"),
         "detections": result.get("detections"),
+        "analysis": result.get("analysis"),
+        "cache": result.get("cache"),
+        "skipped": _skipped_frames(result.get("cache")),
     }
+
+
+def _analysis_cache_frame_cache(source_digest: str, key_block: Any,
+                                *, root: Path | None = None):
+    """The frame cache this request's measurement is filed under.
+
+    ``REN_ANALYSIS_CACHE=off`` turns it off, and the lane then measures
+    every frame it is asked about - the escape hatch a benchmark's
+    independent arm needs.
+    """
+    from library.tools import analysis_cache
+
+    key = analysis_cache.AnalysisKey.from_dict(
+        key_block.to_dict() if hasattr(key_block, "to_dict") else key_block)
+    if key is None:
+        return None
+    return analysis_cache.FrameCache(
+        source_digest, key, root=root,
+        enabled=analysis_cache.cache_enabled())
+
+
+def _skipped_frames(cache: Any) -> list[dict[str, Any]]:
+    """The frames this pass did NOT measure, and why.
+
+    A reused frame is a measurement the engine already paid for; naming
+    it is how a reader sees that the request cost less than its scope
+    suggests, instead of inferring it from a total.
+    """
+    if not isinstance(cache, dict):
+        return []
+    return [{"kind": "frame",
+             "frame_index": int(index),
+             "reason": "the frame was measured under this key before"}
+            for index in cache.get("reused_frames") or []]
 
 
 def filter_m4_by_reuse_policy(model: dict[str, Any], project: Path, *,
@@ -320,10 +412,12 @@ def query_project(
         if lane == OBJECT_LANE:
             return _cached_object_pass(
                 model, phrases=_object_phrases(plan),
-                start_s=start_s, end_s=end_s)
+                start_s=start_s, end_s=end_s,
+                key=_object_analysis_key(plan, source_digest))
         if lane != "m4":
             return None
         memory = source_memory.read_scenes(source_digest, root)
+        stale: list[dict[str, Any]] = []
         for row in (memory or {}).get("window_coverage", []):
             evidence_id = _m4_window_evidence_id(
                 source_digest, row.get("start_s"), row.get("end_s"))
@@ -337,6 +431,19 @@ def query_project(
                 and row.get("start_s") <= start_s
                 and row.get("end_s") >= end_s
             ):
+                # The window was measured by ANOTHER version of this
+                # analysis: it is a different measurement, and it is not
+                # served as the current one.
+                if row.get("producer_version") != PRODUCER_VERSION:
+                    stale.append({
+                        "reason": "the stored window was measured by another "
+                                  "analysis version",
+                        "stored_version": row.get("producer_version"),
+                        "wanted_version": PRODUCER_VERSION,
+                        "window": {"start_s": row.get("start_s"),
+                                   "end_s": row.get("end_s")},
+                    })
+                    continue
                 reuse = model_evidence_provenance.reuse_evidence(
                     [{"id": evidence_id}], [row["model_provenance"]],
                     source_project_id=producer_id,
@@ -355,6 +462,8 @@ def query_project(
                     "coverage": "complete",
                     "producer_version": row["producer_version"],
                 }
+        if stale:
+            return {"sufficient": False, "stale": stale}
         return None
 
     def produce(
@@ -378,6 +487,7 @@ def query_project(
                 end_s=end_s,
                 budget_seconds=budget_seconds,
                 max_peak_rss_gb=max_peak_rss_gb,
+                root=root,
             )
         if lane != "m4":
             return {

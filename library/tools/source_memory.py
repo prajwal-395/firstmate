@@ -595,6 +595,17 @@ def _load_json(path: Path):
         return None
 
 
+def read_slot(path: Path) -> dict | None:
+    """One slot's document, or None when it is not there.
+
+    The public reader for a slot a TOOL owns: the measurement that wrote
+    it may be any lane, and the reader is not that lane.  A slot that
+    cannot be read is absent, never half-read.
+    """
+    document = _load_json(Path(path))
+    return document if isinstance(document, dict) else None
+
+
 def _source_memory_cache_kind(path: Path) -> str:
     return ("transcription_alignment" if path.name == SLOT_TRANSCRIPT
             else "semantic_measurement")
