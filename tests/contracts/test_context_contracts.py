@@ -1268,8 +1268,12 @@ def test_the_role_is_prepended_to_the_prompt_the_model_reads(tmp_path,
     original_sleep = model_task._agent_sleep
 
     def _sleep(seconds):
+        # An answer that SATISFIES the schema: an empty list is refused
+        # as semantically empty, and a refused answer is retried - and a
+        # RETRY files the delta rather than this request.  The contract
+        # under test is about the request the step is first asked.
         (responses / f"{node_id}.json").write_text(
-            json.dumps({"sfx_creative": []}))
+            json.dumps({"sfx_creative": ["a measured sound"]}))
         return original_sleep(0)
 
     monkeypatch.setattr(model_task, "_agent_sleep", _sleep)

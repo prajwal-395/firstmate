@@ -3253,6 +3253,15 @@ EXEMPT_IMPORTS = {
     # pipeline_data.json and how a reader finds it.  A fix here moves no
     # measured value; a wrong one fails loud as a missing input.
     "library/tools/capability_outputs.py",
+    # Prompt DELIVERY: how a large context table reaches the model (a
+    # path and a map of its rows, instead of the rows themselves).  It
+    # runs when a step asks a model a question, long after the preflight
+    # measurements are frozen, so a fix here can only move what a model
+    # is asked - never a measured footage value.  Declaring it instead
+    # would drag the serializer and the brief reference into every
+    # footage scan's cache key, which is the over-invalidation rot the
+    # coverage test exists to stop in the other direction.
+    "library/tools/context_reference.py",
     # Project declarations.  step_ledger's rule is that they do NOT travel
     # in a preflight cache, so their code cannot stale one either.
     "library/tools/brand_registry.py",

@@ -40,6 +40,11 @@ _ARCHIVABLE = (
     (Area.REASONING, "reasoning"),
 )
 
+# Subdirectories of the requests area that the requests name BY PATH.
+# They are copied with the requests, or an archived request points at a
+# file the archive does not carry.
+_REQUEST_SUBDIRS = ("refs", "attempts")
+
 
 def archive_previous_run(
     project_folder: str,
@@ -69,7 +74,16 @@ def archive_previous_run(
         if not src.is_dir():
             continue
         files = [p for p in src.iterdir() if p.is_file()]
-        if not files:
+        # The subdirectories the requests name BY PATH travel with them,
+        # or an archived request points at a file the archive does not
+        # carry.  They are copied even when no request file sits at the
+        # top level, because a run whose requests were all answered
+        # still archived them.
+        named = []
+        if area is Area.LLM_REQUESTS:
+            named = [name for name in _REQUEST_SUBDIRS
+                     if (src / name).is_dir()]
+        if not files and not named:
             continue
         dst = archive_root / subdir
         dst.mkdir(parents=True, exist_ok=True)
@@ -80,6 +94,13 @@ def archive_previous_run(
             # copy rebuilds on its own (`llm_handshake`, LE-11).
             from library.tools import llm_handshake
             llm_handshake.copy_shared(src, dst)
+            for name in named:
+                source = src / name
+                target = dst / name
+                target.mkdir(parents=True, exist_ok=True)
+                for item in sorted(source.iterdir()):
+                    if item.is_file():
+                        shutil.copy2(item, target / item.name)
         copied_anything = True
 
     if copied_anything:

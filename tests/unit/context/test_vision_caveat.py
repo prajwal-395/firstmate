@@ -102,3 +102,45 @@ def test_the_prose_list_is_rendered_once():
     assert dc.vision_caveat_block() in block
     assert dc.renders_vision_caveat({"semantic_analysis_documents": "prose"})
     assert not dc.renders_vision_caveat({"semantic_index": "measured"})
+
+
+# ── The caveat names what the reader HOLDS ──────────────────────────
+#
+# The defect (scout `scout-opt-planning-cost`, C3): the caveat listed
+# all fifteen prose paths to every reader of the vision document, and
+# the list cost 3,441 bytes of prompt each time - for paths the reader
+# was never handed.
+
+
+def test_the_caveat_names_only_the_prose_paths_the_reader_holds():
+    inputs = {"semantic_analysis_documents": [
+        {"analysis": {"scene": "a kitchen"},
+         "assessment": {"keywords": ["a pot"]}}]}
+
+    held = dc.prose_paths_held(inputs)
+    assert "analysis.scene" in held
+    assert "assessment.keywords" in held
+    assert "analysis.mood" not in held
+
+    block = dc.vision_caveat_block(held)
+    assert "`analysis.scene`" in block
+    assert "`analysis.mood`" not in block, (
+        "the caveat warns the reader about a path it does not hold")
+    assert len(block) < len(dc.vision_caveat_block())
+
+
+def test_an_unknown_reader_is_told_about_every_path():
+    """No document in hand means the full list: unknown is not empty."""
+    assert dc.prose_paths_held(None) is None
+    assert "`analysis.mood`" in dc.vision_caveat_block(
+        dc.prose_paths_held(None))
+
+
+def test_a_reader_of_one_path_is_not_warned_about_the_others(
+        tmp_path, monkeypatch):
+    prompt = _prompt_for(tmp_path, monkeypatch, {
+        "semantic_analysis_documents": [
+            {"analysis": {"scene": "a kitchen"}}]})
+    assert "`analysis.scene`" in prompt
+    assert "`analysis.mood`" not in prompt
+    assert "`analysis.audio_prediction`" not in prompt

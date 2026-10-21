@@ -73,7 +73,23 @@ def _load_tree(tree: Path):
         # The runner assembles state in TWO halves and the bench read only
         # the first.  See `_run_level_state` below.
         "load_pipeline_state": getattr(runner, "load_pipeline_state", None),
+        # A large context table reaches the model BY REFERENCE (a path and
+        # a map), and the runner does that when it files the request.  A
+        # reconstruction that skipped it would report a context no run
+        # ever sent - and the tree's OWN module is used, because a tree
+        # that predates the mechanism has none and sends the bytes.
+        "apply_references": _apply_references(tree),
     }
+
+
+def _apply_references(tree: Path):
+    """The tree's own by-reference delivery, or None for a tree without it."""
+    try:
+        sys.path.insert(0, str(tree))
+        from library.tools.context_reference import apply_references
+    except ImportError:
+        return None
+    return apply_references
 
 
 def _run_level_state(api, state: dict, project_dir: str, notes: list) -> dict:
@@ -267,6 +283,22 @@ def reconstruct(tree: Path, state: dict, node_id: str, project_dir: str,
     subs = [0]
     inputs = _substitute(inputs, project_dir, declared, subs)
 
+    # A large context table reaches the model BY REFERENCE.  The bench
+    # reproduces what a run files, so it reproduces this too - and it
+    # writes the referenced files BESIDE the snapshot, never inside the
+    # project it is measuring: the bench's staleness check reads that
+    # project's listing digests, and a reference file inside it would
+    # read as the project having moved.
+    referenced: list[str] = []
+    if api.get("apply_references"):
+        scratch = Path(project_dir).parent.parent / "_context_refs"
+        inputs, referenced = api["apply_references"](
+            inputs, project_dir, "agent", directory=scratch)
+        if referenced:
+            notes.append(
+                "large context tables are delivered by reference, as a run "
+                f"files them: {sorted(referenced)}")
+
     context = api["json_to_toon"](inputs)
     if qa_feedback:
         context += qa_feedback
@@ -292,7 +324,7 @@ def reconstruct(tree: Path, state: dict, node_id: str, project_dir: str,
                          "this call entirely")
         else:
             from library.processes.edit_video.run_pipeline import (
-                generate_output_schema_text,
+                output_schema_pointer,
             )
             # The runner appends fields to the RENDERED schema and
             # their instructions to the prompt - `could_not_determine` for
@@ -460,7 +492,7 @@ def reconstruct(tree: Path, state: dict, node_id: str, project_dir: str,
                     schema_outputs.append(decided_value.schema_entry())
                     prompt += decided_value.prompt_block(node_id)
             expected_schema = json.dumps(schema_outputs)
-            schema_text = generate_output_schema_text(schema_outputs)
+            schema_text = output_schema_pointer(schema_outputs)
             marker = "<!-- OUTPUT_SCHEMA: auto-injected from manifest.json -->"
             if marker in prompt:
                 prompt = prompt.replace(marker, schema_text)

@@ -35,9 +35,12 @@ A model that can run ffmpeg can read a file.
 stand in for it.**  Applied per SECTION, in order, and to any document -
 not per step, and not by a hand-tuned list of headings:
 
-1. **The preamble is inline.**  Everything before the first heading is
-   the document's own statement of what it is, and it is what tells the
-   model whether to read on.
+1. **The preamble is inline when it is SMALL, and named when it is not.**
+   Everything before the first heading is the document's own statement
+   of what it is.  Under `INLINE_WHEN_UNDER_BYTES` it is quoted; over it,
+   it is named by the line range that holds it, like a section - it is
+   the first screenful of the file the map already points at.  Quoting
+   it in full sent the same 4,380 bytes to seven steps.
 2. **A section whose body is shorter than `INLINE_WHEN_UNDER_BYTES` is
    inline.**  Quoting it costs about what describing it costs, so
    describing it is the worse trade.  This is byte economics, not taste.

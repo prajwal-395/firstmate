@@ -305,7 +305,66 @@ def renders_vision_caveat(evidence) -> bool:
     return bool(VISION_INPUT_NAMES & set(evidence))
 
 
-def vision_caveat_block() -> str:
+def prose_paths_held(inputs) -> list[str]:
+    """The prose paths this invocation actually HOLDS.
+
+    The caveat names what the reader is looking at.  A step that holds
+    `analysis.scene` and `analysis.motion` is not warned about
+    `analysis.mood` - a warning about a path the prompt does not carry
+    is noise, and the full list of fifteen paths cost every reader of
+    the document 3,441 bytes of prompt (scout `scout-opt-planning-cost`,
+    C3).
+
+    `None` means UNKNOWN - the caller does not know what the reader was
+    handed, so every path is named.  An empty list means the reader was
+    handed a document that carries none of them.
+    """
+    if inputs is None:
+        # UNKNOWN: the caller does not know what the reader was handed,
+        # so every path is named.
+        return None
+    if not inputs:
+        return []
+    documents = inputs.get("semantic_analysis_documents")
+    if documents is None:
+        documents = inputs.get("semantic_analysis")
+    if isinstance(documents, dict):
+        documents = documents.get("semantic_analysis_documents")
+    if not isinstance(documents, list):
+        return []
+    present: set[str] = set()
+    for document in documents:
+        if not isinstance(document, dict):
+            continue
+        for path in VISION_PROSE_PATHS:
+            if path in present:
+                continue
+            if _path_present(document, path):
+                present.add(path)
+    return [path for path in VISION_PROSE_PATHS if path in present]
+
+
+def _path_present(document: dict, path: str) -> bool:
+    """Whether `document` carries the value at `path`.
+
+    Two shapes: `analysis.scene` names a key under a key, and
+    `objects[].label` names a key under an item of a list.
+    """
+    if "[]" in path:
+        head, _, tail = path.partition("[].")
+        items = document.get(head)
+        if not isinstance(items, list):
+            return False
+        return any(isinstance(item, dict) and item.get(tail) not in (None, "")
+                   for item in items)
+    head, _, tail = path.partition(".")
+    nested = document.get(head)
+    if not isinstance(nested, dict):
+        return False
+    return nested.get(tail) not in (None, "")
+
+
+def vision_caveat_block(paths=None) -> str:
     """The caveat for every reader of a vision document.
 
     It names the paths that are a model's READING of the picture and
@@ -313,7 +372,13 @@ def vision_caveat_block() -> str:
     for one list: the paths belong to the document, so a step that
     holds a creative direction and a step that does not are told the
     same thing, in the same words.
+
+    `paths` narrows the list to the prose paths this invocation HOLDS.
+    `None` names them all, which is what a caller that does not know
+    what the reader was handed gets.
     """
+    named = list(VISION_PROSE_PATHS) if paths is None else [
+        path for path in paths if path in VISION_PROSE_PATHS]
     lines = [
         "\n\n## One of your inputs is a description, not an observation\n\n",
         "The vision document carries measured ranges AND another "
@@ -322,7 +387,13 @@ def vision_caveat_block() -> str:
         "reading: it is a lead to look at, never an observed fact you "
         "may assert, and never a measurement you may cite as one.\n\n",
     ]
-    for path in sorted(VISION_PROSE_PATHS):
+    if paths is not None:
+        lines.append(
+            "These are the prose paths in the document you were handed.\n\n")
+        if not named:
+            lines.append(
+                "The document you were handed carries none of them.\n\n")
+    for path in named:
         lines.append(f"- `{path}` - {VISION_PROSE_PATHS[path]}\n")
     lines.append(
         "\nWhat DOES count in the vision document: camera segments "
@@ -662,7 +733,7 @@ def schema_entry() -> dict:
     }
 
 
-def prompt_block_for(evidence: Dict[str, str]) -> str:
+def prompt_block_for(evidence: Dict[str, str], inputs=None) -> str:
     """The instruction for a holder of `evidence`, whatever declared it.
 
     Steps hold DAG-routed measurements (`prompt_block` below, per step
@@ -706,7 +777,7 @@ def prompt_block_for(evidence: Dict[str, str]) -> str:
     if renders_vision_caveat(sources):
         # The same renderer every other reader of the document gets, so
         # the prose paths are named once, in one place, in one wording.
-        lines.append(vision_caveat_block())
+        lines.append(vision_caveat_block(prose_paths_held(inputs)))
     lines.append(
         "\nAn entry with no `measurement`, or naming an input outside "
         "that list, is NOT a contradiction and is recorded separately as "
@@ -723,7 +794,7 @@ def prompt_block_for(evidence: Dict[str, str]) -> str:
     return "".join(lines)
 
 
-def prompt_block(step_id: str) -> str:
+def prompt_block(step_id: str, inputs=None) -> str:
     """The instruction, delivered as DATA beside the context.
 
     One instruction asked of many steps, so this takes the route
@@ -734,8 +805,11 @@ def prompt_block(step_id: str) -> str:
     The block is per step because the two closed vocabularies it names -
     the direction's own fields, and the measurements THIS step was
     routed - are what make an entry checkable.
+
+    `inputs` is what the step was HANDED, and it narrows the vision
+    caveat to the prose paths that step really holds.
     """
-    return prompt_block_for(evidence_sources(step_id))
+    return prompt_block_for(evidence_sources(step_id), inputs)
 
 
 def _normalise_entry(raw: Any) -> Optional[Dict[str, str]]:

@@ -75,7 +75,7 @@ from library.tools import model_task
 # bench reach them through the runner. See library/tools/model_task.py.
 from library.tools.model_task import (  # noqa: F401 - re-exports
     FULL_AUTO_AGENT, FULL_AUTO_DEPRECATED_AGY, LLMError,
-    generate_output_schema_text, normalize_full_auto)
+    generate_output_schema_text, normalize_full_auto, output_schema_pointer)
 from library.tools import footage_identity, code_identity, step_ledger
 from library.tools import capability_outputs, stable_json
 from library.tools.project_layout import Area, ProjectLayout

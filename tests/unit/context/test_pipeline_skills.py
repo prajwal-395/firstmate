@@ -354,6 +354,27 @@ def test_pipeline_runs_the_gate_for_a_shell_less_harness(tmp_path):
 
 # ── The block reaches the archived prompt the model reads ─────────
 
+def _the_prompt_the_model_reads(request, layout, node_id) -> str:
+    """The prompt the model was handed, following a RETRY's delta.
+
+    A QA retry files the DELTA: the request the model answered and the
+    answer it wrote are named by path, and only the difference is new
+    (`library/tools/model_task.py`).  The model reads the request the
+    delta names, so that is what this follows - the skill block has to
+    reach the model either way.
+    """
+    context = request.get("context") or ""
+    for line in context.split("\n"):
+        stripped = line.strip()
+        if not stripped.startswith("FILE:"):
+            continue
+        path = Path(stripped[len("FILE:"):].strip())
+        if path.suffix == ".md" and path.is_file():
+            return (request.get("prompt") or "") + "\n" + path.read_text(
+                encoding="utf-8")
+    return request.get("prompt") or ""
+
+
 def test_skill_block_reaches_the_archived_request(tmp_path, monkeypatch):
     """The regression this pins: a catalogue nothing is told about."""
     from library.processes.edit_video import run_pipeline
@@ -386,8 +407,10 @@ def test_skill_block_reaches_the_archived_request(tmp_path, monkeypatch):
         {"project_folder": str(project)},
         node_id, manifest, full_auto="agent", llm_timeout=5)
 
-    prompt = llm_handshake.read_request(
-        layout.read_dir(Area.LLM_REQUESTS) / f"{node_id}.json")["prompt"]
+    prompt = _the_prompt_the_model_reads(
+        llm_handshake.read_request(
+            layout.read_dir(Area.LLM_REQUESTS) / f"{node_id}.json"),
+        layout, node_id)
     assert "verify_render" in prompt
     assert "GATING" in prompt
     assert "SENTINEL_HANDOFF_BODY" in prompt

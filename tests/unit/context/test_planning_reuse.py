@@ -261,3 +261,94 @@ def test_cleared_capability_output_can_be_restored_from_verified_export(
     assert planning_reuse.reusable(
         state, "compile_manifest", identity, restored, str(project)) == (
             True, "identical inputs, code and outputs")
+
+
+# ── The code witness: what may change a planning key ────────────────
+#
+# The defect the scout measured (scout `scout-opt-planning-cost`, C4):
+# the key hashed 599 files for `creative_direction`, 572 of them shared
+# library modules, and ONE COMMENT LINE in
+# `library/tools/analysis/object_segmentation.py` - a module with nothing
+# to do with creative direction - changed it.  Every unrelated engine
+# merge therefore re-paid the whole planning band: 231,346 tokens and
+# about twenty-two minutes of bridge time per re-plan.
+
+
+def _fake_repo(tmp_path):
+    """A repository with the declared context modules and one step."""
+    root = tmp_path / "repo"
+    for relative in planning_reuse._CONTEXT_CODE:
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("# a module\n", encoding="utf-8")
+    step = root / "library" / "steps" / "step_x"
+    step.mkdir(parents=True)
+    (step / "manifest.json").write_text(json.dumps({"skills": []}),
+                                        encoding="utf-8")
+    (step / "handoff.md").write_text("Choose a direction.\n",
+                                     encoding="utf-8")
+    return root, step
+
+
+def test_an_unrelated_module_does_not_change_the_planning_code_digest(
+        tmp_path):
+    """The defect, pinned: an unrelated change must not re-pay the band."""
+    root, step = _fake_repo(tmp_path)
+    before = planning_reuse._code_digest(step, root)
+
+    unrelated = root / "library" / "tools" / "unrelated.py"
+    unrelated.write_text("# a change nobody reads\n", encoding="utf-8")
+
+    assert planning_reuse._code_digest(step, root) == before
+
+
+def test_a_declared_context_module_changes_the_planning_code_digest(
+        tmp_path):
+    """The other half: a change that shapes the question MUST move it."""
+    root, step = _fake_repo(tmp_path)
+    before = planning_reuse._code_digest(step, root)
+
+    (root / "library" / "tools" / "context_views.py").write_text(
+        "# a change that shapes the question\n", encoding="utf-8")
+
+    assert planning_reuse._code_digest(step, root) != before
+
+
+def test_a_module_reached_through_a_lazy_import_changes_the_digest(
+        tmp_path):
+    """The question-forming code calls into these at run time.
+
+    A change in a module a context module imports INSIDE a function
+    changes what the step asks, so it has to move the key.
+    """
+    root, step = _fake_repo(tmp_path)
+    (root / "library" / "tools" / "context_views.py").write_text(
+        "def build():\n    from library.tools import helper\n"
+        "    return helper\n", encoding="utf-8")
+    helper = root / "library" / "tools" / "helper.py"
+    helper.write_text("# the helper\n", encoding="utf-8")
+    before = planning_reuse._code_digest(step, root)
+
+    helper.write_text("# the helper, changed\n", encoding="utf-8")
+
+    assert planning_reuse._code_digest(step, root) != before
+
+
+def test_the_code_witness_does_not_reach_the_whole_engine():
+    """The witness is the modules that shape the QUESTION, not the engine.
+
+    `object_segmentation` is the module the scout proved was in the key
+    of a step that has nothing to do with segmentation.
+    """
+    repo_root = Path(__file__).resolve().parents[3]
+    creative = repo_root / "library" / "steps" / "step_2_01_creative_direction"
+    found = planning_reuse._code_files(creative, repo_root)
+
+    segmentation = (repo_root / "library" / "tools" / "analysis"
+                    / "object_segmentation.py").resolve()
+    assert segmentation not in found, (
+        "a module with nothing to do with creative direction is in its "
+        "planning key: every unrelated merge re-pays the band")
+    assert len(found) < 300, (
+        f"the code witness is {len(found)} files - it is the whole engine "
+        "again")

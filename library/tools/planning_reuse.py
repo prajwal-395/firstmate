@@ -10,10 +10,20 @@ MISS, never an assumed match.
 
 The key is deliberately based on the complete gathered input object, not
 on a second handwritten list of selected fields. It also includes the
-step's implementation/import closure, the runner code that assembles and
+step's implementation closure, the runner code that assembles and
 projects context, the step's incoming DAG mappings, referenced files and
 the step's recorded output files. Separate keys let an unchanged branch
 reuse its own output after a sibling changes.
+
+The code closure is the modules whose code can change the QUESTION, and
+it is deliberately narrow: the step's own directory, its declared
+skills, the declared context modules, what those import EAGERLY and what
+they import LAZILY, and the eager imports of all of that.  It used to be
+the whole transitive import closure - 599 files for ``creative_direction``
+- so one comment line in a module with nothing to do with the step
+changed the key and every unrelated merge re-paid the planning band
+(231,346 tokens and about twenty-two minutes of bridge time per
+re-plan).  See ``_code_files`` for the rule as it stands.
 
 One enumeration: ``library/tools/planning_reuse.py``.
 """
@@ -217,7 +227,25 @@ def _module_files(module: str, repo_root: Path) -> set[Path]:
     return out
 
 
-def _imports_from(path: Path, repo_root: Path) -> set[Path]:
+def _imports_from(path: Path, repo_root: Path, *, lazy: bool = False) -> set[Path]:
+    """The local ``library.*`` modules `path` imports.
+
+    `lazy=False` (the default) is what the module EXECUTES when it is
+    imported: its own top level and the bodies of its classes.  An
+    import inside a function body runs only when that function is
+    called, so it is not part of the module's import cost - `lazy=True`
+    asks for those and nothing else.
+
+    The distinction is what makes the planning cache's code witness
+    narrow without making it wrong.  The old witness followed EVERY
+    import of every module it reached, and one of those imports
+    (`run_pipeline` -> `reference_style` -> `capabilities.temporal` ->
+    `analysis.object_segmentation`) put 599 files in the key: a comment
+    line in a module with nothing to do with creative direction changed
+    the key of a creative-direction plan, and every unrelated merge
+    re-paid the whole planning band.  See `_code_files` for the rule as
+    it stands.
+    """
     try:
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     except (OSError, SyntaxError, UnicodeDecodeError) as exc:
@@ -233,8 +261,24 @@ def _imports_from(path: Path, repo_root: Path) -> set[Path]:
     else:
         package_parts = module_parts[:-1]
 
+    parents: dict = {}
+    for node in ast.walk(tree):
+        for child in ast.iter_child_nodes(node):
+            parents[child] = node
+
     found: set[Path] = set()
     for item in ast.walk(tree):
+        if not isinstance(item, (ast.Import, ast.ImportFrom)):
+            continue
+        inside_function = False
+        walker = item
+        while walker in parents:
+            walker = parents[walker]
+            if isinstance(walker, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                inside_function = True
+                break
+        if inside_function != lazy:
+            continue
         if isinstance(item, ast.Import):
             for alias in item.names:
                 found.update(_module_files(alias.name, repo_root))
@@ -259,32 +303,81 @@ def _imports_from(path: Path, repo_root: Path) -> set[Path]:
 
 
 def _code_files(step_dir: Path, repo_root: Path) -> set[Path]:
+    """The modules whose code can change the QUESTION this step asks.
+
+    The witness is what makes a cached plan safe to reuse, and it used to
+    be the whole transitive import closure of twenty-eight shared
+    modules: **599 files** for `creative_direction`, of which 572 were
+    shared library modules.  One comment line in
+    `library/tools/analysis/object_segmentation.py` - a module with
+    nothing to do with creative direction - changed the key, so every
+    unrelated engine merge re-paid the whole planning band (231,346
+    tokens and about twenty-two minutes of bridge time per re-plan).
+
+    The rule now, in three parts:
+
+    1. **The seeds**: the step's own directory, its declared skills, and
+       the declared context modules below.  These are hashed as files.
+    2. **What the seeds reach**: their EAGER imports (what a module
+       executes when it is imported) and their LAZY imports (what they
+       reach when a function is called).  The question-forming code calls
+       into the lazy ones, so a change in one of them changes the
+       question.
+    3. **What that reaches**: the eager imports of everything in (2),
+       transitively.
+
+    The closure stops there.  A module reached only through a lazy
+    import of a lazy import is not in the key - the trade is stated in
+    the module's docstring and pinned by
+    `tests/unit/context/test_planning_reuse.py`.
+    """
     found: set[Path] = set()
     _add_tree_files(step_dir, found)
     found.update(_declared_skill_files(step_dir, repo_root))
-    queue = list(found)
+    seeds: set[Path] = set(found)
     for relative in _CONTEXT_CODE:
         path = repo_root / relative
         if not path.is_file():
             raise PlanningReuseError(
                 f"required planning context code is missing: {path}")
         found.add(path.resolve())
-        queue.append(path.resolve())
-    inspected: set[Path] = set()
-    while queue:
-        path = queue.pop()
-        if path in inspected or path.suffix != ".py":
+        seeds.add(path.resolve())
+
+    runner = repo_root / "library/processes/edit_video/run_pipeline.py"
+
+    def eager_closure(paths: set[Path]) -> None:
+        """Add the eager imports of `paths`, transitively."""
+        queue = list(paths)
+        inspected: set[Path] = set()
+        while queue:
+            path = queue.pop()
+            if path in inspected or path.suffix != ".py":
+                continue
+            inspected.add(path)
+            if path == runner:
+                # This file is hashed as a whole, but its module-level
+                # imports include renderer, Resolve and QA code that
+                # planning does not execute. The context helpers it calls
+                # are enumerated above.
+                continue
+            for dependency in _imports_from(path, repo_root):
+                if dependency not in found:
+                    found.add(dependency)
+                    queue.append(dependency)
+
+    eager_closure(seeds)
+
+    # The lazy imports of everything the seeds reach: the code that
+    # builds the question calls into these at run time.
+    reached = set(found)
+    for path in list(reached):
+        if path.suffix != ".py" or path == runner:
             continue
-        inspected.add(path)
-        if path == repo_root / "library/processes/edit_video/run_pipeline.py":
-            # This file is hashed as a whole, but its module-level imports
-            # include renderer, Resolve and QA code that planning does not
-            # execute. The context helpers it calls are enumerated above.
-            continue
-        for dependency in _imports_from(path, repo_root):
+        for dependency in _imports_from(path, repo_root, lazy=True):
             if dependency not in found:
                 found.add(dependency)
-                queue.append(dependency)
+
+    eager_closure(found - seeds)
     return found
 
 

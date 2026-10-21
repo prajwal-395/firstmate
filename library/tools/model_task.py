@@ -188,6 +188,33 @@ def generate_output_schema_text(outputs: list) -> str:
     return schema_text
 
 
+def output_schema_pointer(outputs: list) -> str:
+    """The prompt's line about the shape of the answer.
+
+    A request carries the schema TWICE otherwise: this prose repeated
+    every field's description, and the request's own `expected_schema`
+    carries the same list as JSON - 24,666 bytes of prose across the
+    planning band's fifteen model-calling steps, about 8,700 tokens
+    (scout `scout-opt-planning-cost`, C3).
+
+    The JSON is the authority: it is what the answer is validated
+    against, and `ren asks` prints it in the request's stable prefix,
+    before the task instructions.  So the prompt names the fields and
+    points at the schema, and the descriptions travel once.
+    """
+    if not outputs:
+        return ""
+    names = ", ".join(f"`{out.get('name')}`" for out in outputs
+                      if out.get("name"))
+    return (
+        "## Required Output Format\n\n"
+        f"Return one JSON object with exactly these fields: {names}.\n\n"
+        "Each field's type, whether it is required and its full "
+        "description are in this request's `expected_schema` - the "
+        "schema your answer is validated against.\n"
+    )
+
+
 def project_context(inputs: dict, declared, bridge_supplied: set | None = None) -> dict:
     """Narrow inputs to the allow-list `declared`, or return them whole.
 
@@ -408,6 +435,17 @@ def _run(key: str, task: ModelTask, inputs: dict, full_auto, llm_timeout,
     # For hybrid steps, inputs may not be projected yet. Project them now if needed.
     inputs = project_context(inputs, task.context_fields, bridge_supplied)
 
+    # A large context TABLE reaches the model by reference: a path, and a
+    # map of the rows with the line range that holds each one.  The same
+    # table sent to several steps is written once and read once, and the
+    # bytes that repeat across the planning band stop repeating in the
+    # request (scout `scout-opt-planning-cost`, C1).  A harness that
+    # cannot read a file keeps every byte inline - a route the model
+    # cannot follow is a loss, not a saving.
+    from library.tools.context_reference import apply_references
+    inputs, _referenced = apply_references(
+        inputs, inputs.get("project_folder", ""), full_auto)
+
     projected_measure = token_measure.measure_text(str(inputs))
 
     prompt_additions = inputs.pop("__prompt_additions", {})
@@ -510,6 +548,12 @@ def _run(key: str, task: ModelTask, inputs: dict, full_auto, llm_timeout,
 
     expected_schema_str = ""
     validated_outputs = None
+    # The delta a RETRY carries, when there is one.  `None` on the first
+    # attempt, which files the whole request.
+    retry_delta = None
+    # What each rejected answer was told, in order.  A second retry has
+    # to know about the first rejection too.
+    feedbacks: list[str] = []
     if task.declared:
         llm_outputs = asked_outputs(
             task.llm_outputs, task.outputs,
@@ -600,10 +644,10 @@ def _run(key: str, task: ModelTask, inputs: dict, full_auto, llm_timeout,
         if direction_contradiction.flags(key) or task.evidence:
             schema_outputs.append(direction_contradiction.schema_entry())
             if direction_contradiction.flags(key):
-                prompt += direction_contradiction.prompt_block(key)
+                prompt += direction_contradiction.prompt_block(key, inputs)
             else:
                 prompt += direction_contradiction.prompt_block_for(
-                    task.evidence)
+                    task.evidence, inputs)
 
         # The vision document is MIXED: measured ranges and another
         # model's prose in one object.  Every reader of it is told which
@@ -618,7 +662,13 @@ def _run(key: str, task: ModelTask, inputs: dict, full_auto, llm_timeout,
                     task.evidence)):
             if not direction_contradiction.renders_vision_caveat(
                     direction_evidence):
-                prompt += direction_contradiction.vision_caveat_block()
+                # The caveat names the prose paths THIS step holds, not
+                # every path the document can carry: a warning about a
+                # path the prompt does not carry is noise, and the full
+                # list cost every reader 3,441 bytes (scout
+                # `scout-opt-planning-cost`, C3).
+                prompt += direction_contradiction.vision_caveat_block(
+                    direction_contradiction.prose_paths_held(inputs))
 
         # No creative brief was attached, so the model is asked what it
         # would have needed to know rather than planning in silence.
@@ -674,7 +724,7 @@ def _run(key: str, task: ModelTask, inputs: dict, full_auto, llm_timeout,
         # have been lost the same way.  Anything appended next goes ABOVE
         # this line, and then it cannot be.
         expected_schema_str = json.dumps(schema_outputs)
-        schema_text = generate_output_schema_text(schema_outputs)
+        schema_text = output_schema_pointer(schema_outputs)
         marker = "<!-- OUTPUT_SCHEMA: auto-injected from manifest.json -->"
         if marker in prompt:
             prompt = prompt.replace(marker, schema_text)
@@ -703,7 +753,7 @@ def _run(key: str, task: ModelTask, inputs: dict, full_auto, llm_timeout,
         elif full_auto == "agent":
             parsed_result = _answer_by_handshake(
                 key, project_folder, prompt, constraints, current_context,
-                expected_schema_str, llm_timeout, logger)
+                expected_schema_str, llm_timeout, logger, delta=retry_delta)
 
         if full_auto == "api":
             # API calls are out of scope: Ren answers LLM steps through
@@ -737,6 +787,16 @@ def _run(key: str, task: ModelTask, inputs: dict, full_auto, llm_timeout,
         if attempt < qa_loop.max_retries:
             print(f"  QA failed on attempt {attempt+1}, retrying: {feedback}", file=sys.stderr)
             current_context += f"\n\nQA Feedback from previous attempt:\nThe previous output failed validation: {feedback}\nPlease correct this."
+            feedbacks.append(feedback)
+            # The RETRY sends the delta, not the request again.  Re-filing
+            # the whole request - the same prompt and the same context,
+            # with the feedback appended - made a step that failed its
+            # QA three times cost four times the tokens of one attempt
+            # (scout `scout-opt-planning-cost`, C6).  What the model
+            # needs to correct itself is what it already answered, what
+            # it was asked and what was wrong with the answer; all three
+            # are on disk when the retry is filed.
+            retry_delta = {"attempt": attempt + 1, "feedbacks": feedbacks}
 
     if not best_output:
         raise RuntimeError(f"Step '{key}' produced no LLM output (silent no-answer).")
@@ -754,13 +814,102 @@ def _interview_asked(task: ModelTask, brief_attached: bool) -> bool:
             or (task.interviews_without_brief and not brief_attached))
 
 
+def _retry_delta(key, requests_dir, responses_dir, req_file, res_file, delta,
+                 prompt, constraints, current_context):
+    """Save what the model already answered, and file the DELTA.
+
+    A retry used to re-file the whole request: the same prompt and the
+    same context, with the QA feedback appended.  `qa_loop.max_retries`
+    is three, so a step that failed its QA cost **four** times the
+    tokens of one attempt - 2026-08-29: `mesh_spine` called twice at
+    249,501 tokens each, and `plan_vfx` three times at 29,610 tokens
+    each for a two-token answer (scout `scout-opt-planning-cost`, C6).
+
+    The retry now sends the difference.  What the model needs to correct
+    itself is three things, and all three are on disk when the retry is
+    filed:
+
+    * the request it answered - the task instructions, the brand
+      constraints and the context it decided from, saved verbatim as the
+      model saw it;
+    * the answer it wrote, which `publish_request` deletes with the
+      response slot;
+    * what was wrong with it, which is the only new thing there is.
+
+    The request is saved ONCE, under the name `attempts/<step>.request.md`:
+    the second retry must name the request the model was FIRST asked, not
+    the first retry's delta, or the chain loses the question.
+
+    The two saved files are written under `llm_requests/attempts/`, a
+    directory `pending_asks` does not read: a retry is not a second
+    pending ask, and the host must answer the retry at the canonical
+    request path.
+
+    Returns `(prompt, constraints, context)`.
+    """
+    attempts = requests_dir / "attempts"
+    attempts.mkdir(parents=True, exist_ok=True)
+    attempt = int(delta.get("attempt") or 1)
+
+    request_copy = attempts / f"{key}.request.md"
+    if not request_copy.exists() and req_file.exists():
+        try:
+            payload = json.loads(req_file.read_text(encoding="utf-8"))
+            materialised = llm_handshake.materialize(payload, requests_dir)
+        except (OSError, ValueError, llm_handshake.SharedTextMissing):
+            materialised = None
+        if materialised:
+            request_copy.write_text(
+                (materialised.get("prompt") or "")
+                + "\n\n--- context ---\n\n"
+                + (materialised.get("context") or ""),
+                encoding="utf-8")
+
+    answer_copy = attempts / f"{key}.attempt{attempt}.answer.json"
+    if not answer_copy.exists() and res_file.exists():
+        answer_copy.write_text(res_file.read_text(encoding="utf-8"),
+                                encoding="utf-8")
+
+    feedbacks = list(delta.get("feedbacks") or [])
+    if not feedbacks and delta.get("feedback"):
+        feedbacks = [str(delta.get("feedback"))]
+    said = "\n".join(
+        f"  {index}. {text}" for index, text in enumerate(feedbacks, 1))
+
+    retry_prompt = (
+        "Your previous answer to this step was rejected, and nothing about "
+        "the task has changed. The request you answered, the context you "
+        "decided from and the answer you wrote are all still on disk; the "
+        "context below says where.\n\n"
+        "Read the request and your previous answer before you answer again, "
+        "then answer with the same JSON shape as before. Change what the "
+        "problem names and nothing else.\n\n"
+        f"What was wrong with your answer:\n{said}\n"
+    )
+    retry_context = (
+        "The request you answered is NOT copied into this prompt.\n"
+        f"  FILE: {request_copy}\n\n"
+        "It holds the task instructions, the brand constraints and the "
+        "context you decided from, exactly as you saw them.\n\n"
+        "Your previous answer is NOT copied into this prompt either.\n"
+        f"  FILE: {answer_copy}\n\n"
+        "Read both before you answer again.\n"
+    )
+    return retry_prompt, "", retry_context
+
+
 def _answer_by_handshake(key, project_folder, prompt, constraints,
                          current_context, expected_schema_str, llm_timeout,
-                         logger) -> dict:
+                         logger, delta=None) -> dict:
     """File the request, wait for the host's answer, return it parsed.
 
     The handshake contract - the request's shape, what a valid response
     is, how a malformed one refuses - is `library/tools/llm_handshake.py`.
+
+    `delta` is a RETRY: the request the model already answered and the
+    answer it gave are saved beside the requests, and the request filed
+    now carries the difference - what was wrong - and the paths of the
+    two files.  See `retry_delta_text`.
     """
     if not project_folder:
         raise LLMError(
@@ -777,6 +926,11 @@ def _answer_by_handshake(key, project_folder, prompt, constraints,
 
     req_file = requests_dir / f"{key}.json"
     res_file = responses_dir / f"{key}.json"
+
+    if delta:
+        prompt, constraints, current_context = _retry_delta(
+            key, requests_dir, responses_dir, req_file, res_file, delta,
+            prompt, constraints, current_context)
 
     req_data = {
         "step_id": key,

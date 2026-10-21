@@ -11,8 +11,13 @@ stand in for it.**  Applied per SECTION, in order, and to any document -
 not per step, and not by a hand-tuned list of headings (`is_inline`,
 `build_reference`):
 
-1. **The preamble is inline.**  Everything before the first heading is
-   the document's own statement of what it is.
+1. **The preamble is inline when it is SMALL, and NAMED when it is not.**
+   Everything before the first heading is the document's own statement
+   of what it is.  Under `INLINE_WHEN_UNDER_BYTES` it is quoted; over
+   it, it is named by the line range that holds it, exactly like a
+   section - it is the first screenful of the file the map already
+   points at, and quoting it in full sent the same 4,380 bytes to SEVEN
+   steps (scout `scout-opt-planning-cost`, C1).
 2. **A section whose body is shorter than `INLINE_WHEN_UNDER_BYTES` is
    inline.**  This is byte economics, not taste.
 3. **A section the PROJECT pins is inline.**  `pipeline.creative_brief_inline`
@@ -79,9 +84,10 @@ A path that cannot be read or is empty RAISES. **A run that attaches none INTERV
 **A reference is an ABSOLUTE PATH plus a MAP, and the rule for what still travels inline is in `library/tools/brief_reference.py`.**
 [why](docs/RULE_EVIDENCE.md#the-brief-was-copied-seven-times)
 - **The map carries a LINE RANGE per heading**, so following it is one `sed -n 'a,bp'` and not a search.
-- **The rule is per SECTION, not per step**, so every step sees the same document: the preamble inline, a section under `INLINE_WHEN_UNDER_BYTES` inline, everything else a heading, a size, a range and a lede. Nothing is filtered or summarised away - the whole document is at the path.
+- **The rule is per SECTION, not per step**, so every step sees the same document: the preamble inline when it is small and named by its line range when it is not, a section under `INLINE_WHEN_UNDER_BYTES` inline, everything else a heading, a size, a range and a lede. Nothing is filtered or summarised away - the whole document is at the path.
 - **Which sections are about THIS video is not the engine's judgement.** A project pins sections inline with `pipeline.creative_brief_inline` in its `project.yaml`, and there is no default list.
-- **The mechanism carries FOUR documents, and a fifth costs a row.** `brief_reference.REFERENCED_INPUTS` is that enumeration - the brief, step 4.04's SFX catalogue, step 3.02's per-clip vision analysis (`library/tools/footage_reference.py`) and step 3.04's per-candidate repeated-take evidence (`library/tools/reel_diagnostics_reference.py`). Do not build a second by-reference mechanism.
+- **The mechanism carries FOUR documents, and a fifth costs a row.** `brief_reference.REFERENCED_INPUTS` is that enumeration - the brief, step 4.04's SFX catalogue, step 3.02's per-clip vision analysis (`library/tools/footage_reference.py`) and step 3.04's per-candidate repeated-take evidence (`library/tools/reel_diagnostics_reference.py`). Do not build a second by-reference mechanism for a DOCUMENT.
+- **The engine's own context TABLES are a different subject and travel by a different rule.** `library/tools/context_reference.py` delivers a table the engine assembled (the picture table, the spine, the assignments) as a path plus a map of its ROWS, content-addressed so the same table is one file for every step that reads it. That is not a fifth document: a document is a thing the project or a step supplies, and its map is a section map; a table is the engine's own assembly, and its map is a row map.
 - **`HARNESS_READS_FILES` is a complete enumeration and an unknown harness raises.** `agent` and `mock` reach a file; `api` does not, so under `api` the document is carried whole - a route the model cannot follow is a loss, not a saving. `present_llm_step` does that restore.
 - `tests/unit/context/test_brief.py` FOLLOWS the reference rather than asserting its shape: it parses the path and the range out of the string the model reads and requires that what comes back was not in the prompt.
 
@@ -321,8 +327,25 @@ def build_reference(path: str, content: str, pinned=(), harness: str = "agent",
         out.append("")
 
     if preamble.strip():
-        out.append("--- the document's own opening, in full ---")
-        out.append(preamble.strip())
+        preamble_bytes = len(preamble.strip().encode("utf-8"))
+        if preamble_bytes < INLINE_WHEN_UNDER_BYTES:
+            out.append("--- the document's own opening, in full ---")
+            out.append(preamble.strip())
+        else:
+            # The opening is a convenience the model can fetch for
+            # itself: the map already names every section's line range,
+            # and the opening is the first screenful of the same file.
+            # Quoting it in full sent the same 4,380 bytes to SEVEN
+            # steps (scout `scout-opt-planning-cost`, C1) for a document
+            # whose bytes are at a path anyway.
+            opening_lines = (sections[0].start_line - 1) if sections \
+                else lines_total
+            out.append(
+                f"--- the document's own opening: lines 1-{opening_lines} "
+                f"of that file ({preamble_bytes:,} bytes) ---")
+            out.append(
+                "Read it before you decide anything that turns on it: it is "
+                "the document's own statement of what it is.")
         out.append("")
 
     out.append("--- sections ---")

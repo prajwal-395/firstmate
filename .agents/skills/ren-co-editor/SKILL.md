@@ -358,6 +358,16 @@ each request, in order:
 2. **Do the work** the prompt asks, from `context` alone. Never invent
    footage, timings, or measurements; a step that cannot decide from
    its own context says so in the shape its schema allows.
+   **A `context` section that names a `FILE:` is a REFERENCE: open it.**
+   A large table (the picture table, the spine, the assignments) is
+   delivered as a path plus a map of the rows and the line range that
+   holds each one, because the same table was being sent to several
+   steps at once. Read the rows you need, in full, before you decide
+   anything that turns on them - `sed -n 'a,bp' '<the path>'`, or grep
+   it. Nothing is withheld: every byte of the table is at that path.
+   A `context` that says a request and an answer are NOT copied into
+   this prompt is a RETRY: read both files, then answer again with the
+   same JSON shape.
 3. **Write** `<project>/pipeline_output/llm_responses/<step>.json` as a
    UTF-8 JSON **object** (`{...}`) satisfying `expected_schema`. Arrays,
    strings, empty files and unparseable JSON are malformed: the run
