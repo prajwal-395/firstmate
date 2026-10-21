@@ -593,6 +593,31 @@
             "scenarios": [
               "delete_linked_effects"
             ]
+          },
+          {
+            "evidence": "tests/live/reports/registry/clip.delete__edit_patch__retiming-only-axi-primitive.json",
+            "measurement": {
+              "clip_composition": "linked_video_clip",
+              "existing_effects": "retiming",
+              "frame_rate": "24",
+              "linked_audio_configuration": "linked_audio_present",
+              "media_type": "video",
+              "project_settings": "landscape_1920x1080",
+              "resolve_version": "21.1.0.14",
+              "timeline_density": "moderate",
+              "timeline_structure": "multi_item_timeline",
+              "track_layout": "video+audio",
+              "track_occupancy": "mixed"
+            },
+            "checks": {
+              "linked_audio_preserved": true,
+              "other_items_untouched": true,
+              "retiming_only_state": true,
+              "video_target_absent": true
+            },
+            "scenarios": [
+              "delete_retimed_only"
+            ]
           }
         ]
       },
@@ -616,7 +641,8 @@
           "existing_effects": [
             "none",
             "transforms+retiming+fusion",
-            "transforms+retiming"
+            "transforms+retiming",
+            "retiming"
           ],
           "frame_rate": [
             "24",
@@ -670,7 +696,6 @@
             "grades+fusion",
             "grades+retiming",
             "grades+retiming+fusion",
-            "retiming",
             "retiming+fusion",
             "transforms",
             "transforms+fusion",
@@ -738,10 +763,11 @@
         "platform": "darwin",
         "resolve_version": "21.1.0.14"
       },
-      "evidence": "tests/live/reports/product-format-qualification/product-format-evidence.json#delete_linked_target,delete_transformed_target; earlier evidence: tests/live/reports/product-format-qualification/product-format-evidence.json#delete_linked_target,delete_transformed_target; earlier evidence: clip-delete-evidence.json#payload; direct EditPatch clip.delete committed; seeded qual_b.mp4 absent on re-read; no other items or tracks changed; tests/live/reports/predicate-widening-016.json#W1+W2+W3; direct EditPatch clip.delete committed on linked video, still, and multi-item cover; target absent, others unchanged; tests/live/reports/axi-primitive-qualification.json#delete_linked_effects",
+      "evidence": "tests/live/reports/product-format-qualification/product-format-evidence.json#delete_linked_target,delete_transformed_target; earlier evidence: tests/live/reports/product-format-qualification/product-format-evidence.json#delete_linked_target,delete_transformed_target; earlier evidence: clip-delete-evidence.json#payload; direct EditPatch clip.delete committed; seeded qual_b.mp4 absent on re-read; no other items or tracks changed; tests/live/reports/predicate-widening-016.json#W1+W2+W3; direct EditPatch clip.delete committed on linked video, still, and multi-item cover; target absent, others unchanged; tests/live/reports/axi-primitive-qualification.json#delete_linked_effects; tests/live/reports/registry/clip.delete__edit_patch__retiming-only-axi-primitive.json",
       "expected_state": {
         "other_items_untouched": true,
-        "target_absent": true
+        "target_absent": true,
+        "retiming_only_state": true
       },
       "media_types": [
         "video"
@@ -761,6 +787,10 @@
         },
         {
           "check": "linked_audio_preserved",
+          "result": "passed"
+        },
+        {
+          "check": "retiming_only_state",
           "result": "passed"
         }
       ],
@@ -784,7 +814,8 @@
           "value": [
             "none",
             "transforms+retiming+fusion",
-            "transforms+retiming"
+            "transforms+retiming",
+            "retiming"
           ]
         },
         {
@@ -864,7 +895,8 @@
       "semantic_boundary": {
         "applies_to": [
           "clip.delete on edit_patch in the measured product-format state: a portrait 1080x1920 reel at 23.976fps, dense, with linked video+audio, caption cards, transforms and retiming",
-          "clip.delete on edit_patch in the measured Ren Qualification linked A/V state: landscape 1920x1080 at 24fps, moderate density, transforms+retiming"
+          "clip.delete on edit_patch in the measured Ren Qualification linked A/V state: landscape 1920x1080 at 24fps, moderate density, transforms+retiming",
+          "clip.delete on edit_patch in measured Ren Qualification linked A/V state: landscape 1920x1080 at 24fps, moderate density, retiming only"
         ],
         "does_not_apply_to": [
           "a state outside coverage.dimensions",
