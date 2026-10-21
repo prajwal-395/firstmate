@@ -1036,4 +1036,29 @@ def deliver_reel(project_folder: str, reel: Optional[int],
                 project_folder, [full["render"]["output_path"]]),
             outputs=[full["render"]["output_path"]],
             start_worker=False)
+    # The DELIVERY is the acceptance: the captain took this generation,
+    # so a later promotion must declare that it supersedes it. Recorded
+    # durably, beside the reel it describes, so a rebuild cannot replace
+    # the accepted look silently (Reel 26 audit §2.1).
+    try:
+        from library.tools import reel_acceptance as _acceptance
+
+        acceptance = _acceptance.record(
+            project_folder, timeline_name,
+            by="delivery",
+            source="delivery",
+            timeline_id=str(getattr(live_identity, "timeline_id", "") or ""),
+            delivered_file=str(report["output_path"]),
+            note=f"delivered as {os.path.basename(str(report['output_path']))}")
+        full["acceptance"] = acceptance
+    except Exception as acceptance_failed:  # noqa: BLE001
+        # A delivery that cannot record its own acceptance is still a
+        # delivery - the file exists and verified. The failure is
+        # REPORTED, and the record can be written by hand; it never
+        # rewrites what was delivered.
+        full["acceptance"] = {"recorded": False,
+                              "reason": f"{acceptance_failed!r}"}
+        print(f"  WARNING: this delivery could not record its acceptance "
+              f"({acceptance_failed!r}); a later promotion may replace this "
+              f"reel without a declaration.", flush=True)
     return full

@@ -54,9 +54,27 @@ def install_fake_timeline_snapshots(monkeypatch):
 
     from library.tools.versions import store
 
-    def export_empty_drt(_resolve, timeline, timeline_name, project_folder,
+    def export_empty_drt(resolve, timeline, timeline_name, project_folder,
                          label="", archive_suffix=""):
         del label
+        # The archive names the project it was exported from, and the
+        # promotion checks that name against the project it is replacing
+        # (Reel 26 audit §2.3). A fixture that spells a different
+        # project would fail that check for the wrong reason, so the
+        # double exports under the name its own project answers with.
+        project_name = ""
+        try:
+            import yaml
+
+            config = yaml.safe_load(
+                (Path(project_folder) / "project.yaml").read_text(
+                    encoding="utf-8")) or {}
+            project_name = str((config.get("resolve") or {}).get(
+                "project_name") or "")
+        except Exception:  # noqa: BLE001 - a bare double has no project
+            project_name = ""
+        if not project_name.strip():
+            project_name = "Fake Resolve Project"
         safe = "".join(char if char.isalnum() or char in "-_." else "_"
                        for char in timeline_name)
         suffix = "".join(char if char.isalnum() or char in "-_" else "_"
@@ -69,7 +87,7 @@ def install_fake_timeline_snapshots(monkeypatch):
             archive.writestr(
                 "project.xml",
                 '<!--DbAppVer="21.1" DbPrjVer="17"-->'
-                '<Project><Name>Fake Resolve Project</Name></Project>')
+                f'<Project><Name>{project_name}</Name></Project>')
             archive.writestr(
                 "SeqContainer/timeline-1.xml",
                 "<Sequence><Track><TrackType>Video</TrackType>"

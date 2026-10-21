@@ -66,6 +66,7 @@ import os
 import re
 import subprocess
 import sys
+from pathlib import Path
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -2585,3 +2586,358 @@ def fit_picture_spec(project_folder: str, tracks, reel: int, scale: float,
                        "media": segment["overlay_path"]}
                       for index, segment in enumerate(segments)]
     return spec
+
+
+# ── Applying the DECLARED look to a built reel ────────────────────────
+#
+# A reel's look is a DECLARATION - the project's own `style.series_look`
+# (the Fusion half: contrast, glow, vignette) and its
+# `color.power_grade_drx` (the Color-page half). The build applies it
+# to every picture clip it places. A clip that was placed afterwards,
+# or whose comp never landed, plays without it: on Reel 26 the closing
+# shot carried no Fusion comp at all while every shot beside it carried
+# the house look, and the captain's read was "flatter and cooler".
+#
+# The declaration is the source. This applies the DECLARED look to the
+# picture clips that do not carry it, through the same two routes the
+# build uses - the Fusion comp pass and the Color-page DRX route - and
+# reports every clip it wrote and every clip it left alone. It does NOT
+# rebuild the reel, rename anything, or touch an overlay.
+
+def _picture_rows_from_manifest(project_folder: str,
+                                timeline_name: str) -> dict:
+    """The reel's picture rows and picture media, from its own record.
+
+    The recorded Fusion manifest (`scratch/reel_look/<slug>_fusion_manifest.json`)
+    is what the build planned the look from, so it names the picture
+    rows and the media that plays on them. It is the RECORD; without it
+    the picture rows cannot be named from anything else, and this
+    refuses rather than guessing which rows carry the camera.
+    """
+    from library.tools.project_layout import Area, ProjectLayout
+
+    slug = _slug(timeline_name)
+    directory = (Path(ProjectLayout(project_folder).read_dir(Area.SCRATCH))
+                 / "reel_look")
+    # The build records the manifest under the STAGING container's name
+    # it composited on, so the reel's own manifest carries that name's
+    # suffix. Every one of them starts with the reel's own slug, so the
+    # newest one that does is this reel's record.
+    candidates = sorted(
+        (path for path in directory.glob("*_fusion_manifest.json")
+         if path.stem.startswith(slug)),
+        key=lambda path: path.stat().st_mtime, reverse=True)
+    path = candidates[0] if candidates else (
+        directory / f"{slug}_fusion_manifest.json")
+    if not path.is_file():
+        raise ReelLookRefused(
+            f"this reel has no recorded look manifest at {path.name!r}",
+            "the picture rows cannot be named from the record, and a "
+            "guess would write the look onto the wrong rows",
+            "build this reel once so its look manifest is recorded, then "
+            "apply the declared look to the clips that lack it")
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as unreadable:
+        raise ReelLookRefused(
+            f"the recorded look manifest could not be read ({unreadable})",
+            "the picture rows cannot be named from the record",
+            "rebuild the reel once so its look manifest is written again")
+    rows: dict = {}
+    for row, spec in (document.get("tracks") or {}).items():
+        files = [str(clip.get("source_file") or "")
+                 for clip in (spec.get("clips") or ())]
+        rows[str(row)] = [path for path in files if path]
+    return rows
+
+
+def _live_picture(resolve, project, timeline, picture_files: dict,
+                  fallback_fps: float = 30.0) -> dict:
+    """The picture clips on this timeline, keyed by their video row.
+
+    A clip is a PICTURE clip when it plays one of the declared rows'
+    media. A native hold (speed zero) is excluded: it plays one frame
+    of the shot it holds and is not the shot.
+
+    Each clip carries the live Resolve handle and its SOURCE frame
+    rate, because the comp pass joins a planned clip to a placed item
+    by the source window - and the source frame rate is the footage's
+    own, not the timeline's.
+    """
+    from library.tools import reel_read
+
+    rows: dict = {}
+    for row in reel_read.live_items(timeline):
+        if row.get("type") != "video":
+            continue
+        for item in row.get("items") or ():
+            detail = reel_read.clip_detail(
+                item, row["type"], row["index"], row["name"])
+            source = str(detail.get("source_file") or "")
+            if source not in picture_files:
+                continue
+            try:
+                speed = float((detail.get("speed") or {}).get("Percentage"))
+            except (AttributeError, TypeError, ValueError):
+                speed = 1.0
+            if speed == 0.0:
+                continue
+            detail["item"] = item
+            detail["source_fps"] = _source_fps(item, fallback_fps)
+            rows.setdefault(int(row["index"]), []).append(detail)
+    return rows
+
+
+def _source_fps(item, fallback: float) -> float:
+    """The source clip's own frame rate, read off its pool item."""
+    try:
+        pool_item = item.GetMediaPoolItem()
+        value = pool_item.GetClipProperty("FPS") if pool_item else ""
+        fps = float(value or fallback)
+    except (AttributeError, TypeError, ValueError, ZeroDivisionError):
+        return fallback
+    return fps if fps > 0 else fallback
+
+
+def apply_declared_look_to_timeline(project_folder: str,
+                                     resolve_project_name: str,
+                                     timeline_name: str, *,
+                                     timeline_id: str = "",
+                                     only_missing: bool = True,
+                                     only_clips: Sequence[str] = (),
+                                     python_executable=None) -> dict:
+    """Apply the project's DECLARED look to a built reel's picture clips.
+
+    The two halves of the declaration, by the routes the build uses:
+
+    - the Fusion half (`style.series_look`), through the SAME comp pass
+      the build composites with, so the clip draws the same nodes its
+      neighbours draw;
+    - the Color-page half (`color.power_grade_drx`), applied only to a
+      clip whose node graph is EMPTY while a picture clip beside it
+      carries the grade - a measurement, not an assumption.
+
+    Only the clips that lack the look are written to. Every clip is
+    reported: written, already carrying it, or skipped with the reason.
+    """
+    from library.tools import reel_build
+    from library.tools.resolve_lock import (
+        assert_current_timeline, resolve_lease,
+    )
+    from library.tools.timeline_ingest import resolve_project_exactly
+
+    grade_look = resolve_grade_look(project_folder)
+    cdl_values = resolve_grade_cdl(project_folder)
+    power_grade = resolve_power_grade(project_folder)
+    if not grade_look and not cdl_values and not power_grade:
+        raise ReelLookRefused(
+            "this project declares no look",
+            "there is nothing to apply to the picture",
+            "declare `style.series_look` (and a `color.power_grade_drx`) "
+            "in the project's own project.yaml")
+
+    picture_rows = _picture_rows_from_manifest(project_folder, timeline_name)
+    picture_files = {path for files in picture_rows.values()
+                     for path in files}
+
+    with resolve_lease("read a reel's picture", exclusive=True):
+        # The handshake itself is refused outside the instance lease,
+        # so the connection is taken INSIDE it.
+        resolve = reel_build._connect_resolve()
+        project = resolve_project_exactly(resolve.GetProjectManager(),
+                                          resolve_project_name)
+        target = _timeline_by_identity(project, timeline_name, timeline_id)
+        assert_current_timeline(project, target)
+        fps = float(target.GetSetting("timelineFrameRate") or 30)
+        rows = _live_picture(resolve, project, target, picture_files,
+                             fallback_fps=fps)
+        items = {}
+        for row, clips in rows.items():
+            for clip in clips:
+                items[(row, clip["record_in"])] = clip
+
+    # The Color-page half, by MEASUREMENT: a clip whose node graph is
+    # empty while a picture clip beside it carries the grade is missing
+    # it. Nothing is written on the strength of "the neighbours have
+    # one" alone - the clip's own graph is read.
+    graded = [clip for clips in rows.values() for clip in clips
+              if int((clip.get("color") or {}).get("node_count") or 0) > 0]
+    missing_grade = []
+    if power_grade and power_grade.get("path") and graded:
+        missing_grade = [
+            clip for clips in rows.values() for clip in clips
+            if int((clip.get("color") or {}).get("node_count") or 0) == 0]
+
+    wanted = {str(spec) for spec in (only_clips or ())}
+    targets = []
+    for row, clips in rows.items():
+        for clip in clips:
+            comps = int((clip.get("fusion") or {}).get("comp_count") or 0)
+            if wanted:
+                if f"{row}@{clip['record_in']}" not in wanted:
+                    continue
+            elif only_missing and comps > 0:
+                continue
+            targets.append((row, clip))
+    if not targets and not missing_grade:
+        return {
+            "timeline": timeline_name,
+            "timeline_id": timeline_id,
+            "look": sorted(grade_look),
+            "written": [],
+            "already_present": sorted(
+                f"V{row}@{clip['record_in']} {clip['name']}"
+                for row, clips in rows.items() for clip in clips),
+            "grade_written": [],
+            "basis": "every picture clip already carries the declared look",
+        }
+
+    manifest = _look_manifest(project_folder, timeline_name, timeline_id,
+                               targets, fps, grade_look)
+    applied = apply_comps(manifest, project_folder, resolve_project_name,
+                          timeline_name, python_executable=python_executable)
+    if not applied:
+        raise ReelLookRefused(
+            f"the Fusion comp pass did not apply the declared look to "
+            f"{timeline_name!r}",
+            "the comp pass refused or failed, so the picture is unchanged",
+            "read the comp pass's own report above and re-run this "
+            "operation once it is fixed")
+
+    grade_written = []
+    if missing_grade:
+        grade_written = _apply_declared_grade_to_clips(
+            resolve_project_name, timeline_name, timeline_id, missing_grade,
+            power_grade, cdl_values)
+    return {
+        "timeline": timeline_name,
+        "timeline_id": timeline_id,
+        "look": sorted(grade_look),
+        "written": [f"V{row}@{clip['record_in']} {clip['name']}"
+                    for row, clip in targets],
+        "already_present": sorted(
+            f"V{row}@{clip['record_in']} {clip['name']}"
+            for row, clips in rows.items() for clip in clips
+            if int((clip.get("fusion") or {}).get("comp_count") or 0) > 0),
+        "grade_written": grade_written,
+        "basis": "the project's own declared look",
+    }
+
+
+def _timeline_by_identity(project, timeline_name: str, timeline_id: str = ""):
+    """The one timeline this operation is about, by identity.
+
+    The field-test project holds several timelines under one reel's
+    name, so the Resolve unique id decides and the name is the
+    assertion. With no id, the name must be UNIQUE - an ambiguous name
+    refuses rather than picking one.
+    """
+    matches = []
+    for index in range(1, int(project.GetTimelineCount() or 0) + 1):
+        candidate = project.GetTimelineByIndex(index)
+        if not candidate:
+            continue
+        if timeline_id:
+            try:
+                unique_id = str(candidate.GetUniqueId() or "")
+            except Exception:  # noqa: BLE001
+                unique_id = ""
+            if unique_id == str(timeline_id):
+                matches.append(candidate)
+        elif candidate.GetName() == timeline_name:
+            matches.append(candidate)
+    if not matches:
+        raise ReelLookRefused(
+            f"no timeline named {timeline_name!r} (id {timeline_id!r}) is "
+            f"in this project",
+            "there is nothing to apply the look to",
+            "check the reel's name and its Resolve id, then re-run")
+    if len(matches) > 1:
+        raise ReelLookRefused(
+            f"{len(matches)} timelines are named {timeline_name!r} in this "
+            f"project",
+            "a name cannot say which generation this operation is about, "
+            "and the wrong one would take the look",
+            "pass the reel's Resolve unique id")
+    target = matches[0]
+    if timeline_name and target.GetName() != timeline_name:
+        raise ReelLookRefused(
+            f"the Resolve id {timeline_id!r} names timeline "
+            f"{target.GetName()!r}, not {timeline_name!r}",
+            "the identity and the name disagree, so the target is not "
+            "established",
+            "check the reel's name and its Resolve id, then re-run")
+    return target
+
+
+def _look_manifest(project_folder: str, timeline_name: str,
+                   timeline_id: str, targets, fps: float,
+                   grade_look: dict) -> dict:
+    """The comp manifest for the clips that lack the declared look.
+
+    Each clip is described by the media it plays and the source window
+    it plays it from - the SAME window the live item carries, so the
+    comp pass's matcher lands the comp on that item and not on another
+    clip of the same footage.
+    """
+    tracks: dict = {}
+    per_clip: dict = {}
+    for index, (row, clip) in enumerate(targets):
+        label = f"V{row}_look_{index:02d}"
+        source_in = int(clip.get("source_in_frame") or 0)
+        source_out = int(clip.get("source_out_frame") or 0)
+        source_fps = float(clip.get("source_fps") or fps or 30.0)
+        tracks.setdefault(f"V{row}", {"clips": []})["clips"].append({
+            "label": label,
+            "source_file": str(clip.get("source_file") or ""),
+            "source_in": source_in / source_fps if source_fps else 0.0,
+            "source_out": source_out / source_fps if source_fps else 0.0,
+        })
+        per_clip[label] = dict(grade_look)
+    manifest = {
+        "tracks": tracks,
+        "fusion_effects": {"per_clip": per_clip, "transitions": []},
+    }
+    if timeline_id:
+        manifest["expected_timeline_id"] = str(timeline_id)
+    return manifest
+
+
+def _apply_declared_grade_to_clips(resolve_project_name, timeline_name,
+                                    timeline_id, clips, power_grade,
+                                    cdl_values) -> list:
+    """The Color-page half, applied to the clips whose graph is empty."""
+    from library.tools import reel_build
+    from library.tools.color_page_grade import (
+        apply_cdl_to_node, apply_power_grade, node_index_by_label,
+    )
+    from library.tools.resolve_lock import (
+        assert_current_timeline, resolve_lease,
+    )
+    from library.tools.timeline_ingest import resolve_project_exactly
+
+    written = []
+    with resolve_lease("apply the declared grade", exclusive=True):
+        resolve = reel_build._connect_resolve()
+        project = resolve_project_exactly(resolve.GetProjectManager(),
+                                          resolve_project_name)
+        target = _timeline_by_identity(project, timeline_name, timeline_id)
+        assert_current_timeline(project, target)
+        by_record = {}
+        for index in range(1, int(target.GetTrackCount("video") or 0) + 1):
+            for item in target.GetItemListInTrack("video", index) or ():
+                by_record[int(item.GetStart())] = item
+        for clip in clips:
+            item = by_record.get(int(clip.get("record_in")))
+            if item is None:
+                continue
+            landed = apply_power_grade(item, power_grade["path"])
+            if not landed.get("applied"):
+                continue
+            cdl_node = power_grade.get("cdl_node")
+            if cdl_node and cdl_values:
+                index = node_index_by_label(item, cdl_node)
+                if index is not None:
+                    apply_cdl_to_node(item, index, cdl_values)
+            written.append(f"{clip.get('name')}@{clip.get('record_in')}")
+    return written

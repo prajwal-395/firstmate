@@ -62,6 +62,16 @@ REEL_VERSIONS_FILENAME = "reel_versions.json"
 REEL_VERSIONS_FORMAT = "reel_versions/1"
 
 KIND_BUILD = "build"
+KIND_ADOPT = "adopt"
+"""A captain's HAND edit, adopted as a version.
+
+Not an act: `ren undo` reverses what Ren did, and it does not reverse
+the captain's hand. This kind records the state his edit produced - the
+live timeline by its Resolve identity, the immutable archive of that
+generation and the hashed asset manifest - so the state is a version
+Ren can restore and diff, rather than a story about a timeline that
+happened to be there. `library/tools/reel_adoption.py` writes it.
+"""
 KIND_TOUCH = "touch"
 KIND_UNDO = "undo"
 KIND_ROLLBACK = "rollback"
@@ -71,7 +81,7 @@ KIND_VARIANT = "variant"
 #: What `ren undo` reverses. The other kinds are what it produced.
 ACTS = (KIND_BUILD, KIND_TOUCH)
 KINDS = (KIND_BUILD, KIND_TOUCH, KIND_UNDO, KIND_ROLLBACK, KIND_REDO,
-         KIND_VARIANT)
+         KIND_VARIANT, KIND_ADOPT)
 
 
 class ReelVersionsUnreadable(RuntimeError):

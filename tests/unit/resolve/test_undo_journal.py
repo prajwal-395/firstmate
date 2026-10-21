@@ -484,8 +484,12 @@ def test_a_rebuild_rolls_back_to_the_version_it_replaced(tmp_path):
                       read_live_rows=lambda _final: live["rows"],
                       build=build)
 
+    # A version with no verified archive is restored by REBUILDING from
+    # the plan, and the receipt says so: the plan reproduces the cut,
+    # not the grade, the Fusion graph or the colour.
     assert receipt == [{"final": FINAL, "rolled_back": 2, "to": 1,
-                        "replayed": []}]
+                        "replayed": [], "restored_from": "plan_rebuild",
+                        "restored_from_archive": False}]
     history = reel_versions.versions_of(str(folder), FINAL)
     assert history[1]["undone_by"] == 3
     assert history[2]["kind"] == "rollback"
@@ -701,8 +705,12 @@ def test_undo_then_redo_restores_the_rebuild(tmp_path):
     receipt = uj.undo(str(folder), final=FINAL,
                       read_live_rows=lambda _final: live["rows"],
                       build=build)
+    # A version with no verified archive is restored by REBUILDING from
+    # the plan, and the receipt says so: the plan reproduces the cut,
+    # not the grade, the Fusion graph or the colour.
     assert receipt == [{"final": FINAL, "rolled_back": 2, "to": 1,
-                        "replayed": []}]
+                        "replayed": [], "restored_from": "plan_rebuild",
+                        "restored_from_archive": False}]
 
     def redo_build(project_folder, reel):
         moments = json.loads(plan.read_text())["moments"]

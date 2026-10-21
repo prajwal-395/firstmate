@@ -132,6 +132,7 @@ import hashlib
 import math
 import os
 import time
+from datetime import datetime, timezone
 from functools import wraps
 from collections.abc import Mapping
 
@@ -12342,6 +12343,138 @@ def cleanup_disposable_candidates(project, project_folder: str) -> list:
     return removed
 
 
+def _recorded_timeline_id(project_folder: str, final: str) -> str:
+    """The Resolve unique id the version ledger recorded for this reel.
+
+    The identity of the generation this promotion is about to replace,
+    taken from the recovery receipt the accepted version carries. It is
+    what a NAME cannot decide: the field-test project holds several
+    timelines called `Reel 26 - write-for-the-question-your-customer-ask`
+    and one `(rebuild staging)`, so a name is an assertion and the id
+    is the identity.
+    """
+    from library.tools.versions import reel_versions
+
+    try:
+        history = reel_versions.versions_of(project_folder, final)
+    except Exception:  # noqa: BLE001 - an unreadable ledger has no id
+        return ""
+    for entry in reversed(history or ()):
+        receipt = entry.get("recovery_archive") or {}
+        uid = str(receipt.get("timeline_id") or "")
+        if uid:
+            return uid
+    return ""
+
+
+def _retiring_timelines_by_identity(project, project_folder: str,
+                                    finals, inventory_by_name: dict,
+                                    inventory_by_id: dict) -> dict:
+    """The timeline each promotion replaces, resolved by IDENTITY.
+
+    One name can name several timelines - the Reel 26 audit found six
+    `Reel 26 - ...` containers and a crowd of `(rebuild staging)`
+    names in the field-test project - and a promotion that cannot say
+    WHICH one it is replacing must not rename any of them. So:
+
+    - an UNAMBIGUOUS name is resolved by name, and its unique id must
+      agree with the inventory and be used nowhere else;
+    - an AMBIGUOUS name is resolved by the unique id the version ledger
+      recorded for the generation being replaced, and the NAME is then
+      the assertion - the resolved timeline must carry the name the
+      promotion is replacing;
+    - an ambiguous name with no recorded id, or an id that is missing
+      or reused, REFUSES before anything is renamed.
+
+    Returns `{final: timeline}` for the finals that have one.
+    """
+    originals: dict = {}
+    for final in finals:
+        candidates = timelines_to_replace(project, {final})
+        if not candidates:
+            continue
+        start = inventory_by_name.get(final, [])
+        if len(start) == 1:
+            uid = str(start[0].get("unique_id") or "")
+            matches = [timeline for timeline in candidates
+                       if str(timeline.GetUniqueId() or "") == uid]
+            if (not uid or len(matches) != 1
+                    or len(inventory_by_id.get(uid, [])) != 1):
+                raise PromotionFailure(
+                    f"REFUSING to promote {final!r}: retiring timeline "
+                    "identity is missing or reused; nothing was renamed.",
+                    failure_class=PromotionFailure.CONFLICT)
+            originals[final] = matches[0]
+            continue
+        recorded = _recorded_timeline_id(project_folder, final)
+        if not recorded:
+            raise PromotionFailure(
+                f"REFUSING to promote {final!r}: {len(start)} timelines "
+                f"in this project carry that name and the version ledger "
+                f"records no Resolve id for the generation being replaced, "
+                f"so nothing can say which one this promotion replaces; "
+                f"nothing was renamed.",
+                failure_class=PromotionFailure.CONFLICT)
+        by_id = [timeline for timeline in candidates
+                 if str(timeline.GetUniqueId() or "") == recorded]
+        if len(by_id) != 1 or len(inventory_by_id.get(recorded, [])) != 1:
+            raise PromotionFailure(
+                f"REFUSING to promote {final!r}: the Resolve id "
+                f"{recorded!r} recorded for the generation being replaced "
+                f"is missing or reused in this project; nothing was "
+                f"renamed.",
+                failure_class=PromotionFailure.CONFLICT)
+        originals[final] = by_id[0]
+    return originals
+
+
+def _archive_inventory_against_snapshot(archive: dict,
+                                        snapshot: dict) -> dict:
+    """Whether an exported archive IS the timeline it claims to hold.
+
+    The archive is read as a list of (media, name) pairs and the live
+    timeline as the same, and the two are compared as multisets. A
+    count alone cannot tell one generation of a reel from another -
+    the Reel 26 audit's archive carried the NEW generation's semantic
+    rows while the OLD one was being replaced - but the media and the
+    names can.
+
+    Returns `{"matches": bool, "reason": str}`.
+    """
+    from collections import Counter
+
+    def key(media, name):
+        # The MEDIA is the identity of an item; its name is a label
+        # Resolve re-spells freely (a suffix, a container spelling), and
+        # a label that moved is not a different generation.
+        return os.path.normcase(os.path.realpath(str(media or "")))
+
+    archived = Counter()
+    for timeline in archive.get("timelines") or ():
+        for track in timeline.get("tracks") or ():
+            for item in track.get("items") or ():
+                archived[key(item.get("media_path"),
+                             item.get("name"))] += 1
+    live = Counter()
+    for item in snapshot.get("items") or ():
+        live[key(item.get("source_file"), item.get("name"))] += 1
+    if archived == live:
+        return {"matches": True, "reason": ""}
+    only_archive = sorted(
+        f"{media or '(no media)'}"
+        for media, count in (archived - live).items()
+        for _ in range(count))
+    only_live = sorted(
+        f"{media or '(no media)'}"
+        for media, count in (live - archived).items()
+        for _ in range(count))
+    reason = (f"the archive holds {len(archived)} item(s) the timeline "
+              f"does not ({'; '.join(only_archive[:4]) or 'none'}), and "
+              f"the timeline holds {len(live)} the archive does not "
+              f"({'; '.join(only_live[:4]) or 'none'})")
+    return {"matches": False, "reason": reason}
+
+
 def _archive_retiring_generation(resolve, project, timeline,
                                  project_folder: str) -> dict:
     """Export and inventory-check the exact retiring Resolve object."""
@@ -12389,6 +12522,27 @@ def _archive_retiring_generation(resolve, project, timeline,
             f"REFUSING to replace {timeline.GetName()!r}: exported archive "
             "inventory does not match the retiring timeline item count.",
             failure_class=PromotionFailure.DELIVERY)
+    # The archive must be the generation that is retiring, not merely
+    # an archive of SOME generation of this reel: the Reel 26 audit
+    # found a `.drt` whose semantic rows were the NEW generation while
+    # the OLD one was being replaced, so an item count and an asset
+    # list were not enough to prove what was kept. The project it was
+    # exported from and the items it holds are compared, by name and by
+    # media, with the retiring timeline itself.
+    archive_project = str(archive.get("project") or "")
+    expected_project = str(project.GetName() or "")
+    if archive_project and expected_project and archive_project != expected_project:
+        raise PromotionFailure(
+            f"REFUSING to replace {timeline.GetName()!r}: the exported "
+            f"archive belongs to Resolve project {archive_project!r}, not "
+            f"{expected_project!r}.",
+            failure_class=PromotionFailure.DELIVERY)
+    inventory = _archive_inventory_against_snapshot(archive, before)
+    if not inventory["matches"]:
+        raise PromotionFailure(
+            f"REFUSING to replace {timeline.GetName()!r}: the exported "
+            f"archive is not the retiring timeline ({inventory['reason']}).",
+            failure_class=PromotionFailure.DELIVERY)
     expected_paths = {str(item["source_file"])
                       for item in expected_items if item.get("source_file")}
     missing_assets = sorted(path for path in expected_paths
@@ -12416,6 +12570,8 @@ def _archive_retiring_generation(resolve, project, timeline,
     receipt = {
         "timeline_name": timeline.GetName(),
         "timeline_id": timeline_id,
+        "resolve_project": str(project.GetName() or ""),
+        "archived_at": datetime.now(timezone.utc).isoformat(),
         "archive_path": str(archive_path),
         "archive_sha256": store._sha256(archive_path),
         "content_id": store.recovery_archive_content_id(archive_path),
@@ -12939,17 +13095,9 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                     f"{expected_id!r}. A timeline Ren did not create "
                     f"remains untouched.")
     requested_finals = list(staged_to_final)
-    originals = {t.GetName(): t for t in
-                 timelines_to_replace(project, set(finals))}
+    originals = _retiring_timelines_by_identity(
+        project, project_folder, finals, inventory_by_name, inventory_by_id)
     for final, retiring in originals.items():
-        start = inventory_by_name.get(final, [])
-        uid = str(retiring.GetUniqueId() or "")
-        if (len(start) != 1 or not uid or str(start[0].get("unique_id") or "") != uid
-                or len(inventory_by_id.get(uid, [])) != 1):
-            raise PromotionFailure(
-                f"REFUSING to promote {final!r}: retiring timeline identity "
-                "is missing, ambiguous, or reused; nothing was renamed.",
-                failure_class=PromotionFailure.CONFLICT)
         candidate_key = (candidate_ids_by_staging or {}).get(
             staged_to_final.get(final, ""))
         if candidate_key:
@@ -13090,6 +13238,7 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
         if not finals:
             _raise_partial_promotion(requested_finals, [], refused)
     superseded_signoffs = {}
+    superseded_acceptances = {}
     # ── THESIS GATE (post-build reading, pre-promotion) ──
     # Gap G1 (`library/tools/reel_thesis.py`): nothing reads a
     # sentence, so the kept word sequence is read with three
@@ -13128,6 +13277,10 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     # live) passes quietly while a vanished one (live at declare time,
     # gone at land time) refuses.
     supersede_entries = {}
+    # What phase 0 SAW on each reel as a DELIVERED acceptance: the live
+    # entry when one existed and was declared, None when none existed.
+    # The same shape as `supersede_entries`, for the same reason.
+    acceptance_entries = {}
     # The captain's typed notes, read off each RETIRING timeline before
     # anything is renamed (`library/tools/marker_carry.py`). Promotion
     # replaces the timeline object, so its markers go with it - which
@@ -13172,6 +13325,16 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             _provenance.assert_not_editor_timeline(
                 review_dir, originals[final])
             supersede_entries[final] = _signoff.assert_declared(
+                project_folder, final, declared_supersessions)
+            # The sign-off protects a reel the captain APPROVED; the
+            # acceptance protects a reel the captain TOOK (delivered
+            # and verified). A delivered reel with no sign-off had
+            # nothing protecting it, so a rebuild promoted over it
+            # silently - which is how Reel 26's accepted look was
+            # replaced by a build nobody watched. The declaration is
+            # the same `--supersede`, read per reel.
+            from library.tools import reel_acceptance as _acceptance
+            acceptance_entries[final] = _acceptance.assert_declared(
                 project_folder, final, declared_supersessions)
             live_snapshot = _guard.full_timeline_snapshot(
                 originals[final], project, project_folder)
@@ -14016,6 +14179,36 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
         # Else no sign-off was ever live: a vacuous declaration ends
         # nothing, and there is nothing to refuse.
 
+    # The ACCEPTANCE (the delivered generation) is ended by the same
+    # declared supersession, after the rename landed and never before:
+    # a promotion that refuses later must not have already retired the
+    # acceptance it did not replace.
+    from library.tools import reel_acceptance as _acceptance
+    for final in ok_finals:
+        if _acceptance.base_name(final) not in declared_supersessions:
+            continue
+        try:
+            ended_acceptance = _acceptance.supersede(project_folder, final)
+        except Exception as supersede_failed:  # noqa: BLE001
+            raise ReelBuildError(
+                f"REFUSING to report this promotion: {final!r} is "
+                f"promoted, but its declared acceptance supersession "
+                f"did not land ({supersede_failed}). The delivered "
+                f"generation is still recorded as accepted - re-run once "
+                f"the acceptance record is writable.") from supersede_failed
+        if ended_acceptance:
+            superseded_acceptances[final] = ended_acceptance
+            print(f"Acceptance on {final!r} superseded by this build "
+                  f"(recorded, not deleted)", flush=True)
+        elif acceptance_entries.get(final) is not None:
+            raise ReelBuildError(
+                f"REFUSING to report this promotion: {final!r} is "
+                f"promoted, but its acceptance - live and declared "
+                f"superseded before the rename - has no entry to end "
+                f"now. Something edited the acceptance record "
+                f"mid-promotion, so the delivered state of this reel "
+                f"cannot be vouched. Re-run once it is settled.")
+
     # The promotion happened - the staging containers are now the
     # approved timelines under their final names - so their pending
     # holds go (issue #971). Released AFTER the renames, so a failed
@@ -14385,7 +14578,8 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             "retirement": retirement,
             "comparison_retirement": comparison_retirement,
             "round": stamped_round,
-            "superseded_signoffs": superseded_signoffs}
+            "superseded_signoffs": superseded_signoffs,
+            "superseded_acceptances": superseded_acceptances}
 
 
 def _raise_partial_promotion(finals, ok_finals, refused,

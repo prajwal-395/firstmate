@@ -753,7 +753,7 @@ def test_retiring_archive_receipt_binds_timeline_id_inventory_and_asset_hash(
         archive.writestr(
             "project.xml",
             '<!--DbAppVer="21.1" DbPrjVer="17"-->'
-            '<Project><Name>Demo</Name></Project>')
+            '<Project><Name>Fixture Project</Name></Project>')
         archive.writestr(
             "SeqContainer/timeline-1.xml",
             '<Sequence><Track><TrackType>Video</TrackType>'

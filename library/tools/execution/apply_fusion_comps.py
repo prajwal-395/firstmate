@@ -204,7 +204,36 @@ def verify_destination(resolve, expected_project, expected_timeline):
     return project, timeline
 
 
-def assert_destination(resolve, expected_project, expected_timeline):
+def _timeline_by_unique_id(project, timeline_id: str):
+    """The one timeline in this project carrying this Resolve id.
+
+    A NAME is not an identity: the field-test project holds several
+    timelines called `Reel 26 - write-for-the-question-your-customer-ask`
+    and a crowd of `(rebuild staging)` names, so a pass that composites
+    by name can composite onto a STALE generation of the reel and report
+    success. The unique id is the identity, and the name is then the
+    assertion.
+    """
+    matches = []
+    for index in range(1, int(project.GetTimelineCount() or 0) + 1):
+        candidate = project.GetTimelineByIndex(index)
+        if not candidate:
+            continue
+        try:
+            unique_id = str(candidate.GetUniqueId() or "")
+        except Exception:  # noqa: BLE001 - an unreadable id is not a match
+            continue
+        if unique_id and unique_id == str(timeline_id):
+            matches.append(candidate)
+    if len(matches) != 1:
+        raise DestinationMismatchError(
+            f"Resolve id {timeline_id!r} names {len(matches)} timeline(s) "
+            f"in this project; it must name exactly one.")
+    return matches[0]
+
+
+def assert_destination(resolve, expected_project, expected_timeline,
+                       expected_timeline_id: str = ""):
     """Set the cursor to the expected timeline, then verify it.
 
     The subprocess is handed its destination across the process
@@ -236,11 +265,20 @@ def assert_destination(resolve, expected_project, expected_timeline):
             f"onto another project's timeline."
         )
     target = None
-    for index in range(1, project.GetTimelineCount() + 1):
-        candidate = project.GetTimelineByIndex(index)
-        if candidate and candidate.GetName() == expected_timeline:
-            target = candidate
-            break
+    if expected_timeline_id:
+        # The ID decides; the NAME is the assertion.
+        target = _timeline_by_unique_id(project, expected_timeline_id)
+        if target.GetName() != expected_timeline:
+            raise DestinationMismatchError(
+                f"Resolve id {expected_timeline_id!r} names timeline "
+                f"{target.GetName()!r}, not {expected_timeline!r}. "
+                f"Refusing to composite onto it.")
+    else:
+        for index in range(1, project.GetTimelineCount() + 1):
+            candidate = project.GetTimelineByIndex(index)
+            if candidate and candidate.GetName() == expected_timeline:
+                target = candidate
+                break
     if target is None:
         raise DestinationMismatchError(
             f"Timeline {expected_timeline!r} not found in project "
@@ -513,13 +551,16 @@ def apply_fusion_comps(manifest, project_folder,
             resolve, manifest, project_folder,
             expected_project=expected_project,
             expected_timeline=expected_timeline,
-            step_id=step_id)
+            step_id=step_id,
+            expected_timeline_id=str(
+                manifest.get("expected_timeline_id") or ""))
 
 
 def apply_fusion_comps_with_resolve(resolve, manifest, project_folder,
                                     expected_project=None,
                                     expected_timeline=None,
-                                    step_id="render"):
+                                    step_id="render",
+                                    expected_timeline_id=""):
     """Apply comps for one reel using an already-connected Resolve handle.
 
     Extracted from `apply_fusion_comps` so a batch pass can connect once
@@ -538,7 +579,8 @@ def apply_fusion_comps_with_resolve(resolve, manifest, project_folder,
     if expected_project and expected_timeline:
         try:
             project, timeline = assert_destination(
-                resolve, expected_project, expected_timeline)
+                resolve, expected_project, expected_timeline,
+                expected_timeline_id=expected_timeline_id)
         except DestinationMismatchError as exc:
             print(f"DESTINATION MISMATCH: {exc}", file=sys.stderr)
             return False
@@ -1252,7 +1294,9 @@ def apply_fusion_comps_batch(entries, project_folder,
                 resolve, manifest, project_folder,
                 expected_project=expected_project,
                 expected_timeline=expected_timeline,
-                step_id=step_id)
+                step_id=step_id,
+                expected_timeline_id=str(
+                    manifest.get("expected_timeline_id") or ""))
     return results
 
 

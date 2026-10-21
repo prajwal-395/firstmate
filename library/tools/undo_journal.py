@@ -2465,6 +2465,27 @@ def _key(detail: Mapping) -> tuple:
             str(detail.get("name") or ""))
 
 
+def _grade(detail: Mapping) -> dict:
+    """The item's colour grade, as a comparable mapping.
+
+    The projection used to leave the grade out, on the grounds that "a
+    touch never carries either" CDL or flags. That is true of a touch
+    and false of everything else: the captain grades a clip by hand in
+    Resolve, and a build re-grades it, and neither is a touch. A
+    projection that cannot see the grade reads a re-graded timeline as
+    the same one, so the undo reverses over the captain's grade and
+    destroys it. The grade is compared, never invented: an unreadable
+    CDL is an empty mapping on both sides.
+    """
+    color = detail.get("color") or {}
+    if not isinstance(color, Mapping):
+        return {}
+    cdl = color.get("cdl")
+    if not isinstance(cdl, Mapping):
+        return {}
+    return {str(key): cdl[key] for key in sorted(cdl)}
+
+
 def item_projection(detail: Mapping) -> dict:
     row, start, duration, left, source, name = _key(detail)
     return {"row": row, "start": start, "duration": duration,
@@ -2474,6 +2495,7 @@ def item_projection(detail: Mapping) -> dict:
                          or 0),
             "windows": _windows(detail),
             "clip_color": str(detail.get("clip_color") or ""),
+            "grade": _grade(detail),
             "enabled": bool(detail.get("enabled", True))}
 
 
@@ -3366,6 +3388,21 @@ def rollback_rebuild(project_folder: str, final: str, act: Mapping, *,
             f"build with a plan behind it",
             "so there is no earlier version to roll back to",
             "there is nothing to roll back - leave the reel as it is")
+    # A version that carries a verified recovery archive is restored
+    # FROM THAT ARCHIVE, always. The plan is not the payload: a plan
+    # rebuild reproduces the CUT, not the grade, the Fusion graph or
+    # the colour the captain saw - so rebuilding from a plan and then
+    # comparing the rows would read a differently graded timeline as
+    # the recorded version and claim a restoration that never happened.
+    # The Reel 26 audit's two refused rollbacks were exactly this: the
+    # earlier state could not be reconstructed from the plan, and the
+    # refusal was right, but there was an immutable archive to restore
+    # from and nothing used it.
+    if isinstance(target.get("recovery_archive"), Mapping):
+        return _rollback_from_verified_archive(
+            project_folder, final, act, target,
+            read_live_rows=read_live_rows, restore_archive=restore_archive,
+            supersede=supersede)
     if base["plan_moment"] == act.get("plan_moment"):
         return _rollback_from_verified_archive(
             project_folder, final, act, target,
@@ -3418,8 +3455,15 @@ def rollback_rebuild(project_folder: str, final: str, act: Mapping, *,
             project_folder, final, act, target,
             read_live_rows=read_live_rows, restore_archive=restore_archive,
             supersede=supersede)
+    # This version carried NO verified archive, so what was restored is
+    # a REBUILD from the plan - the cut, not the grade, the Fusion
+    # graph or the colour. It is recorded as such: a version that says
+    # it is the recorded one when it is a reconstruction teaches the
+    # next reader that the archive was not needed.
     return {"final": final, "rolled_back": act["version"],
-            "to": target["version"], "replayed": replayed}
+            "to": target["version"], "replayed": replayed,
+            "restored_from": "plan_rebuild",
+            "restored_from_archive": False}
 
 
 def _rollback_from_verified_archive(project_folder: str, final: str,

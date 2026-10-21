@@ -36,6 +36,7 @@ import os
 import shutil
 import sqlite3
 import tempfile
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -509,13 +510,33 @@ def retained_recovery_paths(project_folder: str) -> set[str]:
                 archives.extend(sorted(directory.rglob("*.drt")))
 
     paths: set[str] = set()
-    path_keys = {"file_path", "media_path", "source_path", "asset_path"}
+    # The key names a retained record names its media under.
+    # `source_file` is the one the undo journal and the reel read use
+    # (`reel_read` writes every item's media under it), and it was
+    # missing from this set: a recorded version's own journal said which
+    # file it played and the prune did not hear it, so the pool could
+    # take the file out from under a version that could still be
+    # restored. A prune that cannot hear the record must not delete
+    # from it.
+    path_keys = {"file_path", "media_path", "source_path", "asset_path",
+                 "source_file"}
     def collect(value):
         if isinstance(value, dict):
             for key, item in value.items():
                 if key in path_keys and isinstance(item, str):
                     paths.add(os.path.abspath(os.path.expanduser(item)))
-                collect(item)
+            # A recovery receipt's asset manifest spells each media file
+            # "path", so the receipt is read for what it DECLARES rather
+            # than for the keys it happens to share with other records.
+            receipt = value.get("recovery_archive")
+            if isinstance(receipt, Mapping):
+                for asset in receipt.get("assets") or ():
+                    if isinstance(asset, Mapping):
+                        raw = asset.get("path")
+                        if isinstance(raw, str) and raw:
+                            paths.add(
+                                os.path.abspath(os.path.expanduser(raw)))
+            collect(item)
         elif isinstance(value, list):
             for item in value:
                 collect(item)
