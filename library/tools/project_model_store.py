@@ -1061,6 +1061,28 @@ def merge_evidence_model(project: Path, evidence_model: dict[str, Any], *,
         author=author, reason=reason, allow_rebase=True)
 
 
+def record_query_result(project: Path, model: dict[str, Any],
+                        result: dict[str, Any], *,
+                        expected_revision: int, author: str = "ren",
+                        reason: str = "evidence query answer") -> int:
+    """File one answered plan's row in the model's ``query_results``.
+
+    The row is the model's own home for an answer, so a confident
+    absence has somewhere to live with the basis it rests on. Query
+    rows carry no stable id (the Rust schema pins their shape), so they
+    are unioned by value: filing the same answer twice leaves one row.
+
+    Returns the revision the model now carries.
+    """
+    rows = list(model.get("query_results") or [])
+    if result in rows:
+        return expected_revision
+    updated = {**model, "query_results": [*rows, result]}
+    return merge_evidence_model(Path(project), updated,
+                                expected_revision=expected_revision,
+                                author=author, reason=reason)
+
+
 def commit_evidence_import(project: Path, evidence_model: dict[str, Any], *,
                            expected_revision: int, author: str,
                            reason: str = "capability evidence import") -> int:

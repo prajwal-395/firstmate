@@ -290,6 +290,18 @@ def validate_project_model(model: dict[str, Any]) -> None:
     event_ids = {event["id"] for event in model.get("events", [])}
     events_by_id = {event["id"]: event for event in model.get("events", [])}
     _validate_occurrences(model, entity_ids)
+    # B-05: an estimated boundary carries the bound of the grid that
+    # located it. A boundary that no grid located is filed open, which
+    # claims no bound - an estimated boundary with no bound would read
+    # as a precision nobody measured.
+    #
+    # The rule applies to a model that carries the B-04 coverage
+    # contract (a processing status on its observations). A model
+    # migrated before that contract was written down still holds
+    # unbounded boundaries from an era when nothing bounded them; it is
+    # re-migrated before it can answer a boundary question, and until
+    # then it is not evidence of anything.
+    bounded_boundaries = _carries_coverage_contract(model)
     for event in model.get("events", []):
         for key in ("start_boundary", "end_boundary"):
             boundary = event.get(key)
@@ -301,6 +313,11 @@ def validate_project_model(model: dict[str, Any]) -> None:
                 raise ValueError("exact event boundaries cannot have non-zero uncertainty")
             if status == "open" and uncertainty is not None:
                 raise ValueError("open event boundaries cannot claim bounded uncertainty")
+            if (status == "estimated" and bounded_boundaries
+                    and not (type(uncertainty) is int and uncertainty >= 0)):
+                raise ValueError(
+                    "estimated event boundaries must carry a bounded "
+                    "uncertainty_ticks")
         for parent_id in event.get("parent_event_ids", []):
             if parent_id == event["id"]:
                 raise ValueError("event cannot parent itself")
@@ -499,6 +516,22 @@ def _validate_occurrences(model: dict[str, Any], entity_ids: set[str]) -> None:
                 f"two events claim occurrence {index} of "
                 f"{klass!r} for the same subject and source")
         claimed.add(key)
+
+
+def _carries_coverage_contract(model: dict[str, Any]) -> bool:
+    """Whether the model carries the B-04 coverage contract.
+
+    A model migrated under B-04 stamps a processing status on every
+    observation. A model that predates the contract carries none, and
+    its event boundaries were written before anything bounded them.
+    """
+    from library.tools import processing_status
+
+    for item in model.get("observations", []):
+        if (isinstance(item, dict)
+                and processing_status.processing_status_of(item) is not None):
+            return True
+    return False
 
 
 def read_project_model(path: Path) -> dict[str, Any]:

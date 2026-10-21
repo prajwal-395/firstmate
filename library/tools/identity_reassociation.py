@@ -229,7 +229,17 @@ def reassociate_tracks(model: dict[str, Any], *,
                 "track_id": later.get("id"),
                 "scope": {"clock_id": earlier_clock,
                           "start": earlier_start, "end": later_end},
-                "uncertainty": None,
+                # B-08/D4: a candidate says how unsure it is. The
+                # uncertainty is the endpoint geometry's own distance,
+                # normalised by the distance at which the rule accepts
+                # a link: endpoints that coincide carry no positional
+                # doubt, endpoints at the threshold carry all of it.
+                # Confidence stays null - a raw distance is not a
+                # calibrated probability (B-03). A VERIFIED link keeps
+                # a null uncertainty: its certainty is the verification
+                # evidence, not the geometry.
+                "uncertainty": (None if verify
+                                else round(distance / max_center_distance, 4)),
             })
     links.sort(key=lambda link: link["id"])
     skipped.sort(key=lambda row: (row["earlier"], row["later"]))

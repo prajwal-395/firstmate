@@ -105,6 +105,7 @@ try:
         person_entity,
         person_measurements,
         person_regions,
+        processing_status,
         project_model_masks,
         region_query,
         region_stats,
@@ -128,6 +129,7 @@ except ImportError:  # imported as `tools.*` from inside library/
         person_entity,
         person_measurements,
         person_regions,
+        processing_status,
         project_model_masks,
         region_query,
         region_stats,
@@ -477,6 +479,14 @@ class _Builder:
                     or (evidence.producer_version
                         if evidence is not None else None)),
             })
+            # B-04: every observation says whether it was analysed. The
+            # envelope recorded what the lane actually did, so the
+            # status is read off that, not guessed. A record whose
+            # producer already named a status keeps it.
+            if native.get("processing_status") is None:
+                native["processing_status"] = (
+                    processing_status.status_from_coverage_status(
+                        envelope.get("coverage_status")))
             # Preserve the recorded analysis basis without inventing
             # preprocessing parameters absent from a legacy envelope.
             derivation_basis = dict(envelope)
@@ -504,6 +514,12 @@ class _Builder:
                 native["derivation"] = normalize_envelope_preprocessing(
                     derivation_basis)
             payload = {**payload, "evidence_contract": native}
+        else:
+            # A row without a native contract still says whether it was
+            # analysed: the envelope recorded what the lane did.
+            payload = {**payload, "processing_status": (
+                processing_status.status_from_coverage_status(
+                    (envelope or {}).get("coverage_status")))}
         key = f"{digest}-{lane}"
         self._obs_counter[key] = self._obs_counter.get(key, 0) + 1
         obs_id = observation_id or f"obs-{key}-{self._obs_counter[key]:04d}"
@@ -1714,6 +1730,149 @@ def _description_coverage(scene: Mapping[str, Any],
     return scope
 
 
+def _frame_period_ticks(digest: str, root: Path | None) -> tuple[int | None, str | None]:
+    """The source's measured frame period, in clock ticks.
+
+    A cut is reported at a frame's timestamp, so the boundary lies
+    within one frame of the reported time. The frame period comes from
+    the frame timing M0 measured (the sampled frame-to-frame deltas),
+    not from a nominal rate: a variable-frame-rate file keeps no
+    constant grid, and the largest sampled delta is the honest bound.
+    """
+    m0 = source_memory.read_m0(digest, root) or {}
+    timing = m0.get("frame_timing") or {}
+    deltas: list[float] = []
+    for stream in timing.get("streams") or []:
+        if not isinstance(stream, dict):
+            continue
+        for delta in stream.get("sampled_deltas_seconds") or []:
+            if isinstance(delta, (int, float)) and not isinstance(delta, bool) \
+                    and delta > 0:
+                deltas.append(float(delta))
+    if not deltas:
+        return None, "M0 records no sampled frame timing"
+    period = max(deltas)
+    return max(1, round(period * TICKS_PER_SECOND)), None
+
+
+def _grid_period_ticks(times: list[float]) -> int | None:
+    """The period of a measurement grid, in clock ticks.
+
+    The grid a boundary was located on is the resolution of that
+    boundary: a camera-mode change seen on a 5 Hz grid is known to
+    200 ms, not to the frame.
+    """
+    ordered = sorted({round(float(value), 6) for value in times
+                      if isinstance(value, (int, float))
+                      and not isinstance(value, bool)})
+    if len(ordered) < 2:
+        return None
+    gaps = [b - a for a, b in pairwise(ordered) if b - a > 0]
+    if not gaps:
+        return None
+    gaps.sort()
+    period = gaps[len(gaps) // 2]
+    return max(1, round(period * TICKS_PER_SECOND))
+
+
+def _basis_kind(basis_ids: Any) -> str | None:
+    """Which measurement grid located a boundary.
+
+    The basis ids name the measurement the boundary came from, and the
+    measurement names the grid it sits on.
+    """
+    for basis in basis_ids or []:
+        if not isinstance(basis, str):
+            continue
+        if basis.startswith("m4_scene:"):
+            return "scene"
+        if basis.startswith("scene_boundary:"):
+            return "cut"
+        if basis.startswith("camera_motion:"):
+            return "camera"
+    return None
+
+
+def _boundary_bound(kind: str | None, grids: Mapping[str, int | None]
+                     ) -> int | None:
+    """The bound a boundary carries, chosen from the grids available.
+
+    The choice is conservative: a fallback is only taken when it is
+    COARSER than the grid the boundary was located on. A bound that is
+    too wide understates nothing; a bound that is too narrow claims a
+    precision the measurement never had.
+    """
+    if kind == "scene":
+        # A scene edge is the model's reading of a window; only that
+        # window's frame sampling bounds it.
+        return grids.get("window")
+    if kind == "cut":
+        # A cut is a frame timestamp: the frame grid bounds it, and the
+        # coarser grids stand in when the source keeps no frame grid.
+        return grids.get("frame") or grids.get("camera") or grids.get("window")
+    return grids.get("camera") or grids.get("window") or grids.get("frame")
+
+
+def _hierarchy_boundary_bounds(hierarchy: dict[str, Any],
+                               instrument: Mapping[str, Any] | None,
+                               frame_ticks: int | None
+                               ) -> tuple[dict[tuple[str, str], int | None],
+                                          dict[str, int | None]]:
+    """The bound each hierarchy boundary carries, in clock ticks.
+
+    Every boundary in the measured shot hierarchy was located by a
+    measurement grid, and the grid is the boundary's resolution:
+
+    - a shot edge is a cut, located on the source's frame grid;
+    - a sub-shot edge is a camera-mode change, located on the
+      camera-motion sample grid;
+    - a scene edge is the model's reading of a window, located on that
+      window's frame sampling;
+    - a sequence edge is a scene edge.
+
+    The bound is what the grid can resolve, and it is never finer than
+    the measurement that produced it.
+    """
+    catalog = hierarchy.get("measurement_catalog") or []
+    camera_times = [float(entry["time"]) for entry in catalog
+                    if isinstance(entry, dict)
+                    and entry.get("lane") == "camera_motion"
+                    and isinstance(entry.get("time"), (int, float))]
+    camera_ticks = _grid_period_ticks(camera_times)
+    bounds: dict[tuple[str, str], int | None] = {}
+    scene_bounds: dict[str, int | None] = {}
+    for collection in ("scenes", "shots", "subshots"):
+        kind = {"scenes": "scene", "shots": "cut",
+                "subshots": "camera"}[collection]
+        for item in hierarchy.get(collection) or []:
+            if not isinstance(item, dict) or not item.get("id"):
+                continue
+            window_ticks = None
+            if collection == "scenes":
+                sampling = _scene_sampling(instrument, item.get("start"),
+                                           item.get("end"))
+                rate = sampling.get("effective_fps")
+                window_ticks = (max(1, round(TICKS_PER_SECOND / rate))
+                                if isinstance(rate, (int, float))
+                                and not isinstance(rate, bool) and rate > 0
+                                else None)
+            bound = _boundary_bound(kind, {"frame": frame_ticks,
+                                           "camera": camera_ticks,
+                                           "window": window_ticks})
+            bounds[(collection, str(item["id"]))] = bound
+            if collection == "scenes":
+                scene_bounds[str(item["id"])] = bound
+    for item in hierarchy.get("sequences") or []:
+        if not isinstance(item, dict) or not item.get("id"):
+            continue
+        scene_ids = item.get("scene_ids") or []
+        bounds[("sequences", str(item["id"]))] = max(
+            (scene_bounds.get(str(scene_id)) or 0
+             for scene_id in scene_ids), default=None) or camera_ticks \
+            or frame_ticks
+    return bounds, {"frame": frame_ticks, "camera": camera_ticks}
+
+
 def _migrate_scenes(builder: _Builder, digest: str, asset_id: str,
                     clock_id: str, duration: float | None,
                     root: Path | None) -> None:
@@ -1968,6 +2127,13 @@ def _migrate_scenes(builder: _Builder, digest: str, asset_id: str,
         scene_by_id = {item["id"]: item for item in hierarchy_items["scenes"]}
         shot_by_id = {item["id"]: item for item in hierarchy_items["shots"]}
         duration = float(hierarchy.get("duration", 0.0))
+        frame_ticks, frame_reason = _frame_period_ticks(digest, root)
+        if frame_reason:
+            builder.notes.append(
+                f"{digest[:12]}: {frame_reason}; a cut boundary carries no "
+                f"frame bound")
+        boundary_bounds, _grids = _hierarchy_boundary_bounds(
+            hierarchy, instrument, frame_ticks)
 
         def hierarchy_parents(collection: str, item: dict) -> list[str]:
             if collection == "scenes":
@@ -1985,8 +2151,23 @@ def _migrate_scenes(builder: _Builder, digest: str, asset_id: str,
                         if shot_id in shot_by_id else [])
             return []
 
-        def boundary_record(status: str) -> dict:
-            return {"status": status, "uncertainty_ticks": None}
+        def boundary_record(status: str, bound: int | None) -> dict:
+            """One event boundary, with the bound its grid can resolve.
+
+            An ``estimated`` boundary carries that bound: the boundary
+            was located by a measurement grid, and the grid says how
+            precisely. A boundary that no grid located stays ``open``
+            and claims no bound - an unbounded estimate would be a
+            claim nobody measured.
+            """
+            if status != "estimated":
+                return {"status": status, "uncertainty_ticks": None}
+            if bound is None:
+                builder.notes.append(
+                    f"{digest[:12]}: a {collection} boundary is estimated "
+                    f"but no measurement grid bounds it; it is filed open")
+                return {"status": "open", "uncertainty_ticks": None}
+            return {"status": status, "uncertainty_ticks": int(bound)}
 
         for collection in ("sequences", "scenes", "shots", "subshots"):
             for item in hierarchy_items[collection]:
@@ -2007,6 +2188,8 @@ def _migrate_scenes(builder: _Builder, digest: str, asset_id: str,
                 if observation_id is not None:
                     builder.model["observations"][-1]["certainty"] = item["certainty"]
                     interval_ticks = sec_to_ticks(item["start"], item["end"])
+                    boundary_bound = boundary_bounds.get(
+                        (collection, str(item["id"])))
                     if interval_ticks is not None:
                         measured_starts = {
                             round(float(candidate["start"]), 6)
@@ -2033,8 +2216,10 @@ def _migrate_scenes(builder: _Builder, digest: str, asset_id: str,
                             "certainty": item["certainty"],
                             "evidence_ids": [observation_id],
                             "confidence": None,
-                            "start_boundary": boundary_record(start_status),
-                            "end_boundary": boundary_record(end_status),
+                            "start_boundary": boundary_record(
+                                start_status, boundary_bound),
+                            "end_boundary": boundary_record(
+                                end_status, boundary_bound),
                         })
                 if observation_id is not None and collection in ("shots", "sequences"):
                     kind = ("cinematography_profile" if collection == "shots"
@@ -4371,6 +4556,127 @@ def _assign_occurrences(builder: _Builder) -> None:
                 rows.append(entry)
 
 
+def _stamp_missing_processing_statuses(model: dict[str, Any]) -> int:
+    """Give every observation a processing status.
+
+    A row that carries none has said nothing about its analysis, and a
+    reader that cannot tell an analysed row from an unanalysed one
+    reads the gap as an absence. A row that exists because a producer
+    wrote it was analysed; the producers that failed say so on the
+    record itself.
+
+    Returns how many rows were stamped.
+    """
+    stamped = 0
+    for observation in model.get("observations") or []:
+        if not isinstance(observation, dict):
+            continue
+        if processing_status.processing_status_of(observation) is None:
+            processing_status.stamp_processing_status(
+                observation, processing_status.ANALYZED)
+            stamped += 1
+    return stamped
+
+
+def _model_grids(model: dict[str, Any],
+                 observation: dict[str, Any]) -> dict[str, int | None]:
+    """The grids one event's evidence sits on, in clock ticks.
+
+    Every grid is measured from the model itself: the camera-motion
+    sample times the event cites, the source clock's frame rate, and
+    the window sampling the scene lane recorded.
+    """
+    payload = observation.get("payload") or {}
+    measurements = payload.get("source_measurements") or []
+    camera_times = [float(entry["time"]) for entry in measurements
+                    if isinstance(entry, dict)
+                    and entry.get("lane") == "camera_motion"
+                    and isinstance(entry.get("time"), (int, float))]
+    frame_ticks = None
+    clock = next((row for row in model.get("clocks") or []
+                  if isinstance(row, dict)
+                  and row.get("id") == observation.get("interval", {}).get(
+                      "clock_id")), None)
+    if clock is not None:
+        rate = clock.get("frame_rate")
+        if isinstance(rate, dict) and rate.get("numerator"):
+            frame_ticks = max(1, round(
+                TICKS_PER_SECOND * float(rate["denominator"])
+                / float(rate["numerator"])))
+    window_ticks = None
+    for row in model.get("observations") or []:
+        if not isinstance(row, dict) or row.get("modality") != "scene":
+            continue
+        if row.get("asset_id") != observation.get("asset_id"):
+            continue
+        contract = (row.get("payload") or {}).get("evidence_contract") or {}
+        rate = contract.get("coverage_sample_rate_hz")
+        if isinstance(rate, (int, float)) and not isinstance(rate, bool) \
+                and rate > 0:
+            window_ticks = max(1, round(TICKS_PER_SECOND / rate))
+        break
+    return {"camera": _grid_period_ticks(camera_times),
+            "frame": frame_ticks, "window": window_ticks}
+
+
+def apply_coverage_contract(model: dict[str, Any]) -> dict[str, Any]:
+    """Bring one model up to the B-04/B-05 coverage contract.
+
+    Two things the model must say and may not:
+
+    - every observation states whether it was analysed;
+    - every estimated event boundary carries the bound of the grid that
+      located it, or is filed open, which claims no bound.
+
+    The rules are the migration's own, applied to the evidence the
+    model already holds: the status follows the coverage status the
+    record carries, and the bound follows the grid the boundary's basis
+    measurement sits on. A project whose source lanes are gone can
+    still be brought up to date, because the evidence it holds says
+    where every boundary came from.
+
+    Returns a report of what changed.
+    """
+    report: dict[str, Any] = {
+        "observations_stamped": 0,
+        "boundaries_bounded": 0,
+        "boundaries_filed_open": 0,
+        "notes": [],
+    }
+    report["observations_stamped"] = _stamp_missing_processing_statuses(model)
+    observations = {row.get("id"): row for row in model.get("observations") or []
+                    if isinstance(row, dict)}
+    for event in model.get("events") or []:
+        if not isinstance(event, dict):
+            continue
+        evidence = next((observations.get(evidence_id)
+                         for evidence_id in event.get("evidence_ids") or []
+                         if observations.get(evidence_id)), None)
+        if evidence is None:
+            continue
+        record = (evidence.get("payload") or {}).get("record") or {}
+        kind = _basis_kind(record.get("boundary_basis_ids"))
+        if kind is None:
+            kind = _basis_kind((evidence.get("payload") or {}).get(
+                "basis_measurement_ids"))
+        grids = _model_grids(model, evidence)
+        bound = _boundary_bound(kind, grids)
+        for key in ("start_boundary", "end_boundary"):
+            boundary = event.get(key)
+            if not isinstance(boundary, dict):
+                continue
+            if boundary.get("status") != "estimated":
+                continue
+            if bound is None:
+                boundary["status"] = "open"
+                boundary["uncertainty_ticks"] = None
+                report["boundaries_filed_open"] += 1
+            else:
+                boundary["uncertainty_ticks"] = int(bound)
+                report["boundaries_bounded"] += 1
+    return report
+
+
 @source_memory._project_scoped
 def migrate_project_evidence(project_folder: str, *,
                              memory_root: str | Path | None = None,
@@ -4503,6 +4809,7 @@ def migrate_project_evidence(project_folder: str, *,
     from library.tools import cross_modal_grounding
     cross_modal_grounding.apply_project_model(builder.model)
     _assign_occurrences(builder)
+    _stamp_missing_processing_statuses(builder.model)
     validate_project_model(builder.model)
     report = {
         "project": str(project_folder),
@@ -4883,6 +5190,16 @@ def main(argv: list[str] | None = None) -> int:
                           help="model JSON file (default: read the store)")
     coverage.add_argument("--memory-root", default=None)
 
+    upgrade = sub.add_parser(
+        "upgrade",
+        help="bring a stored model up to the B-04/B-05 coverage contract")
+    upgrade.add_argument("project")
+    upgrade.add_argument("--commit", action="store_true",
+                         help="commit as a new store revision")
+    upgrade.add_argument("--expected-revision", type=int, default=0)
+    upgrade.add_argument("--reason",
+                         default="coverage contract upgrade")
+
     resolve = sub.add_parser("resolve-person",
                              help="resolve a measured person with provenance")
     resolve.add_argument("project", help="project folder (store) or model file")
@@ -4908,6 +5225,23 @@ def main(argv: list[str] | None = None) -> int:
             print(payload)
         else:
             print(json.dumps({"model": model, "report": report}, indent=2))
+        return 0
+    if args.command == "upgrade":
+        from library.tools.project_model_store import (
+            commit_evidence_import,
+            load_project_model,
+        )
+        revision, model = load_project_model(Path(args.project))
+        report = apply_coverage_contract(model)
+        validate_project_model(model)
+        report["revision"] = revision
+        if args.commit:
+            report["committed_revision"] = commit_evidence_import(
+                Path(args.project), model,
+                expected_revision=args.expected_revision,
+                author="capability:project_model_evidence",
+                reason=args.reason)
+        print(json.dumps(report, indent=2))
         return 0
     if args.command == "coverage":
         if args.model:

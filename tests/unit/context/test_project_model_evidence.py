@@ -1887,3 +1887,189 @@ def test_a_model_derived_scene_carries_its_licence_verdict(
     assert context["approval_status"] == "approved"
     assert context["checkpoint_revision"] == "fixture-rev"
     assert scene["payload"]["checkpoint_revision"] == "fixture-rev"
+
+
+
+# ─── B-04/B-05: coverage states and bounded boundaries ───────────
+
+
+def test_every_migrated_observation_carries_a_processing_status(
+        fixture_project):
+    """B-04: a row that says nothing about its analysis reads as
+    silence, and silence reads as absence.
+
+    Every migrated observation states whether it was analysed, and the
+    status follows the coverage status its source-memory envelope
+    measured.
+    """
+    from library.tools import processing_status
+
+    model, _report = _migrate(fixture_project)
+    observations = model["observations"]
+    assert observations
+    missing = [row["id"] for row in observations
+               if processing_status.processing_status_of(row) is None]
+    assert missing == []
+    statuses = {processing_status.processing_status_of(row)
+                for row in observations}
+    assert statuses <= set(processing_status.PROCESSING_STATUSES)
+    assert processing_status.ANALYZED in statuses
+
+
+def _hierarchy_with_two_shots() -> dict:
+    """A hierarchy whose shot edges are measured cuts, on a camera grid.
+
+    The camera-motion samples sit 200 ms apart, so a boundary located
+    on that grid is known to 200 ticks.
+    """
+    return {
+        "method": "scene-cinematography-measurements-v1",
+        "status": "measured",
+        "duration": 5.0,
+        "scenes": [{"id": "scene-0001", "start": 0.0, "end": 5.0,
+                    "certainty": "interpreted",
+                    "location": "studio", "type": "interview",
+                    "boundary_basis_ids": ["m4_scene:semantic:0"],
+                    "attributes": {}}],
+        "shots": [
+            {"id": "shot-0001", "start": 0.0, "end": 2.0,
+             "certainty": "measured",
+             "boundary_basis_ids": ["scene_boundary:ffmpeg:0"],
+             "attributes": {"camera_movement": {
+                 "value": "static",
+                 "evidence_ids": ["camera_motion:proxy:0",
+                                  "camera_motion:proxy:1"]}}},
+            {"id": "shot-0002", "start": 2.0, "end": 5.0,
+             "certainty": "measured",
+             "boundary_basis_ids": ["scene_boundary:ffmpeg:1"],
+             "attributes": {"camera_movement": {
+                 "value": "static",
+                 "evidence_ids": ["camera_motion:proxy:0",
+                                  "camera_motion:proxy:1"]}}},
+        ],
+        "subshots": [],
+        "sequences": [],
+        "measurement_catalog": [
+            {"id": "scene_boundary:ffmpeg:0", "lane": "scene_boundary",
+             "time": 2.0, "value": 0.7, "method": "ffmpeg-scene-score"},
+            {"id": "camera_motion:proxy:0", "lane": "camera_motion",
+             "time": 0.0, "value": "static", "method": "proxy"},
+            {"id": "camera_motion:proxy:1", "lane": "camera_motion",
+             "time": 0.2, "value": "static", "method": "proxy"},
+            {"id": "m4_scene:semantic:0", "lane": "m4_scene", "time": 0.0,
+             "value": {"location": "studio"}, "method": "m4-scene-profile"},
+        ],
+    }
+
+
+def _write_m4_with_hierarchy(fixture_project, hierarchy: dict) -> None:
+    """Write an M4 slot the migration accepts, with its hierarchy."""
+    from library.tools import source_memory
+
+    _write(fixture_project["memory"] / D1 / "scenes.json", {
+        "content_digest": D1, "status": "measured",
+        "scenes": [{"start": 0.0, "end": 5.0, "location": "studio",
+                    "type": "interview", "lighting": "soft",
+                    "notable_features": []}],
+        "scene_boundaries": [{"time": 2.0, "score": 0.7,
+                              "type": "scene_change"}],
+        "instrument": {
+            "scene_pass": source_memory.M4_SCENE_PASS_METHOD,
+            "boundary_method": source_memory.M4_BOUNDARY_METHOD},
+    })
+    source_memory.write_scene_cinematography(
+        D1, hierarchy, root=str(fixture_project["memory"]))
+
+
+def test_an_estimated_event_boundary_carries_the_bound_of_its_grid(
+        fixture_project):
+    """B-05: a boundary that was located on a measurement grid carries
+    that grid's resolution, and never claims a precision nobody
+    measured."""
+    _write_m4_with_hierarchy(fixture_project, _hierarchy_with_two_shots())
+
+    model, _report = _migrate(fixture_project)
+    events = [event for event in model["events"]
+              if event["kind"] == "cinematography_shot"]
+    assert events, "the fixture's measured hierarchy must reach the model"
+    estimated = [event for event in events
+                 if event["start_boundary"]["status"] == "estimated"]
+    assert estimated, "a cut between two shots is an estimated boundary"
+    for event in estimated:
+        assert event["start_boundary"]["uncertainty_ticks"] == 200
+    for event in model["events"]:
+        for key in ("start_boundary", "end_boundary"):
+            boundary = event.get(key)
+            if boundary is None:
+                continue
+            if boundary["status"] == "estimated":
+                assert isinstance(boundary["uncertainty_ticks"], int)
+                assert boundary["uncertainty_ticks"] >= 0
+            if boundary["status"] == "exact":
+                assert boundary["uncertainty_ticks"] in (None, 0)
+
+
+def test_a_boundary_no_grid_can_bound_is_filed_open(fixture_project):
+    """An estimate nobody can bound is not a bounded estimate: the
+    boundary claims no precision, and the migration says so."""
+    hierarchy = _hierarchy_with_two_shots()
+    hierarchy["measurement_catalog"] = [
+        entry for entry in hierarchy["measurement_catalog"]
+        if entry["lane"] != "camera_motion"]
+    _write_m4_with_hierarchy(fixture_project, hierarchy)
+
+    model, report = _migrate(fixture_project)
+    for event in model["events"]:
+        for key in ("start_boundary", "end_boundary"):
+            boundary = event.get(key)
+            if boundary is None:
+                continue
+            assert boundary["status"] != "estimated"
+            if boundary["status"] == "open":
+                assert boundary["uncertainty_ticks"] is None
+    assert any("no measurement grid bounds it" in note
+               for note in report["notes"])
+
+
+def test_the_upgrade_path_brings_a_stored_model_up_to_the_contract(
+        fixture_project):
+    """A project whose source lanes are gone can still be brought up to
+    date: the evidence the model already holds says where each boundary
+    came from."""
+    from library.tools import processing_status
+
+    model, _report = _migrate(fixture_project)
+    for observation in model["observations"]:
+        payload = observation.get("payload") or {}
+        contract = payload.get("evidence_contract")
+        if isinstance(contract, dict):
+            contract.pop("processing_status", None)
+        payload.pop("processing_status", None)
+
+    report = evidence.apply_coverage_contract(model)
+    assert report["observations_stamped"] == len(model["observations"])
+    missing = [row["id"] for row in model["observations"]
+               if processing_status.processing_status_of(row) is None]
+    assert missing == []
+    validate_project_model(model)
+
+
+def test_the_upgrade_path_bounds_an_estimated_boundary_from_its_grid(
+        fixture_project):
+    from library.tools import source_memory
+
+    _write_m4_with_hierarchy(fixture_project, _hierarchy_with_two_shots())
+    model, _report = _migrate(fixture_project)
+    for event in model["events"]:
+        for key in ("start_boundary", "end_boundary"):
+            boundary = event.get(key)
+            if boundary and boundary["status"] == "estimated":
+                boundary["uncertainty_ticks"] = None
+    report = evidence.apply_coverage_contract(model)
+    assert report["boundaries_bounded"] >= 1
+    for event in model["events"]:
+        for key in ("start_boundary", "end_boundary"):
+            boundary = event.get(key)
+            if boundary and boundary["status"] == "estimated":
+                assert boundary["uncertainty_ticks"] is not None
+    validate_project_model(model)

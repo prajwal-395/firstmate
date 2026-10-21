@@ -47,6 +47,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--memory-root")
     parser.add_argument(
+        "--no-record",
+        action="store_true",
+        help="answer without filing the result in the project's model",
+    )
+    parser.add_argument(
         "--purpose",
         choices=("commercial_client", "personal_noncommercial", "permitted_research"),
         default="commercial_client",
@@ -95,11 +100,14 @@ def main(argv: list[str] | None = None) -> int:
     if not args.acquire:
         answer = evidence_query.evidence_for(model, plan,
                                              project=str(project))
+        recorded = _record(project, model, answer, source_revision,
+                           enabled=not args.no_record)
         print(
             json.dumps(
                 {"answer": answer, "edit_ready": answer.get("status") == "present",
                  "source_revision": source_revision,
-                 "result_revision": source_revision},
+                 "result_revision": recorded["revision"],
+                 "query_result": recorded["row"]},
                 indent=2,
             )
         )
@@ -137,8 +145,38 @@ def main(argv: list[str] | None = None) -> int:
         workload_purpose=args.purpose,
         memory_root=memory_root,
     )
+    recorded = _record(project, model,
+                       answer.get("requery") or answer.get("answer") or answer,
+                       source_revision, enabled=not args.no_record)
+    answer = {**answer, "result_revision": recorded["revision"],
+              "query_result": recorded["row"]}
     print(json.dumps(answer, indent=2))
     return 0
+
+
+def _record(project, model: dict, answer: dict, revision: int, *,
+            enabled: bool) -> dict:
+    """File the answer's row in the model's ``query_results``.
+
+    An answer that cannot be filed is still an answer: the row is
+    reported as unfiled with its reason, and the answer itself is
+    returned. A query never fails because its own bookkeeping could
+    not be written.
+    """
+    if not enabled:
+        return {"revision": revision, "row": None, "filed": False,
+                "reason": "recording was declined (--no-record)"}
+    from library.tools import project_model_store, query_results
+
+    row = query_results.row_for_answer(answer)
+    try:
+        new_revision = project_model_store.record_query_result(
+            project, model, row, expected_revision=revision)
+    except Exception as exc:  # noqa: BLE001 - the answer still stands
+        return {"revision": revision, "row": row, "filed": False,
+                "reason": f"the result could not be filed: {exc}"}
+    return {"revision": new_revision, "row": row, "filed": True,
+            "reason": None}
 
 
 if __name__ == "__main__":

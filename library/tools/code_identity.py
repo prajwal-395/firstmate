@@ -723,6 +723,9 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/evidence_graph.py",
         "library/tools/frame_rate.py",
         "library/tools/mutation_verification.py",
+        "library/tools/audio_operations.py",
+        "library/tools/processing_status.py",
+        "library/tools/touchup_direct.py",
     ),
     "step_1_01_scan_project": (
         "library/tools/alignment_quality.py",
@@ -1364,6 +1367,9 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/evidence_graph.py",
         "library/tools/frame_rate.py",
         "library/tools/mutation_verification.py",
+        "library/tools/audio_operations.py",
+        "library/tools/processing_status.py",
+        "library/tools/touchup_direct.py",
     ),
     "step_1_02_catalog_footage": (
         # Shared measurement and evidence readers reached by the catalog's
@@ -2048,6 +2054,9 @@ STEP_IMPLEMENTATION_DEPS = {
         # every file the closure reaches is named here).
         "library/tools/evidence_graph.py",
         "library/tools/mutation_verification.py",
+        "library/tools/audio_operations.py",
+        "library/tools/processing_status.py",
+        "library/tools/touchup_direct.py",
     ),
     "step_1_03_semantic_analysis": (
         "library/tools/alignment_quality.py",
@@ -2711,6 +2720,9 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/evidence_graph.py",
         "library/tools/frame_rate.py",
         "library/tools/mutation_verification.py",
+        "library/tools/audio_operations.py",
+        "library/tools/processing_status.py",
+        "library/tools/touchup_direct.py",
     ),
     "step_1_04_temporal_index": (
         "library/tools/alignment_quality.py",
@@ -3405,6 +3417,9 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/evidence_graph.py",
         "library/tools/frame_rate.py",
         "library/tools/mutation_verification.py",
+        "library/tools/audio_operations.py",
+        "library/tools/processing_status.py",
+        "library/tools/touchup_direct.py",
     ),
     "step_1_05_prosody_analysis": (
         # The legacy step delegates the measurement here.

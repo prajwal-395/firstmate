@@ -49,6 +49,30 @@ def test_reassociation_across_occlusion_is_a_track_scoped_candidate():
     assert link["supporting_observation_ids"] == ["obs-a", "obs-b"]
 
 
+def test_a_candidate_link_carries_its_distance_derived_uncertainty():
+    # D4: a candidate that says nothing about how unsure it is reads as
+    # a claim. The uncertainty is the endpoint geometry's own distance,
+    # normalised by the distance at which the rule accepts a link.
+    model = _model()
+    result = reassociate_tracks(model, max_gap_ticks=500,
+                                max_center_distance=0.20)
+    link = result["links"][0]
+    # track-a's box centre is (0.1, 0.1); track-b's is (0.2, 0.2).
+    assert link["uncertainty"] == round((0.02 ** 0.5) / 0.20, 4)
+    assert 0.0 < link["uncertainty"] <= 1.0
+    # Confidence stays null: a raw distance is not a calibrated score.
+    assert link["confidence"] is None
+
+
+def test_candidates_near_the_threshold_carry_nearly_the_whole_doubt():
+    model = _model()
+    model["tracks"][1]["samples"][0]["geometry"]["bbox"] = [.18, 0.0, .38, .2]
+    result = reassociate_tracks(model, max_gap_ticks=500,
+                                max_center_distance=0.20)
+    link = result["links"][0]
+    assert link["uncertainty"] == 0.9
+
+
 def test_reassociation_skips_a_same_class_track_far_from_the_occlusion_exit():
     model = _model()
     model["tracks"][1]["samples"][0]["geometry"]["bbox"] = [.7, .7, .9, .9]

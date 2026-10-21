@@ -218,6 +218,63 @@ def test_four_states_match_the_rust_query_result_vocabulary():
          "inconclusive"])
 
 
+# ─── The five-state answer (B-04) ────────────────────────────────
+
+
+def test_the_answer_carries_the_five_state_vocabulary():
+    assert sorted(evidence_query.ANSWER_STATES) == sorted(
+        ["present", "absent", "not_observed", "not_analyzed", "inconclusive"])
+
+
+def test_a_measured_absence_answers_absent_not_merely_confidently_absent():
+    answer = evidence_query.evidence_for(_silent_model(), _speaking_plan())
+    assert answer["status"] == CONFIDENTLY_ABSENT
+    assert answer["answer_state"] == "absent"
+    assert "explicit negative" in answer["absence"]["basis"]
+    # The absence names the record that asserted it.
+    assert answer["candidate_evidence_ids"] == ["obs-silence-1"]
+
+
+def test_a_lane_that_never_ran_answers_not_analyzed():
+    answer = evidence_query.evidence_for(_model(), _speaking_plan())
+    assert answer["answer_state"] == "not_analyzed"
+
+
+def test_a_present_answer_answers_present():
+    answer = evidence_query.evidence_for(_speaking_model(), _speaking_plan())
+    assert answer["answer_state"] == "present"
+
+
+def test_partial_coverage_answers_inconclusive():
+    model = _model(_obs(
+        "obs-sparse-negative", "event_span",
+        {"predicate": "speaking", "spans": []},
+        digest=D2, start_s=0.0, end_s=20.0,
+        native=_native("event.speaking_span", [], digest=D2, lane="m7",
+                       start_tick=0, end_tick=20000, coverage="sampled",
+                       samples=1)))
+    answer = evidence_query.evidence_for(model, _speaking_plan())
+    assert answer["answer_state"] == "inconclusive"
+
+
+def test_a_lane_that_failed_is_inconclusive_and_says_so():
+    # A lane that ran and failed is not a lane that never ran, and it
+    # is not an absence either: the analysis did not finish.
+    native = _native("event.speaking_span", [], digest=D2, lane="m7",
+                     start_tick=0, end_tick=20000, coverage="complete",
+                     samples=0)
+    native["processing_status"] = "failed"
+    model = _model(_obs(
+        "obs-failed-lane", "event_span",
+        {"predicate": "speaking", "spans": []},
+        digest=D2, start_s=0.0, end_s=20.0, native=native))
+    answer = evidence_query.evidence_for(model, _speaking_plan())
+    assert answer["status"] == INCONCLUSIVE
+    assert answer["answer_state"] == "inconclusive"
+    assert any("failed" in reason for reason in answer["reasons"])
+    assert answer["required_missing_lanes"] == ["m7"]
+
+
 # ─── Candidates, staleness and legacy coverage ───────────────────
 
 

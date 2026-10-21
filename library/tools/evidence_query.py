@@ -7,6 +7,17 @@ four states - ``present``, ``confidently_absent``, ``not_yet_analysed``,
 compiles the evidence-backed subset of
 ``FootageIndex.filter()`` kwargs so the two stores can be parity-checked.
 
+**The answer's own vocabulary is five states.** The four ``status``
+values are the Project Model's row vocabulary (the Rust
+``QueryResultStatus`` enum pins them), so a row can be written into the
+model unchanged. The answer also carries ``answer_state``, the five-state
+vocabulary of plan B-04 - ``present``, ``absent``, ``not_observed``,
+``not_analyzed``, ``inconclusive`` - computed by
+``evidence_graph.classify_absence``, which is the one implementation of
+that table. A measured absence (``absent``) is not the same claim as a
+complete lane that asserted nothing (``not_observed``), and the answer
+says which one it is.
+
 **What this is.** The interval-first evidence API the query layer was
 missing: predicates name typed measurements, event spans or
 relationship candidates with units and clock scopes, and the answer
@@ -50,12 +61,12 @@ from itertools import pairwise
 from typing import Any
 
 try:
-    from library.tools import evidence_contract
+    from library.tools import evidence_contract, processing_status
     from library.tools import occurrence_identity
     from library.tools.identity_reassociation import IDENTITY_SCOPES
     from library.tools.relation_classes import RELATION_CLASSES
 except ImportError:  # imported as `tools.*` from inside library/
-    from tools import evidence_contract
+    from tools import evidence_contract, processing_status
     from tools import occurrence_identity
     from tools.identity_reassociation import IDENTITY_SCOPES
     from tools.relation_classes import RELATION_CLASSES
@@ -68,6 +79,22 @@ PRESENT = "present"
 CONFIDENTLY_ABSENT = "confidently_absent"
 NOT_YET_ANALYSED = "not_yet_analysed"
 INCONCLUSIVE = "inconclusive"
+
+ABSENT = "absent"
+NOT_OBSERVED = "not_observed"
+NOT_ANALYZED = "not_analyzed"
+
+ANSWER_STATES = (PRESENT, ABSENT, NOT_OBSERVED, NOT_ANALYZED, INCONCLUSIVE)
+"""The five-state answer vocabulary of plan B-04, in the order a reader
+meets them. ``status`` keeps the model's four-state row vocabulary;
+``answer_state`` is this one."""
+
+COVERAGE_RANK = {"complete": 0, "sampled": 1, "inferred": 2, "unavailable": 3}
+"""Coverage kinds from strongest to weakest: a completeness claim is a
+claim about the whole lane, so the weakest record decides it."""
+
+FRESHNESS_RANK = {"fresh": 0, "stale": 1, "unknown": 2}
+"""Freshness from best to worst, in the same weakest-wins order."""
 
 
 def classify_absence(status: str, *, has_explicit_negative: bool,
@@ -93,6 +120,21 @@ def classify_absence(status: str, *, has_explicit_negative: bool,
 
 QUERY_STATES = (PRESENT, CONFIDENTLY_ABSENT, NOT_YET_ANALYSED, INCONCLUSIVE)
 """The four query outcomes. Complete: an answer carries exactly one."""
+
+
+def answer_state(status: str, *, has_explicit_negative: bool,
+                 coverage_complete: bool) -> dict[str, str]:
+    """The five-state answer, computed by the graph layer's table.
+
+    ``evidence_graph.classify_absence`` is the one implementation of the
+    DATA-036 vocabulary; the query names it instead of repeating the
+    table, so the two layers cannot disagree about what an absence is.
+    """
+    from library.tools import evidence_graph
+
+    return evidence_graph.classify_absence(
+        status, has_explicit_negative=has_explicit_negative,
+        coverage_complete=coverage_complete)
 
 MEASURED_EVENTS = ("speaking", "on_screen")
 """M7 predicate spans: diarized turns attributed to a face, and visible
@@ -990,12 +1032,14 @@ def _graph_answer(model: dict[str, Any], plan: dict[str, Any],
         del result["observation_ids"]
     if results:
         return {"status": "present", "results": results,
+                "answer_state": "present",
                 "completeness_basis": [], "required_missing_lanes": [],
                 "reasons": [],
                 "lane_corrections": [],
                 "absence": {"state": "present",
                             "basis": "the model holds the rows this plan names"}}
     return {"status": "not_observed", "results": [],
+            "answer_state": "not_observed",
             "completeness_basis": [], "required_missing_lanes": [],
             "reasons": [
                 ("the model holds no row matching this predicate: nothing "
@@ -1110,7 +1154,8 @@ def evidence_for(model: dict[str, Any], plan: dict[str, Any], *,
                  ) -> dict[str, Any]:
     """Answer one compiled plan over a Project Model dict.
 
-    Returns ``{"status", "results", "completeness_basis",
+    Returns ``{"status", "answer_state", "answer_basis", "results",
+    "candidate_evidence_ids", "completeness_basis",
     "required_missing_lanes", "reasons"}``. Results carry their joined
     interval in ticks and seconds plus the contributing evidence ids,
     provenance ids, certainties, coverage and freshness - the reader
@@ -1120,6 +1165,9 @@ def evidence_for(model: dict[str, Any], plan: dict[str, Any], *,
     ``(digest, lane)`` to ``{"present", "freshness"}`` sidecar truth so
     a lane that ran but never migrated reads ``inconclusive`` instead
     of ``not_yet_analysed``.
+
+    ``status`` is the model's four-state row vocabulary; ``answer_state``
+    is the five-state answer of plan B-04 (see :func:`answer_state`).
 
     A plan of GRAPH predicates is answered from the model's own
     collections by :mod:`library.tools.evidence_graph`; the answer then
@@ -1210,11 +1258,12 @@ def evidence_for(model: dict[str, Any], plan: dict[str, Any], *,
             if refusal:
                 break
         if refusal:
-            return {"status": INCONCLUSIVE, "results": [],
-                    "completeness_basis": [],
-                    "required_missing_lanes": sorted(set(
-                        plan.get("required_lanes") or [])),
-                    "reasons": [refusal]}
+            return _answer(INCONCLUSIVE, results=[],
+                           completeness_basis=[],
+                           required_missing_lanes=sorted(set(
+                               plan.get("required_lanes") or [])),
+                           reasons=[refusal],
+                           coverage_complete=False)
         per_predicate = transformed
         clocks = [target_clock]
     if join_mode == "independent":
@@ -1286,13 +1335,47 @@ def evidence_for(model: dict[str, Any], plan: dict[str, Any], *,
     corrections = _lane_corrections(model, compiled_predicates)
     reasons.extend(_correction_reasons(corrections))
     if fresh_results:
-        return {"status": PRESENT, "results": fresh_results,
-                "completeness_basis": _basis_for(
-                    model, plan, per_predicate, level),
-                "required_missing_lanes": [], "reasons": reasons,
-                "lane_corrections": corrections}
+        return _answer(PRESENT, results=fresh_results,
+                       completeness_basis=_basis_for(
+                           model, plan, per_predicate, level),
+                       required_missing_lanes=[],
+                       reasons=reasons,
+                       candidate_evidence_ids={
+                           evidence_id
+                           for result in fresh_results
+                           for evidence_id in result["evidence_ids"]},
+                       lane_corrections=corrections)
     return _empty_answer(model, plan, per_predicate, scope, level,
                          lane_presence, reasons, corrections)
+
+
+def _answer(status: str, *, results: list[dict[str, Any]],
+            completeness_basis: list[dict[str, Any]],
+            required_missing_lanes: list[str], reasons: list[str],
+            has_explicit_negative: bool = False,
+            coverage_complete: bool = True,
+            candidate_evidence_ids: set[str] | None = None,
+            **extra: Any) -> dict[str, Any]:
+    """One answer, carrying both vocabularies and its own basis.
+
+    ``status`` says which of the model's four row states this answer
+    is; ``answer_state`` says which of the five answer states it is.
+    The two are not the same claim: ``confidently_absent`` covers both
+    a measured absence and a complete lane that asserted nothing, and
+    only the five-state answer tells those apart.
+    """
+    state = answer_state(status,
+                         has_explicit_negative=has_explicit_negative,
+                         coverage_complete=coverage_complete)
+    return {"status": status,
+            "answer_state": state["state"],
+            "absence": {"state": state["state"], "basis": state["basis"]},
+            "results": results,
+            "candidate_evidence_ids": sorted(candidate_evidence_ids or set()),
+            "completeness_basis": completeness_basis,
+            "required_missing_lanes": list(required_missing_lanes),
+            "reasons": list(reasons),
+            **extra}
 
 
 def _occurrence_of_row(model: dict[str, Any], plan: dict[str, Any],
@@ -1371,13 +1454,36 @@ def _basis_for(model: dict[str, Any], plan: dict[str, Any],
             version = _producer_version_of(model, match["obs"])
             if version:
                 slot["producer_version"] = version
-    return [{"lane": lane, "coverage": sorted(slot["coverage"]),
-             "freshness": sorted(slot["freshness"]),
+    return [{"lane": lane,
+             "coverage": _weakest_coverage(slot["coverage"]),
+             "freshness": _weakest_freshness(slot["freshness"]),
+             "lane_state": "present",
              "scope": ({"asset_id": asset} if asset else {}),
              "producer_version": slot["producer_version"],
              "level": level}
             for (lane, asset), slot in sorted(
                 lanes.items(), key=lambda item: str(item[0]))]
+
+
+def _weakest_coverage(values: Any) -> str:
+    """The weakest coverage among a lane's records.
+
+    A completeness claim is a claim about the whole lane, so the
+    weakest record decides it: a lane that is complete for one record
+    and sampled for another has not covered the scope completely.
+    """
+    candidates = [value for value in (values or []) if value in COVERAGE_RANK]
+    if not candidates:
+        return "unavailable"
+    return max(candidates, key=lambda value: COVERAGE_RANK[value])
+
+
+def _weakest_freshness(values: Any) -> str:
+    """The weakest freshness among a lane's records."""
+    candidates = [value for value in (values or []) if value in FRESHNESS_RANK]
+    if not candidates:
+        return "unknown"
+    return max(candidates, key=lambda value: FRESHNESS_RANK[value])
 
 
 def _empty_answer(model: dict[str, Any], plan: dict[str, Any],
@@ -1396,30 +1502,40 @@ def _empty_answer(model: dict[str, Any], plan: dict[str, Any],
         for compiled, matches in zip(plan["predicates"], per_predicate))
     lane_states = _lane_states(model, plan, per_predicate, scope,
                                lane_presence)
-    missing = sorted(lane for lane, state in lane_states.items()
+    states = {lane: info["state"] for lane, info in lane_states.items()}
+    missing = sorted(lane for lane, state in states.items()
                      if state == "missing")
-    ran_unmigrated = sorted(lane for lane, state in lane_states.items()
+    not_analyzed = sorted(lane for lane, state in states.items()
+                          if state == "not_analyzed")
+    ran_unmigrated = sorted(lane for lane, state in states.items()
                             if state == "ran_unmigrated")
-    partial = sorted(lane for lane, state in lane_states.items()
+    failed = sorted(lane for lane, state in states.items()
+                    if state == "failed")
+    partial = sorted(lane for lane, state in states.items()
                      if state in ("partial", "stale", "legacy"))
+    basis = _empty_basis(lane_states, scope, level)
     if candidate_only:
         reasons = reasons + [("candidates are never answers: unverified "
                               "spans name what to verify, never what happened")]
-        return {"status": INCONCLUSIVE, "results": [],
-                "completeness_basis": _empty_basis(
-                    lane_states, scope, level),
-                "required_missing_lanes": missing, "reasons": reasons,
-                "lane_corrections": corrections}
-    if missing and not partial and not ran_unmigrated:
-        reasons = reasons + [
-            (f"lane(s) {missing} never ran: nothing measured, so "
-             f"nothing can be absent yet")]
-        return {"status": NOT_YET_ANALYSED, "results": [],
-                "completeness_basis": _empty_basis(
-                    lane_states, scope, level),
-                "required_missing_lanes": missing, "reasons": reasons,
-                "lane_corrections": corrections}
-    if ran_unmigrated or partial:
+        return _answer(INCONCLUSIVE, results=[], completeness_basis=basis,
+                       required_missing_lanes=missing, reasons=reasons,
+                       coverage_complete=False,
+                       lane_corrections=corrections)
+    if (missing or not_analyzed) and not partial and not ran_unmigrated \
+            and not failed:
+        if missing:
+            reasons = reasons + [
+                (f"lane(s) {missing} never ran: nothing measured, so "
+                 f"nothing can be absent yet")]
+        if not_analyzed:
+            reasons = reasons + [
+                (f"lane(s) {not_analyzed} ran but analysed nothing: "
+                 f"no evidence was produced, so nothing can be absent yet")]
+        return _answer(NOT_YET_ANALYSED, results=[],
+                       completeness_basis=basis,
+                       required_missing_lanes=sorted(missing + not_analyzed),
+                       reasons=reasons, lane_corrections=corrections)
+    if ran_unmigrated or partial or failed:
         if ran_unmigrated:
             reasons = reasons + [
                 (f"lane(s) {ran_unmigrated} ran but migrated nothing: "
@@ -1429,26 +1545,35 @@ def _empty_answer(model: dict[str, Any], plan: dict[str, Any],
                 (f"lane(s) {partial} cover only part of the scope, are "
                  f"stale, or carry no coverage: absence needs fresh "
                  f"complete coverage, not a gap")]
-        return {"status": INCONCLUSIVE, "results": [],
-                "completeness_basis": _empty_basis(
-                    lane_states, scope, level),
-                "required_missing_lanes": missing, "reasons": reasons,
-                "lane_corrections": corrections}
-    if missing:
+        if failed:
+            reasons = reasons + [
+                (f"lane(s) {failed} failed: the analysis did not "
+                 f"complete, so no claim either way is available")]
+        return _answer(INCONCLUSIVE, results=[], completeness_basis=basis,
+                       required_missing_lanes=sorted(
+                           missing + not_analyzed + failed),
+                       reasons=reasons, coverage_complete=False,
+                       lane_corrections=corrections)
+    if missing or not_analyzed:
         reasons = reasons + [
-            (f"lane(s) {missing} never ran: nothing measured, so "
-             f"nothing can be absent yet")]
-        return {"status": NOT_YET_ANALYSED, "results": [],
-                "completeness_basis": _empty_basis(
-                    lane_states, scope, level),
-                "required_missing_lanes": missing, "reasons": reasons,
-                "lane_corrections": corrections}
+            (f"lane(s) {sorted(missing + not_analyzed)} produced no "
+             f"evidence: nothing measured, so nothing can be absent yet")]
+        return _answer(NOT_YET_ANALYSED, results=[],
+                       completeness_basis=basis,
+                       required_missing_lanes=sorted(missing + not_analyzed),
+                       reasons=reasons, lane_corrections=corrections)
     reasons = reasons + [("every required lane measured the scope "
                           "completely and found nothing")]
-    return {"status": CONFIDENTLY_ABSENT, "results": [],
-            "completeness_basis": _empty_basis(lane_states, scope, level),
-            "required_missing_lanes": [], "reasons": reasons,
-            "lane_corrections": corrections}
+    return _answer(CONFIDENTLY_ABSENT, results=[],
+                   completeness_basis=basis,
+                   required_missing_lanes=[],
+                   reasons=reasons,
+                   has_explicit_negative=True,
+                   candidate_evidence_ids={
+                       evidence_id
+                       for lane, info in lane_states.items()
+                       for evidence_id in info.get("evidence_ids", [])},
+                   lane_corrections=corrections)
 
 
 def _has_unverified_candidates(model: dict[str, Any],
@@ -1487,16 +1612,20 @@ def _lane_states(model: dict[str, Any], plan: dict[str, Any],
                  per_predicate: list[list[dict[str, Any]]],
                  scope: dict[str, Any],
                  lane_presence: dict[tuple[str, str], dict[str, Any]] | None
-                 ) -> dict[str, str]:
+                 ) -> dict[str, dict[str, Any]]:
     """One state per required lane: covers_absent, partial, stale,
-    legacy, missing, or ran_unmigrated.
+    legacy, missing, ran_unmigrated, failed or not_analyzed.
 
     State reads ALL of the lane's records, not just this query's
     matches: a word no transcript contains is still a lane that ran.
     Only a fresh measured-absence record (complete coverage, zero
     samples, spanning the scope) makes absence confident.
+
+    A lane whose records all say the analysis FAILED is a lane that
+    ran and did not finish: it is neither absent nor unanalysed, and
+    the answer says so instead of reading the gap as an absence.
     """
-    states: dict[str, str] = {}
+    states: dict[str, dict[str, Any]] = {}
     lane_records = _lane_records(model)
     for compiled in plan["predicates"]:
         required = _required_lane(compiled)
@@ -1507,25 +1636,74 @@ def _lane_states(model: dict[str, Any], plan: dict[str, Any],
                 continue
             records = _scoped_records(lane_records.get(lane, []), scope)
             fresh = [obs for obs in records if freshness_of(obs) == "fresh"]
-            if any(_record_answers_predicate(obs, compiled)
-                   and _covers_scope(obs, scope) for obs in fresh):
-                states[lane] = "covers_absent"
+            absences = [obs for obs in fresh
+                        if _record_answers_predicate(obs, compiled)
+                        and _covers_scope(obs, scope)
+                        and _establishes_absence(obs)]
+            if absences:
+                states[lane] = {
+                    "state": "covers_absent",
+                    "producer_version": _producer_version_of(model,
+                                                             absences[0]),
+                    "evidence_ids": sorted({str(obs.get("id"))
+                                            for obs in absences
+                                            if obs.get("id")}),
+                }
+                continue
+            processing = {processing_status.processing_status_of(obs)
+                          for obs in records} - {None}
+            if processing and processing <= {"failed"}:
+                states[lane] = {"state": "failed",
+                                "producer_version": _producer_version_of(
+                                    model, records[0]),
+                                "evidence_ids": []}
+                continue
+            if processing and processing <= {"not_analyzed"}:
+                states[lane] = {"state": "not_analyzed",
+                                "producer_version": _producer_version_of(
+                                    model, records[0]),
+                                "evidence_ids": []}
                 continue
             if fresh:
-                states[lane] = "partial"
+                states[lane] = {"state": "partial",
+                                "producer_version": _producer_version_of(
+                                    model, fresh[0]),
+                                "evidence_ids": []}
                 continue
             if any(freshness_of(obs) == "stale" for obs in records):
-                states[lane] = "stale"
+                states[lane] = {"state": "stale",
+                                "producer_version": _producer_version_of(
+                                    model, records[0]),
+                                "evidence_ids": []}
                 continue
             if records:
-                states[lane] = "legacy"
+                states[lane] = {"state": "legacy",
+                                "producer_version": _producer_version_of(
+                                    model, records[0]),
+                                "evidence_ids": []}
                 continue
             if lane_presence is not None and _lane_ran(
                     lane, scope, lane_presence):
-                states[lane] = "ran_unmigrated"
+                states[lane] = {"state": "ran_unmigrated",
+                                "producer_version": None,
+                                "evidence_ids": []}
             else:
-                states[lane] = "missing"
+                states[lane] = {"state": "missing", "producer_version": None,
+                                "evidence_ids": []}
     return states
+
+
+def _establishes_absence(obs: dict[str, Any]) -> bool:
+    """Whether a record may carry a measured absence.
+
+    A record whose processing status says the analysis failed, was
+    unavailable or was never made carries no absence: its coverage
+    claim is void, and a void claim cannot say the thing is not there.
+    A legacy record (no status at all) keeps whatever coverage it
+    recorded.
+    """
+    status = processing_status.processing_status_of(obs)
+    return status in (None, processing_status.ANALYZED)
 
 
 def _lane_records(model: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
@@ -1742,7 +1920,36 @@ def _lane_ran(lane: str, scope: dict[str, Any],
     return False
 
 
-def _empty_basis(lane_states: dict[str, str], scope: dict[str, Any],
+LANE_STATE_COVERAGE = {
+    "covers_absent": "complete",
+    "partial": "sampled",
+    "stale": "sampled",
+    "legacy": "unavailable",
+    "missing": "unavailable",
+    "ran_unmigrated": "unavailable",
+    "failed": "unavailable",
+    "not_analyzed": "unavailable",
+}
+"""Lane state to the model's coverage kind. A lane that measured the
+scope completely and found nothing is ``complete``; a lane that covered
+part of it is ``sampled``; a lane that never looked is ``unavailable``."""
+
+LANE_STATE_FRESHNESS = {
+    "covers_absent": "fresh",
+    "partial": "fresh",
+    "stale": "stale",
+    "legacy": "unknown",
+    "missing": "unknown",
+    "ran_unmigrated": "unknown",
+    "failed": "fresh",
+    "not_analyzed": "fresh",
+}
+"""Lane state to the model's freshness. Freshness says how current the
+producer run behind the lane is; a lane that failed is current - it ran
+against this source - and its failure is named in the reason."""
+
+
+def _empty_basis(lane_states: dict[str, dict[str, Any]], scope: dict[str, Any],
                  level: str | None) -> list[dict[str, Any]]:
     basis_scope: dict[str, Any] = {}
     if scope.get("clock_id"):
@@ -1751,7 +1958,11 @@ def _empty_basis(lane_states: dict[str, str], scope: dict[str, Any],
         basis_scope["asset_id"] = scope["asset_id"]
     if "start_s" in scope or "end_s" in scope:
         basis_scope["window_s"] = [scope.get("start_s"), scope.get("end_s")]
-    return [{"lane": lane, "coverage": state, "freshness": "unknown",
-             "scope": dict(basis_scope), "producer_version": None,
+    return [{"lane": lane,
+             "coverage": LANE_STATE_COVERAGE.get(info["state"], "unavailable"),
+             "freshness": LANE_STATE_FRESHNESS.get(info["state"], "unknown"),
+             "lane_state": info["state"],
+             "scope": dict(basis_scope),
+             "producer_version": info.get("producer_version"),
              "level": level}
-            for lane, state in sorted(lane_states.items())]
+            for lane, info in sorted(lane_states.items())]
