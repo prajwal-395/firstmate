@@ -171,23 +171,53 @@ def offline_index(project, tmp_path, monkeypatch):
     embeds each text as a normalised bag-of-characters, which is enough
     for "similar text scores higher" to hold.
     """
-    def fake_loader():
-        def encode(texts):
-            rows = []
-            for text in texts:
-                vector = np.zeros(26, dtype="float32")
-                for char in (text or "").lower():
-                    if "a" <= char <= "z":
-                        vector[ord(char) - 97] += 1.0
-                norm = np.linalg.norm(vector) or 1.0
-                rows.append(vector / norm)
-            return np.vstack(rows) if rows else np.zeros((0, 26), dtype="float32")
-        return encode, "test-stub"
-
-    monkeypatch.setattr(footage_query, "load_embedder", fake_loader)
+    monkeypatch.setattr(footage_query, "load_embedder", _stub_embedder)
     index_dir = tmp_path / "index"
     stats = build_index(project, index_dir=index_dir)
     return FootageIndex(project, index_dir=index_dir), stats
+
+
+def _stub_embedder():
+    """A deterministic embedder: each text as a normalised bag of characters."""
+    def encode(texts):
+        rows = []
+        for text in texts:
+            vector = np.zeros(26, dtype="float32")
+            for char in (text or "").lower():
+                if "a" <= char <= "z":
+                    vector[ord(char) - 97] += 1.0
+            norm = np.linalg.norm(vector) or 1.0
+            rows.append(vector / norm)
+        return np.vstack(rows) if rows else np.zeros((0, 26), dtype="float32")
+    return encode, "test-stub"
+
+
+@pytest.fixture
+def overlapping_index(project, tmp_path, monkeypatch):
+    """An index whose transcript segments SHARE their boundaries.
+
+    The segmenter splits a sentence and lets the two halves overlap by
+    a tenth of a second, so a match often touches the segment BEFORE
+    the one it sits in.  The passage around the match is measured from
+    the segment the match touches, so this shape is what decides where
+    the window starts.
+    """
+    monkeypatch.setattr(footage_query, "load_embedder", _stub_embedder)
+    path = (project / "pipeline_output" / "steps" / "1_04_temporal_index"
+            / "index" / "clip_001.json")
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    doc["speech_regions"] = [
+        {"start": 1.0, "end": 3.0, "text": "the first thing we said",
+         "words": [{"word": "first", "start": 1.0, "end": 1.2}]},
+        {"start": 2.9, "end": 5.0, "text": "and the second thing",
+         "words": [{"word": "second", "start": 3.0, "end": 3.3}]},
+        {"start": 6.0, "end": 8.0, "text": "and then the third thing",
+         "words": [{"word": "third", "start": 6.0, "end": 6.3}]},
+    ]
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    index_dir = tmp_path / "overlapping"
+    build_index(project, index_dir=index_dir)
+    return FootageIndex(project, index_dir=index_dir)
 
 
 # ─── The unit of retrieval ────────────────────────────────────────
@@ -310,8 +340,137 @@ def test_search_finds_the_utterance_and_the_word(offline_index):
     hits = idx.search("parking", top_k=3, mode="lexical")
     top = hits[0]
     assert top["kind"] == "speech" and top["clip_id"] == "clip_001"
-    assert top["start"] == 1.0 and top["end"] == 3.0
+    # The utterance that MATCHED is named on its own: the row's window
+    # is the passage around it (see the neighbour tests below).
+    assert top["matched_start"] == 1.0 and top["matched_end"] == 3.0
     assert top["word_hits"] == [{"word": "parking", "start": 2.0, "end": 2.4}]
+
+
+def test_a_text_hit_carries_the_neighbouring_utterance(offline_index):
+    """A passage is what an editor asks for; the index's unit is an utterance.
+
+    The window a text hit offers reaches the utterance immediately after
+    the one that matched, and says which one it reached.
+    """
+    idx, _ = offline_index
+    top = idx.search("parking", top_k=3, mode="lexical")[0]
+    assert top["start"] == 1.0, "no utterance precedes the first one"
+    assert top["end"] == 7.5, "the window must reach the next utterance"
+    assert top["matched_end"] == 3.0, "the match itself is the utterance"
+    assert top["neighbours"]["before"] == []
+    after = top["neighbours"]["after"]
+    assert len(after) == 1
+    assert after[0]["text"] == "the pollen is terrible today"
+    assert after[0]["start"] == 6.0 and after[0]["end"] == 7.5
+
+
+def test_the_score_stays_on_the_matched_utterance(offline_index):
+    """The neighbours are context, not evidence: they carry no score.
+
+    A hit's score describes the segment that matched.  A wider window
+    that inherited the neighbour's score would rank a passage by
+    something nobody asked about.
+    """
+    idx, _ = offline_index
+    report = idx.search_report("parking", top_k=3, mode="lexical")
+    top = report["results"][0]
+    position = next(n for n, s in enumerate(idx.segments)
+                    if s["segment_id"] == top["segment_id"])
+    lexical = idx.bm25.scores("parking")
+    assert top["lexical_score"] == round(float(lexical[position]), 4)
+    assert top["lexical_score"] > 0
+    assert top["matched_start"] == idx.segments[position]["start"]
+    assert top["matched_end"] == idx.segments[position]["end"]
+
+
+def test_a_non_speech_hit_is_not_widened(offline_index):
+    """An action, a scene or an object is its own span.
+
+    There is no transcript around it to widen into, and a widened
+    picture row would claim a span the picture measurement never made.
+    """
+    idx, _ = offline_index
+    hits = idx.search("bicycle", top_k=5, mode="lexical")
+    rows = [hit for hit in hits if hit["kind"] != "speech"]
+    assert rows, "the object row must still be findable"
+    for row in rows:
+        assert row["start"] == row["matched_start"]
+        assert row["end"] == row["matched_end"]
+        assert "neighbours" not in row
+
+
+def test_the_passage_is_measured_around_the_segment_the_match_touches(
+        overlapping_index):
+    """Consecutive transcript segments SHARE their boundary.
+
+    A match that sits at the shared boundary touches the segment
+    BEFORE it as well, and the passage around the match starts there:
+    that is where the passage an editor names usually lies.  The row
+    says which segment it is anchored on, because the anchor is not
+    always the matched one.
+    """
+    idx = overlapping_index
+    top = idx.search("second", top_k=3, mode="lexical")[0]
+    assert top["kind"] == "speech"
+    assert top["matched_start"] == 2.9 and top["matched_end"] == 5.0
+    assert top["passage_anchor"]["text"] == "the first thing we said"
+    assert top["passage_anchor"]["start"] == 1.0
+    assert top["start"] == 1.0, "the window must cover the anchor it names"
+    assert top["end"] == 5.0
+
+
+def test_a_match_that_touches_nothing_earlier_is_anchored_on_itself(
+        overlapping_index):
+    """The anchor is the matched segment when nothing else touches it.
+
+    A passage is measured around a MATCH, never around a segment that
+    merely happens to be near it.
+    """
+    idx = overlapping_index
+    top = idx.search("third", top_k=3, mode="lexical")[0]
+    assert top["kind"] == "speech"
+    assert top["matched_start"] == 6.0 and top["matched_end"] == 8.0
+    assert top["passage_anchor"]["text"] == "and then the third thing"
+    before = top["neighbours"]["before"]
+    assert len(before) == 1
+    assert before[0]["text"] == "and the second thing"
+    assert top["start"] == 2.9 and top["end"] == 8.0
+
+
+def test_the_window_always_covers_the_matched_utterance(overlapping_index):
+    """A passage carries the match; it never loses it.
+
+    A window that started after the matched utterance, or ended before
+    it, would hand the caller a span the query never matched.
+    """
+    idx = overlapping_index
+    for word in ("first", "second", "third"):
+        top = idx.search(word, top_k=3, mode="lexical")[0]
+        assert top["kind"] == "speech"
+        assert top["start"] <= top["matched_start"]
+        assert top["end"] >= top["matched_end"]
+
+def test_a_neighbour_is_never_borrowed_from_another_clip(offline_index):
+    """The neighbour lives in the SAME clip as the matched utterance.
+
+    A clip whose only utterance has none has no neighbour, and the
+    absence is empty rather than another clip's words.
+    """
+    idx, _ = offline_index
+    for segment in idx.segments:
+        if segment["kind"] != "speech":
+            continue
+        hit = idx.search_report(segment["text"], top_k=5, mode="lexical")
+        rows = [r for r in hit["results"]
+                if r["segment_id"] == segment["segment_id"]]
+        if not rows:
+            continue
+        row = rows[0]
+        for neighbour in row["neighbours"]["before"] + row["neighbours"]["after"]:
+            assert neighbour["segment_id"].startswith(
+                f"{row['clip_id']}#speech#"), (
+                "a neighbour from another clip would put another "
+                "recording's words in this window")
 
 
 def test_lexical_search_works_with_no_embedder_at_all(project, tmp_path, monkeypatch):

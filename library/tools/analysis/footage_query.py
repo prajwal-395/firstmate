@@ -189,6 +189,32 @@ RRF_K = 60
 DENSE_SCORE_FLOOR = 0.40
 DENSE_WEAK_FLOOR = 0.28
 
+# ─── How much transcript context a text hit carries ───────────────
+#
+# The index's unit is an UTTERANCE; what an editor asks for is a
+# PASSAGE.  Measured 2026-10-20 on the merged editorial set: a text
+# hit that carried its matched utterance ALONE missed two of the nine
+# text queries' moments (E01 and E05 - the wanted passage sat next to
+# the utterance the words matched).  Carrying the neighbouring
+# utterance on each side lifted the text lane's recall 0.6019 ->
+# 0.8241, the merged macro recall 0.4630 -> 0.6297 and the macro
+# precision 0.4182 -> 0.5000, for +45 false-positive seconds and
+# +21.9 wrong seconds across the whole set (measured live with the
+# shipped scorer: wrong seconds 93.01 -> 114.91, false-positive
+# windows 41 -> 37).
+#
+# One neighbour each side is the measured shape, not a taste: a flat
+# +/-8 s widening buys the SAME recall for +181 false-positive
+# seconds and +64 wrong seconds.  A window that grows with the
+# transcript's own boundaries is the cheaper form of the same fix.
+#
+# The neighbours sit either side of the passage's ANCHOR
+# (`_passage_anchor`), which is not always the matched segment:
+# consecutive transcript segments SHARE their boundary, so a match
+# often touches the segment before it as well, and the passage then
+# starts there.
+NEIGHBOUR_SEGMENTS = 1
+
 # ─── Floors per embedding backend ─────────────────────────────────
 #
 # One global floor cannot serve two encoders.  EmbeddingGemma 2 scores
@@ -1565,6 +1591,7 @@ class FootageIndex:
         self._chunk_embedder = None
         self._chunk_embed_backend = None
         self._person_roster_cache = None
+        self._speech_order_cache = None
 
     # ── lazy state ──
 
@@ -1601,6 +1628,30 @@ class FootageIndex:
         if self._bm25 is None:
             self._bm25 = _BM25([s["text"] for s in self.segments])
         return self._bm25
+
+    @property
+    def _speech_order(self) -> dict:
+        """clip_id -> that clip's speech segment indices, in time order.
+
+        The neighbour a hit carries is the transcript segment
+        immediately before or after it IN THE SAME CLIP, so the map is
+        per clip.  Built once: the index is read-only, and a query
+        that returns five rows must not walk the whole segment table
+        five times.
+        """
+        if self._speech_order_cache is None:
+            order: dict = {}
+            for index, segment in enumerate(self.segments):
+                if segment.get("kind") != "speech":
+                    continue
+                order.setdefault(segment.get("clip_id"), []).append(index)
+            for indices in order.values():
+                indices.sort(key=lambda i: (float(self.segments[i].get("start")
+                                                 or 0.0),
+                                           float(self.segments[i].get("end")
+                                                 or 0.0)))
+            self._speech_order_cache = order
+        return self._speech_order_cache
 
     def _wants_eg2(self) -> bool:
         """Whether this index's matrix was written by EmbeddingGemma 2."""
@@ -1656,6 +1707,12 @@ class FootageIndex:
         `region` is the person region at the hit's own tick when the
         query named a roster person (MU-09): the M3d summary there, or
         an absence with a reason - never a missing key on a person hit.
+
+        `matched_start`/`matched_end` are the segment's OWN span.  On
+        a text hit `start`/`end` are the WINDOW the row offers - the
+        matched utterance plus its immediate neighbours - so the two
+        are not the same span and a caller that needs the tight one
+        reads the matched pair.
         """
         out = {
             "segment_id": segment["segment_id"],
@@ -1667,10 +1724,120 @@ class FootageIndex:
             "duration": segment["duration"],
             "timecode": f"{self._timecode(segment['start'])}-{self._timecode(segment['end'])}",
             "text": segment["text"],
+            "matched_start": segment["start"],
+            "matched_end": segment["end"],
             "facets": segment.get("facets", {}),
         }
         out.update(scores)
         return out
+
+    def _passage_anchor(self, index: int) -> int:
+        """The transcript segment the match TOUCHES, the earliest of them.
+
+        Consecutive transcript segments SHARE their boundary - the
+        segmenter splits a sentence and lets the two halves overlap by
+        a tenth of a second - so a match often touches the segment
+        BEFORE the one it sits in.  The passage around the match starts
+        there, which is where the passage an editor names usually lies.
+
+        The anchor is the matched segment itself when nothing else
+        touches it: a passage is measured around a MATCH, never around
+        a segment that merely happens to be near it.
+        """
+        segment = self.segments[index]
+        order = self._speech_order.get(segment.get("clip_id")) or []
+        try:
+            position = order.index(index)
+        except ValueError:
+            return index
+        try:
+            start = float(segment["start"])
+            end = float(segment["end"])
+        except (TypeError, ValueError, KeyError):
+            return index
+        anchor = position
+        while anchor > 0:
+            previous = self.segments[order[anchor - 1]]
+            try:
+                p_start = float(previous["start"])
+                p_end = float(previous["end"])
+            except (TypeError, ValueError, KeyError):
+                break
+            if p_start <= end and p_end >= start:
+                anchor -= 1
+                continue
+            break
+        return order[anchor]
+
+    def _neighbour_rows(self, index: int) -> dict:
+        """The speech segments either side of the passage's anchor.
+
+        `{"before": [row, ...], "after": [row, ...]}`, where a row is
+        the neighbour's own id, span and text, nearest first.  A clip's
+        first utterance has no neighbour before it and its last has none
+        after: that absence is an EMPTY list, never a neighbour
+        borrowed from another clip.
+        """
+        segment = self.segments[index]
+        order = self._speech_order.get(segment.get("clip_id")) or []
+        anchor = self._passage_anchor(index)
+        try:
+            position = order.index(anchor)
+        except ValueError:
+            return {"before": [], "after": []}
+        before = order[max(0, position - NEIGHBOUR_SEGMENTS):position]
+        after = order[position + 1:position + 1 + NEIGHBOUR_SEGMENTS]
+        return {"before": [self._context_row(i) for i in reversed(before)],
+                "after": [self._context_row(i) for i in after]}
+
+    def _context_row(self, index) -> dict:
+        """One neighbouring segment, as the row a caller can read."""
+        segment = self.segments[index]
+        return {
+            "segment_id": segment.get("segment_id"),
+            "start": segment.get("start"),
+            "end": segment.get("end"),
+            "text": segment.get("text", ""),
+        }
+
+    def _attach_neighbours(self, index: int, hit: dict) -> None:
+        """Widen a speech hit to its passage, and say what it widened to.
+
+        The window a text hit offers is the passage around the match:
+        the transcript segment the match touches, plus
+        `NEIGHBOUR_SEGMENTS` segments on each side of it in the same
+        clip.  The SCORE stays on the matched segment - the neighbours
+        are context, not evidence - and `matched_start`/`matched_end`
+        keep naming the span that matched, so a caller can cut at the
+        utterance or at the passage and say which it did.
+        `passage_anchor` names the segment the window is measured
+        around, because it is not always the matched one.
+
+        A non-speech hit is not widened: an action, a scene or an
+        object is its own span, and there is no transcript around it
+        to widen into.
+        """
+        segment = self.segments[index]
+        if segment.get("kind") != "speech":
+            return
+        neighbours = self._neighbour_rows(index)
+        hit["neighbours"] = neighbours
+        anchor = self._context_row(self._passage_anchor(index))
+        hit["passage_anchor"] = anchor
+        starts = [float(segment["start"])]
+        ends = [float(segment["end"])]
+        for row in [anchor] + neighbours["before"] + neighbours["after"]:
+            try:
+                starts.append(float(row["start"]))
+                ends.append(float(row["end"]))
+            except (TypeError, ValueError, KeyError):
+                continue
+        start, end = min(starts), max(ends)
+        hit["start"] = start
+        hit["end"] = end
+        hit["duration"] = round(end - start, 3)
+        hit["timecode"] = (f"{self._timecode(start)}-"
+                           f"{self._timecode(end)}")
 
     def _word_hits(self, segment: dict, query: str) -> list:
         terms = set(_tokenize(query))
@@ -2041,6 +2208,7 @@ class FootageIndex:
                 if values is not None and np.any(values):
                     scores[f"{lane}_score"] = round(float(values[i]), 4)
             hit = self._result(segments[i], scores)
+            self._attach_neighbours(i, hit)
             if segments[i]["kind"] == "speech":
                 words = self._word_hits(segments[i], query)
                 if words:
@@ -2076,7 +2244,11 @@ class FootageIndex:
             if not persons:
                 return
             try:
-                midpoint = (float(hit["start"]) + float(hit["end"])) / 2.0
+                # The region belongs to the tick that MATCHED, not to
+                # the middle of the widened window: the window carries
+                # context, the match is what the query named.
+                midpoint = (float(hit.get("matched_start", hit["start"]))
+                            + float(hit.get("matched_end", hit["end"]))) / 2.0
             except (TypeError, ValueError, KeyError):
                 return
             sources = clip_sources(self.project_folder)
@@ -2133,6 +2305,12 @@ class FootageIndex:
             Segments ordered by relevance, each with `clip_id`, `start`,
             `end`, a `timecode`, the text that matched, and - for speech -
             `word_hits` giving the matching words' own source timings.
+            A SPEECH hit's `start`/`end` are the WINDOW the row offers:
+            the matched utterance plus the transcript segment either
+            side of it (`neighbours` says which, and `matched_start`/
+            `matched_end` keep naming the span that matched), because
+            what an editor asks for is a passage and the index's unit is
+            an utterance.
             **An empty list is a real answer**: it means nothing in this
             footage cleared the floor.  Use `search_report` when you need
             to say so in as many words.
