@@ -502,12 +502,40 @@ def hand_mouth_distances(measured: Sequence[dict]) -> list[float | None]:
 # ── The refinement ────────────────────────────────────────────────────
 
 
-BOUNDARY_RULES = ("closest_approach", "first_hit")
+BOUNDARY_RULES = ("closest_approach", "first_hit", "arrival")
 """How a measured series becomes a boundary.
 
 ``closest_approach`` names the frame where the measured quantity is
 extreme - the peak of a gesture ("the device is AT the mouth here").
 ``first_hit`` names the first frame that satisfies a predicate.
+``arrival`` names the first frame at which the hand is AT the lips
+(:data:`CONTACT_DISTANCE_FACE_WIDTHS`).
+
+The three answer different questions, and for a HELD gesture they do
+not answer the same one: a gesture that is held for five seconds has a
+peak somewhere inside the hold and an arrival at its edge, and a cut
+that waits for the peak lands seconds after the moment the gesture
+arrived.  The M0 scenario wants the arrival.
+"""
+
+CONTACT_DISTANCE_FACE_WIDTHS = 0.25
+"""The hand-to-lips distance at which the hand is AT the lips.
+
+The coarse lane's own candidate rule fires at
+``library.tools.event_spans.HAND_CANDIDATE_MAX_DISTANCE`` (1.5 face
+widths), which answers "is the hand NEAR the mouth": on the M0 fixture
+that question was true on 62 of the 89 coarse frames of a take whose
+speaker holds the car keys near his face throughout, so it cannot name
+an arrival either.  The question a boundary needs is the tight one -
+the hand is AT the lips - and this is that distance.
+
+Measured 2026-10-21 on the M0 fixture (IMG_1822, 30 fps, whole take):
+the frames in which the hand holds the car keys against the lips
+measure 0.02-0.05 face widths and the frames of the approach measure
+0.13-0.43, so 0.25 separates them.  It is measured on ONE take by ONE
+speaker and is not calibrated on the D-01 corpus; it is DECLARED here
+so the number that decides a boundary is visible rather than implicit,
+and ``--contact-distance`` moves it.
 """
 
 
@@ -520,13 +548,29 @@ def _closest_approach(series: Sequence[float | None]
     return min(measured, key=lambda row: row[1])[0]
 
 
+def _arrival(series: Sequence[float | None],
+             contact_distance: float) -> int | None:
+    """The index of the first frame AT the lips.
+
+    The first frame whose measured distance is at or below the contact
+    distance - the frame the gesture ARRIVED, which for a held gesture
+    is not the frame it is deepest at.
+    """
+    for index, value in enumerate(series):
+        if value is not None and value <= contact_distance:
+            return index
+    return None
+
+
 def refine_boundary(source_file: str, timebase: SourceTimebase,
                     start_seconds: float, end_seconds: float,
                     out_dir: str | os.PathLike, *,
                     rule: str = "closest_approach",
                     series_fn: Callable[[Sequence[dict]], Sequence[float | None]] | None = None,
                     predicate_fn: Callable[[dict], bool] | None = None,
-                    width: int = SAMPLE_WIDTH) -> dict:
+                    width: int = SAMPLE_WIDTH,
+                    contact_distance: float = CONTACT_DISTANCE_FACE_WIDTHS
+                    ) -> dict:
     """Narrow a broad interval to a frame-exact boundary.
 
     The interval is re-sampled at the source's own frame cadence and
@@ -565,6 +609,8 @@ def refine_boundary(source_file: str, timebase: SourceTimebase,
 
     if rule == "closest_approach":
         position = _closest_approach(series)
+    elif rule == "arrival":
+        position = _arrival(series, contact_distance)
     else:
         if predicate_fn is None:
             raise FrameExactError(
@@ -579,6 +625,8 @@ def refine_boundary(source_file: str, timebase: SourceTimebase,
                      "end_seconds": end_seconds},
         "rule": rule,
         "series": [None if v is None else round(float(v), 4) for v in series],
+        "contact_distance_face_widths": (contact_distance
+                                         if rule == "arrival" else None),
         "coverage": sample["coverage"],
         "cost": {"decode_seconds": sample["cost"]["decode_seconds"],
                  "decode_cpu_seconds": sample["cost"].get(
@@ -611,7 +659,9 @@ def refine_boundary(source_file: str, timebase: SourceTimebase,
             float(timebase.frame_duration_seconds), 6),
         "basis": ("the measured series' extreme in the refined interval"
                   if rule == "closest_approach"
-                  else "the first frame satisfying the predicate"),
+                  else ("the first frame at which the hand is at the lips"
+                        if rule == "arrival"
+                        else "the first frame satisfying the predicate")),
         "on_grid": chosen.on_grid,
     }
     if truncated:
@@ -647,7 +697,9 @@ def refine_from_frame_index(source_file: str, timebase: SourceTimebase,
                             coarse_frame_index: int, out_dir: str | os.PathLike,
                             *, half_window_seconds: float = 0.5,
                             rule: str = "closest_approach",
-                            width: int = SAMPLE_WIDTH) -> dict:
+                            width: int = SAMPLE_WIDTH,
+                            contact_distance: float = CONTACT_DISTANCE_FACE_WIDTHS
+                            ) -> dict:
     """Refine a boundary around a COARSE FRAME INDEX.
 
     The coarse sample (M2) carries the source frame index of every
@@ -664,7 +716,8 @@ def refine_from_frame_index(source_file: str, timebase: SourceTimebase,
     report = refine_boundary(source_file, timebase,
                              centre - half_window_seconds,
                              centre + half_window_seconds,
-                             out_dir, rule=rule, width=width)
+                             out_dir, rule=rule, width=width,
+                             contact_distance=contact_distance)
     report["coarse_frame_index"] = coarse_frame_index
     report["coarse_seconds"] = round(centre, 6)
     return report
@@ -694,6 +747,12 @@ def main(argv=None) -> int:
     p_refine.add_argument("--out", required=True)
     p_refine.add_argument("--rule", choices=BOUNDARY_RULES,
                           default="closest_approach")
+    p_refine.add_argument(
+        "--contact-distance", type=float,
+        default=CONTACT_DISTANCE_FACE_WIDTHS,
+        help=("the hand-to-lips distance at which the hand is AT the lips; "
+              "the `arrival` rule uses it to name the frame a held "
+              "gesture arrived on"))
     p_refine.add_argument("--width", type=int, default=SAMPLE_WIDTH)
     p_refine.add_argument("--frame-index", type=int, default=None,
                           help="a coarse source frame index to refine "
@@ -712,13 +771,14 @@ def main(argv=None) -> int:
         report = refine_from_frame_index(
             args.source, timebase, args.frame_index, args.out,
             half_window_seconds=args.half_window, rule=args.rule,
-            width=args.width)
+            width=args.width, contact_distance=args.contact_distance)
     elif args.start is None or args.end is None:
         parser.error("refine needs --from/--to or --frame-index")
         return 2
     else:
         report = refine_boundary(args.source, timebase, args.start, args.end,
-                                 args.out, rule=args.rule, width=args.width)
+                                 args.out, rule=args.rule, width=args.width,
+                                 contact_distance=args.contact_distance)
     print(json.dumps(report, indent=2))
     return 0
 

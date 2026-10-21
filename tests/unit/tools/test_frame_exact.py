@@ -212,3 +212,100 @@ def test_the_refinement_names_the_frame_the_measurement_names(tmp_path):
     assert report["status"] == "boundary_measured"
     assert report["boundary"]["frame_index"] == 23
     assert report["boundary"]["on_grid"] is True
+
+
+# ── the ARRIVAL of a held gesture ─────────────────────────────────────
+#
+# The M0 scenario (the M0 whole-clip chain, 2026-10-21) needs the
+# boundary of an OCCURRENCE: the frame the gesture ARRIVED on.  A
+# gesture that is then HELD for seconds has its deepest frame seconds
+# after its arrival, and `closest_approach` - the only rule the command
+# line offered - named that deepest frame: 23 frames late on the M0
+# fixture's second arrival, and 225 frames late (inside the NEXT
+# hold) on the occurrence the canonical model named.
+
+def _held_series(approach=6, hold=20, depth=0.02):
+    """A gesture that ARRIVES and is then HELD.
+
+    The approach measures the hand near the lips (0.3 face widths),
+    the hold measures it at the lips, and the deepest frame of the
+    hold is NOT its first frame - which is the whole point: the peak
+    and the arrival are different frames.
+    """
+    held = [0.08] * 3 + [depth] * (hold - 3)
+    return ([0.3] * approach + held + [0.3] * (29 - approach - hold))
+
+
+def test_the_refinement_names_the_arrival_of_a_held_gesture(monkeypatch):
+    monkeypatch.setattr(frame_exact, "sample_interval",
+                        lambda *a, **k: _fake_sample(range(100, 130)))
+    monkeypatch.setattr(frame_exact, "measure_frames",
+                        lambda paths: [{} for _ in paths])
+    series = _held_series()
+    report = frame_exact.refine_boundary(
+        "/tmp/clip.mov", SourceTimebase(30, 1, 1, 15360), 3.0, 4.0,
+        "/tmp/out", rule="arrival", series_fn=lambda measured: series)
+    assert report["status"] == "boundary_measured"
+    assert report["boundary"]["frame_index"] == 106
+    assert report["contact_distance_face_widths"] == \
+        frame_exact.CONTACT_DISTANCE_FACE_WIDTHS
+    assert "at the lips" in report["boundary"]["basis"]
+
+
+def test_the_default_rule_names_the_deepest_frame_and_not_the_arrival(
+        monkeypatch):
+    # The defect the arrival rule answers: on the same measurement the
+    # default rule names a frame inside the hold, 23 frames after the
+    # arrival on the M0 fixture.
+    monkeypatch.setattr(frame_exact, "sample_interval",
+                        lambda *a, **k: _fake_sample(range(100, 130)))
+    monkeypatch.setattr(frame_exact, "measure_frames",
+                        lambda paths: [{} for _ in paths])
+    series = _held_series()
+    peak = frame_exact.refine_boundary(
+        "/tmp/clip.mov", SourceTimebase(30, 1, 1, 15360), 3.0, 4.0,
+        "/tmp/out", rule="closest_approach",
+        series_fn=lambda measured: series)
+    arrival = frame_exact.refine_boundary(
+        "/tmp/clip.mov", SourceTimebase(30, 1, 1, 15360), 3.0, 4.0,
+        "/tmp/out", rule="arrival", series_fn=lambda measured: series)
+    assert peak["boundary"]["frame_index"] != arrival["boundary"]["frame_index"]
+    assert peak["boundary"]["frame_index"] > arrival["boundary"]["frame_index"]
+
+
+def test_the_arrival_rule_reports_no_boundary_when_the_hand_never_arrives(
+        monkeypatch):
+    monkeypatch.setattr(frame_exact, "sample_interval",
+                        lambda *a, **k: _fake_sample(range(100, 130)))
+    monkeypatch.setattr(frame_exact, "measure_frames",
+                        lambda paths: [{} for _ in paths])
+    report = frame_exact.refine_boundary(
+        "/tmp/clip.mov", SourceTimebase(30, 1, 1, 15360), 3.0, 4.0,
+        "/tmp/out", rule="arrival",
+        series_fn=lambda measured: [0.9] * 30)
+    assert report["status"] == "no_boundary_measured"
+    assert report["boundary"] is None
+
+
+def test_an_arrival_at_the_edge_of_the_interval_is_reported_as_truncated(
+        monkeypatch):
+    # The window reached back into the PREVIOUS hold and found its
+    # contact first: the answer is at the edge, so the interval cut it
+    # off and the caller must widen it (or move its start).
+    monkeypatch.setattr(frame_exact, "sample_interval",
+                        lambda *a, **k: _fake_sample(range(100, 130)))
+    monkeypatch.setattr(frame_exact, "measure_frames",
+                        lambda paths: [{} for _ in paths])
+    series = [0.02] + [0.9] * 29
+    report = frame_exact.refine_boundary(
+        "/tmp/clip.mov", SourceTimebase(30, 1, 1, 15360), 3.0, 4.0,
+        "/tmp/out", rule="arrival", series_fn=lambda measured: series)
+    assert report["status"] == "boundary_truncated"
+    assert "widen the interval" in report["reason"]
+
+
+def test_the_contact_distance_is_a_declared_number_not_an_implicit_one():
+    # The number that decides a boundary is visible, and it can be
+    # moved by the caller who knows the footage.
+    assert frame_exact.CONTACT_DISTANCE_FACE_WIDTHS == 0.25
+    assert "arrival" in frame_exact.BOUNDARY_RULES

@@ -10186,3 +10186,48 @@ before it refuses. The name is exact either way, so the near-match
 protection - the rule that keeps a near name off somebody else's project -
 is untouched. Defect-naming test:
 `tests/unit/resolve/test_project_lookup_reaches_the_open_project.py`.
+
+
+
+## the-boundary-that-named-the-peak-of-a-hold
+
+**The rule:** A boundary that names an OCCURRENCE names the frame the event
+ARRIVED on, not the frame the event is DEEPEST at. A gesture that is then held
+has a peak somewhere inside the hold and an arrival at its edge, and a cut that
+waits for the peak lands seconds after the moment the event happened. The
+refinement therefore carries an `arrival` rule beside the peak rule, and the
+distance that decides "the hand is AT the lips" is a DECLARED number, not an
+implicit one. `library/tools/frame_exact.py`.
+[why](docs/benchmarks/2026-10-21-m0-e2e-whole-clip.md)
+
+**What happened.** The Milestone 0 chain asks for "a cut exactly three frames
+after the identified source-frame boundary" of a repeated event. The M0 whole-clip
+lane (2026-10-21) ran that chain on the whole take of Apple 001 `IMG_1822` - the
+car keys the captain says the speaker is holding - and the refinement named a
+frame that was 23 frames after the adjudicated arrival of the second arrival of
+the keys at his lips, and 225 frames after the arrival of the occurrence the
+canonical model NAMED - a frame that was inside the NEXT hold of the same
+gesture.
+
+**Why the old answer was wrong, and not merely late.** The rule the command line
+offered was `closest_approach`: "the frame where the measured quantity is
+extreme - the peak of a gesture". The keys are held against the lips for about
+five seconds, so the peak is inside the hold, and the deeper the hold, the
+further the answer drifts: the window that reached back to the right occurrence
+also reached the next one, and the peak landed in the NEXT hold. The measurement
+was precise - one frame, one uncertainty - about the wrong moment.
+
+**What changed.** `frame_exact` now carries three rules: `closest_approach` (the
+peak), `first_hit` (the caller's own predicate) and `arrival` (the first frame at
+which the hand is AT the lips, at the declared
+`CONTACT_DISTANCE_FACE_WIDTHS = 0.25` face widths). On the M0 fixture the arrival
+rule named the adjudicated arrival exactly (0 frames) and the arrival of the
+occurrence the model named within 3 frames; the peak rule was 23 and 225 frames
+late. The window that starts inside the PREVIOUS hold still refuses to answer:
+it reports the contact it found at the interval's edge as `boundary_truncated`,
+so the caller widens or moves the window instead of receiving a wrong frame.
+
+**What it does not settle.** The contact distance is measured on ONE take by ONE
+speaker, and the engine measures the HAND while the ground truth measured the
+KEYS the hand holds - two quantities that are close but not the same, and the
+report says which one each number came from.
