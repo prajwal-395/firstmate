@@ -286,8 +286,9 @@ fm_test_tmproot() {
 # backlog, and its remote secondmate routes, and a suite that waits on any of
 # those waits on a live session instead of on its own fixture.
 fm_test_scratch_home() {  # <name>
-  local home="$FM_TEST_TMPDIR/scratch-${1:-home}"
+  local home="$FM_TEST_TMPDIR/scratch-${1:-home}.$$"
   mkdir -p "$home/state" "$home/data" "$home/config" "$home/projects" || return 1
+  printf '%s\n' "$home" >> "$FM_TEST_CLEANUP_REGISTRY" || return 1
   printf '%s\n' "$home"
 }
 
