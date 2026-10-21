@@ -324,6 +324,10 @@ OPENING_BRIEF = """@AXC_BRIEF@"""
 ASSIGNMENT_JSON = """@AXC_ASSIGNMENT@"""
 CAPTION_ONE = "@AXC_CAPTION_ONE@"
 CAPTION_TWO = "@AXC_CAPTION_TWO@"
+#: The media the fixture places, by the pool name it is placed under:
+#: the qualification recipe's clips and the deterministic still
+#: fixtures. Ren-owned scratch copies, rendered by the runner.
+FIXTURE_MEDIA = @AXC_MEDIA_PATHS@
 
 if not Path(PROJECT_DIR).is_dir():
     raise RuntimeError("batch project dir was not stamped by the runner")
@@ -379,6 +383,91 @@ def call(argv):
     return {"argv": argv, "exit_code": int(code or 0),
             "stdout": out.getvalue(), "stderr": err.getvalue()}
 
+def ingest_media(paths, what="fixture media"):
+    """Import files into the pool the lane reads, through the AXI.
+
+    ONE ingest path for the whole fixture: the AXI's own `ingest`
+    verb, so the import is the guarded one (the Resolve lease, the
+    project it expects, and the pool read-back the verb itself does).
+    """
+    paths = [str(path) for path in paths]
+    if not paths:
+        return {"exit_code": 0, "stdout": "", "stderr": ""}
+    receipt = call(["ingest", *paths, "--apply", "--project", PROJECT])
+    if receipt["exit_code"]:
+        raise RuntimeError("could not ingest the " + what + ": "
+                           + receipt["stdout"] + receipt["stderr"])
+    return receipt
+
+def pool_item_names():
+    """Every media pool item's DISPLAY name, in the project the lane reads.
+
+    The names are EXACT, because that is how the lanes find a clip:
+    `edit place --clip qual_a.mp4` refuses anything that is not named
+    exactly that, so a pool item called `qual_a` is as absent as no
+    item at all. The pool's CURRENT folder is walked as well - that is
+    where an import lands, and a read that could not see it would
+    report a fixture that is really there as missing.
+    """
+    pool = manager.GetCurrentProject().GetMediaPool()
+    names = set()
+    stack = [pool.GetRootFolder()]
+    try:
+        current = pool.GetCurrentFolder()
+    except Exception:
+        current = None
+    if current is not None:
+        stack.append(current)
+    seen = set()
+    while stack:
+        folder = stack.pop()
+        if folder is None or id(folder) in seen:
+            continue
+        seen.add(id(folder))
+        for item in (folder.GetClipList() or ()):
+            try:
+                name = str(item.GetName())
+            except Exception:
+                name = ""
+            if name:
+                names.add(name)
+        stack.extend(folder.GetSubFolderList() or ())
+    return names
+
+def ensure_pool_media():
+    """Provision the media the fixture places into the pool it reads.
+
+    The fixture places the qualification clips BY NAME, so a pool that
+    does not hold them fails every case at setup ("no clip named
+    'qual_a.mp4' under the pool root", measured 2026-10-21: nine of the
+    ten AXI-11 rows failed there). This imports ONLY the missing ones
+    and never replaces what the pool already holds.
+
+    The logic lives HERE, in the fixture, and not in the engine: this
+    script is executed by the broker against the INSTALLED engine, so a
+    fixture that reached into the engine for its own media would only
+    work once the installed engine caught up with it.
+    """
+    held = pool_item_names()
+    missing = [name for name in FIXTURE_MEDIA if name not in held]
+    if not missing:
+        return []
+    paths = []
+    for name in missing:
+        path = FIXTURE_MEDIA.get(name)
+        if not path:
+            raise RuntimeError("no media file is declared for "
+                               + name)
+        paths.append(str(path))
+    ingest_media(paths)
+    live = pool_item_names()
+    absent = [name for name in missing if name not in live]
+    if absent:
+        raise RuntimeError("the fixture media " + repr(absent)
+                           + " is still absent from the media pool after "
+                           "importing it")
+    return missing
+
 def ensure_tracks(names):
     timeline = manager.GetCurrentProject().GetCurrentTimeline()
     have = []
@@ -400,6 +489,8 @@ def ensure_tracks(names):
     return added
 
 def seed_base(media="video"):
+    # The pool the lane reads must hold the clips this places BY NAME.
+    ensure_pool_media()
     for clip, record, src_out in (("qual_a.mp4", 0, 95),
                                   ("qual_b.mp4", 96, 71),
                                   ("qual_c.mp4", 168, 47)):
@@ -1041,13 +1132,8 @@ if TASK in ("all", "restyle_captions"):
         try:
             pool_uid(card_name)
         except RuntimeError:
-            ingested = call(["ingest", caption_path, "--apply",
-                             "--project", PROJECT])
-            if ingested["exit_code"]:
-                raise RuntimeError("could not ingest caption card "
-                                   + card_name + ": "
-                                   + ingested["stdout"]
-                                   + ingested["stderr"])
+            ingest_media([caption_path],
+                         what="caption card " + card_name)
         card_files.append((card_name, pool_file(card_name)))
     restyle_before = live_items()
     per_caption = []
@@ -1274,6 +1360,7 @@ if TASK in ("all", "right_speaker_camera"):
     # the seed is video-only because the verb replaces picture only.
     import json as _json
     assignment = _json.loads(ASSIGNMENT_JSON)
+    ensure_pool_media()
     for clip, track, record, src_in, src_out in (
             ("qual_a.mp4", "1", 0, 0, 95),
             ("qual_b.mp4", "1", 96, 0, 47),
@@ -1712,6 +1799,21 @@ def _cases_payload(stdout: str) -> dict:
         "no_json", f"the batch printed no JSON result: {stdout[-2000:]}")
 
 
+def _fixture_media_paths() -> dict:
+    """The media the fixture places, by the pool name it places under.
+
+    Ren-owned scratch copies: the qualification recipe's synthetic
+    clips, rendered on demand into the machine's own media store, and
+    the deterministic still fixtures the lanes place by name. Never the
+    captain's media, never a file inside the engine tree.
+    """
+    from library.tools import qualification_project
+    media = qualification_project.ensure_media()
+    paths = {f"{name}.mp4": str(path) for name, path in media.items()}
+    paths.update(q.ensure_still_fixtures())
+    return paths
+
+
 def _evidence_batch(task_id: str) -> dict:
     """One fixture batch for one task; returns the cases mapping."""
     working = _working_timeline()
@@ -1723,6 +1825,8 @@ def _evidence_batch(task_id: str) -> dict:
                             _opening_brief_text())
     script = script.replace("@AXC_ASSIGNMENT@",
                             _assignment_json())
+    script = script.replace("@AXC_MEDIA_PATHS@",
+                            json.dumps(_fixture_media_paths()))
     caption_one, caption_two = _caption_movie_paths()
     script = script.replace("@AXC_CAPTION_ONE@", caption_one)
     script = script.replace("@AXC_CAPTION_TWO@", caption_two)
@@ -1788,6 +1892,8 @@ def _evidence_all() -> dict:
     script = script.replace("@FM_QUAL_PROJECT_DIR@", _run_store())
     script = script.replace("@AXC_BRIEF@", _opening_brief_text())
     script = script.replace("@AXC_ASSIGNMENT@", _assignment_json())
+    script = script.replace("@AXC_MEDIA_PATHS@",
+                            json.dumps(_fixture_media_paths()))
     caption_one, caption_two = _caption_movie_paths()
     script = script.replace("@AXC_CAPTION_ONE@", caption_one)
     script = script.replace("@AXC_CAPTION_TWO@", caption_two)

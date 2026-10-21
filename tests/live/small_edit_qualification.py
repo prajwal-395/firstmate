@@ -1852,19 +1852,31 @@ def current_main_actions() -> dict[str, Callable[[], dict]]:
     return actions
 
 
-def main() -> int:
+def ensure_still_fixtures() -> dict:
+    """Write the deterministic still fixtures; return them by file name.
+
+    The live lanes place these BY NAME, so a media pool that does not
+    hold them refuses the case that places one. The writers are
+    deterministic, so the bytes are the same every run and a pool that
+    already holds one is left alone.
+    """
     _write_logo_fixture(LOGO)
     _write_caption_fixture(LOGO_ALT, 180, 64,
-                          [(20, 20, 160, 44)], (245, 145, 45, 255))
+                           [(20, 20, 160, 44)], (245, 145, 45, 255))
     _write_caption_fixture(TIGHT_CAPTION, 480, 120,
-                          [(70, 36, 400, 48), (40, 62, 440, 82)],
-                          (255, 255, 255, 255))
+                           [(70, 36, 400, 48), (40, 62, 440, 82)],
+                           (255, 255, 255, 255))
     _write_caption_fixture(FULL_FRAME_CAPTION, 1920, 1080,
-                          [(320, 800, 1600, 850), (250, 875, 1670, 945)],
-                          (255, 255, 255, 255))
-    fixtures = (LOGO, LOGO_ALT, TIGHT_CAPTION, FULL_FRAME_CAPTION)
+                           [(320, 800, 1600, 850), (250, 875, 1670, 945)],
+                           (255, 255, 255, 255))
+    return {path.name: str(path) for path in
+            (LOGO, LOGO_ALT, TIGHT_CAPTION, FULL_FRAME_CAPTION)}
+
+
+def main() -> int:
+    fixtures = ensure_still_fixtures()
     if sys.argv[1:] == ["--write-fixtures"]:
-        print(json.dumps({"fixtures": [str(path) for path in fixtures]}, indent=2))
+        print(json.dumps({"fixtures": list(fixtures.values())}, indent=2))
         return 0
     if os.environ.get("REN_LIVE_RESOLVE") != "1":
         raise SystemExit("set REN_LIVE_RESOLVE=1 to run against Resolve")
