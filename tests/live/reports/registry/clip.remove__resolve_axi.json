@@ -1,20 +1,41 @@
 {
   "actual_state": {
-    "elapsed_seconds": 12.761612750000495,
-    "receipt": "committed"
+    "checks": {
+      "link_group_shifted": true,
+      "other_rows_untouched": true,
+      "ripple_scope_measured": true,
+      "same_track_closed": true,
+      "target_absent": true
+    },
+    "measurement": {
+      "clip_composition": "linked_video_clip",
+      "existing_effects": "none",
+      "frame_rate": "24",
+      "linked_audio_configuration": "linked_audio_present",
+      "media_type": "video",
+      "project_settings": "landscape_1920x1080",
+      "resolve_version": "21.1.0.14",
+      "timeline_density": "moderate",
+      "timeline_structure": "multi_item_timeline",
+      "track_layout": "video+audio",
+      "track_occupancy": "all_populated"
+    },
+    "scenarios": [
+      "ripple_remove_multi_track"
+    ]
   },
   "audio_verification": [
-    "underlying A-roll audio unchanged and in sync (linked_audio_in_sync check passed)"
+    "not applicable: this operation writes no audio level; the audio rows are read back unchanged by the same per-item reading"
   ],
   "backend": "resolve_axi",
   "coverage": {
     "configurations": [
-      "populated_1080p24",
-      "linked_av_1080p24"
+      "measured_qualification_timeline"
     ],
     "dimensions": {
       "clip_composition": [
-        "single_video_clip"
+        "single_video_clip",
+        "linked_video_clip"
       ],
       "existing_effects": [
         "none"
@@ -23,7 +44,8 @@
         "24"
       ],
       "linked_audio_configuration": [
-        "no_linked_audio"
+        "no_linked_audio",
+        "linked_audio_present"
       ],
       "media_type": [
         "video"
@@ -35,7 +57,8 @@
         "21.1.0.14"
       ],
       "timeline_density": [
-        "light"
+        "light",
+        "moderate"
       ],
       "timeline_structure": [
         "multi_item_timeline"
@@ -44,144 +67,124 @@
         "video+audio"
       ],
       "track_occupancy": [
-        "mixed"
-      ]
-    },
-    "source": "derived_from_v1_evidence",
-    "uncovered": {
-      "clip_composition": [
-        "linked_video_clip",
-        "still_clip",
-        "audio_clip",
-        "linked_audio_clip",
-        "unknown_item",
-        "none",
-        "mixed"
-      ],
-      "existing_effects": [
-        "fusion",
-        "grades",
-        "grades+fusion",
-        "grades+retiming",
-        "grades+retiming+fusion",
-        "retiming",
-        "retiming+fusion",
-        "transforms",
-        "transforms+fusion",
-        "transforms+grades",
-        "transforms+grades+fusion",
-        "transforms+grades+retiming",
-        "transforms+grades+retiming+fusion",
-        "transforms+retiming",
-        "transforms+retiming+fusion",
-        "transitions",
-        "transitions+fusion",
-        "transitions+grades",
-        "transitions+grades+fusion",
-        "transitions+grades+retiming",
-        "transitions+grades+retiming+fusion",
-        "transitions+retiming",
-        "transitions+retiming+fusion",
-        "transitions+transforms",
-        "transitions+transforms+fusion",
-        "transitions+transforms+grades",
-        "transitions+transforms+grades+fusion",
-        "transitions+transforms+grades+retiming",
-        "transitions+transforms+grades+retiming+fusion",
-        "transitions+transforms+retiming",
-        "transitions+transforms+retiming+fusion"
-      ],
-      "frame_rate": [
-        "other",
-        "23.976",
-        "25",
-        "29.97",
-        "30",
-        "48",
-        "50",
-        "59.94",
-        "60"
-      ],
-      "linked_audio_configuration": [
-        "linked_audio_present"
-      ],
-      "media_type": [
-        "audio",
-        "still",
         "mixed",
-        "none",
-        "unknown"
-      ],
-      "project_settings": [
-        "unknown",
-        "square_1920x1920",
-        "landscape_1280x720",
-        "landscape_2560x1440",
-        "landscape_3840x2160",
-        "portrait_1080x1920",
-        "portrait_2160x3840"
-      ],
-      "timeline_density": [
-        "empty",
-        "moderate",
-        "dense"
-      ],
-      "timeline_structure": [
-        "empty_timeline",
-        "single_item_timeline"
-      ],
-      "track_layout": [
-        "none",
-        "video",
-        "audio",
-        "subtitle",
-        "video+subtitle",
-        "audio+subtitle",
-        "video+audio+subtitle"
-      ],
-      "track_occupancy": [
-        "all_empty",
         "all_populated"
       ]
-    }
+    },
+    "source": "measured",
+    "uncovered": {}
   },
   "environment": {
     "platform": "darwin",
     "resolve_version": "21.1.0.14"
   },
-  "evidence": "tests/live/reports/editorial-acceptance-blind.json#remove_broll; Level-3 blind instruction removed the V2 cover via track-scoped ripple remove; cover absent, track emptied, speech and linked audio unchanged",
+  "evidence": "tests/live/reports/axi-primitive-qualification.json#ripple_remove_multi_track; the coverage this row already held: tests/live/reports/editorial-acceptance-blind.json#remove_broll; Level-3 blind instruction removed the V2 cover via track-scoped ripple remove; cover absent, track emptied, speech and linked audio unchanged",
   "expected_state": {
-    "cover_absent": true,
-    "cover_track_emptied": true,
-    "speech_and_audio_unchanged": true
+    "link_group_shifted": true,
+    "other_rows_untouched": true,
+    "ripple_scope_measured": true,
+    "same_track_closed": true,
+    "target_absent": true
   },
   "operation_id": "clip.remove",
   "preservation_checks": [
     {
-      "check": "broll_target_absent",
+      "check": "target_absent",
       "result": "passed"
     },
     {
-      "check": "cover_track_emptied",
+      "check": "same_track_closed",
       "result": "passed"
     },
     {
-      "check": "underlying_speech_and_audio_unchanged",
+      "check": "link_group_shifted",
       "result": "passed"
     },
     {
-      "check": "linked_audio_in_sync",
+      "check": "other_rows_untouched",
+      "result": "passed"
+    },
+    {
+      "check": "ripple_scope_measured",
       "result": "passed"
     }
   ],
   "preservation_limits": [
-    "single cover on V2 over seeded A-roll; gap closure track-scoped"
+    "one private scratch timeline; the checks are the ones the scenarios name: link_group_shifted, other_rows_untouched, ripple_scope_measured, same_track_closed, target_absent"
   ],
   "project_conditions": [
     "Ren Qualification / fm-scratch qualify",
     "private target timeline only",
-    "linked A/V A-roll seed plus one V2 B-roll cover",
-    "track-scoped ripple remove (edit track-ripple-remove)"
+    "production entry: resolve-axi edit track-ripple-remove"
+  ],
+  "qualification_predicates": [
+    {
+      "field": "resolve_version",
+      "operator": "equals",
+      "value": "21.1.0.14"
+    },
+    {
+      "field": "media_type",
+      "operator": "equals",
+      "value": "video"
+    },
+    {
+      "field": "clip_composition",
+      "operator": "one_of",
+      "value": [
+        "single_video_clip",
+        "linked_video_clip"
+      ]
+    },
+    {
+      "field": "linked_audio_configuration",
+      "operator": "one_of",
+      "value": [
+        "no_linked_audio",
+        "linked_audio_present"
+      ]
+    },
+    {
+      "field": "track_layout",
+      "operator": "equals",
+      "value": "video+audio"
+    },
+    {
+      "field": "track_occupancy",
+      "operator": "one_of",
+      "value": [
+        "mixed",
+        "all_populated"
+      ]
+    },
+    {
+      "field": "timeline_density",
+      "operator": "one_of",
+      "value": [
+        "light",
+        "moderate"
+      ]
+    },
+    {
+      "field": "timeline_structure",
+      "operator": "equals",
+      "value": "multi_item_timeline"
+    },
+    {
+      "field": "project_settings",
+      "operator": "equals",
+      "value": "landscape_1920x1080"
+    },
+    {
+      "field": "frame_rate",
+      "operator": "equals",
+      "value": "24"
+    },
+    {
+      "field": "existing_effects",
+      "operator": "equals",
+      "value": "none"
+    }
   ],
   "recovery_status": "not_required",
   "resolve_version": "21.1.0.14",
@@ -189,18 +192,16 @@
   "schema": "ren-axi-qualification-result/v2",
   "semantic_boundary": {
     "applies_to": [
-      "removing one placed cover from its own video track, track-scoped, leaving the A-roll and its linked audio in sync"
+      "clip.remove on resolve_axi in the measured qualification state"
     ],
     "does_not_apply_to": [
-      "removing the A-roll itself",
-      "a ripple that crosses onto another track",
-      "a cover that carries a grade, a Fusion composition, a transition or a retime"
+      "states or operation/backend pairs not named by this evidence"
     ]
   },
   "supported_media_types": [
     "video"
   ],
   "visual_verification": [
-    "cover absent on read-back; cover track empty; A-roll spans preserved"
+    "the live read-back of every clip on every row, item by item (source path, source range, record span, transform, enabled state, Fusion comps) plus `resolve-axi items`"
   ]
 }

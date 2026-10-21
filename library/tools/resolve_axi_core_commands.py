@@ -5915,6 +5915,23 @@ def _ripple_member_snapshot(item, track_type, track_index):
         raise AxiError(f"{span.get('name')!r} cannot be safely re-placed ({exc})") from exc
     if pool_item is None or record_out <= record_in:
         raise AxiError(f"{span.get('name')!r} has unsupported media or span")
+    # The source end has ONE reading before the re-place.  Resolve
+    # reports the inclusive end on an existing clip and the exclusive
+    # end on a fresh placement, and the re-place adds one to it - so a
+    # snapshot that kept the raw reading re-placed a clip whose source
+    # range was shorter than its media ONE FRAME LONGER than it was
+    # (measured 2026-10-21: a 48-frame successor came back as 49
+    # frames).  The record duration decides which form the read speaks,
+    # and a span that tells neither is REFUSED rather than re-placed
+    # unfaithfully - the rule the move and trim paths already follow.
+    inclusive = _inclusive_source_end(
+        source_in, source_out, record_out - record_in)
+    if inclusive is None:
+        raise AxiError(
+            f"{span.get('name')!r} has a source range this replacement path "
+            f"cannot read faithfully (source {source_in}..{source_out} over "
+            f"{record_out - record_in} record frames) - nothing was "
+            f"changed.")
     try:
         from library.tools import edit_state_preservation
         from library.tools.reel_read import _speed_percent
@@ -5940,11 +5957,26 @@ def _ripple_member_snapshot(item, track_type, track_index):
         "item": item, "uid": str(span["uid"]), "name": str(span["name"]),
         "track_type": track_type, "track_index": int(track_index),
         "record_in": record_in, "record_out": record_out,
-        "source_in": source_in, "source_out": source_out,
+        "source_in": source_in, "source_out": inclusive,
         "duration": record_out - record_in, "pool_item": pool_item,
         "pool_uid": pool_uid,
         "preservation_state": preservation_state,
     }
+
+
+def _read_inclusive_source_end(span, record_duration):
+    """The item's source end in the inclusive reading, or None.
+
+    `None` means the reading cannot be told - the span matches neither
+    of Resolve's two endpoint forms - and the caller decides what to do
+    with an unreadable range rather than assuming one.
+    """
+    try:
+        source_in = int(span["source_in"])
+        source_out = int(span["source_out"])
+    except (TypeError, ValueError, KeyError):
+        return None
+    return _inclusive_source_end(source_in, source_out, record_duration)
 
 
 def _track_ripple_inventory(timeline):
@@ -5978,6 +6010,14 @@ def _track_ripple_inventory(timeline):
                     "source_in": source_in,
                     "source_end_exclusive": (
                         None if source_in is None else source_in + end - start),
+                    # The source range the item REALLY carries, in the
+                    # inclusive reading.  The arithmetic end above is
+                    # computed, so it cannot see a re-place that came
+                    # back with a different source range - this one is
+                    # read, and the ripple verifies the shifted item
+                    # against it.
+                    "source_end_inclusive": _read_inclusive_source_end(
+                        span, end - start),
                     "pool_uid": pool_uid,
                 })
     return rows
@@ -6170,7 +6210,8 @@ def cmd_edit_track_ripple_remove(args) -> int:
                                and candidate["track_index"] == record["track_index"]
                                and candidate["pool_uid"] == record["pool_uid"]
                                and candidate["source_in"] == record["source_in"]
-                               and candidate["source_end_exclusive"] == record["source_in"] + record["duration"]
+                               and candidate["source_end_inclusive"]
+                               == record["source_out"]
                                and candidate["record_in"] == wanted_in
                                and candidate["record_out"] == wanted_out]
                     if len(matches) != 1:

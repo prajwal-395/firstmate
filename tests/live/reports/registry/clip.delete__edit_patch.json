@@ -1,37 +1,41 @@
 {
   "actual_state": {
     "checks": {
-      "other_items_untouched": true,
-      "target_absent": true
+      "adjacent_source_ranges_unchanged": true,
+      "fusion_comp_gone_with_target": true,
+      "gap_left": true,
+      "linked_audio_preserved": true,
+      "other_rows_unchanged": true,
+      "target_absent": true,
+      "video_target_absent": true
     },
     "measurement": {
       "clip_composition": "linked_video_clip",
-      "existing_effects": "transforms+retiming+fusion",
-      "frame_rate": "23.976",
+      "existing_effects": "none",
+      "frame_rate": "24",
       "linked_audio_configuration": "linked_audio_present",
       "media_type": "video",
-      "project_settings": "portrait_1080x1920",
+      "project_settings": "landscape_1920x1080",
       "resolve_version": "21.1.0.14",
-      "timeline_density": "dense",
+      "timeline_density": "moderate",
       "timeline_structure": "multi_item_timeline",
       "track_layout": "video+audio",
       "track_occupancy": "all_populated"
     },
     "scenarios": [
-      "delete_linked_target",
-      "delete_transformed_target"
+      "delete_linked_av_moderate",
+      "delete_retimed_moderate",
+      "delete_still_card",
+      "delete_fusion_bearing"
     ]
   },
   "audio_verification": [
-    "every audio row is read back item by item before and after the write, and the dialogue rows are compared unchanged"
+    "not applicable: this operation writes no audio level; the audio rows are read back unchanged by the same per-item reading"
   ],
   "backend": "edit_patch",
   "coverage": {
     "configurations": [
-      "populated_1080p24",
-      "linked_av_1080p24",
-      "still_1080p24",
-      "real_reel_product_format"
+      "measured_qualification_timeline"
     ],
     "dimensions": {
       "clip_composition": [
@@ -42,7 +46,9 @@
       "existing_effects": [
         "none",
         "transforms+retiming+fusion",
-        "transforms+retiming"
+        "transforms+retiming",
+        "retiming",
+        "retiming+fusion"
       ],
       "frame_rate": [
         "24",
@@ -65,6 +71,7 @@
       ],
       "timeline_density": [
         "light",
+        "moderate",
         "dense"
       ],
       "timeline_structure": [
@@ -81,148 +88,66 @@
       ]
     },
     "source": "derived_from_v1_evidence",
-    "uncovered": {
-      "clip_composition": [
-        "audio_clip",
-        "linked_audio_clip",
-        "unknown_item",
-        "none",
-        "mixed"
-      ],
-      "existing_effects": [
-        "fusion",
-        "grades",
-        "grades+fusion",
-        "grades+retiming",
-        "grades+retiming+fusion",
-        "retiming",
-        "retiming+fusion",
-        "transforms",
-        "transforms+fusion",
-        "transforms+grades",
-        "transforms+grades+fusion",
-        "transforms+grades+retiming",
-        "transforms+grades+retiming+fusion",
-        "transitions",
-        "transitions+fusion",
-        "transitions+grades",
-        "transitions+grades+fusion",
-        "transitions+grades+retiming",
-        "transitions+grades+retiming+fusion",
-        "transitions+retiming",
-        "transitions+retiming+fusion",
-        "transitions+transforms",
-        "transitions+transforms+fusion",
-        "transitions+transforms+grades",
-        "transitions+transforms+grades+fusion",
-        "transitions+transforms+grades+retiming",
-        "transitions+transforms+grades+retiming+fusion",
-        "transitions+transforms+retiming",
-        "transitions+transforms+retiming+fusion"
-      ],
-      "frame_rate": [
-        "other",
-        "25",
-        "29.97",
-        "30",
-        "48",
-        "50",
-        "59.94",
-        "60"
-      ],
-      "media_type": [
-        "audio",
-        "mixed",
-        "none",
-        "unknown"
-      ],
-      "project_settings": [
-        "unknown",
-        "square_1920x1920",
-        "landscape_1280x720",
-        "landscape_2560x1440",
-        "landscape_3840x2160",
-        "portrait_2160x3840"
-      ],
-      "timeline_density": [
-        "empty",
-        "moderate"
-      ],
-      "timeline_structure": [
-        "empty_timeline"
-      ],
-      "track_layout": [
-        "none",
-        "audio"
-      ],
-      "track_occupancy": [
-        "all_empty"
-      ]
-    }
+    "uncovered": {}
   },
   "environment": {
     "platform": "darwin",
     "resolve_version": "21.1.0.14"
   },
-  "evidence": "tests/live/reports/product-format-qualification/product-format-evidence.json#delete_linked_target,delete_transformed_target; earlier evidence: tests/live/reports/product-format-qualification/product-format-evidence.json#delete_linked_target,delete_transformed_target; earlier evidence: clip-delete-evidence.json#payload; direct EditPatch clip.delete committed; seeded qual_b.mp4 absent on re-read; no other items or tracks changed; tests/live/reports/predicate-widening-016.json#W1+W2+W3; direct EditPatch clip.delete committed on linked video, still, and multi-item cover; target absent, others unchanged",
+  "evidence": "tests/live/reports/axi-primitive-qualification.json#delete_linked_av_moderate,delete_retimed_moderate,delete_still_card,delete_fusion_bearing; the coverage this row already held: tests/live/reports/axi-primitive-qualification.json#delete_linked_av_moderate,delete_retimed_moderate,delete_still_card; the coverage this row already held: clip-delete-evidence.json#payload; direct EditPatch clip.delete committed; seeded qual_b.mp4 absent on re-read; no other items or tracks changed; tests/live/reports/predicate-widening-016.json#W1+W2+W3; direct EditPatch clip.delete committed on linked video, still, and multi-item cover; target absent, others unchanged; the coverage this row already held: tests/live/reports/product-format-qualification/product-format-evidence.json#delete_linked_target,delete_transformed_target; earlier evidence: tests/live/reports/product-format-qualification/product-format-evidence.json#delete_linked_target,delete_transformed_target; earlier evidence: clip-delete-evidence.json#payload; direct EditPatch clip.delete committed; seeded qual_b.mp4 absent on re-read; no other items or tracks changed; tests/live/reports/predicate-widening-016.json#W1+W2+W3; direct EditPatch clip.delete committed on linked video, still, and multi-item cover; target absent, others unchanged; tests/live/reports/axi-primitive-qualification.json#delete_linked_effects; tests/live/reports/registry/clip.delete__edit_patch__retiming-only-axi-primitive.json",
   "expected_state": {
-    "other_items_untouched": true,
-    "target_absent": true
+    "adjacent_source_ranges_unchanged": true,
+    "fusion_comp_gone_with_target": true,
+    "gap_left": true,
+    "linked_audio_preserved": true,
+    "other_rows_unchanged": true,
+    "target_absent": true,
+    "video_target_absent": true
   },
   "operation_id": "clip.delete",
   "preservation_checks": [
     {
-      "check": "other_items_untouched",
+      "check": "video_target_absent",
+      "result": "passed"
+    },
+    {
+      "check": "linked_audio_preserved",
+      "result": "passed"
+    },
+    {
+      "check": "gap_left",
+      "result": "passed"
+    },
+    {
+      "check": "adjacent_source_ranges_unchanged",
+      "result": "passed"
+    },
+    {
+      "check": "other_rows_unchanged",
       "result": "passed"
     },
     {
       "check": "target_absent",
       "result": "passed"
+    },
+    {
+      "check": "fusion_comp_gone_with_target",
+      "result": "passed"
     }
   ],
   "preservation_limits": [
-    "one operation, one backend, one product-format reel copy: other_items_untouched, target_absent",
-    "the evidence is one live run; it does not qualify other effect combinations, other frame rates or another Resolve version"
+    "one private scratch timeline; the checks are the ones the scenarios name: adjacent_source_ranges_unchanged, fusion_comp_gone_with_target, gap_left, linked_audio_preserved, other_rows_unchanged, target_absent, video_target_absent"
   ],
   "project_conditions": [
-    "Ren Scratch - vep-bench-demo2 / vep-qual product format 1792548370",
-    "a Ren-owned scratch COPY of a real reel, never the captain's own timeline or media",
-    "the product format: portrait 1080x1920, 23.976fps, a dense timeline with linked video+audio, rendered caption cards, transforms and retiming"
+    "Ren Qualification / fm-scratch qualify",
+    "private target timeline only",
+    "production entry: edit_patch.apply_live_patch"
   ],
   "qualification_predicates": [
     {
-      "field": "clip_composition",
-      "operator": "one_of",
-      "value": [
-        "single_video_clip",
-        "linked_video_clip",
-        "still_clip"
-      ]
-    },
-    {
-      "field": "existing_effects",
-      "operator": "one_of",
-      "value": [
-        "none",
-        "transforms+retiming+fusion",
-        "transforms+retiming"
-      ]
-    },
-    {
-      "field": "frame_rate",
-      "operator": "one_of",
-      "value": [
-        "24",
-        "23.976"
-      ]
-    },
-    {
-      "field": "linked_audio_configuration",
-      "operator": "one_of",
-      "value": [
-        "no_linked_audio",
-        "linked_audio_present"
-      ]
+      "field": "resolve_version",
+      "operator": "equals",
+      "value": "21.1.0.14"
     },
     {
       "field": "media_type",
@@ -233,32 +158,20 @@
       ]
     },
     {
-      "field": "project_settings",
+      "field": "clip_composition",
       "operator": "one_of",
       "value": [
-        "landscape_1920x1080",
-        "portrait_1080x1920"
+        "single_video_clip",
+        "linked_video_clip",
+        "still_clip"
       ]
     },
     {
-      "field": "resolve_version",
-      "operator": "equals",
-      "value": "21.1.0.14"
-    },
-    {
-      "field": "timeline_density",
+      "field": "linked_audio_configuration",
       "operator": "one_of",
       "value": [
-        "light",
-        "dense"
-      ]
-    },
-    {
-      "field": "timeline_structure",
-      "operator": "one_of",
-      "value": [
-        "single_item_timeline",
-        "multi_item_timeline"
+        "no_linked_audio",
+        "linked_audio_present"
       ]
     },
     {
@@ -276,6 +189,50 @@
         "mixed",
         "all_populated"
       ]
+    },
+    {
+      "field": "timeline_density",
+      "operator": "one_of",
+      "value": [
+        "light",
+        "moderate",
+        "dense"
+      ]
+    },
+    {
+      "field": "timeline_structure",
+      "operator": "one_of",
+      "value": [
+        "single_item_timeline",
+        "multi_item_timeline"
+      ]
+    },
+    {
+      "field": "project_settings",
+      "operator": "one_of",
+      "value": [
+        "landscape_1920x1080",
+        "portrait_1080x1920"
+      ]
+    },
+    {
+      "field": "frame_rate",
+      "operator": "one_of",
+      "value": [
+        "24",
+        "23.976"
+      ]
+    },
+    {
+      "field": "existing_effects",
+      "operator": "one_of",
+      "value": [
+        "none",
+        "transforms+retiming+fusion",
+        "transforms+retiming",
+        "retiming",
+        "retiming+fusion"
+      ]
     }
   ],
   "recovery_status": "not_required",
@@ -284,18 +241,16 @@
   "schema": "ren-axi-qualification-result/v2",
   "semantic_boundary": {
     "applies_to": [
-      "clip.delete on edit_patch in the measured product-format state: a portrait 1080x1920 reel at 23.976fps, dense, with linked video+audio, caption cards, transforms and retiming"
+      "clip.delete on edit_patch in the measured qualification state"
     ],
     "does_not_apply_to": [
-      "a state outside coverage.dimensions",
-      "an operation/backend pair this evidence does not name",
-      "a timeline that is not a Ren-owned scratch copy of a real reel in the product format"
+      "states or operation/backend pairs not named by this evidence"
     ]
   },
   "supported_media_types": [
     "video"
   ],
   "visual_verification": [
-    "the live read-back of every clip on every row before and after the write: source path, source range, record span, transform, linked group and Fusion comps"
+    "the live read-back of every clip on every row, item by item (source path, source range, record span, transform, enabled state, Fusion comps) plus `resolve-axi items`"
   ]
 }

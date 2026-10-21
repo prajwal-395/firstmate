@@ -47,10 +47,23 @@ REMOVAL = [{"op": "clip.remove", "unique_id": "cover-9"}]
 
 
 def _recorded_state(op_id: str) -> dict:
-    """The runtime the recorded qualification predicates describe."""
+    """The runtime the recorded qualification predicates describe.
+
+    A row that admits SEVERAL values of a dimension records them as a
+    `one_of`, and a measurement produces ONE value per dimension - so
+    the first admitted value stands in for it here.  Reading the whole
+    list as the measured value compared a list against a list of
+    strings and never matched, which reads as a boundary that refuses
+    every state.
+    """
     row = edit_algebra.status(op_id).for_backend("resolve_axi")
-    return {str(predicate["field"]): predicate["value"]
-            for predicate in row.qualification_predicates}
+    state = {}
+    for predicate in row.qualification_predicates:
+        value = predicate["value"]
+        if predicate["operator"] == "one_of" and isinstance(value, list):
+            value = value[0]
+        state[str(predicate["field"])] = value
+    return state
 
 
 def _inspected(state: dict) -> dict:

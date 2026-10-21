@@ -1,0 +1,207 @@
+{
+  "actual_state": {
+    "checks": {
+      "link_group_shifted": true,
+      "other_rows_untouched": true,
+      "ripple_scope_measured": true,
+      "same_track_closed": true,
+      "target_absent": true
+    },
+    "measurement": {
+      "clip_composition": "linked_video_clip",
+      "existing_effects": "none",
+      "frame_rate": "24",
+      "linked_audio_configuration": "linked_audio_present",
+      "media_type": "video",
+      "project_settings": "landscape_1920x1080",
+      "resolve_version": "21.1.0.14",
+      "timeline_density": "moderate",
+      "timeline_structure": "multi_item_timeline",
+      "track_layout": "video+audio",
+      "track_occupancy": "all_populated"
+    },
+    "scenarios": [
+      "ripple_remove_multi_track"
+    ]
+  },
+  "audio_verification": [
+    "not applicable: this operation writes no audio level; the audio rows are read back unchanged by the same per-item reading"
+  ],
+  "backend": "resolve_axi",
+  "coverage": {
+    "configurations": [
+      "measured_qualification_timeline"
+    ],
+    "dimensions": {
+      "clip_composition": [
+        "single_video_clip",
+        "linked_video_clip"
+      ],
+      "existing_effects": [
+        "none"
+      ],
+      "frame_rate": [
+        "24"
+      ],
+      "linked_audio_configuration": [
+        "no_linked_audio",
+        "linked_audio_present"
+      ],
+      "media_type": [
+        "video"
+      ],
+      "project_settings": [
+        "landscape_1920x1080"
+      ],
+      "resolve_version": [
+        "21.1.0.14"
+      ],
+      "timeline_density": [
+        "light",
+        "moderate"
+      ],
+      "timeline_structure": [
+        "multi_item_timeline"
+      ],
+      "track_layout": [
+        "video+audio"
+      ],
+      "track_occupancy": [
+        "mixed",
+        "all_populated"
+      ]
+    },
+    "source": "measured",
+    "uncovered": {}
+  },
+  "environment": {
+    "platform": "darwin",
+    "resolve_version": "21.1.0.14"
+  },
+  "evidence": "tests/live/reports/axi-primitive-qualification.json#ripple_remove_multi_track; the coverage this row already held: tests/live/reports/editorial-acceptance-blind.json#remove_broll; Level-3 blind instruction removed the V2 cover via track-scoped ripple remove; cover absent, track emptied, speech and linked audio unchanged",
+  "expected_state": {
+    "link_group_shifted": true,
+    "other_rows_untouched": true,
+    "ripple_scope_measured": true,
+    "same_track_closed": true,
+    "target_absent": true
+  },
+  "operation_id": "clip.remove",
+  "preservation_checks": [
+    {
+      "check": "target_absent",
+      "result": "passed"
+    },
+    {
+      "check": "same_track_closed",
+      "result": "passed"
+    },
+    {
+      "check": "link_group_shifted",
+      "result": "passed"
+    },
+    {
+      "check": "other_rows_untouched",
+      "result": "passed"
+    },
+    {
+      "check": "ripple_scope_measured",
+      "result": "passed"
+    }
+  ],
+  "preservation_limits": [
+    "one private scratch timeline; the checks are the ones the scenarios name: link_group_shifted, other_rows_untouched, ripple_scope_measured, same_track_closed, target_absent"
+  ],
+  "project_conditions": [
+    "Ren Qualification / fm-scratch qualify",
+    "private target timeline only",
+    "production entry: resolve-axi edit track-ripple-remove"
+  ],
+  "qualification_predicates": [
+    {
+      "field": "resolve_version",
+      "operator": "equals",
+      "value": "21.1.0.14"
+    },
+    {
+      "field": "media_type",
+      "operator": "equals",
+      "value": "video"
+    },
+    {
+      "field": "clip_composition",
+      "operator": "one_of",
+      "value": [
+        "single_video_clip",
+        "linked_video_clip"
+      ]
+    },
+    {
+      "field": "linked_audio_configuration",
+      "operator": "one_of",
+      "value": [
+        "no_linked_audio",
+        "linked_audio_present"
+      ]
+    },
+    {
+      "field": "track_layout",
+      "operator": "equals",
+      "value": "video+audio"
+    },
+    {
+      "field": "track_occupancy",
+      "operator": "one_of",
+      "value": [
+        "mixed",
+        "all_populated"
+      ]
+    },
+    {
+      "field": "timeline_density",
+      "operator": "one_of",
+      "value": [
+        "light",
+        "moderate"
+      ]
+    },
+    {
+      "field": "timeline_structure",
+      "operator": "equals",
+      "value": "multi_item_timeline"
+    },
+    {
+      "field": "project_settings",
+      "operator": "equals",
+      "value": "landscape_1920x1080"
+    },
+    {
+      "field": "frame_rate",
+      "operator": "equals",
+      "value": "24"
+    },
+    {
+      "field": "existing_effects",
+      "operator": "equals",
+      "value": "none"
+    }
+  ],
+  "recovery_status": "not_required",
+  "resolve_version": "21.1.0.14",
+  "result": "passed",
+  "schema": "ren-axi-qualification-result/v2",
+  "semantic_boundary": {
+    "applies_to": [
+      "clip.remove on resolve_axi in the measured qualification state"
+    ],
+    "does_not_apply_to": [
+      "states or operation/backend pairs not named by this evidence"
+    ]
+  },
+  "supported_media_types": [
+    "video"
+  ],
+  "visual_verification": [
+    "the live read-back of every clip on every row, item by item (source path, source range, record span, transform, enabled state, Fusion comps) plus `resolve-axi items`"
+  ]
+}

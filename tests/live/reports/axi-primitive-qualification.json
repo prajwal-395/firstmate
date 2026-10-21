@@ -17,9 +17,9 @@
     "AXI-022",
     "AXI-023"
   ],
-  "scenarios": 34,
-  "passed": 13,
-  "failed": 21,
+  "scenarios": 40,
+  "passed": 18,
+  "failed": 22,
   "results": [
     {
       "id": "insert_at_frame_on_track",
@@ -13297,6 +13297,3675 @@
         },
         "collateral_changes": [],
         "elapsed_seconds": 7.74967070898856
+      }
+    },
+    {
+      "id": "delete_linked_av_moderate",
+      "axi_item": "AXI-011",
+      "intent": "Delete a linked A/V clip on a dense, multi-track timeline",
+      "operation": "clip.delete",
+      "backend": "edit_patch",
+      "production_entry": "edit_patch.apply_live_patch",
+      "expectation": "commit",
+      "checks": {
+        "video_target_absent": true,
+        "linked_audio_preserved": true,
+        "gap_left": true,
+        "adjacent_source_ranges_unchanged": true,
+        "other_rows_unchanged": true
+      },
+      "status": "pass",
+      "first_attempt": true,
+      "collateral_changes": [],
+      "receipt": {
+        "status": "committed",
+        "refusals": []
+      },
+      "observed": {
+        "items_readback": "items:\n  timeline: fm-scratch qualify\n  clips: 4\n  placed_frames: 336\n  project: Ren Qualification\n  timeline_id: d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\n  generation: 183\n  verified_at: 2026-10-21T04:34:38+00:00\n  source: live refresh\n  freshness: captured during this read\nclips[4]{track,name,record_in,record_out,duration,source_in,source_out,source_file,pan,tilt,zoomx,zoomy,opacity}:\n  video1,fm-qual-owned-a.mp4,96,192,96,0,95,/tmp/fm-qual-owned-a.mp4,0.0,0.0,1.0,1.0,100.0\n  video2,fm-qual-owned-c.mp4,0,48,48,0,47,/tmp/fm-qual-owned-c.mp4,0.0,0.0,1.0,1.0,100.0\n  video3,fm-qual-owned-overlay-a.png,120,240,120,0,0,/tmp/fm-qual-owned-overlay-a.png,0.0,0.0,1.0,1.0,100.0\n  audio1,fm-qual-owned-b.mp4,0,72,72,0,71,/tmp/fm-qual-owned-b.mp4,,,,,\nsource_out is inclusive (GetSourceEndFrame); record_out is exclusive - the mix-up that cost a frame is visible here\nhelp[1]:\n  Run `resolve-axi frames --timeline \"fm-scratch qualify\"`\n",
+        "qualification_state": {
+          "inspected": true,
+          "state": {
+            "resolve_version": "21.1.0.14",
+            "media_type": "video",
+            "clip_composition": "linked_video_clip",
+            "linked_audio_configuration": "linked_audio_present",
+            "track_layout": "video+audio",
+            "track_occupancy": "all_populated",
+            "timeline_density": "moderate",
+            "timeline_structure": "multi_item_timeline",
+            "project_settings": "landscape_1920x1080",
+            "frame_rate": "24",
+            "existing_effects": "none"
+          },
+          "targets": [
+            "a4fe2b2e-7ccf-4b01-a4b9-8839b8063536"
+          ],
+          "missing_targets": []
+        }
+      },
+      "elapsed_seconds": 11.361881290999008,
+      "case": {
+        "id": "delete_linked_av_moderate",
+        "setup_receipts": [
+          {
+            "argv": [
+              "edit",
+              "place",
+              "--clip",
+              "fm-qual-owned-b.mp4",
+              "--media",
+              "both",
+              "--track",
+              "1",
+              "--record",
+              "0",
+              "--source-in",
+              "0",
+              "--source-out",
+              "71",
+              "--apply",
+              "--project",
+              "Ren Qualification",
+              "--timeline",
+              "fm-scratch qualify"
+            ],
+            "exit_code": 0,
+            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: fm-qual-owned-b.mp4\n  items_delta: 2\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  fm-qual-owned-b.mp4,0,72,0,71,a4fe2b2e-7ccf-4b01-a4b9-8839b8063536\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+            "stderr": ""
+          },
+          {
+            "argv": [
+              "edit",
+              "place",
+              "--clip",
+              "fm-qual-owned-a.mp4",
+              "--media",
+              "video",
+              "--track",
+              "1",
+              "--record",
+              "96",
+              "--source-in",
+              "0",
+              "--source-out",
+              "95",
+              "--apply",
+              "--project",
+              "Ren Qualification",
+              "--timeline",
+              "fm-scratch qualify"
+            ],
+            "exit_code": 0,
+            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: fm-qual-owned-a.mp4\n  items_delta: 1\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  fm-qual-owned-a.mp4,96,192,0,95,64a8623c-e653-4261-b01e-0af57815ca87\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+            "stderr": ""
+          },
+          {
+            "argv": [
+              "edit",
+              "place",
+              "--clip",
+              "fm-qual-owned-c.mp4",
+              "--media",
+              "video",
+              "--track",
+              "2",
+              "--record",
+              "0",
+              "--source-in",
+              "0",
+              "--source-out",
+              "47",
+              "--apply",
+              "--project",
+              "Ren Qualification",
+              "--timeline",
+              "fm-scratch qualify"
+            ],
+            "exit_code": 0,
+            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: fm-qual-owned-c.mp4\n  items_delta: 1\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  fm-qual-owned-c.mp4,0,48,0,47,d50d1d58-2c16-4d5f-85b6-ed785f9c4a2f\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+            "stderr": ""
+          },
+          {
+            "argv": [
+              "edit",
+              "place",
+              "--clip",
+              "fm-qual-owned-overlay-a.png",
+              "--media",
+              "video",
+              "--track",
+              "3",
+              "--record",
+              "120",
+              "--source-in",
+              "0",
+              "--source-out",
+              "47",
+              "--apply",
+              "--project",
+              "Ren Qualification",
+              "--timeline",
+              "fm-scratch qualify"
+            ],
+            "exit_code": 0,
+            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: fm-qual-owned-overlay-a.png\n  items_delta: 1\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  fm-qual-owned-overlay-a.png,120,240,0,0,870736e2-59fe-4e39-8bae-179f29d04cb6\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+            "stderr": ""
+          }
+        ],
+        "commands": [
+          {
+            "argv": [
+              "edit_patch.apply_live_patch",
+              "delete-linked-av"
+            ],
+            "exit_code": 0,
+            "stdout": "{\"patch_id\": \"ren-3f19cea3c31fde43abec8fdd7c7bbb617542e91a099b4e8bbb23e5675096cf81\", \"status\": \"committed\", \"resolve_write_status\": \"committed\", \"base_generation\": 182, \"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\", \"requested_operation_count\": 1, \"expected_state\": {\"operations\": [{\"op\": \"clip.delete\", \"unique_id\": \"a4fe2b2e-7ccf-4b01-a4b9-8839b8063536\"}], \"postconditions\": []}, \"readback\": {\"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\", \"timeline_id\": \"d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\", \"generation\": 183, \"hash\": \"ae506e20a2c0e165c3aa326bf445a556686420ae5d3beff1f69a9dcdaff4a541\", \"source\": \"patch\", \"patch_id\": \"ren-3f19cea3c31fde43abec8fdd7c7bbb617542e91a099b4e8bbb23e5675096cf81\", \"recorded_at\": 1792557277.255043, \"verified_at\": 1792557277.255043, \"model_revision\": null, \"nle_binding_ids\": []}, \"backend\": \"edit_patch\", \"idempotency_key\": \"ren-3f19cea3c31fde43abec8fdd7c7bbb617542e91a099b4e8bbb23e5675096cf81\", \"operations\": [{\"index\": 0, \"op\": \"clip.delete\", \"returned\": true, \"failure\": null}], \"unrelated_changes\": [], \"acceptance_contracts\": [{\"id\": \"acceptance:clip.delete\", \"operation\": \"clip.delete\", \"checks\": [\"target_absent\", \"unrelated_items_unchanged\"], \"structural_source\": \"timeline_readback\", \"passed\": true, \"results\": [{\"check\": \"target_absent\", \"passed\": true, \"status\": \"passed\", \"evidence\": null}, {\"check\": \"unrelated_items_unchanged\", \"passed\": true, \"status\": \"passed\", \"evidence\": true}], \"missing\": [], \"failed\": []}], \"preservation\": {\"status\": \"preserved\", \"changes\": [{\"target\": \"clip:a4fe2b2e-7ccf-4b01-a4b9-8839b8063536\", \"field\": \"removed\", \"domain\": \"timeline_structure\", \"before\": {\"clip_color\": \"\", \"color\": {\"cdl\": {}, \"color_group\": \"\", \"luts\": [], \"node_count\": 1}, \"duration\": 72, \"enabled\": true, \"fades\": {\"FadeIn\": 0.0, \"FadeOut\": 0.0}, \"flags\": [], \"fusion\": {\"comp_count\": 0, \"comp_names\": [], \"mattes\": null, \"media_windows\": []}, \"item_type\": \"video\", \"keyframes\": {}, \"left_offset\": 0, \"linked_clips\": [{\"enabled\": true, \"fades\": {\"FadeIn\": 0.0, \"FadeOut\": 0.0}, \"name\": \"fm-qual-owned-b.mp4\", \"record_in\": 0, \"record_out\": 72, \"source_in_frame\": 0, \"source_out_frame\": 71, \"track_index\": 1, \"track_type\": \"audio\", \"unique_id\": \"ff199df5-533f-4d78-b2e1-ba083fb51aac\"}], \"linked_unique_ids\": [\"ff199df5-533f-4d78-b2e1-ba083fb51aac\"], \"markers\": [], \"media_pool_item_id\": \"602b493b-b98d-4aff-af75-cc42b42cdef5\", \"media_type\": \"Video + Audio\", \"name\": \"fm-qual-owned-b.mp4\", \"record_in\": 0, \"record_out\": 72, \"right_offset\": 0, \"source_file\": \"/tmp/fm-qual-owned-b.mp4\", \"source_frames\": 72, \"source_in_frame\": 0, \"source_out_frame\": 71, \"speaker\": \"Video 1\", \"speed\": 100.0, \"track_index\": 1, \"track_name\": \"Video 1\", \"track_type\": \"video\", \"transform\": {\"AnchorPointX\": 0.0, \"AnchorPointY\": 0.0, \"CompositeEnabled\": true, \"CompositeMode\": 0, \"CropBottom\": 0.0, \"CropLeft\": 0.0, \"CropRetain\": false, \"CropRight\": 0.0, \"CropSoftness\": 0.0, \"CropTop\": 0.0, \"CroppingEnabled\": true, \"Distortion\": 0.0, \"DynamicZoomEase\": 0, \"DynamicZoomEnabled\": false, \"FlipX\": false, \"FlipY\": false, \"LensCorrectionEnabled\": true, \"MotionEstimation\": 0, \"Opacity\": 100.0, \"Pan\": 0.0, \"Pitch\": 0.0, \"ResizeFilter\": 0, \"RetimeAndScalingEnabled\": true, \"RetimeProcess\": 0, \"RotationAngle\": 0.0, \"Scaling\": 0, \"Tilt\": 0.0, \"TransformEnabled\": true, \"Yaw\": 0.0, \"ZoomGang\": true, \"ZoomX\": 1.0, \"ZoomY\": 1.0}, \"unique_id\": \"a4fe2b2e-7ccf-4b01-a4b9-8839b8063536\"}, \"after\": null, \"authorized\": true}, {\"target\": \"clip:ff199df5-533f-4d78-b2e1-ba083fb51aac\", \"field\": \"linked_clips\", \"domain\": \"timeline_structure\", \"before\": [{\"enabled\": true, \"fades\": {\"FadeIn\": 0.0, \"FadeOut\": 0.0}, \"name\": \"fm-qual-owned-b.mp4\", \"record_in\": 0, \"record_out\": 72, \"source_in_frame\": 0, \"source_out_frame\": 71, \"track_index\": 1, \"track_type\": \"video\", \"unique_id\": \"a4fe2b2e-7ccf-4b01-a4b9-8839b8063536\"}], \"after\": [], \"authorized\": true}, {\"target\": \"clip:ff199df5-533f-4d78-b2e1-ba083fb51aac\", \"field\": \"linked_unique_ids\", \"domain\": \"timeline_structure\", \"before\": [\"a4fe2b2e-7ccf-4b01-a4b9-8839b8063536\"], \"after\": [], \"authorized\": true}], \"expected\": [{\"target\": \"clip:a4fe2b2e-7ccf-4b01-a4b9-8839b8063536\", \"domain\": \"timeline_structure\", \"operation\": \"clip.delete\", \"fields\": [\"removed\"]}], \"expected_not_observed\": [], \"unrelated_changes\": [], \"unobservable_domains\": [], \"unprovable_reason\": \"\"}, \"preservation_requirements\": [], \"stopped\": null, \"recovery_result\": {\"status\": \"not_attempted\", \"reason\": \"transaction verified\"}, \"journal\": {\"intent_persisted\": true, \"errors\": []}, \"postcondition_failures\": [], \"exclusive_hold_seconds\": 1.1742, \"project_model_commit\": {\"status\": \"not_required\", \"revision\": null}, \"project_model_reconcile\": {\"status\": \"not_required\", \"revision\": null}, \"generation\": 183, \"fingerprint\": \"ae506e20a2c0e165c3aa326bf445a556686420ae5d3beff1f69a9dcdaff4a541\", \"recovery\": null, \"planned\": {\"status\": \"planned\", \"patch_id\": \"ren-3f19cea3c31fde43abec8fdd7c7bbb617542e91a099b4e8bbb23e5675096cf81\"}, \"validated\": {\"status\": \"validated\", \"base_generation\": 182}, \"prepared\": {\"status\": \"prepared\", \"journal\": {\"intent_persisted\": true, \"errors\": []}}, \"executing\": {\"status\": \"completed\", \"stopped\": null}, \"applied\": {\"status\": \"applied\", \"operations\": 1, \"requested\": 1, \"complete\": true}, \"verified\": {\"status\": \"verified\", \"acceptance_contracts_passed\": true}, \"committed\": {\"status\": \"committed\", \"generation\": 183, \"project_model\": {\"status\": \"not_required\", \"revision\": null}}, \"promoted\": {\"status\": \"not_requested\"}, \"delivered\": {\"status\": \"not_requested\"}, \"lifecycle\": {\"stage\": \"COMMITTED\", \"ids\": {\"transaction_id\": \"ren-3f19cea3c31fde43abec8fdd7c7bbb617542e91a099b4e8bbb23e5675096cf81\", \"idempotency_key\": \"ren-3f19cea3c31fde43abec8fdd7c7bbb617542e91a099b4e8bbb23e5675096cf81\", \"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\"}, \"expected_state\": {\"operations\": [{\"op\": \"clip.delete\", \"unique_id\": \"a4fe2b2e-7ccf-4b01-a4b9-8839b8063536\"}], \"postconditions\": []}, \"actual_state\": {\"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\", \"timeline_id\": \"d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\", \"generation\": 183, \"hash\": \"ae506e20a2c0e165c3aa326bf445a556686420ae5d3beff1f69a9dcdaff4a541\", \"source\": \"patch\", \"patch_id\": \"ren-3f19cea3c31fde43abec8fdd7c7bbb617542e91a099b4e8bbb23e5675096cf81\", \"recorded_at\": 1792557277.255043, \"verified_at\": 1792557277.255043, \"model_revision\": null, \"nle_binding_ids\": []}, \"affected_changes\": [{\"index\": 0, \"op\": \"clip.delete\", \"returned\": true, \"failure\": null}], \"unrelated_changes\": [], \"backend\": \"edit_patch\", \"route_selection\": null, \"verification\": {\"outcome\": {\"status\": \"verified\", \"acceptance_contracts_passed\": true}, \"acceptance_contracts\": [{\"id\": \"acceptance:clip.delete\", \"operation\": \"clip.delete\", \"checks\": [\"target_absent\", \"unrelated_items_unchanged\"], \"structural_source\": \"timeline_readback\", \"passed\": true, \"results\": [{\"check\": \"target_absent\", \"passed\": true, \"status\": \"passed\", \"evidence\": null}, {\"check\": \"unrelated_items_unchanged\", \"passed\": true, \"status\": \"passed\", \"evidence\": true}], \"missing\": [], \"failed\": []}]}, \"recovery\": null, \"recovery_result\": {\"status\": \"not_attempted\", \"reason\": \"transaction verified\"}, \"persistence\": {\"status\": \"committed\", \"generation\": 183, \"project_model\": {\"status\": \"not_required\", \"revision\": null}}, \"promotion\": null, \"delivery\": {\"status\": \"not_requested\"}, \"history\": [\"PLANNED\", \"VALIDATED\", \"PREPARED\", \"EXECUTING\", \"APPLIED\", \"VERIFIED\", \"COMMITTED\"]}, \"execution_contract\": {\"status\": \"committed\", \"backend\": \"edit_patch\", \"verification\": {\"status\": \"verified\", \"checks\": [{\"passed\": true, \"operation\": \"clip.delete\", \"failures\": []}], \"missing\": [], \"evidence\": {\"acceptance_check_count\": 1, \"readback_present\": true}, \"layers\": {\"stored_state\": {\"status\": \"verified\", \"checks\": 1}, \"rendered_pixels\": {\"status\": \"not_measured\", \"evidence\": {}}, \"rendered_audio\": {\"status\": \"not_measured\", \"evidence\": {}}}}, \"recovery\": {\"status\": \"not_attempted\", \"action\": \"none\", \"reason\": \"transaction verified\", \"evidence\": {\"recovery_record_present\": true}}, \"limitations\": [], \"receipt\": {\"transaction_id\": \"ren-3f19cea3c31fde43abec8fdd7c7bbb617542e91a099b4e8bbb23e5675096cf81\", \"idempotency_key\": \"ren-3f19cea3c31fde43abec8fdd7c7bbb617542e91a099b4e8bbb23e5675096cf81\"}}}",
+            "stderr": ""
+          }
+        ],
+        "before": {
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
+          "end_frame": 0,
+          "track_names": {
+            "video": [
+              "Video 1",
+              "V2",
+              "V3"
+            ],
+            "audio": [
+              "Audio 1"
+            ],
+            "subtitle": []
+          },
+          "items": []
+        },
+        "after_setup": {
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
+          "end_frame": 240,
+          "track_names": {
+            "video": [
+              "Video 1",
+              "V2",
+              "V3"
+            ],
+            "audio": [
+              "Audio 1"
+            ],
+            "subtitle": []
+          },
+          "items": [
+            {
+              "unique_id": "a4fe2b2e-7ccf-4b01-a4b9-8839b8063536",
+              "kind": "video",
+              "track": 1,
+              "track_name": "Video 1",
+              "name": "fm-qual-owned-b.mp4",
+              "source_path": "/tmp/fm-qual-owned-b.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 71,
+              "record_in": 0,
+              "record_out": 72,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [
+                "ff199df5-533f-4d78-b2e1-ba083fb51aac"
+              ],
+              "speed": {
+                "Percentage": 100.0,
+                "PitchCorrection": true
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "64a8623c-e653-4261-b01e-0af57815ca87",
+              "kind": "video",
+              "track": 1,
+              "track_name": "Video 1",
+              "name": "fm-qual-owned-a.mp4",
+              "source_path": "/tmp/fm-qual-owned-a.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 95,
+              "record_in": 96,
+              "record_out": 192,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 100.0
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "d50d1d58-2c16-4d5f-85b6-ed785f9c4a2f",
+              "kind": "video",
+              "track": 2,
+              "track_name": "V2",
+              "name": "fm-qual-owned-c.mp4",
+              "source_path": "/tmp/fm-qual-owned-c.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 47,
+              "record_in": 0,
+              "record_out": 48,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 100.0
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "870736e2-59fe-4e39-8bae-179f29d04cb6",
+              "kind": "video",
+              "track": 3,
+              "track_name": "V3",
+              "name": "fm-qual-owned-overlay-a.png",
+              "source_path": "/tmp/fm-qual-owned-overlay-a.png",
+              "media_type": "Still",
+              "source_in": 0,
+              "source_out": 0,
+              "record_in": 120,
+              "record_out": 240,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 0.0
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "ff199df5-533f-4d78-b2e1-ba083fb51aac",
+              "kind": "audio",
+              "track": 1,
+              "track_name": "Audio 1",
+              "name": "fm-qual-owned-b.mp4",
+              "source_path": "/tmp/fm-qual-owned-b.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 71,
+              "record_in": 0,
+              "record_out": 72,
+              "transform": {
+                "AudioVolumeEnabled": true,
+                "AudioVolume": 0.0,
+                "AudioPanEnabled": true,
+                "AudioPan": 0.0,
+                "AudioPitchEnabled": true,
+                "AudioPitchSemiTones": 0,
+                "AudioPitchCents": 0,
+                "AudioVoiceIsolationEnabled": false,
+                "AudioVoiceIsolationAmount": 0,
+                "AudioDialogueLevelerEnabled": false,
+                "AudioDialogueLevelerMode": 0,
+                "AudioDialogueLevelerReduceLoudDialogue": false,
+                "AudioDialogueLevelerLiftSoftDialogue": false,
+                "AudioDialogueLevelerBackgroundReduction": false,
+                "AudioDialogueLevelerOutputGain": 0.0
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [
+                "a4fe2b2e-7ccf-4b01-a4b9-8839b8063536"
+              ],
+              "speed": {
+                "Percentage": 100.0,
+                "PitchCorrection": true
+              },
+              "cdl": null
+            }
+          ],
+          "carried_cleanup": {
+            "clean": true,
+            "collateral_changes": []
+          },
+          "setup_refusals": []
+        },
+        "qualification_state": {
+          "inspected": true,
+          "state": {
+            "resolve_version": "21.1.0.14",
+            "media_type": "video",
+            "clip_composition": "linked_video_clip",
+            "linked_audio_configuration": "linked_audio_present",
+            "track_layout": "video+audio",
+            "track_occupancy": "all_populated",
+            "timeline_density": "moderate",
+            "timeline_structure": "multi_item_timeline",
+            "project_settings": "landscape_1920x1080",
+            "frame_rate": "24",
+            "existing_effects": "none"
+          },
+          "targets": [
+            "a4fe2b2e-7ccf-4b01-a4b9-8839b8063536"
+          ],
+          "missing_targets": []
+        },
+        "after": {
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
+          "end_frame": 240,
+          "track_names": {
+            "video": [
+              "Video 1",
+              "V2",
+              "V3"
+            ],
+            "audio": [
+              "Audio 1"
+            ],
+            "subtitle": []
+          },
+          "items": [
+            {
+              "unique_id": "64a8623c-e653-4261-b01e-0af57815ca87",
+              "kind": "video",
+              "track": 1,
+              "track_name": "Video 1",
+              "name": "fm-qual-owned-a.mp4",
+              "source_path": "/tmp/fm-qual-owned-a.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 95,
+              "record_in": 96,
+              "record_out": 192,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 100.0
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "d50d1d58-2c16-4d5f-85b6-ed785f9c4a2f",
+              "kind": "video",
+              "track": 2,
+              "track_name": "V2",
+              "name": "fm-qual-owned-c.mp4",
+              "source_path": "/tmp/fm-qual-owned-c.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 47,
+              "record_in": 0,
+              "record_out": 48,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 100.0
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "870736e2-59fe-4e39-8bae-179f29d04cb6",
+              "kind": "video",
+              "track": 3,
+              "track_name": "V3",
+              "name": "fm-qual-owned-overlay-a.png",
+              "source_path": "/tmp/fm-qual-owned-overlay-a.png",
+              "media_type": "Still",
+              "source_in": 0,
+              "source_out": 0,
+              "record_in": 120,
+              "record_out": 240,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 0.0
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "ff199df5-533f-4d78-b2e1-ba083fb51aac",
+              "kind": "audio",
+              "track": 1,
+              "track_name": "Audio 1",
+              "name": "fm-qual-owned-b.mp4",
+              "source_path": "/tmp/fm-qual-owned-b.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 71,
+              "record_in": 0,
+              "record_out": 72,
+              "transform": {
+                "AudioVolumeEnabled": true,
+                "AudioVolume": 0.0,
+                "AudioPanEnabled": true,
+                "AudioPan": 0.0,
+                "AudioPitchEnabled": true,
+                "AudioPitchSemiTones": 0,
+                "AudioPitchCents": 0,
+                "AudioVoiceIsolationEnabled": false,
+                "AudioVoiceIsolationAmount": 0,
+                "AudioDialogueLevelerEnabled": false,
+                "AudioDialogueLevelerMode": 0,
+                "AudioDialogueLevelerReduceLoudDialogue": false,
+                "AudioDialogueLevelerLiftSoftDialogue": false,
+                "AudioDialogueLevelerBackgroundReduction": false,
+                "AudioDialogueLevelerOutputGain": 0.0
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 100.0,
+                "PitchCorrection": true
+              },
+              "cdl": null
+            }
+          ]
+        },
+        "items_readback": {
+          "argv": [
+            "items",
+            "--project",
+            "Ren Qualification",
+            "--timeline",
+            "fm-scratch qualify",
+            "--refresh-live",
+            "--transforms"
+          ],
+          "exit_code": 0,
+          "stdout": "items:\n  timeline: fm-scratch qualify\n  clips: 4\n  placed_frames: 336\n  project: Ren Qualification\n  timeline_id: d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\n  generation: 183\n  verified_at: 2026-10-21T04:34:38+00:00\n  source: live refresh\n  freshness: captured during this read\nclips[4]{track,name,record_in,record_out,duration,source_in,source_out,source_file,pan,tilt,zoomx,zoomy,opacity}:\n  video1,fm-qual-owned-a.mp4,96,192,96,0,95,/tmp/fm-qual-owned-a.mp4,0.0,0.0,1.0,1.0,100.0\n  video2,fm-qual-owned-c.mp4,0,48,48,0,47,/tmp/fm-qual-owned-c.mp4,0.0,0.0,1.0,1.0,100.0\n  video3,fm-qual-owned-overlay-a.png,120,240,120,0,0,/tmp/fm-qual-owned-overlay-a.png,0.0,0.0,1.0,1.0,100.0\n  audio1,fm-qual-owned-b.mp4,0,72,72,0,71,/tmp/fm-qual-owned-b.mp4,,,,,\nsource_out is inclusive (GetSourceEndFrame); record_out is exclusive - the mix-up that cost a frame is visible here\nhelp[1]:\n  Run `resolve-axi frames --timeline \"fm-scratch qualify\"`\n",
+          "stderr": ""
+        },
+        "cleanup": {
+          "clean": true,
+          "collateral_changes": []
+        },
+        "removed_tracks": [],
+        "removed_media": [
+          "fm-qual-owned-overlay-b.png",
+          "fm-qual-owned-overlay-a.png",
+          "fm-qual-owned-c.mp4",
+          "fm-qual-owned-b.mp4",
+          "fm-qual-owned-a.mp4"
+        ],
+        "after_cleanup": {
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
+          "end_frame": 0,
+          "track_names": {
+            "video": [
+              "Video 1",
+              "V2",
+              "V3"
+            ],
+            "audio": [
+              "Audio 1"
+            ],
+            "subtitle": []
+          },
+          "items": []
+        },
+        "collateral_changes": [],
+        "elapsed_seconds": 11.361881290999008
+      }
+    },
+    {
+      "id": "delete_retimed_moderate",
+      "axi_item": "AXI-011",
+      "intent": "Delete a retimed clip on a dense, multi-track timeline",
+      "operation": "clip.delete",
+      "backend": "edit_patch",
+      "production_entry": "edit_patch.apply_live_patch",
+      "expectation": "commit",
+      "checks": {
+        "target_absent": true,
+        "gap_left": true,
+        "other_rows_unchanged": true
+      },
+      "status": "pass",
+      "first_attempt": true,
+      "collateral_changes": [],
+      "receipt": {
+        "status": "committed",
+        "refusals": []
+      },
+      "observed": {
+        "items_readback": "items:\n  timeline: fm-scratch qualify\n  clips: 4\n  placed_frames: 312\n  project: Ren Qualification\n  timeline_id: d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\n  generation: 200\n  verified_at: 2026-10-21T04:52:44+00:00\n  source: live refresh\n  freshness: captured during this read\nclips[4]{track,name,record_in,record_out,duration,source_in,source_out,source_file,pan,tilt,zoomx,zoomy,opacity}:\n  video1,fm-qual-owned-b.mp4,96,168,72,0,71,/tmp/fm-qual-owned-b.mp4,0.0,0.0,1.0,1.0,100.0\n  video2,fm-qual-owned-c.mp4,0,48,48,0,47,/tmp/fm-qual-owned-c.mp4,0.0,0.0,1.0,1.0,100.0\n  video3,fm-qual-owned-overlay-a.png,120,240,120,0,0,/tmp/fm-qual-owned-overlay-a.png,0.0,0.0,1.0,1.0,100.0\n  audio1,fm-qual-owned-b.mp4,96,168,72,0,71,/tmp/fm-qual-owned-b.mp4,,,,,\nsource_out is inclusive (GetSourceEndFrame); record_out is exclusive - the mix-up that cost a frame is visible here\nhelp[1]:\n  Run `resolve-axi frames --timeline \"fm-scratch qualify\"`\n",
+        "qualification_state": {
+          "inspected": true,
+          "state": {
+            "resolve_version": "21.1.0.14",
+            "media_type": "video",
+            "clip_composition": "single_video_clip",
+            "linked_audio_configuration": "no_linked_audio",
+            "track_layout": "video+audio",
+            "track_occupancy": "all_populated",
+            "timeline_density": "moderate",
+            "timeline_structure": "multi_item_timeline",
+            "project_settings": "landscape_1920x1080",
+            "frame_rate": "24",
+            "existing_effects": "retiming"
+          },
+          "targets": [
+            "00d54136-7d85-45b9-9091-56fcd8ef371b"
+          ],
+          "missing_targets": []
+        }
+      },
+      "elapsed_seconds": 6.672461125010159,
+      "case": {
+        "id": "delete_retimed_moderate",
+        "setup_receipts": [
+          {
+            "argv": [
+              "edit",
+              "place",
+              "--clip",
+              "fm-qual-owned-a.mp4",
+              "--media",
+              "video",
+              "--track",
+              "1",
+              "--record",
+              "0",
+              "--source-in",
+              "0",
+              "--source-out",
+              "95",
+              "--apply",
+              "--project",
+              "Ren Qualification",
+              "--timeline",
+              "fm-scratch qualify"
+            ],
+            "exit_code": 0,
+            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: fm-qual-owned-a.mp4\n  items_delta: 1\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  fm-qual-owned-a.mp4,0,96,0,95,00d54136-7d85-45b9-9091-56fcd8ef371b\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+            "stderr": ""
+          },
+          {
+            "argv": [
+              "edit",
+              "place",
+              "--clip",
+              "fm-qual-owned-c.mp4",
+              "--media",
+              "video",
+              "--track",
+              "2",
+              "--record",
+              "0",
+              "--source-in",
+              "0",
+              "--source-out",
+              "47",
+              "--apply",
+              "--project",
+              "Ren Qualification",
+              "--timeline",
+              "fm-scratch qualify"
+            ],
+            "exit_code": 0,
+            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: fm-qual-owned-c.mp4\n  items_delta: 1\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  fm-qual-owned-c.mp4,0,48,0,47,f4d74670-826d-4a2d-88f2-f7406e781bda\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+            "stderr": ""
+          },
+          {
+            "argv": [
+              "edit_patch.apply_live_patch",
+              "delete-target-retime"
+            ],
+            "exit_code": 0,
+            "stdout": "{\"patch_id\": \"ren-104414bb4d7067e4e2b851c74fcded33d7640121ad5758405f467c10372be3b6\", \"status\": \"committed\", \"resolve_write_status\": \"committed\", \"base_generation\": 197, \"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\", \"requested_operation_count\": 1, \"expected_state\": {\"operations\": [{\"op\": \"retime.segments\", \"unique_id\": \"00d54136-7d85-45b9-9091-56fcd8ef371b\", \"segments\": [{\"record_frame\": 0, \"percent\": 90.0}]}], \"postconditions\": []}, \"readback\": {\"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\", \"timeline_id\": \"d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\", \"generation\": 198, \"hash\": \"0fe3d79d9c36db57e49d39df8ed040060de04856096990f121854da541538441\", \"source\": \"patch\", \"patch_id\": \"ren-104414bb4d7067e4e2b851c74fcded33d7640121ad5758405f467c10372be3b6\", \"recorded_at\": 1792558359.625839, \"verified_at\": 1792558359.625839, \"model_revision\": null, \"nle_binding_ids\": []}, \"backend\": \"edit_patch\", \"idempotency_key\": \"ren-104414bb4d7067e4e2b851c74fcded33d7640121ad5758405f467c10372be3b6\", \"operations\": [{\"index\": 0, \"op\": \"retime.segments\", \"returned\": true, \"failure\": null}], \"unrelated_changes\": [], \"acceptance_contracts\": [{\"id\": \"acceptance:retime.segments\", \"operation\": \"retime.segments\", \"checks\": [\"operation_readback_matches_request\", \"unrelated_items_unchanged\"], \"structural_source\": \"timeline_readback\", \"passed\": true, \"results\": [{\"check\": \"operation_readback_matches_request\", \"passed\": true, \"status\": \"passed\", \"evidence\": null}, {\"check\": \"unrelated_items_unchanged\", \"passed\": true, \"status\": \"passed\", \"evidence\": true}], \"missing\": [], \"failed\": []}], \"preservation\": {\"status\": \"preserved\", \"changes\": [{\"target\": \"clip:00d54136-7d85-45b9-9091-56fcd8ef371b\", \"field\": \"right_offset\", \"domain\": \"timeline_structure\", \"before\": 0, \"after\": 10, \"authorized\": true}, {\"target\": \"clip:00d54136-7d85-45b9-9091-56fcd8ef371b\", \"field\": \"source_out_frame\", \"domain\": \"timeline_structure\", \"before\": 95, \"after\": 86, \"authorized\": true}, {\"target\": \"clip:00d54136-7d85-45b9-9091-56fcd8ef371b\", \"field\": \"speed\", \"domain\": \"timeline_structure\", \"before\": 100.0, \"after\": 90.0, \"authorized\": true}], \"expected\": [{\"target\": \"clip:00d54136-7d85-45b9-9091-56fcd8ef371b\", \"domain\": \"timeline_structure\", \"operation\": \"retime.segments\", \"fields\": []}], \"expected_not_observed\": [], \"unrelated_changes\": [], \"unobservable_domains\": [], \"unprovable_reason\": \"\"}, \"preservation_requirements\": [], \"stopped\": null, \"recovery_result\": {\"status\": \"not_attempted\", \"reason\": \"transaction verified\"}, \"journal\": {\"intent_persisted\": true, \"errors\": []}, \"postcondition_failures\": [], \"exclusive_hold_seconds\": 0.3022, \"project_model_commit\": {\"status\": \"not_required\", \"revision\": null}, \"project_model_reconcile\": {\"status\": \"not_required\", \"revision\": null}, \"generation\": 198, \"fingerprint\": \"0fe3d79d9c36db57e49d39df8ed040060de04856096990f121854da541538441\", \"recovery\": null, \"planned\": {\"status\": \"planned\", \"patch_id\": \"ren-104414bb4d7067e4e2b851c74fcded33d7640121ad5758405f467c10372be3b6\"}, \"validated\": {\"status\": \"validated\", \"base_generation\": 197}, \"prepared\": {\"status\": \"prepared\", \"journal\": {\"intent_persisted\": true, \"errors\": []}}, \"executing\": {\"status\": \"completed\", \"stopped\": null}, \"applied\": {\"status\": \"applied\", \"operations\": 1, \"requested\": 1, \"complete\": true}, \"verified\": {\"status\": \"verified\", \"acceptance_contracts_passed\": true}, \"committed\": {\"status\": \"committed\", \"generation\": 198, \"project_model\": {\"status\": \"not_required\", \"revision\": null}}, \"promoted\": {\"status\": \"not_requested\"}, \"delivered\": {\"status\": \"not_requested\"}, \"lifecycle\": {\"stage\": \"COMMITTED\", \"ids\": {\"transaction_id\": \"ren-104414bb4d7067e4e2b851c74fcded33d7640121ad5758405f467c10372be3b6\", \"idempotency_key\": \"ren-104414bb4d7067e4e2b851c74fcded33d7640121ad5758405f467c10372be3b6\", \"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\"}, \"expected_state\": {\"operations\": [{\"op\": \"retime.segments\", \"unique_id\": \"00d54136-7d85-45b9-9091-56fcd8ef371b\", \"segments\": [{\"record_frame\": 0, \"percent\": 90.0}]}], \"postconditions\": []}, \"actual_state\": {\"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\", \"timeline_id\": \"d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\", \"generation\": 198, \"hash\": \"0fe3d79d9c36db57e49d39df8ed040060de04856096990f121854da541538441\", \"source\": \"patch\", \"patch_id\": \"ren-104414bb4d7067e4e2b851c74fcded33d7640121ad5758405f467c10372be3b6\", \"recorded_at\": 1792558359.625839, \"verified_at\": 1792558359.625839, \"model_revision\": null, \"nle_binding_ids\": []}, \"affected_changes\": [{\"index\": 0, \"op\": \"retime.segments\", \"returned\": true, \"failure\": null}], \"unrelated_changes\": [], \"backend\": \"edit_patch\", \"route_selection\": null, \"verification\": {\"outcome\": {\"status\": \"verified\", \"acceptance_contracts_passed\": true}, \"acceptance_contracts\": [{\"id\": \"acceptance:retime.segments\", \"operation\": \"retime.segments\", \"checks\": [\"operation_readback_matches_request\", \"unrelated_items_unchanged\"], \"structural_source\": \"timeline_readback\", \"passed\": true, \"results\": [{\"check\": \"operation_readback_matches_request\", \"passed\": true, \"status\": \"passed\", \"evidence\": null}, {\"check\": \"unrelated_items_unchanged\", \"passed\": true, \"status\": \"passed\", \"evidence\": true}], \"missing\": [], \"failed\": []}]}, \"recovery\": null, \"recovery_result\": {\"status\": \"not_attempted\", \"reason\": \"transaction verified\"}, \"persistence\": {\"status\": \"committed\", \"generation\": 198, \"project_model\": {\"status\": \"not_required\", \"revision\": null}}, \"promotion\": null, \"delivery\": {\"status\": \"not_requested\"}, \"history\": [\"PLANNED\", \"VALIDATED\", \"PREPARED\", \"EXECUTING\", \"APPLIED\", \"VERIFIED\", \"COMMITTED\"]}, \"execution_contract\": {\"status\": \"committed\", \"backend\": \"edit_patch\", \"verification\": {\"status\": \"verified\", \"checks\": [{\"passed\": true, \"operation\": \"retime.segments\", \"failures\": []}], \"missing\": [], \"evidence\": {\"acceptance_check_count\": 1, \"readback_present\": true}, \"layers\": {\"stored_state\": {\"status\": \"verified\", \"checks\": 1}, \"rendered_pixels\": {\"status\": \"not_measured\", \"evidence\": {}}, \"rendered_audio\": {\"status\": \"not_measured\", \"evidence\": {}}}}, \"recovery\": {\"status\": \"not_attempted\", \"action\": \"none\", \"reason\": \"transaction verified\", \"evidence\": {\"recovery_record_present\": true}}, \"limitations\": [], \"receipt\": {\"transaction_id\": \"ren-104414bb4d7067e4e2b851c74fcded33d7640121ad5758405f467c10372be3b6\", \"idempotency_key\": \"ren-104414bb4d7067e4e2b851c74fcded33d7640121ad5758405f467c10372be3b6\"}}}",
+            "stderr": ""
+          },
+          {
+            "argv": [
+              "edit",
+              "place",
+              "--clip",
+              "fm-qual-owned-b.mp4",
+              "--media",
+              "both",
+              "--track",
+              "1",
+              "--record",
+              "96",
+              "--source-in",
+              "0",
+              "--source-out",
+              "71",
+              "--apply",
+              "--project",
+              "Ren Qualification",
+              "--timeline",
+              "fm-scratch qualify"
+            ],
+            "exit_code": 0,
+            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: fm-qual-owned-b.mp4\n  items_delta: 2\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  fm-qual-owned-b.mp4,96,168,0,71,202eeb24-6070-47d7-a45d-0c2cc00fea3c\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+            "stderr": ""
+          },
+          {
+            "argv": [
+              "edit",
+              "place",
+              "--clip",
+              "fm-qual-owned-overlay-a.png",
+              "--media",
+              "video",
+              "--track",
+              "3",
+              "--record",
+              "120",
+              "--source-in",
+              "0",
+              "--source-out",
+              "47",
+              "--apply",
+              "--project",
+              "Ren Qualification",
+              "--timeline",
+              "fm-scratch qualify"
+            ],
+            "exit_code": 0,
+            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: fm-qual-owned-overlay-a.png\n  items_delta: 1\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  fm-qual-owned-overlay-a.png,120,240,0,0,388d5a1c-8021-410d-ac54-c5fca59fa71e\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+            "stderr": ""
+          }
+        ],
+        "commands": [
+          {
+            "argv": [
+              "edit_patch.apply_live_patch",
+              "delete-retimed"
+            ],
+            "exit_code": 0,
+            "stdout": "{\"patch_id\": \"ren-4d45770096d7d7dd7480501ebd83440070592715e23f9aefe88e7e12941832b3\", \"status\": \"committed\", \"resolve_write_status\": \"committed\", \"base_generation\": 199, \"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\", \"requested_operation_count\": 1, \"expected_state\": {\"operations\": [{\"op\": \"clip.delete\", \"unique_id\": \"00d54136-7d85-45b9-9091-56fcd8ef371b\"}], \"postconditions\": []}, \"readback\": {\"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\", \"timeline_id\": \"d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\", \"generation\": 200, \"hash\": \"a6f0388f5c24540d061e21d7850af153b0afd26154a62464a0b8497810081854\", \"source\": \"patch\", \"patch_id\": \"ren-4d45770096d7d7dd7480501ebd83440070592715e23f9aefe88e7e12941832b3\", \"recorded_at\": 1792558363.132295, \"verified_at\": 1792558363.132295, \"model_revision\": null, \"nle_binding_ids\": []}, \"backend\": \"edit_patch\", \"idempotency_key\": \"ren-4d45770096d7d7dd7480501ebd83440070592715e23f9aefe88e7e12941832b3\", \"operations\": [{\"index\": 0, \"op\": \"clip.delete\", \"returned\": true, \"failure\": null}], \"unrelated_changes\": [], \"acceptance_contracts\": [{\"id\": \"acceptance:clip.delete\", \"operation\": \"clip.delete\", \"checks\": [\"target_absent\", \"unrelated_items_unchanged\"], \"structural_source\": \"timeline_readback\", \"passed\": true, \"results\": [{\"check\": \"target_absent\", \"passed\": true, \"status\": \"passed\", \"evidence\": null}, {\"check\": \"unrelated_items_unchanged\", \"passed\": true, \"status\": \"passed\", \"evidence\": true}], \"missing\": [], \"failed\": []}], \"preservation\": {\"status\": \"preserved\", \"changes\": [{\"target\": \"clip:00d54136-7d85-45b9-9091-56fcd8ef371b\", \"field\": \"removed\", \"domain\": \"timeline_structure\", \"before\": {\"clip_color\": \"\", \"color\": {\"cdl\": {}, \"color_group\": \"\", \"luts\": [], \"node_count\": 1}, \"duration\": 96, \"enabled\": true, \"fades\": {\"FadeIn\": 0.0, \"FadeOut\": 0.0}, \"flags\": [], \"fusion\": {\"comp_count\": 0, \"comp_names\": [], \"mattes\": null, \"media_windows\": []}, \"item_type\": \"video\", \"keyframes\": {}, \"left_offset\": 0, \"linked_clips\": [], \"linked_unique_ids\": [], \"markers\": [], \"media_pool_item_id\": \"f0ffdfea-9535-49a7-9a16-d9b024921ed5\", \"media_type\": \"Video + Audio\", \"name\": \"fm-qual-owned-a.mp4\", \"record_in\": 0, \"record_out\": 96, \"right_offset\": 10, \"source_file\": \"/tmp/fm-qual-owned-a.mp4\", \"source_frames\": 96, \"source_in_frame\": 0, \"source_out_frame\": 86, \"speaker\": \"Video 1\", \"speed\": 90.0, \"track_index\": 1, \"track_name\": \"Video 1\", \"track_type\": \"video\", \"transform\": {\"AnchorPointX\": 0.0, \"AnchorPointY\": 0.0, \"CompositeEnabled\": true, \"CompositeMode\": 0, \"CropBottom\": 0.0, \"CropLeft\": 0.0, \"CropRetain\": false, \"CropRight\": 0.0, \"CropSoftness\": 0.0, \"CropTop\": 0.0, \"CroppingEnabled\": true, \"Distortion\": 0.0, \"DynamicZoomEase\": 0, \"DynamicZoomEnabled\": false, \"FlipX\": false, \"FlipY\": false, \"LensCorrectionEnabled\": true, \"MotionEstimation\": 0, \"Opacity\": 100.0, \"Pan\": 0.0, \"Pitch\": 0.0, \"ResizeFilter\": 0, \"RetimeAndScalingEnabled\": true, \"RetimeProcess\": 0, \"RotationAngle\": 0.0, \"Scaling\": 0, \"Tilt\": 0.0, \"TransformEnabled\": true, \"Yaw\": 0.0, \"ZoomGang\": true, \"ZoomX\": 1.0, \"ZoomY\": 1.0}, \"unique_id\": \"00d54136-7d85-45b9-9091-56fcd8ef371b\"}, \"after\": null, \"authorized\": true}], \"expected\": [{\"target\": \"clip:00d54136-7d85-45b9-9091-56fcd8ef371b\", \"domain\": \"timeline_structure\", \"operation\": \"clip.delete\", \"fields\": [\"removed\"]}], \"expected_not_observed\": [], \"unrelated_changes\": [], \"unobservable_domains\": [], \"unprovable_reason\": \"\"}, \"preservation_requirements\": [], \"stopped\": null, \"recovery_result\": {\"status\": \"not_attempted\", \"reason\": \"transaction verified\"}, \"journal\": {\"intent_persisted\": true, \"errors\": []}, \"postcondition_failures\": [], \"exclusive_hold_seconds\": 0.5099, \"project_model_commit\": {\"status\": \"not_required\", \"revision\": null}, \"project_model_reconcile\": {\"status\": \"not_required\", \"revision\": null}, \"generation\": 200, \"fingerprint\": \"a6f0388f5c24540d061e21d7850af153b0afd26154a62464a0b8497810081854\", \"recovery\": null, \"planned\": {\"status\": \"planned\", \"patch_id\": \"ren-4d45770096d7d7dd7480501ebd83440070592715e23f9aefe88e7e12941832b3\"}, \"validated\": {\"status\": \"validated\", \"base_generation\": 199}, \"prepared\": {\"status\": \"prepared\", \"journal\": {\"intent_persisted\": true, \"errors\": []}}, \"executing\": {\"status\": \"completed\", \"stopped\": null}, \"applied\": {\"status\": \"applied\", \"operations\": 1, \"requested\": 1, \"complete\": true}, \"verified\": {\"status\": \"verified\", \"acceptance_contracts_passed\": true}, \"committed\": {\"status\": \"committed\", \"generation\": 200, \"project_model\": {\"status\": \"not_required\", \"revision\": null}}, \"promoted\": {\"status\": \"not_requested\"}, \"delivered\": {\"status\": \"not_requested\"}, \"lifecycle\": {\"stage\": \"COMMITTED\", \"ids\": {\"transaction_id\": \"ren-4d45770096d7d7dd7480501ebd83440070592715e23f9aefe88e7e12941832b3\", \"idempotency_key\": \"ren-4d45770096d7d7dd7480501ebd83440070592715e23f9aefe88e7e12941832b3\", \"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\"}, \"expected_state\": {\"operations\": [{\"op\": \"clip.delete\", \"unique_id\": \"00d54136-7d85-45b9-9091-56fcd8ef371b\"}], \"postconditions\": []}, \"actual_state\": {\"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\", \"timeline_id\": \"d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\", \"generation\": 200, \"hash\": \"a6f0388f5c24540d061e21d7850af153b0afd26154a62464a0b8497810081854\", \"source\": \"patch\", \"patch_id\": \"ren-4d45770096d7d7dd7480501ebd83440070592715e23f9aefe88e7e12941832b3\", \"recorded_at\": 1792558363.132295, \"verified_at\": 1792558363.132295, \"model_revision\": null, \"nle_binding_ids\": []}, \"affected_changes\": [{\"index\": 0, \"op\": \"clip.delete\", \"returned\": true, \"failure\": null}], \"unrelated_changes\": [], \"backend\": \"edit_patch\", \"route_selection\": null, \"verification\": {\"outcome\": {\"status\": \"verified\", \"acceptance_contracts_passed\": true}, \"acceptance_contracts\": [{\"id\": \"acceptance:clip.delete\", \"operation\": \"clip.delete\", \"checks\": [\"target_absent\", \"unrelated_items_unchanged\"], \"structural_source\": \"timeline_readback\", \"passed\": true, \"results\": [{\"check\": \"target_absent\", \"passed\": true, \"status\": \"passed\", \"evidence\": null}, {\"check\": \"unrelated_items_unchanged\", \"passed\": true, \"status\": \"passed\", \"evidence\": true}], \"missing\": [], \"failed\": []}]}, \"recovery\": null, \"recovery_result\": {\"status\": \"not_attempted\", \"reason\": \"transaction verified\"}, \"persistence\": {\"status\": \"committed\", \"generation\": 200, \"project_model\": {\"status\": \"not_required\", \"revision\": null}}, \"promotion\": null, \"delivery\": {\"status\": \"not_requested\"}, \"history\": [\"PLANNED\", \"VALIDATED\", \"PREPARED\", \"EXECUTING\", \"APPLIED\", \"VERIFIED\", \"COMMITTED\"]}, \"execution_contract\": {\"status\": \"committed\", \"backend\": \"edit_patch\", \"verification\": {\"status\": \"verified\", \"checks\": [{\"passed\": true, \"operation\": \"clip.delete\", \"failures\": []}], \"missing\": [], \"evidence\": {\"acceptance_check_count\": 1, \"readback_present\": true}, \"layers\": {\"stored_state\": {\"status\": \"verified\", \"checks\": 1}, \"rendered_pixels\": {\"status\": \"not_measured\", \"evidence\": {}}, \"rendered_audio\": {\"status\": \"not_measured\", \"evidence\": {}}}}, \"recovery\": {\"status\": \"not_attempted\", \"action\": \"none\", \"reason\": \"transaction verified\", \"evidence\": {\"recovery_record_present\": true}}, \"limitations\": [], \"receipt\": {\"transaction_id\": \"ren-4d45770096d7d7dd7480501ebd83440070592715e23f9aefe88e7e12941832b3\", \"idempotency_key\": \"ren-4d45770096d7d7dd7480501ebd83440070592715e23f9aefe88e7e12941832b3\"}}}",
+            "stderr": ""
+          }
+        ],
+        "before": {
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
+          "end_frame": 0,
+          "track_names": {
+            "video": [
+              "Video 1",
+              "V2",
+              "V3"
+            ],
+            "audio": [
+              "Audio 1"
+            ],
+            "subtitle": []
+          },
+          "items": []
+        },
+        "after_setup": {
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
+          "end_frame": 240,
+          "track_names": {
+            "video": [
+              "Video 1",
+              "V2",
+              "V3"
+            ],
+            "audio": [
+              "Audio 1"
+            ],
+            "subtitle": []
+          },
+          "items": [
+            {
+              "unique_id": "00d54136-7d85-45b9-9091-56fcd8ef371b",
+              "kind": "video",
+              "track": 1,
+              "track_name": "Video 1",
+              "name": "fm-qual-owned-a.mp4",
+              "source_path": "/tmp/fm-qual-owned-a.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 86,
+              "record_in": 0,
+              "record_out": 96,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 90.0
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "202eeb24-6070-47d7-a45d-0c2cc00fea3c",
+              "kind": "video",
+              "track": 1,
+              "track_name": "Video 1",
+              "name": "fm-qual-owned-b.mp4",
+              "source_path": "/tmp/fm-qual-owned-b.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 71,
+              "record_in": 96,
+              "record_out": 168,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [
+                "fea95e75-26f1-48ab-a587-03eb59d5ea54"
+              ],
+              "speed": {
+                "Percentage": 100.0,
+                "PitchCorrection": true
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "f4d74670-826d-4a2d-88f2-f7406e781bda",
+              "kind": "video",
+              "track": 2,
+              "track_name": "V2",
+              "name": "fm-qual-owned-c.mp4",
+              "source_path": "/tmp/fm-qual-owned-c.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 47,
+              "record_in": 0,
+              "record_out": 48,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 100.0
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "388d5a1c-8021-410d-ac54-c5fca59fa71e",
+              "kind": "video",
+              "track": 3,
+              "track_name": "V3",
+              "name": "fm-qual-owned-overlay-a.png",
+              "source_path": "/tmp/fm-qual-owned-overlay-a.png",
+              "media_type": "Still",
+              "source_in": 0,
+              "source_out": 0,
+              "record_in": 120,
+              "record_out": 240,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 0.0
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "fea95e75-26f1-48ab-a587-03eb59d5ea54",
+              "kind": "audio",
+              "track": 1,
+              "track_name": "Audio 1",
+              "name": "fm-qual-owned-b.mp4",
+              "source_path": "/tmp/fm-qual-owned-b.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 71,
+              "record_in": 96,
+              "record_out": 168,
+              "transform": {
+                "AudioVolumeEnabled": true,
+                "AudioVolume": 0.0,
+                "AudioPanEnabled": true,
+                "AudioPan": 0.0,
+                "AudioPitchEnabled": true,
+                "AudioPitchSemiTones": 0,
+                "AudioPitchCents": 0,
+                "AudioVoiceIsolationEnabled": false,
+                "AudioVoiceIsolationAmount": 0,
+                "AudioDialogueLevelerEnabled": false,
+                "AudioDialogueLevelerMode": 0,
+                "AudioDialogueLevelerReduceLoudDialogue": false,
+                "AudioDialogueLevelerLiftSoftDialogue": false,
+                "AudioDialogueLevelerBackgroundReduction": false,
+                "AudioDialogueLevelerOutputGain": 0.0
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [
+                "202eeb24-6070-47d7-a45d-0c2cc00fea3c"
+              ],
+              "speed": {
+                "Percentage": 100.0,
+                "PitchCorrection": true
+              },
+              "cdl": null
+            }
+          ],
+          "carried_cleanup": {
+            "clean": true,
+            "collateral_changes": []
+          },
+          "setup_refusals": []
+        },
+        "qualification_state": {
+          "inspected": true,
+          "state": {
+            "resolve_version": "21.1.0.14",
+            "media_type": "video",
+            "clip_composition": "single_video_clip",
+            "linked_audio_configuration": "no_linked_audio",
+            "track_layout": "video+audio",
+            "track_occupancy": "all_populated",
+            "timeline_density": "moderate",
+            "timeline_structure": "multi_item_timeline",
+            "project_settings": "landscape_1920x1080",
+            "frame_rate": "24",
+            "existing_effects": "retiming"
+          },
+          "targets": [
+            "00d54136-7d85-45b9-9091-56fcd8ef371b"
+          ],
+          "missing_targets": []
+        },
+        "after": {
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
+          "end_frame": 240,
+          "track_names": {
+            "video": [
+              "Video 1",
+              "V2",
+              "V3"
+            ],
+            "audio": [
+              "Audio 1"
+            ],
+            "subtitle": []
+          },
+          "items": [
+            {
+              "unique_id": "202eeb24-6070-47d7-a45d-0c2cc00fea3c",
+              "kind": "video",
+              "track": 1,
+              "track_name": "Video 1",
+              "name": "fm-qual-owned-b.mp4",
+              "source_path": "/tmp/fm-qual-owned-b.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 71,
+              "record_in": 96,
+              "record_out": 168,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [
+                "fea95e75-26f1-48ab-a587-03eb59d5ea54"
+              ],
+              "speed": {
+                "Percentage": 100.0,
+                "PitchCorrection": true
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "f4d74670-826d-4a2d-88f2-f7406e781bda",
+              "kind": "video",
+              "track": 2,
+              "track_name": "V2",
+              "name": "fm-qual-owned-c.mp4",
+              "source_path": "/tmp/fm-qual-owned-c.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 47,
+              "record_in": 0,
+              "record_out": 48,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 100.0
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "388d5a1c-8021-410d-ac54-c5fca59fa71e",
+              "kind": "video",
+              "track": 3,
+              "track_name": "V3",
+              "name": "fm-qual-owned-overlay-a.png",
+              "source_path": "/tmp/fm-qual-owned-overlay-a.png",
+              "media_type": "Still",
+              "source_in": 0,
+              "source_out": 0,
+              "record_in": 120,
+              "record_out": 240,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 0.0
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "fea95e75-26f1-48ab-a587-03eb59d5ea54",
+              "kind": "audio",
+              "track": 1,
+              "track_name": "Audio 1",
+              "name": "fm-qual-owned-b.mp4",
+              "source_path": "/tmp/fm-qual-owned-b.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 71,
+              "record_in": 96,
+              "record_out": 168,
+              "transform": {
+                "AudioVolumeEnabled": true,
+                "AudioVolume": 0.0,
+                "AudioPanEnabled": true,
+                "AudioPan": 0.0,
+                "AudioPitchEnabled": true,
+                "AudioPitchSemiTones": 0,
+                "AudioPitchCents": 0,
+                "AudioVoiceIsolationEnabled": false,
+                "AudioVoiceIsolationAmount": 0,
+                "AudioDialogueLevelerEnabled": false,
+                "AudioDialogueLevelerMode": 0,
+                "AudioDialogueLevelerReduceLoudDialogue": false,
+                "AudioDialogueLevelerLiftSoftDialogue": false,
+                "AudioDialogueLevelerBackgroundReduction": false,
+                "AudioDialogueLevelerOutputGain": 0.0
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [
+                "202eeb24-6070-47d7-a45d-0c2cc00fea3c"
+              ],
+              "speed": {
+                "Percentage": 100.0,
+                "PitchCorrection": true
+              },
+              "cdl": null
+            }
+          ]
+        },
+        "items_readback": {
+          "argv": [
+            "items",
+            "--project",
+            "Ren Qualification",
+            "--timeline",
+            "fm-scratch qualify",
+            "--refresh-live",
+            "--transforms"
+          ],
+          "exit_code": 0,
+          "stdout": "items:\n  timeline: fm-scratch qualify\n  clips: 4\n  placed_frames: 312\n  project: Ren Qualification\n  timeline_id: d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\n  generation: 200\n  verified_at: 2026-10-21T04:52:44+00:00\n  source: live refresh\n  freshness: captured during this read\nclips[4]{track,name,record_in,record_out,duration,source_in,source_out,source_file,pan,tilt,zoomx,zoomy,opacity}:\n  video1,fm-qual-owned-b.mp4,96,168,72,0,71,/tmp/fm-qual-owned-b.mp4,0.0,0.0,1.0,1.0,100.0\n  video2,fm-qual-owned-c.mp4,0,48,48,0,47,/tmp/fm-qual-owned-c.mp4,0.0,0.0,1.0,1.0,100.0\n  video3,fm-qual-owned-overlay-a.png,120,240,120,0,0,/tmp/fm-qual-owned-overlay-a.png,0.0,0.0,1.0,1.0,100.0\n  audio1,fm-qual-owned-b.mp4,96,168,72,0,71,/tmp/fm-qual-owned-b.mp4,,,,,\nsource_out is inclusive (GetSourceEndFrame); record_out is exclusive - the mix-up that cost a frame is visible here\nhelp[1]:\n  Run `resolve-axi frames --timeline \"fm-scratch qualify\"`\n",
+          "stderr": ""
+        },
+        "cleanup": {
+          "clean": true,
+          "collateral_changes": []
+        },
+        "removed_tracks": [],
+        "removed_media": [
+          "fm-qual-owned-overlay-a.png",
+          "fm-qual-owned-overlay-b.png",
+          "fm-qual-owned-c.mp4",
+          "fm-qual-owned-b.mp4",
+          "fm-qual-owned-a.mp4"
+        ],
+        "after_cleanup": {
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
+          "end_frame": 0,
+          "track_names": {
+            "video": [
+              "Video 1",
+              "V2",
+              "V3"
+            ],
+            "audio": [
+              "Audio 1"
+            ],
+            "subtitle": []
+          },
+          "items": []
+        },
+        "collateral_changes": [],
+        "elapsed_seconds": 6.672461125010159
+      }
+    },
+    {
+      "id": "delete_still_card",
+      "axi_item": "AXI-011",
+      "intent": "Delete a caption-card still held over its own span",
+      "operation": "clip.delete",
+      "backend": "edit_patch",
+      "production_entry": "edit_patch.apply_live_patch",
+      "expectation": "commit",
+      "checks": {
+        "target_absent": true,
+        "other_rows_unchanged": true
+      },
+      "status": "pass",
+      "first_attempt": true,
+      "collateral_changes": [],
+      "receipt": {
+        "status": "committed",
+        "refusals": []
+      },
+      "observed": {
+        "items_readback": "items:\n  timeline: fm-scratch qualify\n  clips: 1\n  placed_frames: 48\n  project: Ren Qualification\n  timeline_id: d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\n  generation: 189\n  verified_at: 2026-10-21T04:35:02+00:00\n  source: live refresh\n  freshness: captured during this read\nclips[1]{track,name,record_in,record_out,duration,source_in,source_out,source_file,pan,tilt,zoomx,zoomy,opacity}:\n  video1,fm-qual-owned-a.mp4,0,48,48,0,48,/tmp/fm-qual-owned-a.mp4,0.0,0.0,1.0,1.0,100.0\nsource_out is inclusive (GetSourceEndFrame); record_out is exclusive - the mix-up that cost a frame is visible here\nhelp[1]:\n  Run `resolve-axi frames --timeline \"fm-scratch qualify\"`\n",
+        "qualification_state": {
+          "inspected": true,
+          "state": {
+            "resolve_version": "21.1.0.14",
+            "media_type": "still",
+            "clip_composition": "still_clip",
+            "linked_audio_configuration": "no_linked_audio",
+            "track_layout": "video+audio",
+            "track_occupancy": "mixed",
+            "timeline_density": "light",
+            "timeline_structure": "multi_item_timeline",
+            "project_settings": "landscape_1920x1080",
+            "frame_rate": "24",
+            "existing_effects": "retiming"
+          },
+          "targets": [
+            "9b526bba-2554-412d-871c-305fb4f3514b"
+          ],
+          "missing_targets": []
+        }
+      },
+      "elapsed_seconds": 11.282061250007246,
+      "case": {
+        "id": "delete_still_card",
+        "setup_receipts": [
+          {
+            "argv": [
+              "edit",
+              "place",
+              "--clip",
+              "fm-qual-owned-a.mp4",
+              "--media",
+              "video",
+              "--track",
+              "1",
+              "--record",
+              "0",
+              "--source-in",
+              "0",
+              "--source-out",
+              "47",
+              "--apply",
+              "--project",
+              "Ren Qualification",
+              "--timeline",
+              "fm-scratch qualify"
+            ],
+            "exit_code": 0,
+            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: fm-qual-owned-a.mp4\n  items_delta: 1\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  fm-qual-owned-a.mp4,0,48,0,48,dc7ea9e0-d215-48d6-91e4-be5dcb582916\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+            "stderr": ""
+          },
+          {
+            "argv": [
+              "edit",
+              "place",
+              "--clip",
+              "fm-qual-owned-overlay-a.png",
+              "--media",
+              "video",
+              "--track",
+              "3",
+              "--record",
+              "96",
+              "--source-in",
+              "0",
+              "--source-out",
+              "47",
+              "--apply",
+              "--project",
+              "Ren Qualification",
+              "--timeline",
+              "fm-scratch qualify"
+            ],
+            "exit_code": 0,
+            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: fm-qual-owned-overlay-a.png\n  items_delta: 1\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  fm-qual-owned-overlay-a.png,96,216,0,0,9b526bba-2554-412d-871c-305fb4f3514b\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+            "stderr": ""
+          }
+        ],
+        "commands": [
+          {
+            "argv": [
+              "edit_patch.apply_live_patch",
+              "delete-still-card"
+            ],
+            "exit_code": 0,
+            "stdout": "{\"patch_id\": \"ren-50a77bded17084edf9cc4d7ea63670d1595f2642a4453230835a807544d335a5\", \"status\": \"committed\", \"resolve_write_status\": \"committed\", \"base_generation\": 188, \"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\", \"requested_operation_count\": 1, \"expected_state\": {\"operations\": [{\"op\": \"clip.delete\", \"unique_id\": \"9b526bba-2554-412d-871c-305fb4f3514b\"}], \"postconditions\": []}, \"readback\": {\"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\", \"timeline_id\": \"d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\", \"generation\": 189, \"hash\": \"f56dc9f5d7a944261d2132d486b470d0b9d4407cce4c5851c6f70a287cdb1675\", \"source\": \"patch\", \"patch_id\": \"ren-50a77bded17084edf9cc4d7ea63670d1595f2642a4453230835a807544d335a5\", \"recorded_at\": 1792557300.478805, \"verified_at\": 1792557300.478805, \"model_revision\": null, \"nle_binding_ids\": []}, \"backend\": \"edit_patch\", \"idempotency_key\": \"ren-50a77bded17084edf9cc4d7ea63670d1595f2642a4453230835a807544d335a5\", \"operations\": [{\"index\": 0, \"op\": \"clip.delete\", \"returned\": true, \"failure\": null}], \"unrelated_changes\": [], \"acceptance_contracts\": [{\"id\": \"acceptance:clip.delete\", \"operation\": \"clip.delete\", \"checks\": [\"target_absent\", \"unrelated_items_unchanged\"], \"structural_source\": \"timeline_readback\", \"passed\": true, \"results\": [{\"check\": \"target_absent\", \"passed\": true, \"status\": \"passed\", \"evidence\": null}, {\"check\": \"unrelated_items_unchanged\", \"passed\": true, \"status\": \"passed\", \"evidence\": true}], \"missing\": [], \"failed\": []}], \"preservation\": {\"status\": \"preserved\", \"changes\": [{\"target\": \"clip:9b526bba-2554-412d-871c-305fb4f3514b\", \"field\": \"removed\", \"domain\": \"timeline_structure\", \"before\": {\"clip_color\": \"\", \"color\": {\"cdl\": {}, \"color_group\": \"\", \"luts\": [], \"node_count\": 1}, \"duration\": 120, \"enabled\": true, \"fades\": {\"FadeIn\": 0.0, \"FadeOut\": 0.0}, \"flags\": [], \"fusion\": {\"comp_count\": 0, \"comp_names\": [], \"mattes\": null, \"media_windows\": []}, \"item_type\": \"video\", \"keyframes\": {}, \"left_offset\": 86400, \"linked_clips\": [], \"linked_unique_ids\": [], \"markers\": [], \"media_pool_item_id\": \"6977c32c-4723-4b4d-8015-cf7431c31a76\", \"media_type\": \"Still\", \"name\": \"fm-qual-owned-overlay-a.png\", \"record_in\": 96, \"record_out\": 216, \"right_offset\": 1353481, \"source_file\": \"/tmp/fm-qual-owned-overlay-a.png\", \"source_frames\": 1, \"source_in_frame\": 0, \"source_out_frame\": 0, \"speaker\": \"V3\", \"speed\": 0.0, \"track_index\": 3, \"track_name\": \"V3\", \"track_type\": \"video\", \"transform\": {\"AnchorPointX\": 0.0, \"AnchorPointY\": 0.0, \"CompositeEnabled\": true, \"CompositeMode\": 0, \"CropBottom\": 0.0, \"CropLeft\": 0.0, \"CropRetain\": false, \"CropRight\": 0.0, \"CropSoftness\": 0.0, \"CropTop\": 0.0, \"CroppingEnabled\": true, \"Distortion\": 0.0, \"DynamicZoomEase\": 0, \"DynamicZoomEnabled\": false, \"FlipX\": false, \"FlipY\": false, \"LensCorrectionEnabled\": true, \"MotionEstimation\": 0, \"Opacity\": 100.0, \"Pan\": 0.0, \"Pitch\": 0.0, \"ResizeFilter\": 0, \"RetimeAndScalingEnabled\": true, \"RetimeProcess\": 0, \"RotationAngle\": 0.0, \"Scaling\": 0, \"Tilt\": 0.0, \"TransformEnabled\": true, \"Yaw\": 0.0, \"ZoomGang\": true, \"ZoomX\": 1.0, \"ZoomY\": 1.0}, \"unique_id\": \"9b526bba-2554-412d-871c-305fb4f3514b\"}, \"after\": null, \"authorized\": true}, {\"target\": \"timeline\", \"field\": \"end_frame\", \"domain\": \"timeline_structure\", \"before\": 216, \"after\": 48, \"authorized\": true}], \"expected\": [{\"target\": \"clip:9b526bba-2554-412d-871c-305fb4f3514b\", \"domain\": \"timeline_structure\", \"operation\": \"clip.delete\", \"fields\": [\"removed\"]}], \"expected_not_observed\": [], \"unrelated_changes\": [], \"unobservable_domains\": [], \"unprovable_reason\": \"\"}, \"preservation_requirements\": [], \"stopped\": null, \"recovery_result\": {\"status\": \"not_attempted\", \"reason\": \"transaction verified\"}, \"journal\": {\"intent_persisted\": true, \"errors\": []}, \"postcondition_failures\": [], \"exclusive_hold_seconds\": 1.4898, \"project_model_commit\": {\"status\": \"not_required\", \"revision\": null}, \"project_model_reconcile\": {\"status\": \"not_required\", \"revision\": null}, \"generation\": 189, \"fingerprint\": \"f56dc9f5d7a944261d2132d486b470d0b9d4407cce4c5851c6f70a287cdb1675\", \"recovery\": null, \"planned\": {\"status\": \"planned\", \"patch_id\": \"ren-50a77bded17084edf9cc4d7ea63670d1595f2642a4453230835a807544d335a5\"}, \"validated\": {\"status\": \"validated\", \"base_generation\": 188}, \"prepared\": {\"status\": \"prepared\", \"journal\": {\"intent_persisted\": true, \"errors\": []}}, \"executing\": {\"status\": \"completed\", \"stopped\": null}, \"applied\": {\"status\": \"applied\", \"operations\": 1, \"requested\": 1, \"complete\": true}, \"verified\": {\"status\": \"verified\", \"acceptance_contracts_passed\": true}, \"committed\": {\"status\": \"committed\", \"generation\": 189, \"project_model\": {\"status\": \"not_required\", \"revision\": null}}, \"promoted\": {\"status\": \"not_requested\"}, \"delivered\": {\"status\": \"not_requested\"}, \"lifecycle\": {\"stage\": \"COMMITTED\", \"ids\": {\"transaction_id\": \"ren-50a77bded17084edf9cc4d7ea63670d1595f2642a4453230835a807544d335a5\", \"idempotency_key\": \"ren-50a77bded17084edf9cc4d7ea63670d1595f2642a4453230835a807544d335a5\", \"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\"}, \"expected_state\": {\"operations\": [{\"op\": \"clip.delete\", \"unique_id\": \"9b526bba-2554-412d-871c-305fb4f3514b\"}], \"postconditions\": []}, \"actual_state\": {\"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\", \"timeline_id\": \"d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\", \"generation\": 189, \"hash\": \"f56dc9f5d7a944261d2132d486b470d0b9d4407cce4c5851c6f70a287cdb1675\", \"source\": \"patch\", \"patch_id\": \"ren-50a77bded17084edf9cc4d7ea63670d1595f2642a4453230835a807544d335a5\", \"recorded_at\": 1792557300.478805, \"verified_at\": 1792557300.478805, \"model_revision\": null, \"nle_binding_ids\": []}, \"affected_changes\": [{\"index\": 0, \"op\": \"clip.delete\", \"returned\": true, \"failure\": null}], \"unrelated_changes\": [], \"backend\": \"edit_patch\", \"route_selection\": null, \"verification\": {\"outcome\": {\"status\": \"verified\", \"acceptance_contracts_passed\": true}, \"acceptance_contracts\": [{\"id\": \"acceptance:clip.delete\", \"operation\": \"clip.delete\", \"checks\": [\"target_absent\", \"unrelated_items_unchanged\"], \"structural_source\": \"timeline_readback\", \"passed\": true, \"results\": [{\"check\": \"target_absent\", \"passed\": true, \"status\": \"passed\", \"evidence\": null}, {\"check\": \"unrelated_items_unchanged\", \"passed\": true, \"status\": \"passed\", \"evidence\": true}], \"missing\": [], \"failed\": []}]}, \"recovery\": null, \"recovery_result\": {\"status\": \"not_attempted\", \"reason\": \"transaction verified\"}, \"persistence\": {\"status\": \"committed\", \"generation\": 189, \"project_model\": {\"status\": \"not_required\", \"revision\": null}}, \"promotion\": null, \"delivery\": {\"status\": \"not_requested\"}, \"history\": [\"PLANNED\", \"VALIDATED\", \"PREPARED\", \"EXECUTING\", \"APPLIED\", \"VERIFIED\", \"COMMITTED\"]}, \"execution_contract\": {\"status\": \"committed\", \"backend\": \"edit_patch\", \"verification\": {\"status\": \"verified\", \"checks\": [{\"passed\": true, \"operation\": \"clip.delete\", \"failures\": []}], \"missing\": [], \"evidence\": {\"acceptance_check_count\": 1, \"readback_present\": true}, \"layers\": {\"stored_state\": {\"status\": \"verified\", \"checks\": 1}, \"rendered_pixels\": {\"status\": \"not_measured\", \"evidence\": {}}, \"rendered_audio\": {\"status\": \"not_measured\", \"evidence\": {}}}}, \"recovery\": {\"status\": \"not_attempted\", \"action\": \"none\", \"reason\": \"transaction verified\", \"evidence\": {\"recovery_record_present\": true}}, \"limitations\": [], \"receipt\": {\"transaction_id\": \"ren-50a77bded17084edf9cc4d7ea63670d1595f2642a4453230835a807544d335a5\", \"idempotency_key\": \"ren-50a77bded17084edf9cc4d7ea63670d1595f2642a4453230835a807544d335a5\"}}}",
+            "stderr": ""
+          }
+        ],
+        "before": {
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
+          "end_frame": 0,
+          "track_names": {
+            "video": [
+              "Video 1",
+              "V2",
+              "V3"
+            ],
+            "audio": [
+              "Audio 1"
+            ],
+            "subtitle": []
+          },
+          "items": []
+        },
+        "after_setup": {
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
+          "end_frame": 216,
+          "track_names": {
+            "video": [
+              "Video 1",
+              "V2",
+              "V3"
+            ],
+            "audio": [
+              "Audio 1"
+            ],
+            "subtitle": []
+          },
+          "items": [
+            {
+              "unique_id": "dc7ea9e0-d215-48d6-91e4-be5dcb582916",
+              "kind": "video",
+              "track": 1,
+              "track_name": "Video 1",
+              "name": "fm-qual-owned-a.mp4",
+              "source_path": "/tmp/fm-qual-owned-a.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 48,
+              "record_in": 0,
+              "record_out": 48,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 100.0
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "9b526bba-2554-412d-871c-305fb4f3514b",
+              "kind": "video",
+              "track": 3,
+              "track_name": "V3",
+              "name": "fm-qual-owned-overlay-a.png",
+              "source_path": "/tmp/fm-qual-owned-overlay-a.png",
+              "media_type": "Still",
+              "source_in": 0,
+              "source_out": 0,
+              "record_in": 96,
+              "record_out": 216,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 0.0
+              },
+              "cdl": null
+            }
+          ],
+          "carried_cleanup": {
+            "clean": true,
+            "collateral_changes": []
+          },
+          "setup_refusals": []
+        },
+        "qualification_state": {
+          "inspected": true,
+          "state": {
+            "resolve_version": "21.1.0.14",
+            "media_type": "still",
+            "clip_composition": "still_clip",
+            "linked_audio_configuration": "no_linked_audio",
+            "track_layout": "video+audio",
+            "track_occupancy": "mixed",
+            "timeline_density": "light",
+            "timeline_structure": "multi_item_timeline",
+            "project_settings": "landscape_1920x1080",
+            "frame_rate": "24",
+            "existing_effects": "retiming"
+          },
+          "targets": [
+            "9b526bba-2554-412d-871c-305fb4f3514b"
+          ],
+          "missing_targets": []
+        },
+        "after": {
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
+          "end_frame": 48,
+          "track_names": {
+            "video": [
+              "Video 1",
+              "V2",
+              "V3"
+            ],
+            "audio": [
+              "Audio 1"
+            ],
+            "subtitle": []
+          },
+          "items": [
+            {
+              "unique_id": "dc7ea9e0-d215-48d6-91e4-be5dcb582916",
+              "kind": "video",
+              "track": 1,
+              "track_name": "Video 1",
+              "name": "fm-qual-owned-a.mp4",
+              "source_path": "/tmp/fm-qual-owned-a.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 48,
+              "record_in": 0,
+              "record_out": 48,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 100.0
+              },
+              "cdl": null
+            }
+          ]
+        },
+        "items_readback": {
+          "argv": [
+            "items",
+            "--project",
+            "Ren Qualification",
+            "--timeline",
+            "fm-scratch qualify",
+            "--refresh-live",
+            "--transforms"
+          ],
+          "exit_code": 0,
+          "stdout": "items:\n  timeline: fm-scratch qualify\n  clips: 1\n  placed_frames: 48\n  project: Ren Qualification\n  timeline_id: d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\n  generation: 189\n  verified_at: 2026-10-21T04:35:02+00:00\n  source: live refresh\n  freshness: captured during this read\nclips[1]{track,name,record_in,record_out,duration,source_in,source_out,source_file,pan,tilt,zoomx,zoomy,opacity}:\n  video1,fm-qual-owned-a.mp4,0,48,48,0,48,/tmp/fm-qual-owned-a.mp4,0.0,0.0,1.0,1.0,100.0\nsource_out is inclusive (GetSourceEndFrame); record_out is exclusive - the mix-up that cost a frame is visible here\nhelp[1]:\n  Run `resolve-axi frames --timeline \"fm-scratch qualify\"`\n",
+          "stderr": ""
+        },
+        "cleanup": {
+          "clean": true,
+          "collateral_changes": []
+        },
+        "removed_tracks": [],
+        "removed_media": [
+          "fm-qual-owned-overlay-b.png",
+          "fm-qual-owned-overlay-a.png",
+          "fm-qual-owned-c.mp4",
+          "fm-qual-owned-b.mp4",
+          "fm-qual-owned-a.mp4"
+        ],
+        "after_cleanup": {
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
+          "end_frame": 0,
+          "track_names": {
+            "video": [
+              "Video 1",
+              "V2",
+              "V3"
+            ],
+            "audio": [
+              "Audio 1"
+            ],
+            "subtitle": []
+          },
+          "items": []
+        },
+        "collateral_changes": [],
+        "elapsed_seconds": 11.282061250007246
+      }
+    },
+    {
+      "id": "delete_fusion_bearing",
+      "axi_item": "AXI-011",
+      "intent": "Delete a clip that carries a Fusion composition",
+      "operation": "clip.delete",
+      "backend": "edit_patch",
+      "production_entry": "edit_patch.apply_live_patch",
+      "expectation": "commit",
+      "checks": {
+        "target_absent": true,
+        "fusion_comp_gone_with_target": true,
+        "other_rows_unchanged": true
+      },
+      "status": "pass",
+      "first_attempt": true,
+      "collateral_changes": [],
+      "receipt": {
+        "status": "committed",
+        "refusals": []
+      },
+      "observed": {
+        "items_readback": "items:\n  timeline: fm-scratch qualify\n  clips: 1\n  placed_frames: 48\n  project: Ren Qualification\n  timeline_id: d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\n  generation: 217\n  verified_at: 2026-10-21T06:02:02+00:00\n  source: live refresh\n  freshness: captured during this read\nclips[1]{track,name,record_in,record_out,duration,source_in,source_out,source_file,pan,tilt,zoomx,zoomy,opacity}:\n  video2,fm-qual-owned-c.mp4,0,48,48,0,47,/tmp/fm-qual-owned-c.mp4,0.0,0.0,1.0,1.0,100.0\nsource_out is inclusive (GetSourceEndFrame); record_out is exclusive - the mix-up that cost a frame is visible here\nhelp[1]:\n  Run `resolve-axi frames --timeline \"fm-scratch qualify\"`\n",
+        "qualification_state": {
+          "inspected": true,
+          "state": {
+            "resolve_version": "21.1.0.14",
+            "media_type": "video",
+            "clip_composition": "single_video_clip",
+            "linked_audio_configuration": "no_linked_audio",
+            "track_layout": "video+audio",
+            "track_occupancy": "mixed",
+            "timeline_density": "light",
+            "timeline_structure": "multi_item_timeline",
+            "project_settings": "landscape_1920x1080",
+            "frame_rate": "24",
+            "existing_effects": "retiming+fusion"
+          },
+          "targets": [
+            "bc89a3b5-4a7f-4746-8515-6ed64d8480b7"
+          ],
+          "missing_targets": []
+        }
+      },
+      "elapsed_seconds": 46.59937541600084,
+      "case": {
+        "id": "delete_fusion_bearing",
+        "setup_receipts": [
+          {
+            "argv": [
+              "edit",
+              "place",
+              "--clip",
+              "fm-qual-owned-a.mp4",
+              "--media",
+              "video",
+              "--track",
+              "1",
+              "--record",
+              "0",
+              "--source-in",
+              "0",
+              "--source-out",
+              "95",
+              "--apply",
+              "--project",
+              "Ren Qualification",
+              "--timeline",
+              "fm-scratch qualify"
+            ],
+            "exit_code": 0,
+            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: fm-qual-owned-a.mp4\n  items_delta: 1\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  fm-qual-owned-a.mp4,0,96,0,95,bc89a3b5-4a7f-4746-8515-6ed64d8480b7\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+            "stderr": ""
+          },
+          {
+            "argv": [
+              "edit",
+              "place",
+              "--clip",
+              "fm-qual-owned-c.mp4",
+              "--media",
+              "video",
+              "--track",
+              "2",
+              "--record",
+              "0",
+              "--source-in",
+              "0",
+              "--source-out",
+              "47",
+              "--apply",
+              "--project",
+              "Ren Qualification",
+              "--timeline",
+              "fm-scratch qualify"
+            ],
+            "exit_code": 0,
+            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: fm-qual-owned-c.mp4\n  items_delta: 1\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  fm-qual-owned-c.mp4,0,48,0,47,f7288ca1-de6c-44b1-b533-c4c028f01def\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+            "stderr": ""
+          },
+          {
+            "argv": [
+              "edit_patch.apply_live_patch",
+              "delete-target-retime"
+            ],
+            "exit_code": 0,
+            "stdout": "{\"patch_id\": \"ren-e3ba5ba3414beddddffa7e3b77ab79aefaf9341fae8e578fb221964c106b49ca\", \"status\": \"committed\", \"resolve_write_status\": \"committed\", \"base_generation\": 214, \"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\", \"requested_operation_count\": 1, \"expected_state\": {\"operations\": [{\"op\": \"retime.segments\", \"unique_id\": \"bc89a3b5-4a7f-4746-8515-6ed64d8480b7\", \"segments\": [{\"record_frame\": 0, \"percent\": 90.0}]}], \"postconditions\": []}, \"readback\": {\"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\", \"timeline_id\": \"d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\", \"generation\": 215, \"hash\": \"8f7bfc674d97097b6048f37e8eff3524c6641e0434ce1b45a90ef5330855685b\", \"source\": \"patch\", \"patch_id\": \"ren-e3ba5ba3414beddddffa7e3b77ab79aefaf9341fae8e578fb221964c106b49ca\", \"recorded_at\": 1792562515.029889, \"verified_at\": 1792562515.029889, \"model_revision\": null, \"nle_binding_ids\": []}, \"backend\": \"edit_patch\", \"idempotency_key\": \"ren-e3ba5ba3414beddddffa7e3b77ab79aefaf9341fae8e578fb221964c106b49ca\", \"operations\": [{\"index\": 0, \"op\": \"retime.segments\", \"returned\": true, \"failure\": null}], \"unrelated_changes\": [], \"acceptance_contracts\": [{\"id\": \"acceptance:retime.segments\", \"operation\": \"retime.segments\", \"checks\": [\"operation_readback_matches_request\", \"unrelated_items_unchanged\"], \"structural_source\": \"timeline_readback\", \"passed\": true, \"results\": [{\"check\": \"operation_readback_matches_request\", \"passed\": true, \"status\": \"passed\", \"evidence\": null}, {\"check\": \"unrelated_items_unchanged\", \"passed\": true, \"status\": \"passed\", \"evidence\": true}], \"missing\": [], \"failed\": []}], \"preservation\": {\"status\": \"preserved\", \"changes\": [{\"target\": \"clip:bc89a3b5-4a7f-4746-8515-6ed64d8480b7\", \"field\": \"right_offset\", \"domain\": \"timeline_structure\", \"before\": 0, \"after\": 10, \"authorized\": true}, {\"target\": \"clip:bc89a3b5-4a7f-4746-8515-6ed64d8480b7\", \"field\": \"source_out_frame\", \"domain\": \"timeline_structure\", \"before\": 95, \"after\": 86, \"authorized\": true}, {\"target\": \"clip:bc89a3b5-4a7f-4746-8515-6ed64d8480b7\", \"field\": \"speed\", \"domain\": \"timeline_structure\", \"before\": 100.0, \"after\": 90.0, \"authorized\": true}], \"expected\": [{\"target\": \"clip:bc89a3b5-4a7f-4746-8515-6ed64d8480b7\", \"domain\": \"timeline_structure\", \"operation\": \"retime.segments\", \"fields\": []}], \"expected_not_observed\": [], \"unrelated_changes\": [], \"unobservable_domains\": [], \"unprovable_reason\": \"\"}, \"preservation_requirements\": [], \"stopped\": null, \"recovery_result\": {\"status\": \"not_attempted\", \"reason\": \"transaction verified\"}, \"journal\": {\"intent_persisted\": true, \"errors\": []}, \"postcondition_failures\": [], \"exclusive_hold_seconds\": 7.7767, \"project_model_commit\": {\"status\": \"not_required\", \"revision\": null}, \"project_model_reconcile\": {\"status\": \"not_required\", \"revision\": null}, \"generation\": 215, \"fingerprint\": \"8f7bfc674d97097b6048f37e8eff3524c6641e0434ce1b45a90ef5330855685b\", \"recovery\": null, \"planned\": {\"status\": \"planned\", \"patch_id\": \"ren-e3ba5ba3414beddddffa7e3b77ab79aefaf9341fae8e578fb221964c106b49ca\"}, \"validated\": {\"status\": \"validated\", \"base_generation\": 214}, \"prepared\": {\"status\": \"prepared\", \"journal\": {\"intent_persisted\": true, \"errors\": []}}, \"executing\": {\"status\": \"completed\", \"stopped\": null}, \"applied\": {\"status\": \"applied\", \"operations\": 1, \"requested\": 1, \"complete\": true}, \"verified\": {\"status\": \"verified\", \"acceptance_contracts_passed\": true}, \"committed\": {\"status\": \"committed\", \"generation\": 215, \"project_model\": {\"status\": \"not_required\", \"revision\": null}}, \"promoted\": {\"status\": \"not_requested\"}, \"delivered\": {\"status\": \"not_requested\"}, \"lifecycle\": {\"stage\": \"COMMITTED\", \"ids\": {\"transaction_id\": \"ren-e3ba5ba3414beddddffa7e3b77ab79aefaf9341fae8e578fb221964c106b49ca\", \"idempotency_key\": \"ren-e3ba5ba3414beddddffa7e3b77ab79aefaf9341fae8e578fb221964c106b49ca\", \"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\"}, \"expected_state\": {\"operations\": [{\"op\": \"retime.segments\", \"unique_id\": \"bc89a3b5-4a7f-4746-8515-6ed64d8480b7\", \"segments\": [{\"record_frame\": 0, \"percent\": 90.0}]}], \"postconditions\": []}, \"actual_state\": {\"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\", \"timeline_id\": \"d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\", \"generation\": 215, \"hash\": \"8f7bfc674d97097b6048f37e8eff3524c6641e0434ce1b45a90ef5330855685b\", \"source\": \"patch\", \"patch_id\": \"ren-e3ba5ba3414beddddffa7e3b77ab79aefaf9341fae8e578fb221964c106b49ca\", \"recorded_at\": 1792562515.029889, \"verified_at\": 1792562515.029889, \"model_revision\": null, \"nle_binding_ids\": []}, \"affected_changes\": [{\"index\": 0, \"op\": \"retime.segments\", \"returned\": true, \"failure\": null}], \"unrelated_changes\": [], \"backend\": \"edit_patch\", \"route_selection\": null, \"verification\": {\"outcome\": {\"status\": \"verified\", \"acceptance_contracts_passed\": true}, \"acceptance_contracts\": [{\"id\": \"acceptance:retime.segments\", \"operation\": \"retime.segments\", \"checks\": [\"operation_readback_matches_request\", \"unrelated_items_unchanged\"], \"structural_source\": \"timeline_readback\", \"passed\": true, \"results\": [{\"check\": \"operation_readback_matches_request\", \"passed\": true, \"status\": \"passed\", \"evidence\": null}, {\"check\": \"unrelated_items_unchanged\", \"passed\": true, \"status\": \"passed\", \"evidence\": true}], \"missing\": [], \"failed\": []}]}, \"recovery\": null, \"recovery_result\": {\"status\": \"not_attempted\", \"reason\": \"transaction verified\"}, \"persistence\": {\"status\": \"committed\", \"generation\": 215, \"project_model\": {\"status\": \"not_required\", \"revision\": null}}, \"promotion\": null, \"delivery\": {\"status\": \"not_requested\"}, \"history\": [\"PLANNED\", \"VALIDATED\", \"PREPARED\", \"EXECUTING\", \"APPLIED\", \"VERIFIED\", \"COMMITTED\"]}, \"execution_contract\": {\"status\": \"committed\", \"backend\": \"edit_patch\", \"verification\": {\"status\": \"verified\", \"checks\": [{\"passed\": true, \"operation\": \"retime.segments\", \"failures\": []}], \"missing\": [], \"evidence\": {\"acceptance_check_count\": 1, \"readback_present\": true}, \"layers\": {\"stored_state\": {\"status\": \"verified\", \"checks\": 1}, \"rendered_pixels\": {\"status\": \"not_measured\", \"evidence\": {}}, \"rendered_audio\": {\"status\": \"not_measured\", \"evidence\": {}}}}, \"recovery\": {\"status\": \"not_attempted\", \"action\": \"none\", \"reason\": \"transaction verified\", \"evidence\": {\"recovery_record_present\": true}}, \"limitations\": [], \"receipt\": {\"transaction_id\": \"ren-e3ba5ba3414beddddffa7e3b77ab79aefaf9341fae8e578fb221964c106b49ca\", \"idempotency_key\": \"ren-e3ba5ba3414beddddffa7e3b77ab79aefaf9341fae8e578fb221964c106b49ca\"}}}",
+            "stderr": ""
+          },
+          {
+            "argv": [
+              "edit_patch.apply_live_patch",
+              "delete-target-matte"
+            ],
+            "exit_code": 0,
+            "stdout": "{\"patch_id\": \"ren-b5fd95ceaa6872dfbe60e11e9d2ada61cc731a59ca5661725626bb4257fb1555\", \"status\": \"committed\", \"resolve_write_status\": \"committed\", \"base_generation\": 215, \"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\", \"requested_operation_count\": 1, \"expected_state\": {\"operations\": [{\"op\": \"mask.create\", \"unique_id\": \"bc89a3b5-4a7f-4746-8515-6ed64d8480b7\", \"matte\": \"fm-qual-matte\"}], \"postconditions\": []}, \"readback\": {\"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\", \"timeline_id\": \"d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\", \"generation\": 216, \"hash\": \"640ce7126d7be117971cca2e2f48913326a5932d78fdf8f155cf93481aa3a309\", \"source\": \"patch\", \"patch_id\": \"ren-b5fd95ceaa6872dfbe60e11e9d2ada61cc731a59ca5661725626bb4257fb1555\", \"recorded_at\": 1792562520.993807, \"verified_at\": 1792562520.993807, \"model_revision\": null, \"nle_binding_ids\": []}, \"backend\": \"edit_patch\", \"idempotency_key\": \"ren-b5fd95ceaa6872dfbe60e11e9d2ada61cc731a59ca5661725626bb4257fb1555\", \"operations\": [{\"index\": 0, \"op\": \"mask.create\", \"returned\": true, \"failure\": null}], \"unrelated_changes\": [], \"acceptance_contracts\": [{\"id\": \"acceptance:mask.create\", \"operation\": \"mask.create\", \"checks\": [\"operation_readback_matches_request\", \"unrelated_items_unchanged\"], \"structural_source\": \"timeline_readback\", \"passed\": true, \"results\": [{\"check\": \"operation_readback_matches_request\", \"passed\": true, \"status\": \"passed\", \"evidence\": null}, {\"check\": \"unrelated_items_unchanged\", \"passed\": true, \"status\": \"passed\", \"evidence\": true}], \"missing\": [], \"failed\": []}], \"preservation\": {\"status\": \"preserved\", \"changes\": [{\"target\": \"clip:bc89a3b5-4a7f-4746-8515-6ed64d8480b7\", \"field\": \"fusion.comp_count\", \"domain\": \"fusion\", \"before\": 0, \"after\": 1, \"authorized\": true}, {\"target\": \"clip:bc89a3b5-4a7f-4746-8515-6ed64d8480b7\", \"field\": \"fusion.comp_names\", \"domain\": \"fusion\", \"before\": [], \"after\": [\"fm-qual-matte\"], \"authorized\": true}, {\"target\": \"clip:bc89a3b5-4a7f-4746-8515-6ed64d8480b7\", \"field\": \"fusion.mattes\", \"domain\": \"fusion\", \"before\": null, \"after\": {\"fm-qual-matte\": {\"geometry\": {\"Center\": {\"X\": 0.5, \"Y\": 0.5}, \"Width\": 1.0, \"Height\": 1.0, \"Invert\": 0.0}, \"keyframes\": []}}, \"authorized\": true}, {\"target\": \"clip:bc89a3b5-4a7f-4746-8515-6ed64d8480b7\", \"field\": \"fusion.media_windows\", \"domain\": \"fusion\", \"before\": [], \"after\": [{\"comp_index\": 1, \"window\": {\"MediaSource\": \"Timeline\", \"MediaID\": \"\", \"AudioTrack\": \"Timeline Audio\", \"GlobalIn\": 0.0, \"GlobalOut\": 95.0, \"ClipTimeStart\": 0.0, \"ClipTimeEnd\": 95.0}, \"uncovered_reason\": null, \"tools\": [\"MediaIn\", \"MediaOut\", \"Merge\", \"RectangleMask\"]}], \"authorized\": true}], \"expected\": [{\"target\": \"clip:bc89a3b5-4a7f-4746-8515-6ed64d8480b7\", \"domain\": \"fusion\", \"operation\": \"mask.create\", \"fields\": []}], \"expected_not_observed\": [], \"unrelated_changes\": [], \"unobservable_domains\": [], \"unprovable_reason\": \"\"}, \"preservation_requirements\": [], \"stopped\": null, \"recovery_result\": {\"status\": \"not_attempted\", \"reason\": \"transaction verified\"}, \"journal\": {\"intent_persisted\": true, \"errors\": []}, \"postcondition_failures\": [], \"exclusive_hold_seconds\": 0.7652, \"project_model_commit\": {\"status\": \"not_required\", \"revision\": null}, \"project_model_reconcile\": {\"status\": \"not_required\", \"revision\": null}, \"generation\": 216, \"fingerprint\": \"640ce7126d7be117971cca2e2f48913326a5932d78fdf8f155cf93481aa3a309\", \"recovery\": null, \"planned\": {\"status\": \"planned\", \"patch_id\": \"ren-b5fd95ceaa6872dfbe60e11e9d2ada61cc731a59ca5661725626bb4257fb1555\"}, \"validated\": {\"status\": \"validated\", \"base_generation\": 215}, \"prepared\": {\"status\": \"prepared\", \"journal\": {\"intent_persisted\": true, \"errors\": []}}, \"executing\": {\"status\": \"completed\", \"stopped\": null}, \"applied\": {\"status\": \"applied\", \"operations\": 1, \"requested\": 1, \"complete\": true}, \"verified\": {\"status\": \"verified\", \"acceptance_contracts_passed\": true}, \"committed\": {\"status\": \"committed\", \"generation\": 216, \"project_model\": {\"status\": \"not_required\", \"revision\": null}}, \"promoted\": {\"status\": \"not_requested\"}, \"delivered\": {\"status\": \"not_requested\"}, \"lifecycle\": {\"stage\": \"COMMITTED\", \"ids\": {\"transaction_id\": \"ren-b5fd95ceaa6872dfbe60e11e9d2ada61cc731a59ca5661725626bb4257fb1555\", \"idempotency_key\": \"ren-b5fd95ceaa6872dfbe60e11e9d2ada61cc731a59ca5661725626bb4257fb1555\", \"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\"}, \"expected_state\": {\"operations\": [{\"op\": \"mask.create\", \"unique_id\": \"bc89a3b5-4a7f-4746-8515-6ed64d8480b7\", \"matte\": \"fm-qual-matte\"}], \"postconditions\": []}, \"actual_state\": {\"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\", \"timeline_id\": \"d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\", \"generation\": 216, \"hash\": \"640ce7126d7be117971cca2e2f48913326a5932d78fdf8f155cf93481aa3a309\", \"source\": \"patch\", \"patch_id\": \"ren-b5fd95ceaa6872dfbe60e11e9d2ada61cc731a59ca5661725626bb4257fb1555\", \"recorded_at\": 1792562520.993807, \"verified_at\": 1792562520.993807, \"model_revision\": null, \"nle_binding_ids\": []}, \"affected_changes\": [{\"index\": 0, \"op\": \"mask.create\", \"returned\": true, \"failure\": null}], \"unrelated_changes\": [], \"backend\": \"edit_patch\", \"route_selection\": null, \"verification\": {\"outcome\": {\"status\": \"verified\", \"acceptance_contracts_passed\": true}, \"acceptance_contracts\": [{\"id\": \"acceptance:mask.create\", \"operation\": \"mask.create\", \"checks\": [\"operation_readback_matches_request\", \"unrelated_items_unchanged\"], \"structural_source\": \"timeline_readback\", \"passed\": true, \"results\": [{\"check\": \"operation_readback_matches_request\", \"passed\": true, \"status\": \"passed\", \"evidence\": null}, {\"check\": \"unrelated_items_unchanged\", \"passed\": true, \"status\": \"passed\", \"evidence\": true}], \"missing\": [], \"failed\": []}]}, \"recovery\": null, \"recovery_result\": {\"status\": \"not_attempted\", \"reason\": \"transaction verified\"}, \"persistence\": {\"status\": \"committed\", \"generation\": 216, \"project_model\": {\"status\": \"not_required\", \"revision\": null}}, \"promotion\": null, \"delivery\": {\"status\": \"not_requested\"}, \"history\": [\"PLANNED\", \"VALIDATED\", \"PREPARED\", \"EXECUTING\", \"APPLIED\", \"VERIFIED\", \"COMMITTED\"]}, \"execution_contract\": {\"status\": \"committed\", \"backend\": \"edit_patch\", \"verification\": {\"status\": \"verified\", \"checks\": [{\"passed\": true, \"operation\": \"mask.create\", \"failures\": []}], \"missing\": [], \"evidence\": {\"acceptance_check_count\": 1, \"readback_present\": true}, \"layers\": {\"stored_state\": {\"status\": \"verified\", \"checks\": 1}, \"rendered_pixels\": {\"status\": \"not_measured\", \"evidence\": {}}, \"rendered_audio\": {\"status\": \"not_measured\", \"evidence\": {}}}}, \"recovery\": {\"status\": \"not_attempted\", \"action\": \"none\", \"reason\": \"transaction verified\", \"evidence\": {\"recovery_record_present\": true}}, \"limitations\": [], \"receipt\": {\"transaction_id\": \"ren-b5fd95ceaa6872dfbe60e11e9d2ada61cc731a59ca5661725626bb4257fb1555\", \"idempotency_key\": \"ren-b5fd95ceaa6872dfbe60e11e9d2ada61cc731a59ca5661725626bb4257fb1555\"}}}",
+            "stderr": ""
+          }
+        ],
+        "commands": [
+          {
+            "argv": [
+              "edit_patch.apply_live_patch",
+              "delete-fusion-bearing"
+            ],
+            "exit_code": 0,
+            "stdout": "{\"patch_id\": \"ren-4f57dea72ed07b91bc1c865ecaf7242b2544e71226513ff370b39e8d56aa5fee\", \"status\": \"committed\", \"resolve_write_status\": \"committed\", \"base_generation\": 216, \"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\", \"requested_operation_count\": 1, \"expected_state\": {\"operations\": [{\"op\": \"clip.delete\", \"unique_id\": \"bc89a3b5-4a7f-4746-8515-6ed64d8480b7\"}], \"postconditions\": []}, \"readback\": {\"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\", \"timeline_id\": \"d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\", \"generation\": 217, \"hash\": \"3dd406b725c0bcc989149bb301420f456be6c62c77f8aa00a35e2d211384db6e\", \"source\": \"patch\", \"patch_id\": \"ren-4f57dea72ed07b91bc1c865ecaf7242b2544e71226513ff370b39e8d56aa5fee\", \"recorded_at\": 1792562522.5463061, \"verified_at\": 1792562522.5463061, \"model_revision\": null, \"nle_binding_ids\": []}, \"backend\": \"edit_patch\", \"idempotency_key\": \"ren-4f57dea72ed07b91bc1c865ecaf7242b2544e71226513ff370b39e8d56aa5fee\", \"operations\": [{\"index\": 0, \"op\": \"clip.delete\", \"returned\": true, \"failure\": null}], \"unrelated_changes\": [], \"acceptance_contracts\": [{\"id\": \"acceptance:clip.delete\", \"operation\": \"clip.delete\", \"checks\": [\"target_absent\", \"unrelated_items_unchanged\"], \"structural_source\": \"timeline_readback\", \"passed\": true, \"results\": [{\"check\": \"target_absent\", \"passed\": true, \"status\": \"passed\", \"evidence\": null}, {\"check\": \"unrelated_items_unchanged\", \"passed\": true, \"status\": \"passed\", \"evidence\": true}], \"missing\": [], \"failed\": []}], \"preservation\": {\"status\": \"preserved\", \"changes\": [{\"target\": \"clip:bc89a3b5-4a7f-4746-8515-6ed64d8480b7\", \"field\": \"removed\", \"domain\": \"timeline_structure\", \"before\": {\"clip_color\": \"\", \"color\": {\"cdl\": {}, \"color_group\": \"\", \"luts\": [], \"node_count\": 1}, \"duration\": 96, \"enabled\": true, \"fades\": {\"FadeIn\": 0.0, \"FadeOut\": 0.0}, \"flags\": [], \"fusion\": {\"comp_count\": 1, \"comp_names\": [\"fm-qual-matte\"], \"mattes\": {\"fm-qual-matte\": {\"geometry\": {\"Center\": {\"X\": 0.5, \"Y\": 0.5}, \"Height\": 1.0, \"Invert\": 0.0, \"Width\": 1.0}, \"keyframes\": []}}, \"media_windows\": [{\"comp_index\": 1, \"tools\": [\"MediaIn\", \"MediaOut\", \"Merge\", \"RectangleMask\"], \"uncovered_reason\": null, \"window\": {\"AudioTrack\": \"Timeline Audio\", \"ClipTimeEnd\": 95.0, \"ClipTimeStart\": 0.0, \"GlobalIn\": 0.0, \"GlobalOut\": 95.0, \"MediaID\": \"\", \"MediaSource\": \"Timeline\"}}]}, \"item_type\": \"video\", \"keyframes\": {}, \"left_offset\": 0, \"linked_clips\": [], \"linked_unique_ids\": [], \"markers\": [], \"media_pool_item_id\": \"015c4ba6-6cab-4fac-8734-29881ccbefc2\", \"media_type\": \"Video + Audio\", \"name\": \"fm-qual-owned-a.mp4\", \"record_in\": 0, \"record_out\": 96, \"right_offset\": 10, \"source_file\": \"/tmp/fm-qual-owned-a.mp4\", \"source_frames\": 96, \"source_in_frame\": 0, \"source_out_frame\": 86, \"speaker\": \"Video 1\", \"speed\": 90.0, \"track_index\": 1, \"track_name\": \"Video 1\", \"track_type\": \"video\", \"transform\": {\"AnchorPointX\": 0.0, \"AnchorPointY\": 0.0, \"CompositeEnabled\": true, \"CompositeMode\": 0, \"CropBottom\": 0.0, \"CropLeft\": 0.0, \"CropRetain\": false, \"CropRight\": 0.0, \"CropSoftness\": 0.0, \"CropTop\": 0.0, \"CroppingEnabled\": true, \"Distortion\": 0.0, \"DynamicZoomEase\": 0, \"DynamicZoomEnabled\": false, \"FlipX\": false, \"FlipY\": false, \"LensCorrectionEnabled\": true, \"MotionEstimation\": 0, \"Opacity\": 100.0, \"Pan\": 0.0, \"Pitch\": 0.0, \"ResizeFilter\": 0, \"RetimeAndScalingEnabled\": true, \"RetimeProcess\": 0, \"RotationAngle\": 0.0, \"Scaling\": 0, \"Tilt\": 0.0, \"TransformEnabled\": true, \"Yaw\": 0.0, \"ZoomGang\": true, \"ZoomX\": 1.0, \"ZoomY\": 1.0}, \"unique_id\": \"bc89a3b5-4a7f-4746-8515-6ed64d8480b7\"}, \"after\": null, \"authorized\": true}, {\"target\": \"timeline\", \"field\": \"end_frame\", \"domain\": \"timeline_structure\", \"before\": 96, \"after\": 48, \"authorized\": true}], \"expected\": [{\"target\": \"clip:bc89a3b5-4a7f-4746-8515-6ed64d8480b7\", \"domain\": \"timeline_structure\", \"operation\": \"clip.delete\", \"fields\": [\"removed\"]}], \"expected_not_observed\": [], \"unrelated_changes\": [], \"unobservable_domains\": [], \"unprovable_reason\": \"\"}, \"preservation_requirements\": [], \"stopped\": null, \"recovery_result\": {\"status\": \"not_attempted\", \"reason\": \"transaction verified\"}, \"journal\": {\"intent_persisted\": true, \"errors\": []}, \"postcondition_failures\": [], \"exclusive_hold_seconds\": 0.436, \"project_model_commit\": {\"status\": \"not_required\", \"revision\": null}, \"project_model_reconcile\": {\"status\": \"not_required\", \"revision\": null}, \"generation\": 217, \"fingerprint\": \"3dd406b725c0bcc989149bb301420f456be6c62c77f8aa00a35e2d211384db6e\", \"recovery\": null, \"planned\": {\"status\": \"planned\", \"patch_id\": \"ren-4f57dea72ed07b91bc1c865ecaf7242b2544e71226513ff370b39e8d56aa5fee\"}, \"validated\": {\"status\": \"validated\", \"base_generation\": 216}, \"prepared\": {\"status\": \"prepared\", \"journal\": {\"intent_persisted\": true, \"errors\": []}}, \"executing\": {\"status\": \"completed\", \"stopped\": null}, \"applied\": {\"status\": \"applied\", \"operations\": 1, \"requested\": 1, \"complete\": true}, \"verified\": {\"status\": \"verified\", \"acceptance_contracts_passed\": true}, \"committed\": {\"status\": \"committed\", \"generation\": 217, \"project_model\": {\"status\": \"not_required\", \"revision\": null}}, \"promoted\": {\"status\": \"not_requested\"}, \"delivered\": {\"status\": \"not_requested\"}, \"lifecycle\": {\"stage\": \"COMMITTED\", \"ids\": {\"transaction_id\": \"ren-4f57dea72ed07b91bc1c865ecaf7242b2544e71226513ff370b39e8d56aa5fee\", \"idempotency_key\": \"ren-4f57dea72ed07b91bc1c865ecaf7242b2544e71226513ff370b39e8d56aa5fee\", \"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\"}, \"expected_state\": {\"operations\": [{\"op\": \"clip.delete\", \"unique_id\": \"bc89a3b5-4a7f-4746-8515-6ed64d8480b7\"}], \"postconditions\": []}, \"actual_state\": {\"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\", \"timeline_id\": \"d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\", \"generation\": 217, \"hash\": \"3dd406b725c0bcc989149bb301420f456be6c62c77f8aa00a35e2d211384db6e\", \"source\": \"patch\", \"patch_id\": \"ren-4f57dea72ed07b91bc1c865ecaf7242b2544e71226513ff370b39e8d56aa5fee\", \"recorded_at\": 1792562522.5463061, \"verified_at\": 1792562522.5463061, \"model_revision\": null, \"nle_binding_ids\": []}, \"affected_changes\": [{\"index\": 0, \"op\": \"clip.delete\", \"returned\": true, \"failure\": null}], \"unrelated_changes\": [], \"backend\": \"edit_patch\", \"route_selection\": null, \"verification\": {\"outcome\": {\"status\": \"verified\", \"acceptance_contracts_passed\": true}, \"acceptance_contracts\": [{\"id\": \"acceptance:clip.delete\", \"operation\": \"clip.delete\", \"checks\": [\"target_absent\", \"unrelated_items_unchanged\"], \"structural_source\": \"timeline_readback\", \"passed\": true, \"results\": [{\"check\": \"target_absent\", \"passed\": true, \"status\": \"passed\", \"evidence\": null}, {\"check\": \"unrelated_items_unchanged\", \"passed\": true, \"status\": \"passed\", \"evidence\": true}], \"missing\": [], \"failed\": []}]}, \"recovery\": null, \"recovery_result\": {\"status\": \"not_attempted\", \"reason\": \"transaction verified\"}, \"persistence\": {\"status\": \"committed\", \"generation\": 217, \"project_model\": {\"status\": \"not_required\", \"revision\": null}}, \"promotion\": null, \"delivery\": {\"status\": \"not_requested\"}, \"history\": [\"PLANNED\", \"VALIDATED\", \"PREPARED\", \"EXECUTING\", \"APPLIED\", \"VERIFIED\", \"COMMITTED\"]}, \"execution_contract\": {\"status\": \"committed\", \"backend\": \"edit_patch\", \"verification\": {\"status\": \"verified\", \"checks\": [{\"passed\": true, \"operation\": \"clip.delete\", \"failures\": []}], \"missing\": [], \"evidence\": {\"acceptance_check_count\": 1, \"readback_present\": true}, \"layers\": {\"stored_state\": {\"status\": \"verified\", \"checks\": 1}, \"rendered_pixels\": {\"status\": \"not_measured\", \"evidence\": {}}, \"rendered_audio\": {\"status\": \"not_measured\", \"evidence\": {}}}}, \"recovery\": {\"status\": \"not_attempted\", \"action\": \"none\", \"reason\": \"transaction verified\", \"evidence\": {\"recovery_record_present\": true}}, \"limitations\": [], \"receipt\": {\"transaction_id\": \"ren-4f57dea72ed07b91bc1c865ecaf7242b2544e71226513ff370b39e8d56aa5fee\", \"idempotency_key\": \"ren-4f57dea72ed07b91bc1c865ecaf7242b2544e71226513ff370b39e8d56aa5fee\"}}}",
+            "stderr": ""
+          }
+        ],
+        "before": {
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
+          "end_frame": 0,
+          "track_names": {
+            "video": [
+              "Video 1",
+              "V2",
+              "V3"
+            ],
+            "audio": [
+              "Audio 1"
+            ],
+            "subtitle": []
+          },
+          "items": []
+        },
+        "after_setup": {
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
+          "end_frame": 96,
+          "track_names": {
+            "video": [
+              "Video 1",
+              "V2",
+              "V3"
+            ],
+            "audio": [
+              "Audio 1"
+            ],
+            "subtitle": []
+          },
+          "items": [
+            {
+              "unique_id": "bc89a3b5-4a7f-4746-8515-6ed64d8480b7",
+              "kind": "video",
+              "track": 1,
+              "track_name": "Video 1",
+              "name": "fm-qual-owned-a.mp4",
+              "source_path": "/tmp/fm-qual-owned-a.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 86,
+              "record_in": 0,
+              "record_out": 96,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [
+                "fm-qual-matte"
+              ],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 90.0
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "f7288ca1-de6c-44b1-b533-c4c028f01def",
+              "kind": "video",
+              "track": 2,
+              "track_name": "V2",
+              "name": "fm-qual-owned-c.mp4",
+              "source_path": "/tmp/fm-qual-owned-c.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 47,
+              "record_in": 0,
+              "record_out": 48,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 100.0
+              },
+              "cdl": null
+            }
+          ],
+          "carried_cleanup": {
+            "clean": true,
+            "collateral_changes": []
+          },
+          "setup_refusals": []
+        },
+        "qualification_state": {
+          "inspected": true,
+          "state": {
+            "resolve_version": "21.1.0.14",
+            "media_type": "video",
+            "clip_composition": "single_video_clip",
+            "linked_audio_configuration": "no_linked_audio",
+            "track_layout": "video+audio",
+            "track_occupancy": "mixed",
+            "timeline_density": "light",
+            "timeline_structure": "multi_item_timeline",
+            "project_settings": "landscape_1920x1080",
+            "frame_rate": "24",
+            "existing_effects": "retiming+fusion"
+          },
+          "targets": [
+            "bc89a3b5-4a7f-4746-8515-6ed64d8480b7"
+          ],
+          "missing_targets": []
+        },
+        "after": {
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
+          "end_frame": 48,
+          "track_names": {
+            "video": [
+              "Video 1",
+              "V2",
+              "V3"
+            ],
+            "audio": [
+              "Audio 1"
+            ],
+            "subtitle": []
+          },
+          "items": [
+            {
+              "unique_id": "f7288ca1-de6c-44b1-b533-c4c028f01def",
+              "kind": "video",
+              "track": 2,
+              "track_name": "V2",
+              "name": "fm-qual-owned-c.mp4",
+              "source_path": "/tmp/fm-qual-owned-c.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 47,
+              "record_in": 0,
+              "record_out": 48,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 100.0
+              },
+              "cdl": null
+            }
+          ]
+        },
+        "items_readback": {
+          "argv": [
+            "items",
+            "--project",
+            "Ren Qualification",
+            "--timeline",
+            "fm-scratch qualify",
+            "--refresh-live",
+            "--transforms"
+          ],
+          "exit_code": 0,
+          "stdout": "items:\n  timeline: fm-scratch qualify\n  clips: 1\n  placed_frames: 48\n  project: Ren Qualification\n  timeline_id: d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\n  generation: 217\n  verified_at: 2026-10-21T06:02:02+00:00\n  source: live refresh\n  freshness: captured during this read\nclips[1]{track,name,record_in,record_out,duration,source_in,source_out,source_file,pan,tilt,zoomx,zoomy,opacity}:\n  video2,fm-qual-owned-c.mp4,0,48,48,0,47,/tmp/fm-qual-owned-c.mp4,0.0,0.0,1.0,1.0,100.0\nsource_out is inclusive (GetSourceEndFrame); record_out is exclusive - the mix-up that cost a frame is visible here\nhelp[1]:\n  Run `resolve-axi frames --timeline \"fm-scratch qualify\"`\n",
+          "stderr": ""
+        },
+        "cleanup": {
+          "clean": true,
+          "collateral_changes": []
+        },
+        "removed_tracks": [],
+        "removed_media": [
+          "fm-qual-owned-overlay-a.png",
+          "fm-qual-owned-c.mp4",
+          "fm-qual-owned-b.mp4",
+          "fm-qual-owned-overlay-b.png",
+          "fm-qual-owned-a.mp4"
+        ],
+        "after_cleanup": {
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
+          "end_frame": 0,
+          "track_names": {
+            "video": [
+              "Video 1",
+              "V2",
+              "V3"
+            ],
+            "audio": [
+              "Audio 1"
+            ],
+            "subtitle": []
+          },
+          "items": []
+        },
+        "collateral_changes": [],
+        "elapsed_seconds": 46.59937541600084
+      }
+    },
+    {
+      "id": "ripple_remove_multi_track",
+      "axi_item": "AXI-017",
+      "intent": "Ripple one track of a multi-track timeline and measure exactly which tracks and clips moved",
+      "operation": "clip.remove",
+      "backend": "resolve_axi",
+      "production_entry": "resolve-axi edit track-ripple-remove",
+      "expectation": "commit",
+      "checks": {
+        "target_absent": true,
+        "same_track_closed": true,
+        "link_group_shifted": true,
+        "other_rows_untouched": true,
+        "ripple_scope_measured": true
+      },
+      "status": "pass",
+      "first_attempt": true,
+      "collateral_changes": [],
+      "receipt": {
+        "status": "committed",
+        "refusals": []
+      },
+      "observed": {
+        "items_readback": "items:\n  timeline: fm-scratch qualify\n  clips: 4\n  placed_frames: 360\n  project: Ren Qualification\n  timeline_id: d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\n  generation: 205\n  verified_at: 2026-10-21T04:52:58+00:00\n  source: live refresh\n  freshness: captured during this read\nclips[4]{track,name,record_in,record_out,duration,source_in,source_out,source_file,pan,tilt,zoomx,zoomy,opacity}:\n  video1,fm-qual-owned-a.mp4,24,120,96,0,95,/tmp/fm-qual-owned-a.mp4,0.0,0.0,1.0,1.0,100.0\n  video2,fm-qual-owned-c.mp4,0,48,48,0,47,/tmp/fm-qual-owned-c.mp4,0.0,0.0,1.0,1.0,100.0\n  video3,fm-qual-owned-overlay-a.png,120,240,120,0,0,/tmp/fm-qual-owned-overlay-a.png,0.0,0.0,1.0,1.0,100.0\n  audio1,fm-qual-owned-a.mp4,24,120,96,0,95,/tmp/fm-qual-owned-a.mp4,,,,,\nsource_out is inclusive (GetSourceEndFrame); record_out is exclusive - the mix-up that cost a frame is visible here\nhelp[1]:\n  Run `resolve-axi frames --timeline \"fm-scratch qualify\"`\n",
+        "qualification_state": {
+          "inspected": true,
+          "state": {
+            "resolve_version": "21.1.0.14",
+            "media_type": "video",
+            "clip_composition": "linked_video_clip",
+            "linked_audio_configuration": "linked_audio_present",
+            "track_layout": "video+audio",
+            "track_occupancy": "all_populated",
+            "timeline_density": "moderate",
+            "timeline_structure": "multi_item_timeline",
+            "project_settings": "landscape_1920x1080",
+            "frame_rate": "24",
+            "existing_effects": "none"
+          },
+          "targets": [
+            "0e6518b3-ab1e-423b-ac7f-e2498bd10535"
+          ],
+          "missing_targets": []
+        }
+      },
+      "elapsed_seconds": 7.523863832990173,
+      "case": {
+        "id": "ripple_remove_multi_track",
+        "setup_receipts": [
+          {
+            "argv": [
+              "edit",
+              "place",
+              "--clip",
+              "fm-qual-owned-b.mp4",
+              "--media",
+              "both",
+              "--track",
+              "1",
+              "--record",
+              "0",
+              "--source-in",
+              "0",
+              "--source-out",
+              "71",
+              "--apply",
+              "--project",
+              "Ren Qualification",
+              "--timeline",
+              "fm-scratch qualify"
+            ],
+            "exit_code": 0,
+            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: fm-qual-owned-b.mp4\n  items_delta: 2\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  fm-qual-owned-b.mp4,0,72,0,71,0e6518b3-ab1e-423b-ac7f-e2498bd10535\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+            "stderr": ""
+          },
+          {
+            "argv": [
+              "edit",
+              "place",
+              "--clip",
+              "fm-qual-owned-a.mp4",
+              "--media",
+              "both",
+              "--track",
+              "1",
+              "--record",
+              "96",
+              "--source-in",
+              "0",
+              "--source-out",
+              "95",
+              "--apply",
+              "--project",
+              "Ren Qualification",
+              "--timeline",
+              "fm-scratch qualify"
+            ],
+            "exit_code": 0,
+            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: fm-qual-owned-a.mp4\n  items_delta: 2\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  fm-qual-owned-a.mp4,96,192,0,95,4463fa2b-bad1-4915-8d65-d528bf1b868f\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+            "stderr": ""
+          },
+          {
+            "argv": [
+              "edit",
+              "place",
+              "--clip",
+              "fm-qual-owned-c.mp4",
+              "--media",
+              "video",
+              "--track",
+              "2",
+              "--record",
+              "0",
+              "--source-in",
+              "0",
+              "--source-out",
+              "47",
+              "--apply",
+              "--project",
+              "Ren Qualification",
+              "--timeline",
+              "fm-scratch qualify"
+            ],
+            "exit_code": 0,
+            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: fm-qual-owned-c.mp4\n  items_delta: 1\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  fm-qual-owned-c.mp4,0,48,0,47,b262bd2e-4440-479b-82bc-e92738c50d4b\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+            "stderr": ""
+          },
+          {
+            "argv": [
+              "edit",
+              "place",
+              "--clip",
+              "fm-qual-owned-overlay-a.png",
+              "--media",
+              "video",
+              "--track",
+              "3",
+              "--record",
+              "120",
+              "--source-in",
+              "0",
+              "--source-out",
+              "47",
+              "--apply",
+              "--project",
+              "Ren Qualification",
+              "--timeline",
+              "fm-scratch qualify"
+            ],
+            "exit_code": 0,
+            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: fm-qual-owned-overlay-a.png\n  items_delta: 1\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  fm-qual-owned-overlay-a.png,120,240,0,0,0e977892-6a47-44c0-b76b-0156af86be04\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+            "stderr": ""
+          }
+        ],
+        "commands": [
+          {
+            "argv": [
+              "edit",
+              "track-ripple-remove",
+              "--track",
+              "video1",
+              "--index",
+              "0",
+              "--project-folder",
+              "/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-small-edit-run-record-bqg0lfbl",
+              "--apply",
+              "--project",
+              "Ren Qualification",
+              "--timeline",
+              "fm-scratch qualify"
+            ],
+            "exit_code": 0,
+            "stdout": "track_ripple_removed:\n  timeline: fm-scratch qualify\n  target: fm-qual-owned-b.mp4\n  target_absent: yes\n  track: video1\n  shifted_groups: 1\n  shift_frames: 72\n  journal_entry: 20261021T045255Z-fm-scratch-qualify-166ebf\njournal:\n  entry: 20261021T045255Z-fm-scratch-qualify-166ebf\n  status: applied\n",
+            "stderr": ""
+          }
+        ],
+        "before": {
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
+          "end_frame": 0,
+          "track_names": {
+            "video": [
+              "Video 1",
+              "V2",
+              "V3"
+            ],
+            "audio": [
+              "Audio 1"
+            ],
+            "subtitle": []
+          },
+          "items": []
+        },
+        "after_setup": {
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
+          "end_frame": 240,
+          "track_names": {
+            "video": [
+              "Video 1",
+              "V2",
+              "V3"
+            ],
+            "audio": [
+              "Audio 1"
+            ],
+            "subtitle": []
+          },
+          "items": [
+            {
+              "unique_id": "0e6518b3-ab1e-423b-ac7f-e2498bd10535",
+              "kind": "video",
+              "track": 1,
+              "track_name": "Video 1",
+              "name": "fm-qual-owned-b.mp4",
+              "source_path": "/tmp/fm-qual-owned-b.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 71,
+              "record_in": 0,
+              "record_out": 72,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [
+                "7c380c65-643c-41ea-baa5-ecb8a49a74c6"
+              ],
+              "speed": {
+                "Percentage": 100.0,
+                "PitchCorrection": true
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "4463fa2b-bad1-4915-8d65-d528bf1b868f",
+              "kind": "video",
+              "track": 1,
+              "track_name": "Video 1",
+              "name": "fm-qual-owned-a.mp4",
+              "source_path": "/tmp/fm-qual-owned-a.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 95,
+              "record_in": 96,
+              "record_out": 192,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [
+                "cc391024-5363-49d3-b2f3-130e1a27de74"
+              ],
+              "speed": {
+                "Percentage": 100.0,
+                "PitchCorrection": true
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "b262bd2e-4440-479b-82bc-e92738c50d4b",
+              "kind": "video",
+              "track": 2,
+              "track_name": "V2",
+              "name": "fm-qual-owned-c.mp4",
+              "source_path": "/tmp/fm-qual-owned-c.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 47,
+              "record_in": 0,
+              "record_out": 48,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 100.0
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "0e977892-6a47-44c0-b76b-0156af86be04",
+              "kind": "video",
+              "track": 3,
+              "track_name": "V3",
+              "name": "fm-qual-owned-overlay-a.png",
+              "source_path": "/tmp/fm-qual-owned-overlay-a.png",
+              "media_type": "Still",
+              "source_in": 0,
+              "source_out": 0,
+              "record_in": 120,
+              "record_out": 240,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 0.0
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "7c380c65-643c-41ea-baa5-ecb8a49a74c6",
+              "kind": "audio",
+              "track": 1,
+              "track_name": "Audio 1",
+              "name": "fm-qual-owned-b.mp4",
+              "source_path": "/tmp/fm-qual-owned-b.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 71,
+              "record_in": 0,
+              "record_out": 72,
+              "transform": {
+                "AudioVolumeEnabled": true,
+                "AudioVolume": 0.0,
+                "AudioPanEnabled": true,
+                "AudioPan": 0.0,
+                "AudioPitchEnabled": true,
+                "AudioPitchSemiTones": 0,
+                "AudioPitchCents": 0,
+                "AudioVoiceIsolationEnabled": false,
+                "AudioVoiceIsolationAmount": 0,
+                "AudioDialogueLevelerEnabled": false,
+                "AudioDialogueLevelerMode": 0,
+                "AudioDialogueLevelerReduceLoudDialogue": false,
+                "AudioDialogueLevelerLiftSoftDialogue": false,
+                "AudioDialogueLevelerBackgroundReduction": false,
+                "AudioDialogueLevelerOutputGain": 0.0
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [
+                "0e6518b3-ab1e-423b-ac7f-e2498bd10535"
+              ],
+              "speed": {
+                "Percentage": 100.0,
+                "PitchCorrection": true
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "cc391024-5363-49d3-b2f3-130e1a27de74",
+              "kind": "audio",
+              "track": 1,
+              "track_name": "Audio 1",
+              "name": "fm-qual-owned-a.mp4",
+              "source_path": "/tmp/fm-qual-owned-a.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 95,
+              "record_in": 96,
+              "record_out": 192,
+              "transform": {
+                "AudioVolumeEnabled": true,
+                "AudioVolume": 0.0,
+                "AudioPanEnabled": true,
+                "AudioPan": 0.0,
+                "AudioPitchEnabled": true,
+                "AudioPitchSemiTones": 0,
+                "AudioPitchCents": 0,
+                "AudioVoiceIsolationEnabled": false,
+                "AudioVoiceIsolationAmount": 0,
+                "AudioDialogueLevelerEnabled": false,
+                "AudioDialogueLevelerMode": 0,
+                "AudioDialogueLevelerReduceLoudDialogue": false,
+                "AudioDialogueLevelerLiftSoftDialogue": false,
+                "AudioDialogueLevelerBackgroundReduction": false,
+                "AudioDialogueLevelerOutputGain": 0.0
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [
+                "4463fa2b-bad1-4915-8d65-d528bf1b868f"
+              ],
+              "speed": {
+                "Percentage": 100.0,
+                "PitchCorrection": true
+              },
+              "cdl": null
+            }
+          ],
+          "carried_cleanup": {
+            "clean": true,
+            "collateral_changes": []
+          },
+          "setup_refusals": []
+        },
+        "qualification_state": {
+          "inspected": true,
+          "state": {
+            "resolve_version": "21.1.0.14",
+            "media_type": "video",
+            "clip_composition": "linked_video_clip",
+            "linked_audio_configuration": "linked_audio_present",
+            "track_layout": "video+audio",
+            "track_occupancy": "all_populated",
+            "timeline_density": "moderate",
+            "timeline_structure": "multi_item_timeline",
+            "project_settings": "landscape_1920x1080",
+            "frame_rate": "24",
+            "existing_effects": "none"
+          },
+          "targets": [
+            "0e6518b3-ab1e-423b-ac7f-e2498bd10535"
+          ],
+          "missing_targets": []
+        },
+        "after": {
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
+          "end_frame": 240,
+          "track_names": {
+            "video": [
+              "Video 1",
+              "V2",
+              "V3"
+            ],
+            "audio": [
+              "Audio 1"
+            ],
+            "subtitle": []
+          },
+          "items": [
+            {
+              "unique_id": "e6fd4d41-2db6-4e96-a584-36439c1d4068",
+              "kind": "video",
+              "track": 1,
+              "track_name": "Video 1",
+              "name": "fm-qual-owned-a.mp4",
+              "source_path": "/tmp/fm-qual-owned-a.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 95,
+              "record_in": 24,
+              "record_out": 120,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [
+                "e012855a-d4ee-46c0-b48c-d70370692ae8"
+              ],
+              "speed": {
+                "Percentage": 100.0,
+                "PitchCorrection": true
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "b262bd2e-4440-479b-82bc-e92738c50d4b",
+              "kind": "video",
+              "track": 2,
+              "track_name": "V2",
+              "name": "fm-qual-owned-c.mp4",
+              "source_path": "/tmp/fm-qual-owned-c.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 47,
+              "record_in": 0,
+              "record_out": 48,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 100.0
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "0e977892-6a47-44c0-b76b-0156af86be04",
+              "kind": "video",
+              "track": 3,
+              "track_name": "V3",
+              "name": "fm-qual-owned-overlay-a.png",
+              "source_path": "/tmp/fm-qual-owned-overlay-a.png",
+              "media_type": "Still",
+              "source_in": 0,
+              "source_out": 0,
+              "record_in": 120,
+              "record_out": 240,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 0.0
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "e012855a-d4ee-46c0-b48c-d70370692ae8",
+              "kind": "audio",
+              "track": 1,
+              "track_name": "Audio 1",
+              "name": "fm-qual-owned-a.mp4",
+              "source_path": "/tmp/fm-qual-owned-a.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 95,
+              "record_in": 24,
+              "record_out": 120,
+              "transform": {
+                "AudioVolumeEnabled": true,
+                "AudioVolume": 0.0,
+                "AudioPanEnabled": true,
+                "AudioPan": 0.0,
+                "AudioPitchEnabled": true,
+                "AudioPitchSemiTones": 0,
+                "AudioPitchCents": 0,
+                "AudioVoiceIsolationEnabled": false,
+                "AudioVoiceIsolationAmount": 0,
+                "AudioDialogueLevelerEnabled": false,
+                "AudioDialogueLevelerMode": 0,
+                "AudioDialogueLevelerReduceLoudDialogue": false,
+                "AudioDialogueLevelerLiftSoftDialogue": false,
+                "AudioDialogueLevelerBackgroundReduction": false,
+                "AudioDialogueLevelerOutputGain": 0.0
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [
+                "e6fd4d41-2db6-4e96-a584-36439c1d4068"
+              ],
+              "speed": {
+                "Percentage": 100.0,
+                "PitchCorrection": true
+              },
+              "cdl": null
+            }
+          ]
+        },
+        "items_readback": {
+          "argv": [
+            "items",
+            "--project",
+            "Ren Qualification",
+            "--timeline",
+            "fm-scratch qualify",
+            "--refresh-live",
+            "--transforms"
+          ],
+          "exit_code": 0,
+          "stdout": "items:\n  timeline: fm-scratch qualify\n  clips: 4\n  placed_frames: 360\n  project: Ren Qualification\n  timeline_id: d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\n  generation: 205\n  verified_at: 2026-10-21T04:52:58+00:00\n  source: live refresh\n  freshness: captured during this read\nclips[4]{track,name,record_in,record_out,duration,source_in,source_out,source_file,pan,tilt,zoomx,zoomy,opacity}:\n  video1,fm-qual-owned-a.mp4,24,120,96,0,95,/tmp/fm-qual-owned-a.mp4,0.0,0.0,1.0,1.0,100.0\n  video2,fm-qual-owned-c.mp4,0,48,48,0,47,/tmp/fm-qual-owned-c.mp4,0.0,0.0,1.0,1.0,100.0\n  video3,fm-qual-owned-overlay-a.png,120,240,120,0,0,/tmp/fm-qual-owned-overlay-a.png,0.0,0.0,1.0,1.0,100.0\n  audio1,fm-qual-owned-a.mp4,24,120,96,0,95,/tmp/fm-qual-owned-a.mp4,,,,,\nsource_out is inclusive (GetSourceEndFrame); record_out is exclusive - the mix-up that cost a frame is visible here\nhelp[1]:\n  Run `resolve-axi frames --timeline \"fm-scratch qualify\"`\n",
+          "stderr": ""
+        },
+        "cleanup": {
+          "clean": true,
+          "collateral_changes": []
+        },
+        "removed_tracks": [],
+        "removed_media": [
+          "fm-qual-owned-overlay-a.png",
+          "fm-qual-owned-overlay-b.png",
+          "fm-qual-owned-b.mp4",
+          "fm-qual-owned-c.mp4",
+          "fm-qual-owned-a.mp4"
+        ],
+        "after_cleanup": {
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
+          "end_frame": 0,
+          "track_names": {
+            "video": [
+              "Video 1",
+              "V2",
+              "V3"
+            ],
+            "audio": [
+              "Audio 1"
+            ],
+            "subtitle": []
+          },
+          "items": []
+        },
+        "collateral_changes": [],
+        "elapsed_seconds": 7.523863832990173
+      }
+    },
+    {
+      "id": "ripple_remove_light",
+      "axi_item": "AXI-017",
+      "intent": "Ripple one track of a light timeline",
+      "operation": "clip.remove",
+      "backend": "resolve_axi",
+      "production_entry": "resolve-axi edit track-ripple-remove",
+      "expectation": "commit",
+      "checks": {
+        "target_absent": true,
+        "same_track_closed": true,
+        "other_rows_untouched": true,
+        "ripple_scope_measured": false
+      },
+      "status": "fail",
+      "first_attempt": true,
+      "collateral_changes": [],
+      "receipt": {
+        "status": "refused",
+        "refusals": [
+          [
+            "edit",
+            "track-ripple-remove",
+            "--track",
+            "video1",
+            "--index",
+            "0",
+            "--project-folder",
+            "/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-small-edit-run-record-24_5b_r1",
+            "--apply",
+            "--project",
+            "Ren Qualification",
+            "--timeline",
+            "fm-scratch qualify"
+          ]
+        ]
+      },
+      "observed": {
+        "items_readback": "items:\n  timeline: fm-scratch qualify\n  clips: 2\n  placed_frames: 97\n  project: Ren Qualification\n  timeline_id: d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\n  generation: 212\n  verified_at: 2026-10-21T05:11:12+00:00\n  source: live refresh\n  freshness: captured during this read\nclips[2]{track,name,record_in,record_out,duration,source_in,source_out,source_file,pan,tilt,zoomx,zoomy,opacity}:\n  video1,fm-qual-owned-a.mp4,24,73,49,0,49,/tmp/fm-qual-owned-a.mp4,0.0,0.0,1.0,1.0,100.0\n  video2,fm-qual-owned-c.mp4,0,48,48,0,47,/tmp/fm-qual-owned-c.mp4,0.0,0.0,1.0,1.0,100.0\nsource_out is inclusive (GetSourceEndFrame); record_out is exclusive - the mix-up that cost a frame is visible here\nhelp[1]:\n  Run `resolve-axi frames --timeline \"fm-scratch qualify\"`\n",
+        "qualification_state": {
+          "inspected": true,
+          "state": {
+            "resolve_version": "21.1.0.14",
+            "media_type": "video",
+            "clip_composition": "single_video_clip",
+            "linked_audio_configuration": "no_linked_audio",
+            "track_layout": "video+audio",
+            "track_occupancy": "mixed",
+            "timeline_density": "light",
+            "timeline_structure": "multi_item_timeline",
+            "project_settings": "landscape_1920x1080",
+            "frame_rate": "24",
+            "existing_effects": "none"
+          },
+          "targets": [
+            "43ed8e1f-d895-4a10-a747-0ec9a2d10412"
+          ],
+          "missing_targets": []
+        }
+      },
+      "elapsed_seconds": 2.6460490000026766,
+      "case": {
+        "id": "ripple_remove_light",
+        "setup_receipts": [
+          {
+            "argv": [
+              "edit",
+              "place",
+              "--clip",
+              "fm-qual-owned-b.mp4",
+              "--media",
+              "video",
+              "--track",
+              "1",
+              "--record",
+              "0",
+              "--source-in",
+              "0",
+              "--source-out",
+              "71",
+              "--apply",
+              "--project",
+              "Ren Qualification",
+              "--timeline",
+              "fm-scratch qualify"
+            ],
+            "exit_code": 0,
+            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: fm-qual-owned-b.mp4\n  items_delta: 1\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  fm-qual-owned-b.mp4,0,72,0,71,43ed8e1f-d895-4a10-a747-0ec9a2d10412\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+            "stderr": ""
+          },
+          {
+            "argv": [
+              "edit",
+              "place",
+              "--clip",
+              "fm-qual-owned-a.mp4",
+              "--media",
+              "video",
+              "--track",
+              "1",
+              "--record",
+              "96",
+              "--source-in",
+              "0",
+              "--source-out",
+              "47",
+              "--apply",
+              "--project",
+              "Ren Qualification",
+              "--timeline",
+              "fm-scratch qualify"
+            ],
+            "exit_code": 0,
+            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: fm-qual-owned-a.mp4\n  items_delta: 1\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  fm-qual-owned-a.mp4,96,144,0,48,f17fc4bf-d444-4828-b646-80ca6082c066\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+            "stderr": ""
+          },
+          {
+            "argv": [
+              "edit",
+              "place",
+              "--clip",
+              "fm-qual-owned-c.mp4",
+              "--media",
+              "video",
+              "--track",
+              "2",
+              "--record",
+              "0",
+              "--source-in",
+              "0",
+              "--source-out",
+              "47",
+              "--apply",
+              "--project",
+              "Ren Qualification",
+              "--timeline",
+              "fm-scratch qualify"
+            ],
+            "exit_code": 0,
+            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: fm-qual-owned-c.mp4\n  items_delta: 1\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  fm-qual-owned-c.mp4,0,48,0,47,507a6780-1f4f-46dc-b710-316d5ec72194\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+            "stderr": ""
+          }
+        ],
+        "commands": [
+          {
+            "argv": [
+              "edit",
+              "track-ripple-remove",
+              "--track",
+              "video1",
+              "--index",
+              "0",
+              "--project-folder",
+              "/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-small-edit-run-record-24_5b_r1",
+              "--apply",
+              "--project",
+              "Ren Qualification",
+              "--timeline",
+              "fm-scratch qualify"
+            ],
+            "exit_code": 1,
+            "stdout": "error: a downstream item did not read back at its exact shifted span Recovery is required from journal entry 20261021T051111Z-fm-scratch-qualify-886569; it records the full pre-edit timeline.\nhelp: ren undo Ren Qualification --list\n",
+            "stderr": ""
+          }
+        ],
+        "before": {
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
+          "end_frame": 0,
+          "track_names": {
+            "video": [
+              "Video 1",
+              "V2",
+              "V3"
+            ],
+            "audio": [
+              "Audio 1"
+            ],
+            "subtitle": []
+          },
+          "items": []
+        },
+        "after_setup": {
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
+          "end_frame": 144,
+          "track_names": {
+            "video": [
+              "Video 1",
+              "V2",
+              "V3"
+            ],
+            "audio": [
+              "Audio 1"
+            ],
+            "subtitle": []
+          },
+          "items": [
+            {
+              "unique_id": "43ed8e1f-d895-4a10-a747-0ec9a2d10412",
+              "kind": "video",
+              "track": 1,
+              "track_name": "Video 1",
+              "name": "fm-qual-owned-b.mp4",
+              "source_path": "/tmp/fm-qual-owned-b.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 71,
+              "record_in": 0,
+              "record_out": 72,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 100.0
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "f17fc4bf-d444-4828-b646-80ca6082c066",
+              "kind": "video",
+              "track": 1,
+              "track_name": "Video 1",
+              "name": "fm-qual-owned-a.mp4",
+              "source_path": "/tmp/fm-qual-owned-a.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 48,
+              "record_in": 96,
+              "record_out": 144,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 100.0
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "507a6780-1f4f-46dc-b710-316d5ec72194",
+              "kind": "video",
+              "track": 2,
+              "track_name": "V2",
+              "name": "fm-qual-owned-c.mp4",
+              "source_path": "/tmp/fm-qual-owned-c.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 47,
+              "record_in": 0,
+              "record_out": 48,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 100.0
+              },
+              "cdl": null
+            }
+          ],
+          "carried_cleanup": {
+            "clean": true,
+            "collateral_changes": []
+          },
+          "setup_refusals": []
+        },
+        "qualification_state": {
+          "inspected": true,
+          "state": {
+            "resolve_version": "21.1.0.14",
+            "media_type": "video",
+            "clip_composition": "single_video_clip",
+            "linked_audio_configuration": "no_linked_audio",
+            "track_layout": "video+audio",
+            "track_occupancy": "mixed",
+            "timeline_density": "light",
+            "timeline_structure": "multi_item_timeline",
+            "project_settings": "landscape_1920x1080",
+            "frame_rate": "24",
+            "existing_effects": "none"
+          },
+          "targets": [
+            "43ed8e1f-d895-4a10-a747-0ec9a2d10412"
+          ],
+          "missing_targets": []
+        },
+        "after": {
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
+          "end_frame": 73,
+          "track_names": {
+            "video": [
+              "Video 1",
+              "V2",
+              "V3"
+            ],
+            "audio": [
+              "Audio 1"
+            ],
+            "subtitle": []
+          },
+          "items": [
+            {
+              "unique_id": "3a2be467-cc1b-45ae-9d07-03cd0a3bc81f",
+              "kind": "video",
+              "track": 1,
+              "track_name": "Video 1",
+              "name": "fm-qual-owned-a.mp4",
+              "source_path": "/tmp/fm-qual-owned-a.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 49,
+              "record_in": 24,
+              "record_out": 73,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 100.0
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "507a6780-1f4f-46dc-b710-316d5ec72194",
+              "kind": "video",
+              "track": 2,
+              "track_name": "V2",
+              "name": "fm-qual-owned-c.mp4",
+              "source_path": "/tmp/fm-qual-owned-c.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 47,
+              "record_in": 0,
+              "record_out": 48,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 100.0
+              },
+              "cdl": null
+            }
+          ]
+        },
+        "items_readback": {
+          "argv": [
+            "items",
+            "--project",
+            "Ren Qualification",
+            "--timeline",
+            "fm-scratch qualify",
+            "--refresh-live",
+            "--transforms"
+          ],
+          "exit_code": 0,
+          "stdout": "items:\n  timeline: fm-scratch qualify\n  clips: 2\n  placed_frames: 97\n  project: Ren Qualification\n  timeline_id: d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\n  generation: 212\n  verified_at: 2026-10-21T05:11:12+00:00\n  source: live refresh\n  freshness: captured during this read\nclips[2]{track,name,record_in,record_out,duration,source_in,source_out,source_file,pan,tilt,zoomx,zoomy,opacity}:\n  video1,fm-qual-owned-a.mp4,24,73,49,0,49,/tmp/fm-qual-owned-a.mp4,0.0,0.0,1.0,1.0,100.0\n  video2,fm-qual-owned-c.mp4,0,48,48,0,47,/tmp/fm-qual-owned-c.mp4,0.0,0.0,1.0,1.0,100.0\nsource_out is inclusive (GetSourceEndFrame); record_out is exclusive - the mix-up that cost a frame is visible here\nhelp[1]:\n  Run `resolve-axi frames --timeline \"fm-scratch qualify\"`\n",
+          "stderr": ""
+        },
+        "cleanup": {
+          "clean": true,
+          "collateral_changes": []
+        },
+        "removed_tracks": [],
+        "removed_media": [
+          "fm-qual-owned-overlay-b.png",
+          "fm-qual-owned-overlay-a.png",
+          "fm-qual-owned-c.mp4",
+          "fm-qual-owned-a.mp4",
+          "fm-qual-owned-b.mp4"
+        ],
+        "after_cleanup": {
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
+          "end_frame": 0,
+          "track_names": {
+            "video": [
+              "Video 1",
+              "V2",
+              "V3"
+            ],
+            "audio": [
+              "Audio 1"
+            ],
+            "subtitle": []
+          },
+          "items": []
+        },
+        "collateral_changes": [],
+        "elapsed_seconds": 2.6460490000026766
       }
     }
   ],

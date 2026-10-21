@@ -67,6 +67,12 @@ POOL_DIR = Path.home() / ".local" / "share" / "vep" / "qualification" / "622307e
 #: the scenario places a copy it owns and replaces that.
 OWNED_VIDEO_A = Path("/tmp/fm-qual-owned-a.mp4")
 OWNED_VIDEO_B = Path("/tmp/fm-qual-owned-b.mp4")
+#: A THIRD owned video, so a fixture can put a DIFFERENT clip on every
+#: row.  Two clips of the same media share a NAME, and a scenario that
+#: addresses one of them by name cannot say which ("the fixture does
+#: not hold exactly one item named X (2)"), so a realistic fixture needs
+#: one distinct item per row.
+OWNED_VIDEO_C = Path("/tmp/fm-qual-owned-c.mp4")
 OWNED_OVERLAY_A = Path("/tmp/fm-qual-owned-overlay-a.png")
 OWNED_OVERLAY_B = Path("/tmp/fm-qual-owned-overlay-b.png")
 
@@ -146,6 +152,58 @@ PRIMITIVES = (
               "commit",
               ("video_target_absent", "linked_audio_preserved",
                "other_items_untouched", "retiming_only_state")),
+
+    # ── AXI-011 on a REALISTIC timeline (the captain's AXI-005) ──
+    #
+    # The scenarios above earned the delete on a fixture with one or two
+    # clips on one row: light density, one populated row, no linked
+    # audio, no effects.  A real edit is none of those things, and the
+    # production router refused every one of them with the same sentence
+    # - "runtime state does not satisfy recorded qualification
+    # predicates: timeline_density is 'moderate', not 'light'" - which is
+    # a statement about the FIXTURE, not about the operation.
+    #
+    # These scenarios earn the delete and the ripple in the states a
+    # real timeline holds: a linked A/V target, a retimed target, a
+    # Fusion-bearing target, a still held over a caption card's span,
+    # and a multi-track timeline dense enough to be 'moderate'.
+    Primitive("delete_linked_av_moderate", "AXI-011",
+              "Delete a linked A/V clip on a dense, multi-track timeline",
+              "clip.delete", "edit_patch",
+              "edit_patch.apply_live_patch", "commit",
+              ("video_target_absent", "linked_audio_preserved",
+               "gap_left", "adjacent_source_ranges_unchanged",
+               "other_rows_untouched")),
+    Primitive("delete_retimed_moderate", "AXI-011",
+              "Delete a retimed clip on a dense, multi-track timeline",
+              "clip.delete", "edit_patch",
+              "edit_patch.apply_live_patch", "commit",
+              ("target_absent", "gap_left", "other_rows_untouched")),
+    Primitive("delete_still_card", "AXI-011",
+              "Delete a caption-card still held over its own span",
+              "clip.delete", "edit_patch",
+              "edit_patch.apply_live_patch", "commit",
+              ("target_absent", "other_rows_untouched")),
+    Primitive("delete_fusion_bearing", "AXI-011",
+              "Delete a clip that carries a Fusion composition",
+              "clip.delete", "edit_patch",
+              "edit_patch.apply_live_patch", "commit",
+              ("target_absent", "fusion_comp_gone_with_target",
+               "other_rows_untouched")),
+    Primitive("ripple_remove_multi_track", "AXI-017",
+              "Ripple one track of a multi-track timeline and measure "
+              "exactly which tracks and clips moved",
+              "clip.remove", "resolve_axi",
+              "resolve-axi edit track-ripple-remove", "commit",
+              ("target_absent", "same_track_closed",
+               "link_group_shifted", "other_rows_untouched",
+               "ripple_scope_measured")),
+    Primitive("ripple_remove_light", "AXI-017",
+              "Ripple one track of a light timeline",
+              "clip.remove", "resolve_axi",
+              "resolve-axi edit track-ripple-remove", "commit",
+              ("target_absent", "same_track_closed",
+               "other_rows_untouched", "ripple_scope_measured")),
 
     # ── AXI-012: trimming, in/out preservation and source-range validation
     Primitive("trim_narrows_source_range", "AXI-012",
@@ -483,6 +541,121 @@ def _cases() -> dict:
                 ["timeline_structure"], "delete-retimed-only")],
             "targets": [{"name": "qual_a.mp4", "kind": "video"}],
         },
+        # ── AXI-011 on a REALISTIC timeline (the captain's AXI-005) ──
+        #
+        # The fixture is the AXI-11 lane's shape, so the measurement
+        # speaks about the same states that lane's own fixture holds:
+        # a linked A/V A-roll, a cover on a second row, a caption card
+        # on a third, and enough items to be 'moderate' rather than
+        # 'light'.  Each row carries its OWN clip, because two clips of
+        # the same media share a NAME and a scenario that addresses one
+        # of them by name cannot say which.
+        "delete_linked_av_moderate": {
+            "operation": "clip.delete",
+            "setup": [_place(OWNED_VIDEO_B.name, 1, 0, source_out=71,
+                             media="both"),
+                      _place(OWNED_VIDEO_A.name, 1, 96, source_out=95),
+                      _place(OWNED_VIDEO_C.name, 2, 0, source_out=47),
+                      _place(OWNED_OVERLAY_A.name, 3, 120,
+                             source_out=47)],
+            "commands": [_patch(
+                [{"op": "clip.delete",
+                  "unique_id": "$" + OWNED_VIDEO_B.name}],
+                ["timeline_structure"], "delete-linked-av")],
+            "targets": [{"name": OWNED_VIDEO_B.name, "kind": "video"}],
+        },
+        "delete_retimed_moderate": {
+            "operation": "clip.delete",
+            "setup": [_place(OWNED_VIDEO_A.name, 1, 0, source_out=95),
+                      # A second clip, so the timeline is a MULTI-ITEM one
+                      # before the retime: `retime.segments` is qualified
+                      # in that structure only.
+                      _place(OWNED_VIDEO_C.name, 2, 0, source_out=47),
+                      # The retime lands while the timeline is LIGHT:
+                      # `retime.segments` is qualified in the light state
+                      # only, so a retime applied after the fixture grew
+                      # would be refused before the delete was measured.
+                      _patch(
+                          [{"op": "retime.segments",
+                            "unique_id": "$" + OWNED_VIDEO_A.name,
+                            "segments": [{"record_frame": 0,
+                                          "percent": 90.0}]}],
+                          ["timeline_structure"], "delete-target-retime"),
+                      _place(OWNED_VIDEO_B.name, 1, 96, source_out=71,
+                             media="both"),
+                      _place(OWNED_OVERLAY_A.name, 3, 120,
+                             source_out=47)],
+            "commands": [_patch(
+                [{"op": "clip.delete",
+                  "unique_id": "$" + OWNED_VIDEO_A.name}],
+                ["timeline_structure"], "delete-retimed")],
+            "targets": [{"name": OWNED_VIDEO_A.name, "kind": "video"}],
+        },
+        "delete_still_card": {
+            "operation": "clip.delete",
+            "setup": [_place(OWNED_VIDEO_A.name, 1, 0, source_out=47),
+                      # A caption card is a STILL held over its own
+                      # span: the media has one frame and the card
+                      # covers forty-eight, so the item carries the
+                      # offset a still always carries.
+                      _place(OWNED_OVERLAY_A.name, 3, 96, source_out=47)],
+            "commands": [_patch(
+                [{"op": "clip.delete",
+                  "unique_id": "$" + OWNED_OVERLAY_A.name}],
+                ["timeline_structure"], "delete-still-card")],
+            "targets": [{"name": OWNED_OVERLAY_A.name, "kind": "video"}],
+        },
+        "delete_fusion_bearing": {
+            "operation": "clip.delete",
+            "setup": [_place(OWNED_VIDEO_A.name, 1, 0, source_out=95),
+                      _place(OWNED_VIDEO_C.name, 2, 0, source_out=47),
+                      # The retime lands FIRST, while the target still
+                      # carries nothing: `retime.segments` is qualified
+                      # in the untouched state, and `mask.create` is
+                      # qualified in the retimed one - so the Fusion
+                      # composition lands on a clip the delete then has
+                      # to carry away.
+                      _patch(
+                          [{"op": "retime.segments",
+                            "unique_id": "$" + OWNED_VIDEO_A.name,
+                            "segments": [{"record_frame": 0,
+                                          "percent": 90.0}]}],
+                          ["timeline_structure"], "delete-target-retime"),
+                      _patch(
+                          [{"op": "mask.create",
+                            "unique_id": "$" + OWNED_VIDEO_A.name,
+                            "matte": "fm-qual-matte"}],
+                          ["fusion"], "delete-target-matte")],
+            "commands": [_patch(
+                [{"op": "clip.delete",
+                  "unique_id": "$" + OWNED_VIDEO_A.name}],
+                ["timeline_structure"], "delete-fusion-bearing")],
+            "targets": [{"name": OWNED_VIDEO_A.name, "kind": "video"}],
+        },
+        "ripple_remove_multi_track": {
+            "operation": "clip.remove",
+            "setup": [_place(OWNED_VIDEO_B.name, 1, 0, source_out=71,
+                             media="both"),
+                      _place(OWNED_VIDEO_A.name, 1, 96, source_out=95,
+                             media="both"),
+                      _place(OWNED_VIDEO_C.name, 2, 0, source_out=47),
+                      _place(OWNED_OVERLAY_A.name, 3, 120,
+                             source_out=47)],
+            "commands": [_edit("track-ripple-remove", "--track", "video1",
+                               "--index", "0", "--project-folder",
+                               "@FM_QUAL_PROJECT_DIR@", "--apply")],
+            "targets": [{"name": OWNED_VIDEO_B.name, "kind": "video"}],
+        },
+        "ripple_remove_light": {
+            "operation": "clip.remove",
+            "setup": [_place(OWNED_VIDEO_B.name, 1, 0, source_out=71),
+                      _place(OWNED_VIDEO_A.name, 1, 96, source_out=47),
+                      _place(OWNED_VIDEO_C.name, 2, 0, source_out=47)],
+            "commands": [_edit("track-ripple-remove", "--track", "video1",
+                               "--index", "0", "--project-folder",
+                               "@FM_QUAL_PROJECT_DIR@", "--apply")],
+            "targets": [{"name": OWNED_VIDEO_B.name, "kind": "video"}],
+        },
         # ── AXI-012 ──
         "trim_narrows_source_range": {
             "operation": "clip.trim",
@@ -801,6 +974,7 @@ OWNED_MEDIA = __AXI_OWNED__
 OWNED_TRACKS = __AXI_TRACKS__
 OWNED_VIDEO_A = "__AXI_VIDEO_A__"
 OWNED_VIDEO_B = "__AXI_VIDEO_B__"
+OWNED_VIDEO_C = "__AXI_VIDEO_C__"
 OWNED_OVERLAY_A = "__AXI_OVERLAY_A__"
 OWNED_OVERLAY_B = "__AXI_OVERLAY_B__"
 
@@ -819,12 +993,19 @@ ALLOWED_NAMES = {"qual_a.mp4", "qual_b.mp4", "qual_c.mp4",
                  # move", measured 2026-10-20).
                  OWNED_VIDEO_A.rsplit("/", 1)[-1],
                  OWNED_VIDEO_B.rsplit("/", 1)[-1],
+                 OWNED_VIDEO_C.rsplit("/", 1)[-1],
                  OWNED_OVERLAY_A.rsplit("/", 1)[-1],
                  OWNED_OVERLAY_B.rsplit("/", 1)[-1]}
 
 
 def call(argv):
     out, err = io.StringIO(), io.StringIO()
+    # The run store's directory reaches a command that needs it: a
+    # re-place carries the transform forward, and a transform write is
+    # anchored to a project folder (the ripple's re-place refused
+    # without one, measured 2026-10-21).
+    argv = [str(part).replace("@FM_QUAL_PROJECT_DIR@", PROJECT_DIR)
+            for part in argv]
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
         try:
             code = resolve_axi.main(list(argv))
@@ -1080,7 +1261,7 @@ def qualification_state(operation, targets, params=None):
 def import_owned_media():
     """Import the media this run owns, so a replacement has its own item."""
     pool = manager.GetCurrentProject().GetMediaPool()
-    paths = [OWNED_VIDEO_A, OWNED_VIDEO_B,
+    paths = [OWNED_VIDEO_A, OWNED_VIDEO_B, OWNED_VIDEO_C,
              OWNED_OVERLAY_A, OWNED_OVERLAY_B]
     missing = [path for path in paths if not Path(path).is_file()]
     if missing:
@@ -1137,7 +1318,7 @@ def remove_owned_media():
             except Exception:
                 continue
             if name in OWNED_MEDIA or path in (OWNED_VIDEO_A, OWNED_VIDEO_B,
-                                               OWNED_OVERLAY_A,
+                                               OWNED_VIDEO_C, OWNED_OVERLAY_A,
                                                OWNED_OVERLAY_B):
                 doomed.append(item)
                 removed.append(name)
@@ -1268,18 +1449,22 @@ for name, case in CASES.items():
     # move" (measured 2026-10-20).
     _carried = cleanup()
     setup["imported"] = import_owned_media()
-    for argv in case.get("setup", []):
-        if isinstance(argv, dict):
-            receipt = apply_patch(argv, live_state())
+    for entry in case.get("setup", []):
+        # A setup entry is a VERB, or a PATCH: a fixture that has to
+        # carry a retime or a Fusion composition onto its target needs
+        # the write to land BEFORE the state is measured, or the
+        # measurement reports a timeline the delete never met.
+        if isinstance(entry, dict):
+            receipt = apply_patch(entry, live_state())
         else:
-            receipt = call(argv)
+            receipt = call(entry)
         setup_receipts.append(receipt)
         if receipt["exit_code"]:
             # The setup is the fixture's own placement: a refusal here
             # is why the case's target is missing, so it is printed
             # rather than only counted.
             print("AXI_SETUP_REFUSED" + repr({
-                "case": name, "argv": argv,
+                "case": name, "argv": entry,
                 "stdout": (receipt.get("stdout") or "")[-600:],
                 "stderr": (receipt.get("stderr") or "")[-600:]}),
                 flush=True)
@@ -1358,11 +1543,12 @@ def _broker_script(cases: dict) -> str:
     script = script.replace("__AXI_DISPOSABLE__", "@AXC_DISPOSABLE_PROJECT@")
     script = script.replace("__AXI_CASES__", repr(cases))
     script = script.replace("__AXI_OWNED__", repr(
-        {OWNED_VIDEO_A.name, OWNED_VIDEO_B.name,
+        {OWNED_VIDEO_A.name, OWNED_VIDEO_B.name, OWNED_VIDEO_C.name,
          OWNED_OVERLAY_A.name, OWNED_OVERLAY_B.name}))
     script = script.replace("__AXI_TRACKS__", repr({"V9", "A9"}))
     script = script.replace("__AXI_VIDEO_A__", str(OWNED_VIDEO_A))
     script = script.replace("__AXI_VIDEO_B__", str(OWNED_VIDEO_B))
+    script = script.replace("__AXI_VIDEO_C__", str(OWNED_VIDEO_C))
     script = script.replace("__AXI_OVERLAY_A__", str(OWNED_OVERLAY_A))
     script = script.replace("__AXI_OVERLAY_B__", str(OWNED_OVERLAY_B))
     return script
@@ -1535,6 +1721,277 @@ def _judge_delete_retimed_only(case: dict) -> dict:
     checks["retiming_only_state"] = (
         measured.get("existing_effects") == "retiming")
     return checks
+
+
+# ── The delete and the ripple on a REALISTIC timeline ──────────────────
+#
+# The captain's AXI-005 asks the deletion and the ripple to be
+# qualified where a real edit happens: a linked A/V target, a retimed
+# target, a target that carries a Fusion composition, a caption card
+# held over its own span, and a timeline with several populated rows.
+#
+# The checks below read the ADJACENT state as carefully as the target:
+# an edit that moves the picture but loses the source range, the link,
+# the effect or the sync is a different edit, and the evidence has to
+# say which of them it saw.
+
+
+def _rows_named(state: dict, name: str, kind: str = "") -> list[dict]:
+    """Every row with this name, optionally of one kind."""
+    return [row for row in state.get("items", [])
+            if row.get("name") == name
+            and (not kind or row.get("kind") == kind)]
+
+
+def _signature(row: dict) -> tuple:
+    """Everything about one clip that a neighbouring edit must not change.
+
+    Resolve's `GetProperty()` returns a DICT on most items and a JSON
+    STRING on an item that carries a Fusion composition, so the
+    transform is normalised here: a string is read as no transform
+    rather than crashing the reading.
+    """
+    transform = row.get("transform")
+    if not isinstance(transform, dict):
+        transform = {}
+    return (row.get("unique_id"), row.get("kind"), row.get("track"),
+            _record_span(row), _source_bounds(row),
+            tuple(row.get("fusion_comps") or ()),
+            tuple(sorted(transform.items())),
+            row.get("speed"))
+
+
+def _other_rows_unchanged(before: dict, after: dict, *,
+                          skip: tuple = ()) -> bool:
+    """Whether every clip outside `skip` reads exactly as it did."""
+    def index(state: dict) -> dict:
+        found = {}
+        for row in state.get("items", []):
+            key = (row.get("kind"), row.get("name"), row.get("track"))
+            found.setdefault(key, []).append(row)
+        return found
+
+    before_rows, after_rows = index(before), index(after)
+    for key in set(before_rows) | set(after_rows):
+        if key in skip:
+            continue
+        old = before_rows.get(key, [])
+        new = after_rows.get(key, [])
+        if len(old) != len(new):
+            return False
+        if sorted(map(_signature, old), key=repr) != sorted(
+                map(_signature, new), key=repr):
+            return False
+    return True
+
+
+def _judge_delete_linked_av_moderate(case: dict) -> dict:
+    """A linked A/V target, deleted, on a dense multi-track timeline."""
+    before = case["after_setup"]
+    after = case["after"]
+    target = _rows_named(before, OWNED_VIDEO_B.name, "video")
+    twin = _rows_named(before, OWNED_VIDEO_B.name, "audio")
+    successor = _rows_named(before, OWNED_VIDEO_A.name, "video")
+    return {
+        "video_target_absent": len(target) == 1
+        and not _rows_named(after, OWNED_VIDEO_B.name, "video"),
+        # The twin is the SYNC: a delete that took the picture and left
+        # the audio twin behind would leave the row sounding what the
+        # picture no longer shows.
+        "linked_audio_preserved": len(twin) == 1
+        and len(_rows_named(after, OWNED_VIDEO_B.name, "audio")) == 1
+        and _signature(twin[0]) == _signature(
+            _rows_named(after, OWNED_VIDEO_B.name, "audio")[0]),
+        # A delete is not a ripple: the gap stays where the clip was.
+        "gap_left": len(successor) == 1
+        and len(_rows_named(after, OWNED_VIDEO_A.name, "video")) == 1
+        and _record_span(_rows_named(after, OWNED_VIDEO_A.name, "video")[0])
+        == _record_span(successor[0]),
+        "adjacent_source_ranges_unchanged": len(successor) == 1
+        and _source_bounds(_rows_named(after, OWNED_VIDEO_A.name, "video")[0])
+        == _source_bounds(successor[0]),
+        "other_rows_unchanged": _other_rows_unchanged(
+            before, after,
+            skip=(("video", OWNED_VIDEO_B.name, 1),)),
+    }
+
+
+def _judge_delete_target_only(case: dict, name: str,
+                              successor_name: str = "") -> dict:
+    """A delete of one named clip, with the rest of the timeline read back."""
+    before = case["after_setup"]
+    after = case["after"]
+    target = _rows_named(before, name, "video")
+    successor = _rows_named(before, successor_name, "video") if successor_name else []
+    return {
+        "target_absent": len(target) == 1
+        and not _rows_named(after, name, "video"),
+        "gap_left": (not successor
+                     or len(_rows_named(after, successor_name, "video"))
+                     == len(successor)),
+        "other_rows_unchanged": _other_rows_unchanged(
+            before, after, skip=(("video", name, 1),)),
+    }
+
+
+def _judge_delete_still_card(case: dict) -> dict:
+    """A caption card: a still held over a span, deleted."""
+    before = case["after_setup"]
+    after = case["after"]
+    target = _rows_named(before, OWNED_OVERLAY_A.name, "video")
+    return {
+        "target_absent": len(target) == 1
+        and not _rows_named(after, OWNED_OVERLAY_A.name, "video"),
+        "other_rows_unchanged": _other_rows_unchanged(
+            before, after, skip=(("video", OWNED_OVERLAY_A.name, 3),)),
+    }
+
+
+def _judge_delete_fusion_bearing(case: dict) -> dict:
+    """A clip that carries a Fusion composition, deleted."""
+    before = case["after_setup"]
+    after = case["after"]
+    target = _rows_named(before, OWNED_VIDEO_A.name, "video")
+    carried = [row for row in target
+               if [name for name in (row.get("fusion_comps") or ())
+                   if name != "Fusion Composition"]]
+    return {
+        "target_absent": len(target) == 1
+        and not _rows_named(after, OWNED_VIDEO_A.name, "video"),
+        # The composition went WITH the clip: nothing that carried the
+        # treatment is left behind on the row.
+        "fusion_comp_gone_with_target": bool(carried)
+        and not [row for row in after.get("items", [])
+                 if row.get("name") == OWNED_VIDEO_A.name],
+        "other_rows_unchanged": _other_rows_unchanged(
+            before, after, skip=(("video", OWNED_VIDEO_A.name, 1),)),
+    }
+
+
+def _ripple_scope(before: dict, after: dict) -> dict:
+    """What the ripple moved, row by row and clip by clip.
+
+    The punch list asks for the ripple's scope to be MEASURED, not
+    assumed.  The clips are matched by NAME and KIND rather than by
+    unique id, because a shifted clip is deleted and re-placed and
+    therefore carries a NEW identity: the clip that moved is the same
+    picture at a new frame, not the same item.
+
+    The answer names three things: the rows that LOST a clip, the rows
+    where a clip MOVED, and the rows that did not move at all.
+    """
+    def index(state: dict) -> dict:
+        found = {}
+        for row in state.get("items", []):
+            key = (row.get("kind"), row.get("name"))
+            found.setdefault(key, []).append(row)
+        return found
+
+    def rows_of(state: dict) -> set:
+        rows = set()
+        for row in state.get("items", []):
+            rows.add(f"{row.get('kind')}{row.get('track')}")
+        for kind, names in (state.get("track_names") or {}).items():
+            for index_ in range(1, len(names) + 1):
+                rows.add(f"{kind}{index_}")
+        return rows
+
+    before_rows, after_rows = index(before), index(after)
+    removed, moved, unchanged = [], [], []
+    for key in sorted(set(before_rows) | set(after_rows), key=repr):
+        kind, name = key
+        old = before_rows.get(key, [])
+        new = after_rows.get(key, [])
+        if len(old) > len(new):
+            for row in old[len(new):]:
+                removed.append({"row": f"{kind}{row.get('track')}",
+                                "name": name,
+                                "record_span": list(_record_span(row)),
+                                "source_bounds": list(_source_bounds(row))})
+            continue
+        for old_row, new_row in zip(old, new):
+            if (_record_span(old_row) == _record_span(new_row)
+                    and _source_bounds(old_row) == _source_bounds(new_row)):
+                unchanged.append({"row": f"{kind}{old_row.get('track')}",
+                                  "name": name})
+            else:
+                moved.append({
+                    "row": f"{kind}{new_row.get('track')}",
+                    "name": name,
+                    "from": list(_record_span(old_row)),
+                    "to": list(_record_span(new_row)),
+                    "source_unchanged": (_source_bounds(old_row)
+                                         == _source_bounds(new_row)),
+                })
+    affected = sorted({entry["row"] for entry in removed + moved})
+    return {"removed": removed, "moved": moved, "unchanged": unchanged,
+            "rows_affected": affected,
+            "rows_untouched": sorted(rows_of(before) - set(affected)),
+            "source_ranges_preserved": all(entry["source_unchanged"]
+                                           for entry in moved)}
+
+
+def _judge_ripple_remove_multi_track(case: dict) -> dict:
+    """A ripple on a multi-track timeline, measured row by row."""
+    before = case["after_setup"]
+    after = case["after"]
+    scope = _ripple_scope(before, after)
+    target = _rows_named(before, OWNED_VIDEO_B.name, "video")
+    successor = _rows_named(before, OWNED_VIDEO_A.name, "video")
+    twin = _rows_named(before, OWNED_VIDEO_A.name, "audio")
+    duration = 0
+    if target:
+        duration = _record_span(target[0])[1] - _record_span(target[0])[0]
+    shifted_video = _rows_named(after, OWNED_VIDEO_A.name, "video")
+    shifted_audio = _rows_named(after, OWNED_VIDEO_A.name, "audio")
+    wanted = (_record_span(successor[0])[0] - duration) if successor else None
+    video_uid = shifted_video[0].get("unique_id") if shifted_video else ""
+    return {
+        "target_absent": bool(target)
+        and not _rows_named(after, OWNED_VIDEO_B.name),
+        # The gap closed on the ripple's own track: the successor sits
+        # exactly where the removed clip's frames freed up.
+        "same_track_closed": bool(shifted_video) and wanted is not None
+        and _record_span(shifted_video[0])[0] == wanted
+        and len(shifted_video) == 1,
+        # The link group moved with it: the audio twin is on the same
+        # frame as its picture, so the row is still in sync.
+        "link_group_shifted": bool(shifted_audio) and wanted is not None
+        and _record_span(shifted_audio[0])[0] == wanted
+        and video_uid in (shifted_audio[0].get("linked_unique_ids") or ()),
+        "other_rows_untouched": scope["rows_affected"] == ["audio1", "video1"]
+        and "video2" in scope["rows_untouched"]
+        and "video3" in scope["rows_untouched"],
+        # The scope is MEASURED, and every moved clip kept its source
+        # range: a ripple that re-placed a clip from a different part of
+        # its media would be a different edit.
+        "ripple_scope_measured": bool(scope["removed"])
+        and bool(scope["moved"]) and scope["source_ranges_preserved"],
+    }
+
+
+def _judge_ripple_remove_light(case: dict) -> dict:
+    """A ripple on a light timeline: the coverage the dense one lacks."""
+    before = case["after_setup"]
+    after = case["after"]
+    scope = _ripple_scope(before, after)
+    target = _rows_named(before, OWNED_VIDEO_B.name, "video")
+    successor = _rows_named(before, OWNED_VIDEO_A.name, "video")
+    duration = 0
+    if target:
+        duration = _record_span(target[0])[1] - _record_span(target[0])[0]
+    shifted = _rows_named(after, OWNED_VIDEO_A.name, "video")
+    wanted = (_record_span(successor[0])[0] - duration) if successor else None
+    return {
+        "target_absent": bool(target)
+        and not _rows_named(after, OWNED_VIDEO_B.name),
+        "same_track_closed": bool(shifted) and wanted is not None
+        and _record_span(shifted[0])[0] == wanted,
+        "other_rows_untouched": scope["rows_affected"] == ["video1"]
+        and "video2" in scope["rows_untouched"],
+        "ripple_scope_measured": bool(scope["removed"])
+        and bool(scope["moved"]) and scope["source_ranges_preserved"],
+    }
 
 
 def _judge_trim(case: dict) -> dict:
@@ -1822,6 +2279,13 @@ JUDGES = {
     "remove_leaves_gap": _judge_remove_leaves_gap,
     "delete_linked_effects": _judge_delete_linked_effects,
     "delete_retimed_only": _judge_delete_retimed_only,
+    "delete_linked_av_moderate": _judge_delete_linked_av_moderate,
+    "delete_retimed_moderate": lambda case: _judge_delete_target_only(
+        case, OWNED_VIDEO_A.name, OWNED_VIDEO_B.name),
+    "delete_still_card": _judge_delete_still_card,
+    "delete_fusion_bearing": _judge_delete_fusion_bearing,
+    "ripple_remove_multi_track": _judge_ripple_remove_multi_track,
+    "ripple_remove_light": _judge_ripple_remove_light,
     "trim_narrows_source_range": _judge_trim,
     "trim_past_handles_refused": _judge_trim_refused,
     "move_keeps_unrelated_state": _judge_move,
@@ -1907,6 +2371,41 @@ def _predicates(measured_states: list[dict]) -> list[dict]:
     return predicates
 
 
+def _shipped_coverage(operation: str, backend: str) -> dict:
+    """The coverage the SHIPPED registry row holds for this pair.
+
+    A qualification is the union of the states a pair has been earned
+    in, and a run that measures a state the pair ALREADY held must not
+    NARROW the row it did not re-measure: the coverage the registry
+    already carries is evidence too.  The product-format lane's rows
+    are the union of what the pair had and what the run measured, and
+    this lane writes the same shape.
+    """
+    try:
+        payload = json.loads(
+            axi_qualification.REGISTRY_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    record = (payload.get("records") or {}).get(
+        f"{operation}::{backend}") or {}
+    coverage = record.get("coverage") or {}
+    return {field: [str(value) for value in values]
+            for field, values in (coverage.get("dimensions") or {}).items()
+            if values}
+
+
+def _shipped_evidence(operation: str, backend: str) -> str:
+    """The evidence the SHIPPED registry row names for this pair."""
+    try:
+        payload = json.loads(
+            axi_qualification.REGISTRY_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    record = (payload.get("records") or {}).get(
+        f"{operation}::{backend}") or {}
+    return str(record.get("evidence") or "")
+
+
 def _qualification_result(primitive: Primitive, scenarios: list[dict],
                           measured: list[dict]) -> dict:
     """One current-schema qualification document for this pair."""
@@ -1923,11 +2422,24 @@ def _qualification_result(primitive: Primitive, scenarios: list[dict],
             if value not in (None, "") and str(value) not in values:
                 values.append(str(value))
         coverage_dimensions[field] = values
+    # The union of what this run measured and what the shipped row
+    # already held.  A run that measures LESS never narrows a row.
+    shipped = _shipped_coverage(primitive.operation, primitive.backend)
+    unmeasured = [field for field, values in shipped.items()
+                  if not set(values) <= set(coverage_dimensions.get(field)
+                                            or [])]
+    for field, values in shipped.items():
+        merged = list(coverage_dimensions.get(field) or [])
+        for value in values:
+            if value not in merged:
+                merged.append(value)
+        coverage_dimensions[field] = merged
     coverage = {
         "dimensions": coverage_dimensions,
         "configurations": ["measured_qualification_timeline"],
         "uncovered": {},
-        "source": "measured",
+        "source": ("measured" if not unmeasured
+                   else "derived_from_v1_evidence"),
     }
     return {
         "schema": axi_qualification.REPORT_SCHEMA,
@@ -1936,7 +2448,10 @@ def _qualification_result(primitive: Primitive, scenarios: list[dict],
         "result": "passed",
         "evidence": (
             "tests/live/reports/axi-primitive-qualification.json#"
-            + ",".join(scenario["id"] for scenario in scenarios)),
+            + ",".join(scenario["id"] for scenario in scenarios)
+            + ("; the coverage this row already held: "
+               + _shipped_evidence(primitive.operation, primitive.backend)
+               if unmeasured else "")),
         "resolve_version": str(state.get("resolve_version") or ""),
         "environment": {
             "resolve_version": str(state.get("resolve_version") or ""),
@@ -1977,7 +2492,8 @@ def _qualification_result(primitive: Primitive, scenarios: list[dict],
              "audio rows are read back unchanged by the same per-item "
              "reading")],
         "recovery_status": "not_required",
-        "qualification_predicates": _predicates(measured),
+        "qualification_predicates": axi_qualification.dimensions.predicates_for(
+            coverage_dimensions),
     }
 
 
@@ -2139,6 +2655,7 @@ def _owned_media() -> list[str]:
     copied = []
     for source, target in ((POOL_DIR / "qual_a.mp4", OWNED_VIDEO_A),
                            (POOL_DIR / "qual_b.mp4", OWNED_VIDEO_B),
+                           (POOL_DIR / "qual_c.mp4", OWNED_VIDEO_C),
                            (small.LOGO, OWNED_OVERLAY_A),
                            (small.LOGO_ALT, OWNED_OVERLAY_B)):
         if not source.is_file():
@@ -2167,6 +2684,8 @@ def run_batch(actions: dict) -> dict:
         try:
             evidence = actions[primitive.id]()
         except Exception as exc:  # noqa: BLE001 - the failure IS the evidence
+            import traceback
+
             results.append({
                 **asdict(primitive),
                 "status": "fail",
@@ -2174,6 +2693,9 @@ def run_batch(actions: dict) -> dict:
                 "collateral_changes": [],
                 "checks": {},
                 "error": f"{type(exc).__name__}: {exc}",
+                # The traceback: a failure whose cause is one frame away
+                # is not a failure a reader can act on.
+                "traceback": traceback.format_exc(),
                 "elapsed_seconds": perf_counter() - started,
             })
             continue
@@ -2289,13 +2811,17 @@ def main() -> int:
                                for row in report["results"])
         report["failed"] = sum(row["status"] == "fail"
                                for row in report["results"])
-    # Registry evidence is limited to this run's scenarios. Include the
-    # previously measured AXI-011 deletion cases so the broadened predicate
-    # covers the full delete pair rather than replacing its earlier row.
+    # Registry evidence is limited to this run's scenarios. The pair a
+    # run touched also carries the scenarios the pair ALREADY earned, so
+    # the coverage the registry holds is the union of what the pair had
+    # and what this run measured - a run that measures LESS never
+    # narrows a row it did not re-measure.
     registry_report = report
     if selected:
-        pair_ids = set(cases) | {"remove_leaves_gap",
-                                 "delete_linked_effects"}
+        pairs = {(primitive.operation, primitive.backend)
+                 for primitive in PRIMITIVES if primitive.id in cases}
+        pair_ids = {primitive.id for primitive in PRIMITIVES
+                    if (primitive.operation, primitive.backend) in pairs}
         registry_report = {
             **report,
             "results": [row for row in report["results"]

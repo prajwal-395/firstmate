@@ -57,7 +57,7 @@ The contract names the operation's read-back verifier. A successful API return a
 | `look` | planning_only | `plan` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `marker.add` | implemented_unqualified | `frame`, `color`, `name` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `marker.delete` | implemented_unqualified | `frame` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
-| `mask.create` | implemented_unqualified | `unique_id`, `matte` | yes | yes | no | no | post-write snapshot checked by _verify_mask_create |
+| `mask.create` | implemented_qualified | `unique_id`, `matte` | yes | yes | yes | yes | post-write snapshot checked by _verify_mask_create |
 | `mask.delete` | implemented_unqualified | `unique_id`, `matte` | yes | yes | no | no | post-write snapshot checked by _verify_mask_delete |
 | `mask.edit` | implemented_unqualified | `unique_id`, `matte`, `geometry` | yes | yes | no | no | post-write snapshot checked by _verify_mask_edit |
 | `mask.track` | implemented_unqualified | `unique_id`, `matte`, `track` | yes | yes | no | no | post-write snapshot checked by _verify_mask_track |
@@ -77,7 +77,7 @@ The contract names the operation's read-back verifier. A successful API return a
 | `redraw_closer` | no_executor | `unique_id`, `start` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `reel.opening` | implemented_qualified | `unique_id`, `brief`, `edits` | yes | yes | yes | yes | post-write snapshot checked by _verify_reel_opening |
 | `retime` | implemented_unqualified | `unique_id`, `percent` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
-| `retime.segments` | implemented_unqualified | `unique_id`, `segments` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `retime.segments` | implemented_qualified | `unique_id`, `segments` | yes | yes | yes | yes | post-write snapshot checked by the operation-specific algebra verifier |
 | `shot_selection` | planning_only | `plan` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `sound_effect` | planning_only | `plan` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `span_retime` | no_executor | `unique_id`, `percent` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |

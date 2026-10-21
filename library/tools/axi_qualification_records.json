@@ -662,91 +662,43 @@
         "frame stills of both restyled cards read directly (bold_large): two-line layout, complete text visible with margins, high-contrast white/yellow 900-weight type on black - legible at phone size; both cards carried full canvas (tight guard refused the bold layout), nothing clipped at any canvas edge"
       ]
     },
-    "clip.delete::edit_patch":     {
+    "clip.delete::edit_patch": {
       "actual_state": {
         "checks": {
-          "other_items_untouched": true,
-          "target_absent": true
+          "adjacent_source_ranges_unchanged": true,
+          "fusion_comp_gone_with_target": true,
+          "gap_left": true,
+          "linked_audio_preserved": true,
+          "other_rows_unchanged": true,
+          "target_absent": true,
+          "video_target_absent": true
         },
         "measurement": {
           "clip_composition": "linked_video_clip",
-          "existing_effects": "transforms+retiming+fusion",
-          "frame_rate": "23.976",
+          "existing_effects": "none",
+          "frame_rate": "24",
           "linked_audio_configuration": "linked_audio_present",
           "media_type": "video",
-          "project_settings": "portrait_1080x1920",
+          "project_settings": "landscape_1920x1080",
           "resolve_version": "21.1.0.14",
-          "timeline_density": "dense",
+          "timeline_density": "moderate",
           "timeline_structure": "multi_item_timeline",
           "track_layout": "video+audio",
           "track_occupancy": "all_populated"
         },
         "scenarios": [
-          "delete_linked_target",
-          "delete_transformed_target"
-        ],
-        "additional_measurements": [
-          {
-            "evidence": "tests/live/reports/axi-primitive-qualification.json#delete_linked_effects",
-            "measurement": {
-              "clip_composition": "linked_video_clip",
-              "existing_effects": "transforms+retiming",
-              "frame_rate": "24",
-              "linked_audio_configuration": "linked_audio_present",
-              "media_type": "video",
-              "project_settings": "landscape_1920x1080",
-              "resolve_version": "21.1.0.14",
-              "timeline_density": "moderate",
-              "timeline_structure": "multi_item_timeline",
-              "track_layout": "video+audio",
-              "track_occupancy": "mixed"
-            },
-            "checks": {
-              "linked_audio_preserved": true,
-              "other_items_untouched": true,
-              "video_target_absent": true
-            },
-            "scenarios": [
-              "delete_linked_effects"
-            ]
-          },
-          {
-            "evidence": "tests/live/reports/registry/clip.delete__edit_patch__retiming-only-axi-primitive.json",
-            "measurement": {
-              "clip_composition": "linked_video_clip",
-              "existing_effects": "retiming",
-              "frame_rate": "24",
-              "linked_audio_configuration": "linked_audio_present",
-              "media_type": "video",
-              "project_settings": "landscape_1920x1080",
-              "resolve_version": "21.1.0.14",
-              "timeline_density": "moderate",
-              "timeline_structure": "multi_item_timeline",
-              "track_layout": "video+audio",
-              "track_occupancy": "mixed"
-            },
-            "checks": {
-              "linked_audio_preserved": true,
-              "other_items_untouched": true,
-              "retiming_only_state": true,
-              "video_target_absent": true
-            },
-            "scenarios": [
-              "delete_retimed_only"
-            ]
-          }
+          "delete_linked_av_moderate",
+          "delete_retimed_moderate",
+          "delete_still_card",
+          "delete_fusion_bearing"
         ]
       },
       "audio_verification": [
-        "every audio row is read back item by item before and after the write, and the dialogue rows are compared unchanged"
+        "not applicable: this operation writes no audio level; the audio rows are read back unchanged by the same per-item reading"
       ],
       "coverage": {
         "configurations": [
-          "populated_1080p24",
-          "linked_av_1080p24",
-          "still_1080p24",
-          "real_reel_product_format",
-          "linked_av_1080p24_measured_state"
+          "measured_qualification_timeline"
         ],
         "dimensions": {
           "clip_composition": [
@@ -758,7 +710,8 @@
             "none",
             "transforms+retiming+fusion",
             "transforms+retiming",
-            "retiming"
+            "retiming",
+            "retiming+fusion"
           ],
           "frame_rate": [
             "24",
@@ -798,105 +751,26 @@
           ]
         },
         "source": "derived_from_v1_evidence",
-        "uncovered": {
-          "clip_composition": [
-            "audio_clip",
-            "linked_audio_clip",
-            "unknown_item",
-            "none",
-            "mixed"
-          ],
-          "existing_effects": [
-            "fusion",
-            "grades",
-            "grades+fusion",
-            "grades+retiming",
-            "grades+retiming+fusion",
-            "retiming+fusion",
-            "transforms",
-            "transforms+fusion",
-            "transforms+grades",
-            "transforms+grades+fusion",
-            "transforms+grades+retiming",
-            "transforms+grades+retiming+fusion",
-            "transitions",
-            "transitions+fusion",
-            "transitions+grades",
-            "transitions+grades+fusion",
-            "transitions+grades+retiming",
-            "transitions+grades+retiming+fusion",
-            "transitions+retiming",
-            "transitions+retiming+fusion",
-            "transitions+transforms",
-            "transitions+transforms+fusion",
-            "transitions+transforms+grades",
-            "transitions+transforms+grades+fusion",
-            "transitions+transforms+grades+retiming",
-            "transitions+transforms+grades+retiming+fusion",
-            "transitions+transforms+retiming",
-            "transitions+transforms+retiming+fusion"
-          ],
-          "frame_rate": [
-            "other",
-            "25",
-            "29.97",
-            "30",
-            "48",
-            "50",
-            "59.94",
-            "60"
-          ],
-          "media_type": [
-            "audio",
-            "mixed",
-            "none",
-            "unknown"
-          ],
-          "project_settings": [
-            "unknown",
-            "square_1920x1920",
-            "landscape_1280x720",
-            "landscape_2560x1440",
-            "landscape_3840x2160",
-            "portrait_2160x3840"
-          ],
-          "timeline_density": [
-            "empty"
-          ],
-          "timeline_structure": [
-            "empty_timeline"
-          ],
-          "track_layout": [
-            "none",
-            "audio"
-          ],
-          "track_occupancy": [
-            "all_empty"
-          ]
-        }
+        "uncovered": {}
       },
       "environment": {
         "platform": "darwin",
         "resolve_version": "21.1.0.14"
       },
-      "evidence": "tests/live/reports/product-format-qualification/product-format-evidence.json#delete_linked_target,delete_transformed_target; earlier evidence: tests/live/reports/product-format-qualification/product-format-evidence.json#delete_linked_target,delete_transformed_target; earlier evidence: clip-delete-evidence.json#payload; direct EditPatch clip.delete committed; seeded qual_b.mp4 absent on re-read; no other items or tracks changed; tests/live/reports/predicate-widening-016.json#W1+W2+W3; direct EditPatch clip.delete committed on linked video, still, and multi-item cover; target absent, others unchanged; tests/live/reports/axi-primitive-qualification.json#delete_linked_effects; tests/live/reports/registry/clip.delete__edit_patch__retiming-only-axi-primitive.json",
+      "evidence": "tests/live/reports/axi-primitive-qualification.json#delete_linked_av_moderate,delete_retimed_moderate,delete_still_card,delete_fusion_bearing; the coverage this row already held: tests/live/reports/axi-primitive-qualification.json#delete_linked_av_moderate,delete_retimed_moderate,delete_still_card; the coverage this row already held: clip-delete-evidence.json#payload; direct EditPatch clip.delete committed; seeded qual_b.mp4 absent on re-read; no other items or tracks changed; tests/live/reports/predicate-widening-016.json#W1+W2+W3; direct EditPatch clip.delete committed on linked video, still, and multi-item cover; target absent, others unchanged; the coverage this row already held: tests/live/reports/product-format-qualification/product-format-evidence.json#delete_linked_target,delete_transformed_target; earlier evidence: tests/live/reports/product-format-qualification/product-format-evidence.json#delete_linked_target,delete_transformed_target; earlier evidence: clip-delete-evidence.json#payload; direct EditPatch clip.delete committed; seeded qual_b.mp4 absent on re-read; no other items or tracks changed; tests/live/reports/predicate-widening-016.json#W1+W2+W3; direct EditPatch clip.delete committed on linked video, still, and multi-item cover; target absent, others unchanged; tests/live/reports/axi-primitive-qualification.json#delete_linked_effects; tests/live/reports/registry/clip.delete__edit_patch__retiming-only-axi-primitive.json",
       "expected_state": {
-        "other_items_untouched": true,
+        "adjacent_source_ranges_unchanged": true,
+        "fusion_comp_gone_with_target": true,
+        "gap_left": true,
+        "linked_audio_preserved": true,
+        "other_rows_unchanged": true,
         "target_absent": true,
-        "retiming_only_state": true
+        "video_target_absent": true
       },
       "media_types": [
         "video"
       ],
       "preservation_checks": [
-        {
-          "check": "other_items_untouched",
-          "result": "passed"
-        },
-        {
-          "check": "target_absent",
-          "result": "passed"
-        },
         {
           "check": "video_target_absent",
           "result": "passed"
@@ -906,15 +780,43 @@
           "result": "passed"
         },
         {
-          "check": "retiming_only_state",
+          "check": "gap_left",
+          "result": "passed"
+        },
+        {
+          "check": "adjacent_source_ranges_unchanged",
+          "result": "passed"
+        },
+        {
+          "check": "other_rows_unchanged",
+          "result": "passed"
+        },
+        {
+          "check": "target_absent",
+          "result": "passed"
+        },
+        {
+          "check": "fusion_comp_gone_with_target",
           "result": "passed"
         }
       ],
       "preservation_limits": [
-        "one operation, one backend, one product-format reel copy: other_items_untouched, target_absent",
-        "the evidence is one live run; it does not qualify other effect combinations, other frame rates or another Resolve version"
+        "one private scratch timeline; the checks are the ones the scenarios name: adjacent_source_ranges_unchanged, fusion_comp_gone_with_target, gap_left, linked_audio_preserved, other_rows_unchanged, target_absent, video_target_absent"
       ],
       "qualification_predicates": [
+        {
+          "field": "resolve_version",
+          "operator": "equals",
+          "value": "21.1.0.14"
+        },
+        {
+          "field": "media_type",
+          "operator": "one_of",
+          "value": [
+            "video",
+            "still"
+          ]
+        },
         {
           "field": "clip_composition",
           "operator": "one_of",
@@ -922,24 +824,6 @@
             "single_video_clip",
             "linked_video_clip",
             "still_clip"
-          ]
-        },
-        {
-          "field": "existing_effects",
-          "operator": "one_of",
-          "value": [
-            "none",
-            "transforms+retiming+fusion",
-            "transforms+retiming",
-            "retiming"
-          ]
-        },
-        {
-          "field": "frame_rate",
-          "operator": "one_of",
-          "value": [
-            "24",
-            "23.976"
           ]
         },
         {
@@ -951,25 +835,20 @@
           ]
         },
         {
-          "field": "media_type",
+          "field": "track_layout",
           "operator": "one_of",
           "value": [
             "video",
-            "still"
+            "video+audio"
           ]
         },
         {
-          "field": "project_settings",
+          "field": "track_occupancy",
           "operator": "one_of",
           "value": [
-            "landscape_1920x1080",
-            "portrait_1080x1920"
+            "mixed",
+            "all_populated"
           ]
-        },
-        {
-          "field": "resolve_version",
-          "operator": "equals",
-          "value": "21.1.0.14"
         },
         {
           "field": "timeline_density",
@@ -989,19 +868,30 @@
           ]
         },
         {
-          "field": "track_layout",
+          "field": "project_settings",
           "operator": "one_of",
           "value": [
-            "video",
-            "video+audio"
+            "landscape_1920x1080",
+            "portrait_1080x1920"
           ]
         },
         {
-          "field": "track_occupancy",
+          "field": "frame_rate",
           "operator": "one_of",
           "value": [
-            "mixed",
-            "all_populated"
+            "24",
+            "23.976"
+          ]
+        },
+        {
+          "field": "existing_effects",
+          "operator": "one_of",
+          "value": [
+            "none",
+            "transforms+retiming+fusion",
+            "transforms+retiming",
+            "retiming",
+            "retiming+fusion"
           ]
         }
       ],
@@ -1010,23 +900,19 @@
       "result": "passed",
       "semantic_boundary": {
         "applies_to": [
-          "clip.delete on edit_patch in the measured product-format state: a portrait 1080x1920 reel at 23.976fps, dense, with linked video+audio, caption cards, transforms and retiming",
-          "clip.delete on edit_patch in the measured Ren Qualification linked A/V state: landscape 1920x1080 at 24fps, moderate density, transforms+retiming",
-          "clip.delete on edit_patch in measured Ren Qualification linked A/V state: landscape 1920x1080 at 24fps, moderate density, retiming only"
+          "clip.delete on edit_patch in the measured qualification state"
         ],
         "does_not_apply_to": [
-          "a state outside coverage.dimensions",
-          "an operation/backend pair this evidence does not name",
-          "a timeline that is not a Ren-owned scratch copy of a real reel in the product format"
+          "states or operation/backend pairs not named by this evidence"
         ]
       },
       "timeline_conditions": [
-        "Ren Scratch - vep-bench-demo2 / vep-qual product format 1792548370",
-        "a Ren-owned scratch COPY of a real reel, never the captain's own timeline or media",
-        "the product format: portrait 1080x1920, 23.976fps, a dense timeline with linked video+audio, rendered caption cards, transforms and retiming"
+        "Ren Qualification / fm-scratch qualify",
+        "private target timeline only",
+        "production entry: edit_patch.apply_live_patch"
       ],
       "visual_verification": [
-        "the live read-back of every clip on every row before and after the write: source path, source range, record span, transform, linked group and Fusion comps"
+        "the live read-back of every clip on every row, item by item (source path, source range, record span, transform, enabled state, Fusion comps) plus `resolve-axi items`"
       ]
     },
     "clip.delete::resolve_axi": {
@@ -1390,133 +1276,43 @@
         "the live read-back of every clip on every row before and after the write: source path, source range, record span, transform, linked group and Fusion comps"
       ]
     },
-    "clip.delete::resolve_axi": {
+    "clip.remove::resolve_axi": {
       "actual_state": {
         "checks": {
-          "gap_left": true,
-          "other_track_untouched": true,
-          "overlay_absent": true,
-          "picture_untouched": true,
+          "link_group_shifted": true,
+          "other_rows_untouched": true,
+          "ripple_scope_measured": true,
+          "same_track_closed": true,
           "target_absent": true
         },
         "measurement": {
-          "clip_composition": "still_clip",
-          "linked_audio_configuration": "no_linked_audio",
-          "media_type": "still",
-          "project_name": "Ren Qualification",
+          "clip_composition": "linked_video_clip",
+          "existing_effects": "none",
+          "frame_rate": "24",
+          "linked_audio_configuration": "linked_audio_present",
+          "media_type": "video",
+          "project_settings": "landscape_1920x1080",
           "resolve_version": "21.1.0.14",
-          "timeline_name": "fm-scratch qualify",
-          "timeline_structure": "multi_item_timeline"
+          "timeline_density": "moderate",
+          "timeline_structure": "multi_item_timeline",
+          "track_layout": "video+audio",
+          "track_occupancy": "all_populated"
         },
         "scenarios": [
-          "remove_leaves_gap",
-          "overlay_remove"
+          "ripple_remove_multi_track"
         ]
       },
       "audio_verification": [
         "not applicable: this operation writes no audio level; the audio rows are read back unchanged by the same per-item reading"
       ],
-      "evidence": "tests/live/reports/axi-primitive-qualification.json#remove_leaves_gap,overlay_remove",
-      "expected_state": {
-        "gap_left": true,
-        "other_track_untouched": true,
-        "overlay_absent": true,
-        "picture_untouched": true,
-        "target_absent": true
-      },
-      "media_types": [
-        "still"
-      ],
-      "preservation_checks": [
-        {
-          "check": "target_absent",
-          "result": "passed"
-        },
-        {
-          "check": "gap_left",
-          "result": "passed"
-        },
-        {
-          "check": "other_track_untouched",
-          "result": "passed"
-        },
-        {
-          "check": "overlay_absent",
-          "result": "passed"
-        },
-        {
-          "check": "picture_untouched",
-          "result": "passed"
-        }
-      ],
-      "preservation_limits": [
-        "one private scratch timeline; the checks are the ones the scenarios name: gap_left, other_track_untouched, overlay_absent, picture_untouched, target_absent"
-      ],
-      "qualification_predicates": [
-        {
-          "field": "resolve_version",
-          "operator": "equals",
-          "value": "21.1.0.14"
-        },
-        {
-          "field": "project_name",
-          "operator": "equals",
-          "value": "Ren Qualification"
-        },
-        {
-          "field": "timeline_name",
-          "operator": "equals",
-          "value": "fm-scratch qualify"
-        },
-        {
-          "field": "media_type",
-          "operator": "equals",
-          "value": "still"
-        },
-        {
-          "field": "clip_composition",
-          "operator": "equals",
-          "value": "still_clip"
-        },
-        {
-          "field": "linked_audio_configuration",
-          "operator": "equals",
-          "value": "no_linked_audio"
-        },
-        {
-          "field": "timeline_structure",
-          "operator": "equals",
-          "value": "multi_item_timeline"
-        }
-      ],
-      "recovery": "not_required",
-      "resolve_version": "21.1.0.14",
-      "result": "passed",
-      "timeline_conditions": [
-        "Ren Qualification / fm-scratch qualify",
-        "private target timeline only",
-        "production entry: resolve-axi edit delete"
-      ],
-      "visual_verification": [
-        "the live read-back of every clip on every row, item by item (source path, source range, record span, transform, enabled state, Fusion comps) plus `resolve-axi items`"
-      ]
-    },
-    "clip.remove::resolve_axi": {
-      "actual_state": {
-        "elapsed_seconds": 12.761612750000495,
-        "receipt": "committed"
-      },
-      "audio_verification": [
-        "underlying A-roll audio unchanged and in sync (linked_audio_in_sync check passed)"
-      ],
       "coverage": {
         "configurations": [
-          "populated_1080p24",
-          "linked_av_1080p24"
+          "measured_qualification_timeline"
         ],
         "dimensions": {
           "clip_composition": [
-            "single_video_clip"
+            "single_video_clip",
+            "linked_video_clip"
           ],
           "existing_effects": [
             "none"
@@ -1525,7 +1321,8 @@
             "24"
           ],
           "linked_audio_configuration": [
-            "no_linked_audio"
+            "no_linked_audio",
+            "linked_audio_present"
           ],
           "media_type": [
             "video"
@@ -1537,7 +1334,8 @@
             "21.1.0.14"
           ],
           "timeline_density": [
-            "light"
+            "light",
+            "moderate"
           ],
           "timeline_structure": [
             "multi_item_timeline"
@@ -1546,140 +1344,52 @@
             "video+audio"
           ],
           "track_occupancy": [
-            "mixed"
-          ]
-        },
-        "source": "derived_from_v1_evidence",
-        "uncovered": {
-          "clip_composition": [
-            "linked_video_clip",
-            "still_clip",
-            "audio_clip",
-            "linked_audio_clip",
-            "unknown_item",
-            "none",
-            "mixed"
-          ],
-          "existing_effects": [
-            "fusion",
-            "grades",
-            "grades+fusion",
-            "grades+retiming",
-            "grades+retiming+fusion",
-            "retiming",
-            "retiming+fusion",
-            "transforms",
-            "transforms+fusion",
-            "transforms+grades",
-            "transforms+grades+fusion",
-            "transforms+grades+retiming",
-            "transforms+grades+retiming+fusion",
-            "transforms+retiming",
-            "transforms+retiming+fusion",
-            "transitions",
-            "transitions+fusion",
-            "transitions+grades",
-            "transitions+grades+fusion",
-            "transitions+grades+retiming",
-            "transitions+grades+retiming+fusion",
-            "transitions+retiming",
-            "transitions+retiming+fusion",
-            "transitions+transforms",
-            "transitions+transforms+fusion",
-            "transitions+transforms+grades",
-            "transitions+transforms+grades+fusion",
-            "transitions+transforms+grades+retiming",
-            "transitions+transforms+grades+retiming+fusion",
-            "transitions+transforms+retiming",
-            "transitions+transforms+retiming+fusion"
-          ],
-          "frame_rate": [
-            "other",
-            "23.976",
-            "25",
-            "29.97",
-            "30",
-            "48",
-            "50",
-            "59.94",
-            "60"
-          ],
-          "linked_audio_configuration": [
-            "linked_audio_present"
-          ],
-          "media_type": [
-            "audio",
-            "still",
             "mixed",
-            "none",
-            "unknown"
-          ],
-          "project_settings": [
-            "unknown",
-            "square_1920x1920",
-            "landscape_1280x720",
-            "landscape_2560x1440",
-            "landscape_3840x2160",
-            "portrait_1080x1920",
-            "portrait_2160x3840"
-          ],
-          "timeline_density": [
-            "empty",
-            "moderate",
-            "dense"
-          ],
-          "timeline_structure": [
-            "empty_timeline",
-            "single_item_timeline"
-          ],
-          "track_layout": [
-            "none",
-            "video",
-            "audio",
-            "subtitle",
-            "video+subtitle",
-            "audio+subtitle",
-            "video+audio+subtitle"
-          ],
-          "track_occupancy": [
-            "all_empty",
             "all_populated"
           ]
-        }
+        },
+        "source": "measured",
+        "uncovered": {}
       },
       "environment": {
         "platform": "darwin",
         "resolve_version": "21.1.0.14"
       },
-      "evidence": "tests/live/reports/editorial-acceptance-blind.json#remove_broll; Level-3 blind instruction removed the V2 cover via track-scoped ripple remove; cover absent, track emptied, speech and linked audio unchanged",
+      "evidence": "tests/live/reports/axi-primitive-qualification.json#ripple_remove_multi_track; the coverage this row already held: tests/live/reports/editorial-acceptance-blind.json#remove_broll; Level-3 blind instruction removed the V2 cover via track-scoped ripple remove; cover absent, track emptied, speech and linked audio unchanged",
       "expected_state": {
-        "cover_absent": true,
-        "cover_track_emptied": true,
-        "speech_and_audio_unchanged": true
+        "link_group_shifted": true,
+        "other_rows_untouched": true,
+        "ripple_scope_measured": true,
+        "same_track_closed": true,
+        "target_absent": true
       },
       "media_types": [
         "video"
       ],
       "preservation_checks": [
         {
-          "check": "broll_target_absent",
+          "check": "target_absent",
           "result": "passed"
         },
         {
-          "check": "cover_track_emptied",
+          "check": "same_track_closed",
           "result": "passed"
         },
         {
-          "check": "underlying_speech_and_audio_unchanged",
+          "check": "link_group_shifted",
           "result": "passed"
         },
         {
-          "check": "linked_audio_in_sync",
+          "check": "other_rows_untouched",
+          "result": "passed"
+        },
+        {
+          "check": "ripple_scope_measured",
           "result": "passed"
         }
       ],
       "preservation_limits": [
-        "single cover on V2 over seeded A-roll; gap closure track-scoped"
+        "one private scratch timeline; the checks are the ones the scenarios name: link_group_shifted, other_rows_untouched, ripple_scope_measured, same_track_closed, target_absent"
       ],
       "qualification_predicates": [
         {
@@ -1694,13 +1404,19 @@
         },
         {
           "field": "clip_composition",
-          "operator": "equals",
-          "value": "single_video_clip"
+          "operator": "one_of",
+          "value": [
+            "single_video_clip",
+            "linked_video_clip"
+          ]
         },
         {
           "field": "linked_audio_configuration",
-          "operator": "equals",
-          "value": "no_linked_audio"
+          "operator": "one_of",
+          "value": [
+            "no_linked_audio",
+            "linked_audio_present"
+          ]
         },
         {
           "field": "track_layout",
@@ -1709,13 +1425,19 @@
         },
         {
           "field": "track_occupancy",
-          "operator": "equals",
-          "value": "mixed"
+          "operator": "one_of",
+          "value": [
+            "mixed",
+            "all_populated"
+          ]
         },
         {
           "field": "timeline_density",
-          "operator": "equals",
-          "value": "light"
+          "operator": "one_of",
+          "value": [
+            "light",
+            "moderate"
+          ]
         },
         {
           "field": "timeline_structure",
@@ -1743,22 +1465,19 @@
       "result": "passed",
       "semantic_boundary": {
         "applies_to": [
-          "removing one placed cover from its own video track, track-scoped, leaving the A-roll and its linked audio in sync"
+          "clip.remove on resolve_axi in the measured qualification state"
         ],
         "does_not_apply_to": [
-          "removing the A-roll itself",
-          "a ripple that crosses onto another track",
-          "a cover that carries a grade, a Fusion composition, a transition or a retime"
+          "states or operation/backend pairs not named by this evidence"
         ]
       },
       "timeline_conditions": [
         "Ren Qualification / fm-scratch qualify",
         "private target timeline only",
-        "linked A/V A-roll seed plus one V2 B-roll cover",
-        "track-scoped ripple remove (edit track-ripple-remove)"
+        "production entry: resolve-axi edit track-ripple-remove"
       ],
       "visual_verification": [
-        "cover absent on read-back; cover track empty; A-roll spans preserved"
+        "the live read-back of every clip on every row, item by item (source path, source range, record span, transform, enabled state, Fusion comps) plus `resolve-axi items`"
       ]
     },
     "clip.replace::edit_patch": {
@@ -2950,190 +2669,6 @@
           "states or operation/backend pairs not named by this evidence"
         ]
       },
-      "timeline_conditions": [
-        "Ren Qualification / fm-scratch qualify",
-        "private target timeline only",
-        "production entry: edit_patch.apply_live_patch"
-      ],
-      "visual_verification": [
-        "the live read-back of every clip on every row, item by item (source path, source range, record span, transform, enabled state, Fusion comps) plus `resolve-axi items`"
-      ]
-    },
-    "mask.create::edit_patch": {
-      "actual_state": {
-        "checks": {
-          "matte_read_back": true,
-          "other_clip_untouched": true
-        },
-        "measurement": {
-          "clip_composition": "single_video_clip",
-          "linked_audio_configuration": "no_linked_audio",
-          "media_type": "video + audio",
-          "project_name": "Ren Qualification",
-          "resolve_version": "21.1.0.14",
-          "timeline_name": "fm-scratch qualify",
-          "timeline_structure": "multi_item_timeline"
-        },
-        "scenarios": [
-          "fusion_matte_placed"
-        ]
-      },
-      "audio_verification": [
-        "not applicable: this operation writes no audio level; the audio rows are read back unchanged by the same per-item reading"
-      ],
-      "evidence": "tests/live/reports/axi-primitive-qualification.json#fusion_matte_placed",
-      "expected_state": {
-        "matte_read_back": true,
-        "other_clip_untouched": true
-      },
-      "media_types": [
-        "video + audio"
-      ],
-      "preservation_checks": [
-        {
-          "check": "matte_read_back",
-          "result": "passed"
-        },
-        {
-          "check": "other_clip_untouched",
-          "result": "passed"
-        }
-      ],
-      "preservation_limits": [
-        "one private scratch timeline; the checks are the ones the scenarios name: matte_read_back, other_clip_untouched"
-      ],
-      "qualification_predicates": [
-        {
-          "field": "resolve_version",
-          "operator": "equals",
-          "value": "21.1.0.14"
-        },
-        {
-          "field": "project_name",
-          "operator": "equals",
-          "value": "Ren Qualification"
-        },
-        {
-          "field": "timeline_name",
-          "operator": "equals",
-          "value": "fm-scratch qualify"
-        },
-        {
-          "field": "media_type",
-          "operator": "equals",
-          "value": "video + audio"
-        },
-        {
-          "field": "clip_composition",
-          "operator": "equals",
-          "value": "single_video_clip"
-        },
-        {
-          "field": "linked_audio_configuration",
-          "operator": "equals",
-          "value": "no_linked_audio"
-        },
-        {
-          "field": "timeline_structure",
-          "operator": "equals",
-          "value": "multi_item_timeline"
-        }
-      ],
-      "recovery": "not_required",
-      "resolve_version": "21.1.0.14",
-      "result": "passed",
-      "timeline_conditions": [
-        "Ren Qualification / fm-scratch qualify",
-        "private target timeline only",
-        "production entry: edit_patch.apply_live_patch"
-      ],
-      "visual_verification": [
-        "the live read-back of every clip on every row, item by item (source path, source range, record span, transform, enabled state, Fusion comps) plus `resolve-axi items`"
-      ]
-    },
-    "retime.segments::edit_patch": {
-      "actual_state": {
-        "checks": {
-          "other_clip_untouched": true,
-          "speed_read_back": true
-        },
-        "measurement": {
-          "clip_composition": "single_video_clip",
-          "linked_audio_configuration": "no_linked_audio",
-          "media_type": "video + audio",
-          "project_name": "Ren Qualification",
-          "resolve_version": "21.1.0.14",
-          "timeline_name": "fm-scratch qualify",
-          "timeline_structure": "multi_item_timeline"
-        },
-        "scenarios": [
-          "retime_speed_change"
-        ]
-      },
-      "audio_verification": [
-        "not applicable: this operation writes no audio level; the audio rows are read back unchanged by the same per-item reading"
-      ],
-      "evidence": "tests/live/reports/axi-primitive-qualification.json#retime_speed_change",
-      "expected_state": {
-        "other_clip_untouched": true,
-        "speed_read_back": true
-      },
-      "media_types": [
-        "video + audio"
-      ],
-      "preservation_checks": [
-        {
-          "check": "speed_read_back",
-          "result": "passed"
-        },
-        {
-          "check": "other_clip_untouched",
-          "result": "passed"
-        }
-      ],
-      "preservation_limits": [
-        "one private scratch timeline; the checks are the ones the scenarios name: other_clip_untouched, speed_read_back"
-      ],
-      "qualification_predicates": [
-        {
-          "field": "resolve_version",
-          "operator": "equals",
-          "value": "21.1.0.14"
-        },
-        {
-          "field": "project_name",
-          "operator": "equals",
-          "value": "Ren Qualification"
-        },
-        {
-          "field": "timeline_name",
-          "operator": "equals",
-          "value": "fm-scratch qualify"
-        },
-        {
-          "field": "media_type",
-          "operator": "equals",
-          "value": "video + audio"
-        },
-        {
-          "field": "clip_composition",
-          "operator": "equals",
-          "value": "single_video_clip"
-        },
-        {
-          "field": "linked_audio_configuration",
-          "operator": "equals",
-          "value": "no_linked_audio"
-        },
-        {
-          "field": "timeline_structure",
-          "operator": "equals",
-          "value": "multi_item_timeline"
-        }
-      ],
-      "recovery": "not_required",
-      "resolve_version": "21.1.0.14",
-      "result": "passed",
       "timeline_conditions": [
         "Ren Qualification / fm-scratch qualify",
         "private target timeline only",
