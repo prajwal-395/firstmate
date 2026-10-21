@@ -3484,6 +3484,10 @@ _IMPLEMENTATION_EVIDENCE = {
         "library/tools/edit_execution_adapters.py:_trim",
         "library/tools/resolve_axi_core_commands.py:cmd_edit_trim",
     ),
+    ("clip.replace", "edit_patch"): (
+        "library/tools/edit_algebra.py:_apply_replace",
+        "library/tools/edit_patch.py:execute_physical_patch",
+    ),
     ("broll.insert", "resolve_axi"): (
         "library/tools/edit_execution_adapters.py:_broll_insert",
         "library/tools/resolve_axi_core_commands.py:cmd_edit_place",
@@ -3595,7 +3599,8 @@ _BACKEND_OPERATION_LIMITATIONS = {
     ("multicam.select_angle", "resolve_axi"):
         (("requires a resolved speaker id, assignment basis, unique camera media-pool source, "
           "explicit synced source frames, and a source range matching the existing record duration; "
-          "live Resolve qualification remains deferred"),),
+          "the switch is a journaled place-then-delete replacement, read back against the replaced "
+          "source and record span; live Resolve qualification remains deferred"),),
     ("caption.style", "resolve_axi"):
         ("one caption card per operation, re-rendered in a named subtitle style with its text and timing preserved; the style must name library/tools/subtitle_style.py SUBTITLE_STYLES and is never guessed; rendered caption images require regeneration with per-card swap read-back; live Resolve qualification remains deferred",),
     ("reel.opening", "resolve_axi"):
@@ -4189,7 +4194,13 @@ OP_SAFETY_CLASS: dict[str, str] = {
     "color.qualifier.sample": SAFETY_UNREPRESENTABLE,
     "color.qualifier.adjust": SAFETY_UNREPRESENTABLE,
     "multicam.angle": SAFETY_UNREPRESENTABLE,
-    "multicam.select_angle": SAFETY_UNREPRESENTABLE,
+    # The camera switch HAS an executor: the AXI adapter runs the
+    # journaled place-then-delete replacement and reads the replaced
+    # source range back. It was classed unrepresentable while it was a
+    # canonical NAME only, and that class refused it before any route
+    # was chosen. It is a localized source replacement at the same
+    # record span, exactly as `clip.replace` is.
+    "multicam.select_angle": SAFETY_COMPLEX_LOCALIZED,
 }
 
 VC20_TARGET_STRATEGY = {

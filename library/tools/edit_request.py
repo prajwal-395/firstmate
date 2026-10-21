@@ -770,33 +770,65 @@ _TARGET_IDENTITY_KEYS = ("unique_id", "resolve_item_id", "track_type",
                          "source_out_frame", "track_role")
 
 
-def _split_target(raw: dict) -> EditTarget | None:
+#: The identity keys the flat algebra op carries AGAIN
+#: (`EditOperation.to_algebra_op`): taking them off the target loses
+#: nothing, so they are always the target's.
+_REMERGED_TARGET_KEYS = ("unique_id", "resolve_item_id", "track_type",
+                         "track_index")
+
+
+def _required_parameters(op_id: str) -> tuple[str, ...]:
+    """The parameters this operation declares, read off the algebra.
+
+    A key the operation ITSELF requires is the operation's own
+    parameter, and the target split may not swallow it.
+    """
+    if not op_id:
+        return ()
+    from library.tools import edit_algebra
+
+    spec = edit_algebra.get(str(op_id))
+    return tuple(spec.required) if spec is not None else ()
+
+
+def _split_target(raw: dict, op_id: str = "") -> EditTarget | None:
     """Pop the target selector out of flat op params, keeping op params.
 
     Identity keys always address the target; `name` does only beside
     one (a clip's name), and stays an op parameter otherwise (a
     marker's name, a row's name).
+
+    A key the OPERATION DECLARES stays the operation's parameter. A
+    `clip.replace` names the file it writes and a
+    `multicam.select_angle` names the assigned camera's source and its
+    synced range - neither is the identity of the clip being edited.
+    Reading them as the target's identity swallowed them, and the
+    request was then refused for missing parameters it had been given.
     """
+    required = _required_parameters(op_id)
     selector = {key: raw.pop(key) for key in _TARGET_IDENTITY_KEYS
-                if key in raw}
-    if selector and "name" in raw:
+                if key in raw and (key in _REMERGED_TARGET_KEYS
+                                   or key not in required)}
+    if selector and "name" in raw and "name" not in required:
         selector["name"] = raw.pop("name")
     if not selector:
         return None
     return EditTarget.from_selector(selector)
 
 
-def split_target(raw: Mapping[str, Any]) -> tuple[EditTarget | None, dict]:
+def split_target(raw: Mapping[str, Any], op_id: str = ""
+                 ) -> tuple[EditTarget | None, dict]:
     """Split a flat op's params into its target selector and its own params.
 
     The ONE rule for where a target lives inside a flat operation, so a
     builder that starts from a flat op and a builder that starts from a
     target and its params cannot disagree about what the op carries.
     Returns `(target, params)`; `params` is a copy and `raw` is not
-    changed.
+    changed. `op_id` names the operation the flat op is: a key the
+    operation declares is its own parameter, never the target's.
     """
     params = dict(raw)
-    target = _split_target(params)
+    target = _split_target(params, op_id)
     return target, params
 
 
@@ -832,7 +864,7 @@ def from_algebra_ops(ops: Sequence[Mapping[str, Any]], *,
         kind = str(raw.pop("kind", default_kind) or default_kind)
         expected = str(raw.pop("expected_effect", "") or "")
         depends = tuple(int(i) for i in (raw.pop("depends_on", None) or ()))
-        target = _split_target(raw)
+        target = _split_target(raw, op_id)
         if not expected:
             expected = (f"apply {op_id} "
                         f"{('to ' + (target.name or target.unique_id)) if target else ''}".strip())
@@ -866,32 +898,70 @@ def from_axi_operations(ops: Sequence[Mapping[str, Any]], *,
         default_kind=DIRECT)
 
 
+def program_op_parts(raw: Mapping[str, Any], index: int = 0) -> dict:
+    """One program op, split into the parts every program reader needs.
+
+    A program op carries the operation's PARAMETERS (its `params` and
+    the keys beside them), its stated EFFECT (`expected_effect`, or the
+    program's own `text`), and its kind and dependencies.
+
+    The effect is the program's DESCRIPTION of the op. A `text` the
+    operation DECLARES is the parameter the operation writes - the
+    caption a `caption_fix` writes - and it stays a parameter.
+
+    ONE rule, so the request's own program reader and the decision
+    layer's reader cannot disagree about what an op carries.
+    """
+    if not isinstance(raw, Mapping):
+        raise EditRequestError(f"program op {index} must be a mapping")
+    op = copy.deepcopy(dict(raw))
+    op_id = str(op.pop("op", "") or "")
+    description = op.get("text")
+    nested = op.pop("params", None)
+    if isinstance(nested, Mapping):
+        merged = dict(nested)
+        for key, value in op.items():
+            merged.setdefault(key, value)
+        op = merged
+    kind = str(op.pop("kind", DIRECT) or DIRECT)
+    required = _required_parameters(op_id)
+    expected = str(op.pop("expected_effect", "") or "")
+    if not expected:
+        expected = str(description or "")
+    if "text" not in required:
+        # The description is the EFFECT, not a parameter: it leaves the
+        # operation's params. An operation that does not declare `text`
+        # may still carry one of its own, and that one stays.
+        declared_text = (isinstance(nested, Mapping) and "text" in nested)
+        if description and not declared_text:
+            op.pop("text", None)
+        elif not expected:
+            expected = str(op.pop("text", "") or "")
+    depends = tuple(int(i) for i in (op.pop("depends_on", None) or ()))
+    pre = tuple(dict(c) for c in (op.pop("preconditions", None) or ()))
+    post = tuple(dict(c) for c in (op.pop("postconditions", None) or ()))
+    return {"op": op_id, "params": op, "kind": kind, "effect": expected,
+            "depends_on": depends, "preconditions": pre,
+            "postconditions": post}
+
+
 def _program_op_to_operation(raw: Mapping[str, Any], index: int
                              ) -> EditOperation:
     """One edit_spec program op (flat or `params`-nested) to an operation."""
-    if not isinstance(raw, Mapping):
-        raise EditRequestError(f"program op {index} must be a mapping")
-    raw = copy.deepcopy(dict(raw))
-    op_id = str(raw.pop("op", "") or "")
-    params = raw.pop("params", None)
-    if isinstance(params, Mapping):
-        merged = dict(params)
-        for key, value in raw.items():
-            merged.setdefault(key, value)
-        raw = merged
-    kind = str(raw.pop("kind", DIRECT) or DIRECT)
-    expected = str(raw.pop("expected_effect", "")
-                   or raw.pop("text", "") or "")
-    depends = tuple(int(i) for i in (raw.pop("depends_on", None) or ()))
-    pre = tuple(dict(c) for c in (raw.pop("preconditions", None) or ()))
-    post = tuple(dict(c) for c in (raw.pop("postconditions", None) or ()))
-    target = _split_target(raw)
+    parts = program_op_parts(raw, index)
+    op_id = str(parts["op"])
+    raw = dict(parts["params"])
+    expected = str(parts["effect"])
+    target = _split_target(raw, op_id)
     if not expected:
         expected = (f"apply {op_id} "
                     f"{('to ' + (target.name or target.unique_id)) if target else ''}".strip())
-    return EditOperation(op=op_id, target=target, params=raw, kind=kind,
-                         expected_effect=expected, depends_on=depends,
-                         preconditions=pre, postconditions=post)
+    return EditOperation(op=op_id, target=target, params=raw,
+                         kind=parts["kind"],
+                         expected_effect=expected,
+                         depends_on=parts["depends_on"],
+                         preconditions=parts["preconditions"],
+                         postconditions=parts["postconditions"])
 
 
 def from_edit_program(program: Mapping[str, Any], *,

@@ -8205,6 +8205,61 @@ still refused under production routing, and the evidence that would promote it b
 live qualification lane. This change fixes the route that was recorded, not the qualification
 that has not been earned.
 
+## the-operation-with-an-executor-and-no-route
+
+**The rule.** An operation that HAS an executor is ROUTABLE, and the policy that routes it is
+the one that names it. Registering an operation is not a qualification: the protected
+experimental policy runs an unimplemented-but-verified operation on a staged, journaled,
+read-back-judged path, and production routing still refuses it until live evidence says
+otherwise. The two halves are separate, and neither may be used to excuse the other: an
+operation with no executor has no route at all, and an operation with an executor and no
+policy entry is unroutable by accident.
+
+**What happened.** The live unfamiliar-brief benchmark (PR 2989,
+`docs/benchmarks/2026-10-20-unfamiliar-brief-acceptance.md`) worked eight briefs against
+real footage and measured, on the engine's own refusals:
+
+> `reel.opening`, `clip.trim` (alone), `multicam.select_angle`, `broll.insert`,
+> `caption_fix`: refused by the router under the production policy, and **not covered by the
+> protected experimental policy either** ... A lone `clip.trim` and a lone `clip.replace` are
+> unroutable, so "tighten the opening" and "swap this clip's source" have no route at all.
+
+Three separate defects sat behind that one refusal, and each had to be fixed for the
+operation to be routable at all:
+
+1. The protected policy named neither those operations nor a lone `clip.replace`, so the
+   front door and the AXI planner agreed - on a refusal. The policy now names every one of
+   them, and it names only operations that HAVE an implemented executor: a protected route
+   may not point at a path that does not exist.
+2. `multicam.select_angle` was classed `unrepresentable` - "no executor proves this
+   operation" - which was true while it was a canonical NAME only and false once the AXI
+   adapter landed. The class refused the op before any route was chosen. It is a localized
+   source replacement now: staged only, never direct, and never production-enabled without
+   live evidence.
+3. The request builder SWALLOWED the parameters those operations declare. `source_file` is
+   an identity key, so `clip.replace` - which names the file it WRITES - and
+   `multicam.select_angle` - which names the assigned camera's source and its synced range -
+   had their own parameters read as the target's identity and dropped, and the request was
+   then refused for missing parameters it had been given. A key the operation DECLARES is
+   the operation's own parameter. The program reader had the same shape of defect for
+   `caption_fix`: its `text` is the caption the operation writes, and it was read as the
+   operation's expected effect instead.
+
+**Where it is.** `library/tools/edit_qualification_policy.py` names the covered operations
+and refuses to cover one with no executor. `library/tools/edit_algebra.py` records
+`clip.replace`'s EditPatch executor as IMPLEMENTED and classes the camera switch by what it
+does. `library/tools/edit_request.py` splits a target out of a flat operation without
+taking a parameter the operation declares, and the program reader keeps the text an
+operation writes. The tests are `tests/unit/resolve/test_protected_single_ops.py` and
+`tests/contracts/test_edit_request.py`.
+
+**What it does not fix.** None of these operations is production-qualified. The protected
+route runs them on a staged, journaled path with a fresh read-back; ordinary production
+routing still refuses every one of them, and the live evidence that would promote them
+belongs to the live qualification lane. `broll.insert` was already production-enabled on
+the qualification lane's recorded predicates - predicates the product's own vertical,
+dense, 23.976 reels do not satisfy - and nothing here widens them.
+
 ## the-corpus-database-two-runs-shared
 
 **The rule:** one `mfa align` run gets its OWN MFA root, inside that run's own scratch. MFA

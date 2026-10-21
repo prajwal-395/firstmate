@@ -299,3 +299,62 @@ def test_patch_without_spans_refuses_and_names_preparation():
                        match="preparation"):
         compiled.to_patch("reel.touchup", base_generation=9,
                           project="Podcast", timeline="Reel 09")
+
+
+# ── The target split may not swallow a parameter the op declares ──────
+#
+# `clip.replace` names the file it WRITES, and `multicam.select_angle`
+# names the assigned camera's source and its synced range. Neither is
+# the identity of the clip being edited. Read as the target's identity
+# they were dropped, and the request was then refused for missing
+# parameters it had been given: "swap this clip's source" had no route
+# at all.
+
+
+@pytest.mark.parametrize("flat,expected", [
+    ({"op": "clip.replace", "unique_id": "clip-1",
+      "source_file": "/media/other.mov"},
+     {"op": "clip.replace", "unique_id": "clip-1",
+      "source_file": "/media/other.mov"}),
+    ({"op": "multicam.select_angle", "unique_id": "clip-1",
+      "speaker_id": "speaker-1",
+      "assignment_basis": "diarized_speaker_identity",
+      "source_file": "/media/camera_b.mov", "source_in_frame": 5,
+      "source_out_frame": 64, "sync_evidence_id": "sync:camera-b:turn-1"},
+     {"op": "multicam.select_angle", "unique_id": "clip-1",
+      "speaker_id": "speaker-1",
+      "assignment_basis": "diarized_speaker_identity",
+      "source_file": "/media/camera_b.mov", "source_in_frame": 5,
+      "source_out_frame": 64, "sync_evidence_id": "sync:camera-b:turn-1"}),
+    ({"op": "track.rename", "track_type": "video", "track_index": 1,
+      "name": "V2"},
+     {"op": "track.rename", "track_type": "video", "track_index": 1,
+      "name": "V2"}),
+    ({"op": "caption_fix", "unique_id": "clip-1", "text": "a caption"},
+     {"op": "caption_fix", "unique_id": "clip-1", "text": "a caption"}),
+])
+def test_an_operations_declared_parameters_survive_the_target_split(flat,
+                                                                   expected):
+    """Catches: the target split taking a parameter the operation
+    declares, so the request was refused for a parameter the caller
+    had stated."""
+    request = edit_request.from_algebra_ops(
+        [dict(flat)], project="Podcast", timeline="Reel 09")
+    (compiled,) = compile_request(request).operations
+    assert compiled == expected
+
+
+def test_the_program_reader_keeps_the_caption_the_operation_writes():
+    """Catches: the program reader reading a `caption_fix`'s `text` as
+    the operation's EXPECTED EFFECT and dropping the caption the
+    operation was asked to write."""
+    request = edit_request.from_edit_program(
+        {"ops": [{"op": "caption_fix",
+                  "text": "rewrite this caption",
+                  "params": {"unique_id": "clip-1", "text": "the caption"}}],
+         "reel": "Reel 09", "base_generation": "1",
+         "idempotency_key": "revise-1"},
+        project="Podcast", timeline="Reel 09")
+    (operation,) = request.operations
+    assert operation.params["text"] == "the caption"
+    assert operation.expected_effect

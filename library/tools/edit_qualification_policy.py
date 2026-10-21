@@ -17,6 +17,20 @@ Both now read this module, so the classifier and the planner agree. The
 policy widens nothing on its own: an operation not named here is refused
 by the production policy exactly as before, and the guarantees below are
 what the router checks before it selects the protected backend.
+
+An operation is named here only when it HAS AN EXECUTOR. A protected
+route may name a path that exists, never a vocabulary entry, so a named
+operation with no implemented executor is refused by this module rather
+than granted a route that runs nothing.
+
+The live unfamiliar-brief benchmark (PR 2989) measured operations that have
+an executor and NO route: `reel.opening`, a lone `clip.trim`,
+`multicam.select_angle`, `broll.insert` and `caption_fix` were refused
+by the router under the production policy and were not covered by this
+policy either, and a lone `clip.replace` was unroutable too - so
+"tighten the opening" and "swap this clip's source" had no route at
+all. They are named here now, and they stay out of production routing
+until live evidence qualifies them for it.
 """
 
 from __future__ import annotations
@@ -36,6 +50,15 @@ PROTECTED_EXPERIMENTAL_SINGLE_OPS = frozenset({
     "clip.split",
     "clip.slide",
     "clip.roll",
+    # The operations the live unfamiliar-brief benchmark (PR 2989) found
+    # with an executor and no route at all. Each runs on the protected
+    # route; none is production-qualified, and nothing here grants that.
+    "broll.insert",
+    "caption_fix",
+    "clip.replace",
+    "clip.trim",
+    "multicam.select_angle",
+    "reel.opening",
 })
 
 #: Operation PAIRS that may run under the protected experimental policy.
@@ -50,6 +73,22 @@ PROTECTED_EXPERIMENTAL_GUARANTEES = (
     "preserve_approved_state",
     "verify_after_write",
 )
+
+
+def has_implemented_executor(operation_id: str) -> bool:
+    """Whether an executor for this operation exists at all.
+
+    The protected route may only name a path that exists. An operation
+    with no implemented executor is not covered by this policy, so a
+    grant can never reach a vocabulary entry that nothing runs.
+    """
+    from library.tools import edit_algebra
+
+    entry = edit_algebra.status(str(operation_id))
+    if entry is None:
+        return False
+    return any(backend.implementation_evidence
+               for backend in entry.backends)
 
 
 def is_protected_experiment(operation_ids: Iterable[str], *,
@@ -75,6 +114,8 @@ def protected_experimental_context(operation_ids: Iterable[str], *,
     compound = (len(ids) == 2
                 and frozenset(ids) in PROTECTED_EXPERIMENTAL_COMPOUNDS)
     if not (single or compound):
+        return None
+    if not all(has_implemented_executor(op_id) for op_id in ids):
         return None
     return {
         "qualification_policy": "protected_experimental",

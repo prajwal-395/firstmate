@@ -563,7 +563,7 @@ def _compile_operation(decision: EditorialDecision,
     # request's own split rule - the same rule `from_edit_program` uses.
     flat = dict(operation.params)
     flat.update(operation.target)
-    target, params = edit_request.split_target(flat)
+    target, params = edit_request.split_target(flat, operation.op)
     return edit_request.EditOperation(
         op=operation.op,
         target=target,
@@ -727,39 +727,28 @@ def _check_compilable(decision: EditorialDecision, intent: Any) -> None:
 def _flat_op(raw: Mapping[str, Any], index: int) -> dict:
     """One program op as the flat algebra op the backends evaluate.
 
-    The program's own `params` are the op's parameters; the keys beside
-    them are the same op's parameters too.  The keys that are NOT op
-    parameters - the op's name, its stated effect, its kind and its
-    dependencies - are taken out here, exactly as the request's own
-    program reader takes them out, so the two cannot disagree about
-    what an op carries.
+    The split is the request's OWN program reader's split
+    (`edit_request.program_op_parts`), so the two readers cannot
+    disagree about what an op carries: the parameters are the op's, the
+    effect is the program's stated description, and a `text` the
+    operation DECLARES is the parameter the operation writes.
     """
     if not isinstance(raw, Mapping):
         raise EditorialDecisionError(
             f"the program's op[{index}] must be a mapping")
-    flat = dict(raw)
-    op_id = str(flat.pop("op", "") or "")
-    if not op_id:
+    if not str(raw.get("op") or ""):
         raise EditorialDecisionError(
             f"the program's op[{index}] names no op")
-    nested = flat.pop("params", None)
-    if isinstance(nested, Mapping):
-        merged = dict(nested)
-        for key, value in flat.items():
-            merged.setdefault(key, value)
-        flat = merged
-    kind = str(flat.pop("kind", "") or edit_request.DIRECT)
-    effect = str(flat.pop("expected_effect", "") or flat.pop("text", "") or "")
+    parts = edit_request.program_op_parts(raw, index)
+    flat = dict(parts["params"])
     # Evidence and criteria annotate the approved decision, not the
     # physical algebra operation the backend receives.
     flat.pop("evidence_ids", None)
     flat.pop("evaluation_criteria", None)
-    depends = tuple(int(value) for value in (flat.pop("depends_on", None) or ()))
-    pre = tuple(dict(row) for row in (flat.pop("preconditions", None) or ()))
-    post = tuple(dict(row) for row in (flat.pop("postconditions", None) or ()))
-    return {"op": op_id, "params": flat, "kind": kind, "effect": effect,
-            "depends_on": depends, "preconditions": pre,
-            "postconditions": post}
+    return {"op": parts["op"], "params": flat, "kind": parts["kind"],
+            "effect": parts["effect"], "depends_on": parts["depends_on"],
+            "preconditions": parts["preconditions"],
+            "postconditions": parts["postconditions"]}
 
 
 def decisions_from_program(program: Mapping[str, Any], *,

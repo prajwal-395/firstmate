@@ -173,10 +173,19 @@ def test_multicam_select_angle_revalidates_target_identity_first():
 
 def test_multicam_select_angle_stays_fail_closed_for_production():
     """Defect: promoting an unqualified write. The op stays
-    unrepresentable, unqualified, and blocked from direct execution
-    until the live-requests lane records qualifying evidence."""
+    unqualified, blocked from direct execution, and out of production
+    routing until the live-requests lane records qualifying evidence.
+
+    Its safety CLASS was `unrepresentable` - "no executor proves this
+    operation" - which was true while it was a canonical NAME only and
+    false once the AXI adapter landed. The class refused the op before
+    any route was chosen, so a switch with an executor had no route at
+    all. It is a localized source replacement now: staged only, never
+    direct, and never production-enabled without live evidence."""
     assert (edit_algebra.safety_class("multicam.select_angle")
-            == edit_algebra.SAFETY_UNREPRESENTABLE)
+            == edit_algebra.SAFETY_COMPLEX_LOCALIZED)
+    assert not edit_algebra.SAFETY_CLASS_POLICY[
+        edit_algebra.SAFETY_COMPLEX_LOCALIZED].direct_allowed
     status = edit_algebra.status("multicam.select_angle")
     assert status.qualification_status == "not_qualified"
     assert not status.qualified
