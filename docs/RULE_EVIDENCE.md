@@ -9943,3 +9943,67 @@ name them [0/2 named, 2/2 refused]. The disposable scratch file stayed
 removable [1/1] and the git-tracked file stayed untouchable [0/1] - no
 regression. The full audit, the paths audited and found sound, and the change
 list are in `docs/VERSION_DEPENDENCY_ROOTS.md`.
+
+
+## the-trim-that-landed-with-no-way-back
+
+**The rule.** A touch that has LANDED must leave a way back: the journal
+closes even when the engine cannot classify the operation, and a TRIMMED
+item is the same item in the undo's plan, not a removal and an addition.
+
+**What happened.** Two defects, one on top of the other, measured 2026-10-22
+on the repo's Resolve double through the real touch path and the real undo
+journal (`docs/UNDO_REDO_BY_EDIT_TYPE.md`).
+
+- The journal classifies an accepted touch's operations so a rebuild can
+  replay them (`undo_journal.accepted_edit_record`). That classification was
+  a second list, kept by hand beside the touch gate, and it had drifted:
+  every operation added to the gate after the list was written - the
+  source-window edits (`slip`, `roll`), the structural ones (`split`,
+  `slide`), the audio fade, the overlay position - was missing from it. A
+  touch carrying one of those was PROMOTED to the live timeline, and then
+  the journal could not close: the classification raised, `close_entry`
+  propagated it, the entry stayed `open`, no version was recorded, and
+  `ren undo` refused ("is 'open', not applied"). The change was on the reel
+  and the retired generation was the only way back.
+- Underneath that, the undo read a TRIMMED item as one item removed and
+  another added - the plan pairs items by their source trim, and a trim is
+  exactly the change of the source trim - and then refused ("the touch took
+  V1@1069 and the journal holds no capture of it"). A trim is the SAME item:
+  same row, same file, same name, same played span.
+
+**The fix.** The touch vocabulary is ONE enumeration
+(`reel_touchup.TOUCH_OPS`), read by the journal, so a new operation is
+classified the day it is written; a classification the engine cannot make is
+recorded, by name, on the journal (`accepted_edit_refusal`) and the journal
+closes anyway. And `plan_inverse` pairs a trimmed item with its own
+before-state, refusing when that pairing is not unique, so a row of caption
+cards cut from one file never pairs by accident.
+
+**Measured.** The trim's undo went from `UndoRefused: accepted touch ...
+contains unclassified operation 'slip'` to EXACT on the double; with the
+journal closed but the pairing unchanged it was `UndoRefused: the touch took
+V1@1069 and the journal holds no capture of it`. Both steps were needed.
+Defect-naming tests: `tests/unit/resolve/test_undo_redo_by_edit_type.py`.
+
+## the-project-the-lookup-said-was-not-there
+
+**The rule.** The exact project lookup answers for the project that is OPEN,
+not only for the one the Project Manager's folder view happens to be showing.
+
+**What happened.** Measured live on 2026-10-22 on the Ren-owned scratch copy:
+`ren touch ren-scratch-breaktest 13` refused with "No project named exactly
+'Ren Scratch - breaktest' in the current folder. Resolve lists ['linkedin',
+'LMC Interview', ...]" for a project that was open, and that the refusal
+itself names. Measured in the same session: **`GetCurrentProject()` puts the
+Project Manager's current folder back to the root**, so the folder listing
+read after it is the ROOT's projects and the project that is open reads as
+absent. The touch and the undo both address the project this way, so both
+refused - and an undo that cannot reach its project is an undo that cannot
+restore anything.
+
+**The fix.** `timeline_ingest.resolve_project_exactly` asks what is open
+before it refuses. The name is exact either way, so the near-match
+protection - the rule that keeps a near name off somebody else's project -
+is untouched. Defect-naming test:
+`tests/unit/resolve/test_project_lookup_reaches_the_open_project.py`.

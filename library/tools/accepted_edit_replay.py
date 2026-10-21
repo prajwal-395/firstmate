@@ -34,6 +34,11 @@ def accepted_touch_entries(project_folder: str, timeline: str) -> list[dict]:
         spec = entry.get("spec")
         if not isinstance(spec, Mapping) or not spec.get("edits"):
             continue
+        if entry.get("accepted_edit_refusal"):
+            # The touch landed and IS undoable, but the engine could not
+            # say what a rebuild would do with it. It is not replayed:
+            # the rebuild reports it instead of dropping it silently.
+            continue
         if not isinstance(entry.get("accepted_edit"), Mapping):
             # Journals accepted before this feature already hold the exact
             # edit program and the before/after reads. Backfill their
@@ -77,3 +82,23 @@ def replay_accepted_touches(project_folder: str, timelines) -> dict:
                              == "already_satisfied"),
             })
     return report
+
+
+def unclassified_touches(project_folder: str, timeline: str) -> list[dict]:
+    """The accepted touches a rebuild will NOT replay, and why.
+
+    A touch whose operation the gate does not know is still undoable -
+    the journal closed on it. What it has no policy for is the REBUILD
+    replay, so a rebuild says so out loud instead of dropping the edit.
+    """
+    from library.tools import undo_journal
+
+    out = []
+    for entry in undo_journal.list_entries(project_folder):
+        if entry.get("final") != timeline:
+            continue
+        refusal = entry.get("accepted_edit_refusal")
+        if refusal:
+            out.append({"journal": entry["id"], "reason": refusal.get("why"),
+                        "what": refusal.get("what")})
+    return out

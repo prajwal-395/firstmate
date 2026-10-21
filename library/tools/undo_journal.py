@@ -118,6 +118,7 @@ from __future__ import annotations
 import datetime as _dt
 import json
 import os
+import sys
 import uuid
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -137,24 +138,45 @@ STATUS_FAILED = "failed"
 STATUS_UNDONE = "undone"
 STATUS_UNDO_FAILED = "undo_failed"
 
-_ACCEPTED_TOUCH_OVERRIDE_OPS = frozenset({
-    "move", "swap_pixels", "add_overlay", "remove_overlay", "retime",
-    "resize_still", "set_properties", "add_row", "set_enabled",
-    "entry_motion",
-})
+
+def accepted_touch_override_ops() -> frozenset[str]:
+    """The touch vocabulary: every operation a touch-up can carry.
+
+    ONE enumeration, read from the touch gate itself
+    (`library/tools/reel_touchup.py`). It used to be a second list kept
+    by hand beside the gate, and it drifted: every op added to the gate
+    after it was written (the source-window edits, the structural ones,
+    the audio fade) was missing from it, so a touch carrying one was
+    PROMOTED to the live timeline and then the journal could not close
+    - no version, no undo, and the retired generation kept as the only
+    way back. The vocabulary is the gate's own, so a new op is classified
+    the day it is written.
+    """
+    from library.tools import reel_touchup
+
+    return frozenset(reel_touchup.TOUCH_OPS)
 
 
 def accepted_edit_record(project_folder: str, entry: Mapping) -> dict:
-    """Build the persistent semantic record for one accepted touch."""
+    """Build the persistent semantic record for one accepted touch.
+
+    Every operation the touch gate knows is a VERSIONED OVERRIDE: the
+    rebuild replays the recorded edit program through the same gate, the
+    same staging and the same read-back, so the policy is the gate's,
+    not a per-op guess. An operation the gate does NOT know is refused
+    by name - the caller invented it, and nobody can say what a rebuild
+    would do with it.
+    """
     from library.tools import plan_provenance, timeline_diff
 
     review_dir = os.path.join(project_folder, "pipeline_output", "review")
     provenance = plan_provenance.read_provenance(review_dir) or {}
     spec = entry.get("spec") or {}
+    known = accepted_touch_override_ops()
     operations = []
     for operation in spec.get("edits") or ():
         op = str(operation["op"])
-        if op not in _ACCEPTED_TOUCH_OVERRIDE_OPS:
+        if op not in known:
             raise UndoRefused(
                 f"accepted touch {entry['id']!r} contains unclassified "
                 f"operation {op!r}; its rebuild policy is unknown",
@@ -2335,7 +2357,23 @@ def close_entry(project_folder, entry: dict, *, after_timeline: Any,
     review_dir = os.path.join(project_folder, "pipeline_output", "review")
     # Persist intent, its recorded edit program, policy per operation and
     # the declaration revision against which the touch was accepted.
-    entry["accepted_edit"] = accepted_edit_record(project_folder, entry)
+    #
+    # A classification this module cannot make is NOT a reason to leave
+    # the journal open: the touch is already PROMOTED, and the journal
+    # is the way back. An unclassified operation is recorded, by name, as
+    # a refusal on the entry - visible, never silent - and the journal
+    # closes anyway, so the touch can be undone.
+    try:
+        entry["accepted_edit"] = accepted_edit_record(project_folder, entry)
+    except UndoRefused as unclassified:
+        entry["accepted_edit_refusal"] = {
+            "what": unclassified.what,
+            "why": unclassified.why,
+            "fix": unclassified.fix,
+            "at": _now(),
+        }
+        print(f"accepted edit not recorded: {unclassified.what} - "
+              f"{unclassified.why}", file=sys.stderr)
     if preservation_snapshot is not None:
         after_snapshot = dict(preservation_snapshot)
     elif project is not None:
@@ -2612,13 +2650,34 @@ def plan_inverse(before: Sequence[Mapping], after: Sequence[Mapping]) -> Inverse
                 _source_trim(detail, "undo comparison"),
                 str(detail.get("name") or ""))
 
+    def trim_pairing(detail):
+        """The SAME item whose SOURCE WINDOW moved.
+
+        A trim - a slip, a roll - keeps the item where it plays and
+        changes the frames it plays FROM. The exact pairing cannot see
+        it (the source trim is part of it), so the undo read the trim as
+        one item removed and another added, and then refused for want of
+        a capture of the old one. The item is the same item: same row,
+        same file, same name, same played span.
+        """
+        return (_row(detail), str(detail.get("source_file") or ""),
+                str(detail.get("name") or ""),
+                int(detail["record_in"]), int(detail["duration"]))
+
     unpaired_after = list(after_only)
     for detail in before_only:
         candidates = [other for other in unpaired_after
                       if pairing(other) == pairing(detail)]
+        if not candidates:
+            # No exact twin: the item may be the same one with a
+            # trimmed source window. It pairs only when it is
+            # UNAMBIGUOUS - one candidate on each side - so a row of
+            # caption cards cut from one file never pairs by accident.
+            candidates = [other for other in unpaired_after
+                          if trim_pairing(other) == trim_pairing(detail)]
         if len(candidates) > 1:
             raise UndoRefused(
-                f"{len(candidates)} items the touch placed on "
+                f"{len(candidates)} items the touch left on "
                 f"{_row(detail)} play {detail.get('name')!r} from source "
                 f"frame {detail.get('left_offset')}",
                 f"so which one was "
@@ -2751,6 +2810,23 @@ def undo_in_place(*, timeline, media_pool, entry: Mapping, entry_root: str,
                 "cannot reverse it. Nothing was changed",
                 "rebuild the reel (`ren build <project>`) instead of "
                 "undoing in place")
+    # A GRADE the touch put on an item it did not move: the journal
+    # holds no grade to put back, and no script can take a grade off
+    # (SetCDL writes one; it does not remove one). Refuse BEFORE the
+    # first write, by name, rather than leave the grade on and call the
+    # undo done. A grade the item ALREADY carried is restored by the
+    # write itself - the read-back is the record of it.
+    for a, b in plan.in_place:
+        if _grade(a) == _grade(b):
+            continue
+        if not _grade(b):
+            raise UndoRefused(
+                f"{_row(a)}@{a['record_in']} carries a colour grade it "
+                f"did not carry before touch {entry['id']}",
+                "and no script can take a grade off, so the journal "
+                "cannot put the item back. Nothing was changed",
+                "rebuild the reel (`ren build <project>`) - a graded "
+                "change needs a rebuild, not an in-place undo")
     if plan.empty:
         raise UndoRefused(
             f"touch {entry['id']} left {entry['final']!r} "
@@ -2967,6 +3043,39 @@ def _revert_in_place(item, after: Mapping, before: Mapping, *,
             "re-run `ren undo` against the live timeline; if it still "
             "refuses, the touch cannot be undone in place")
     out = {"row": _row(after), "record_frame": int(after["record_in"])}
+    # A grade the item CARRIED before the touch: the journal holds it,
+    # so the undo writes it back. The write is judged by a RE-READ, the
+    # same rule every other grade write in the engine follows: a
+    # `SetCDL` that answered True is not evidence the grade landed.
+    before_grade = _grade(before)
+    after_grade = _grade(after)
+    if before_grade != after_grade:
+        if not before_grade:
+            raise UndoNotVerified(
+                f"{out['row']}@{out['record_frame']} carries a grade the "
+                f"journal holds no record of, so it cannot be taken off.")
+        try:
+            wrote = item.SetCDL(dict(before_grade))
+        except Exception as exc:
+            raise UndoNotVerified(
+                f"{out['row']}@{out['record_frame']} did not take its "
+                f"prior grade back - SetCDL raised ({exc}).") from exc
+        if wrote is False:
+            raise UndoNotVerified(
+                f"{out['row']}@{out['record_frame']} did not take its "
+                f"prior grade back - SetCDL answered False.")
+        try:
+            back = dict(item.GetCDL() or {})
+        except Exception as exc:
+            raise UndoNotVerified(
+                f"{out['row']}@{out['record_frame']} did not take its "
+                f"prior grade back - GetCDL raised ({exc}).") from exc
+        if back != before_grade:
+            raise UndoNotVerified(
+                f"{out['row']}@{out['record_frame']} did not take its "
+                f"prior grade back: reads {back}, expected "
+                f"{before_grade}.")
+        out["grade"] = True
     if _transform(after) != _transform(before):
         identity = {
             key: after[key]

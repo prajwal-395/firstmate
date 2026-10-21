@@ -2563,6 +2563,12 @@ _OP_HANDLERS = {
     "repair_hold_window": _op_repair_hold_window,
 }
 
+#: Every operation a touch-up can carry. ONE enumeration: the undo
+#: journal reads the rebuild policy of an accepted touch from THIS list,
+#: so a new op cannot leave a landed touch without a way back
+#: (`library/tools/undo_journal.py`).
+TOUCH_OPS = frozenset(_OP_HANDLERS)
+
 
 #: The fields a touchup EDIT carries.  The refusal that recommends an
 #: argument may name only these - the vocabulary the caller can supply

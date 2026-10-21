@@ -296,6 +296,15 @@ def resolve_project_exactly(project_manager, name: str):
     uses `resolve_project_in_declared_folder` under an exclusive lease,
     which navigates to the configured folder and restores the previous
     path after the exact-name lookup.
+
+    The OPEN project is also accepted, by its exact name. Measured live
+    on 2026-10-22: a `GetCurrentProject()` call RESETS the Project
+    Manager's current folder to the root, so the folder listing after it
+    is the ROOT's projects - and a project that is open right now reads
+    as absent. The touch and the undo both address the project this way,
+    and both refused a project that was open, with the root's project
+    list in the message. The name is exact either way, so nothing here
+    gets looser: the near-match protection is untouched.
     """
     listed = project_manager.GetProjectListInCurrentFolder() or []
     if name in listed:
@@ -306,6 +315,14 @@ def resolve_project_exactly(project_manager, name: str):
         raise TimelineIngestError(
             f"{name!r} is in the current folder but is not the open "
             f"project (open: {open_name!r}).")
+
+    # The listing says no. Before refusing, ask what is OPEN: the
+    # Project Manager's folder view is not a reliable index of the
+    # projects Resolve can reach, and the project a touch or an undo is
+    # addressing is usually the one that is open.
+    current = project_manager.GetCurrentProject()
+    if current is not None and current.GetName() == name:
+        return current
 
     near = [other for other in listed
             if name.lower() in other.lower() or other.lower() in name.lower()]
