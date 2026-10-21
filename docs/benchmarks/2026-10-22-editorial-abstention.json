@@ -1,0 +1,2606 @@
+{
+ "ran_at": "2026-10-21T09:16:15Z",
+ "project": "ren-scratch-retrieval-bench",
+ "negatives_corpus": "editorial-abstention-negatives-2026-10-22",
+ "positives_set": "editorial-retrieval-v1",
+ "overlap_tolerance_seconds": 1.0,
+ "scope": {
+  "corpus": "GEO vs SEO podcast, two speakers (Craig, Akshita), two fixed cameras, 7 MXF sources",
+  "project": "ren-scratch-retrieval-bench (a Ren-owned scratch copy; the captain's project is never written to)",
+  "text_scope": {
+   "unit": "speech segment",
+   "count": 2854,
+   "note": "every speech segment of the measured transcript, all seven sources"
+  },
+  "visual_scope": {
+   "unit": "sampled frame",
+   "count": 1092,
+   "sampling_seconds": 10,
+   "note": "every frame the frame index sampled, over 181.58 video minutes of the seven sources"
+  },
+  "what_is_actually_in_the_picture": "one studio: a dark geometric acoustic-panel wall, a potted plant, a dark marble table, laptops, two speakers, and the other speaker's hands in the foreground on one camera. There is no B-roll, no cutaway, no street, no kitchen, no animal."
+ },
+ "refused_negatives": [],
+ "negatives": [
+  {
+   "id": "T01",
+   "query": "the chocolate chip cookie recipe he reads out",
+   "lane": "text",
+   "split": "tune",
+   "category": "cooking",
+   "best_score": 0.2566,
+   "weak_floor": 0.28,
+   "rows_scored": 4219
+  },
+  {
+   "id": "T02",
+   "query": "the part where he explains how to train a puppy to sit",
+   "lane": "text",
+   "split": "tune",
+   "category": "pets",
+   "best_score": 0.324,
+   "weak_floor": 0.28,
+   "rows_scored": 4219
+  },
+  {
+   "id": "T03",
+   "query": "the recipe for beef wellington",
+   "lane": "text",
+   "split": "heldout",
+   "category": "cooking",
+   "best_score": 0.224,
+   "weak_floor": 0.28,
+   "rows_scored": 4219
+  },
+  {
+   "id": "T04",
+   "query": "the part where she explains how to bake sourdough bread",
+   "lane": "text",
+   "split": "tune",
+   "category": "cooking",
+   "best_score": 0.3069,
+   "weak_floor": 0.28,
+   "rows_scored": 4219
+  },
+  {
+   "id": "T05",
+   "query": "the tutorial on how to tie a bowline knot",
+   "lane": "text",
+   "split": "heldout",
+   "category": "knots",
+   "best_score": 0.2753,
+   "weak_floor": 0.28,
+   "rows_scored": 4219
+  },
+  {
+   "id": "T06",
+   "query": "the story about a motorcycle ride through the mountains",
+   "lane": "text",
+   "split": "tune",
+   "category": "vehicles",
+   "best_score": 0.2486,
+   "weak_floor": 0.28,
+   "rows_scored": 4219
+  },
+  {
+   "id": "T07",
+   "query": "the bit about training for a marathon",
+   "lane": "text",
+   "split": "heldout",
+   "category": "fitness",
+   "best_score": 0.3589,
+   "weak_floor": 0.28,
+   "rows_scored": 4219
+  },
+  {
+   "id": "T08",
+   "query": "the story about a wedding in las vegas",
+   "lane": "text",
+   "split": "tune",
+   "category": "weddings",
+   "best_score": 0.3359,
+   "weak_floor": 0.28,
+   "rows_scored": 4219
+  },
+  {
+   "id": "T09",
+   "query": "the bit where they complain about the cost of filling up the car",
+   "lane": "text",
+   "split": "heldout",
+   "category": "vehicles",
+   "best_score": 0.3529,
+   "weak_floor": 0.28,
+   "rows_scored": 4219
+  },
+  {
+   "id": "T10",
+   "query": "the part where they compare electric cars with petrol cars",
+   "lane": "text",
+   "split": "tune",
+   "category": "vehicles",
+   "best_score": 0.3353,
+   "weak_floor": 0.28,
+   "rows_scored": 4219
+  },
+  {
+   "id": "T11",
+   "query": "the explanation of how the tides work",
+   "lane": "text",
+   "split": "heldout",
+   "category": "science",
+   "best_score": 0.2749,
+   "weak_floor": 0.28,
+   "rows_scored": 4219
+  },
+  {
+   "id": "T12",
+   "query": "the segment about a cat and a dog living together",
+   "lane": "text",
+   "split": "tune",
+   "category": "pets",
+   "best_score": 0.3508,
+   "weak_floor": 0.28,
+   "rows_scored": 4219
+  },
+  {
+   "id": "T13",
+   "query": "the advice about choosing a puppy from a breeder",
+   "lane": "text",
+   "split": "heldout",
+   "category": "pets",
+   "best_score": 0.2883,
+   "weak_floor": 0.28,
+   "rows_scored": 4219
+  },
+  {
+   "id": "T14",
+   "query": "the bit where he explains how a rocket launch works",
+   "lane": "text",
+   "split": "tune",
+   "category": "space",
+   "best_score": 0.3381,
+   "weak_floor": 0.28,
+   "rows_scored": 4219
+  },
+  {
+   "id": "T15",
+   "query": "the story about learning to play the guitar as a teenager",
+   "lane": "text",
+   "split": "heldout",
+   "category": "music",
+   "best_score": 0.2908,
+   "weak_floor": 0.28,
+   "rows_scored": 4219
+  },
+  {
+   "id": "T16",
+   "query": "the part where they talk about the weather in the desert",
+   "lane": "text",
+   "split": "tune",
+   "category": "weather",
+   "best_score": 0.2655,
+   "weak_floor": 0.28,
+   "rows_scored": 4219
+  },
+  {
+   "id": "T17",
+   "query": "the mention of a bicycle ride to work",
+   "lane": "text",
+   "split": "heldout",
+   "category": "vehicles",
+   "best_score": 0.3576,
+   "weak_floor": 0.28,
+   "rows_scored": 4219
+  },
+  {
+   "id": "T18",
+   "query": "the explanation of how a refrigerator works",
+   "lane": "text",
+   "split": "tune",
+   "category": "appliances",
+   "best_score": 0.2344,
+   "weak_floor": 0.28,
+   "rows_scored": 4219
+  },
+  {
+   "id": "V01",
+   "query": "a shot of a dog lying on the floor",
+   "lane": "visual",
+   "split": "tune",
+   "category": "animal",
+   "best_score": 0.1299,
+   "weak_floor": null,
+   "rows_scored": 1092
+  },
+  {
+   "id": "V02",
+   "query": "a shot of a whiteboard covered in handwriting",
+   "lane": "visual",
+   "split": "heldout",
+   "category": "object",
+   "best_score": 0.1447,
+   "weak_floor": null,
+   "rows_scored": 1092
+  },
+  {
+   "id": "V03",
+   "query": "a shot of a busy city street full of cars",
+   "lane": "visual",
+   "split": "tune",
+   "category": "location",
+   "best_score": 0.1237,
+   "weak_floor": null,
+   "rows_scored": 1092
+  },
+  {
+   "id": "V04",
+   "query": "a shot of a motorcycle parked on the street",
+   "lane": "visual",
+   "split": "heldout",
+   "category": "vehicle",
+   "best_score": 0.0951,
+   "weak_floor": null,
+   "rows_scored": 1092
+  },
+  {
+   "id": "V05",
+   "query": "a shot of a plate of food on the table",
+   "lane": "visual",
+   "split": "tune",
+   "category": "object",
+   "best_score": 0.1787,
+   "weak_floor": null,
+   "rows_scored": 1092
+  },
+  {
+   "id": "V06",
+   "query": "a shot of a cat sitting on a sofa",
+   "lane": "visual",
+   "split": "heldout",
+   "category": "animal",
+   "best_score": 0.157,
+   "weak_floor": null,
+   "rows_scored": 1092
+  },
+  {
+   "id": "V07",
+   "query": "a shot of snow on the ground",
+   "lane": "visual",
+   "split": "tune",
+   "category": "weather",
+   "best_score": 0.1329,
+   "weak_floor": null,
+   "rows_scored": 1092
+  },
+  {
+   "id": "V08",
+   "query": "a shot of a brick building",
+   "lane": "visual",
+   "split": "heldout",
+   "category": "location",
+   "best_score": 0.1446,
+   "weak_floor": null,
+   "rows_scored": 1092
+  },
+  {
+   "id": "V09",
+   "query": "a shot of a birthday cake with candles",
+   "lane": "visual",
+   "split": "tune",
+   "category": "object",
+   "best_score": 0.1396,
+   "weak_floor": null,
+   "rows_scored": 1092
+  },
+  {
+   "id": "V10",
+   "query": "a shot of someone playing the piano",
+   "lane": "visual",
+   "split": "heldout",
+   "category": "object",
+   "best_score": 0.1665,
+   "weak_floor": null,
+   "rows_scored": 1092
+  },
+  {
+   "id": "V11",
+   "query": "a shot of a horse galloping on a beach",
+   "lane": "visual",
+   "split": "tune",
+   "category": "animal",
+   "best_score": 0.1306,
+   "weak_floor": null,
+   "rows_scored": 1092
+  },
+  {
+   "id": "V12",
+   "query": "an underwater coral reef",
+   "lane": "visual",
+   "split": "heldout",
+   "category": "location",
+   "best_score": 0.1223,
+   "weak_floor": null,
+   "rows_scored": 1092
+  },
+  {
+   "id": "V13",
+   "query": "a shot of a bicycle leaning against a wall",
+   "lane": "visual",
+   "split": "tune",
+   "category": "object",
+   "best_score": 0.1188,
+   "weak_floor": null,
+   "rows_scored": 1092
+  },
+  {
+   "id": "V14",
+   "query": "a shot of a book being read",
+   "lane": "visual",
+   "split": "heldout",
+   "category": "object",
+   "best_score": 0.1932,
+   "weak_floor": null,
+   "rows_scored": 1092
+  },
+  {
+   "id": "V15",
+   "query": "a shot of a car driving on a highway",
+   "lane": "visual",
+   "split": "tune",
+   "category": "vehicle",
+   "best_score": 0.1273,
+   "weak_floor": null,
+   "rows_scored": 1092
+  },
+  {
+   "id": "V16",
+   "query": "a shot of a football match on a television",
+   "lane": "visual",
+   "split": "heldout",
+   "category": "object",
+   "best_score": 0.1551,
+   "weak_floor": null,
+   "rows_scored": 1092
+  }
+ ],
+ "positives": [
+  {
+   "id": "E01",
+   "query": "the twenty percent line, where he says a beautiful website is only twenty percent of what AI looks at",
+   "lane": "text",
+   "split": "tune",
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 3562.1,
+       "end": 3610.9
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 3558.3,
+       "end": 3607.1
+      }
+     ],
+     "best_overlapping_score": 0.5242
+    }
+   ],
+   "best_score": 0.6156
+  },
+  {
+   "id": "E02",
+   "query": "the nail salon example, the one about the place that specialises in 3D nail art",
+   "lane": "text",
+   "split": "tune",
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 2752.5,
+       "end": 2765.1
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 2748.7,
+       "end": 2761.3
+      }
+     ],
+     "best_overlapping_score": 0.7272
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 2776.8,
+       "end": 2779.5
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 2773.0,
+       "end": 2775.7
+      }
+     ],
+     "best_overlapping_score": 0.8194
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 2800.2,
+       "end": 2813.2
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 2796.4,
+       "end": 2809.4
+      }
+     ],
+     "best_overlapping_score": 0.6711
+    }
+   ],
+   "best_score": 0.8194
+  },
+  {
+   "id": "E03",
+   "query": "the client story about the SEO team stuffing keywords into the H1 tags",
+   "lane": "text",
+   "split": "tune",
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4931",
+       "start": 158.4,
+       "end": 166.1
+      },
+      {
+       "asset": "LCATL0012",
+       "start": 158.1,
+       "end": 165.8
+      }
+     ],
+     "best_overlapping_score": 0.832
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4931",
+       "start": 190.2,
+       "end": 196.3
+      },
+      {
+       "asset": "LCATL0012",
+       "start": 189.9,
+       "end": 196.0
+      }
+     ],
+     "best_overlapping_score": 0.7937
+    }
+   ],
+   "best_score": 0.832
+  },
+  {
+   "id": "E04",
+   "query": "the bit about why AI treats YouTube as a source it can trust",
+   "lane": "text",
+   "split": "tune",
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 4015.5,
+       "end": 4045.5
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 4011.7,
+       "end": 4041.7
+      }
+     ],
+     "best_overlapping_score": 0.7159
+    }
+   ],
+   "best_score": 0.7159
+  },
+  {
+   "id": "E05",
+   "query": "the press credibility mention, the one where being in the Atlanta Journal-Constitution builds trust",
+   "lane": "text",
+   "split": "tune",
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 3016.6,
+       "end": 3047.6
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 3012.8,
+       "end": 3043.8
+      }
+     ],
+     "best_overlapping_score": 0.455
+    }
+   ],
+   "best_score": 0.455
+  },
+  {
+   "id": "E06",
+   "query": "the comparison of a ten person agency against a company fifty times its size",
+   "lane": "text",
+   "split": "tune",
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 832.4,
+       "end": 841.5
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 828.6,
+       "end": 837.7
+      }
+     ],
+     "best_overlapping_score": 0.4719
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 856.9,
+       "end": 885.4
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 853.1,
+       "end": 881.6
+      }
+     ],
+     "best_overlapping_score": 0.6619
+    }
+   ],
+   "best_score": 0.6619
+  },
+  {
+   "id": "E07",
+   "query": "the question about which CRM to use for a ten person law firm",
+   "lane": "text",
+   "split": "tune",
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 36.7,
+       "end": 47.0
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 32.9,
+       "end": 43.2
+      }
+     ],
+     "best_overlapping_score": 0.6657
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 60.5,
+       "end": 70.5
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 56.7,
+       "end": 66.7
+      }
+     ],
+     "best_overlapping_score": 0.7312
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 160.0,
+       "end": 177.7
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 156.2,
+       "end": 173.9
+      }
+     ],
+     "best_overlapping_score": 0.8662
+    }
+   ],
+   "best_score": 0.8662
+  },
+  {
+   "id": "E08",
+   "query": "the pushback from the marketing directors, the one calling GEO just SEO two point oh",
+   "lane": "text",
+   "split": "tune",
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 66.0,
+       "end": 72.7
+      },
+      {
+       "asset": "LCATL0011",
+       "start": 54.69,
+       "end": 61.39
+      }
+     ],
+     "best_overlapping_score": 0.6514
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 110.0,
+       "end": 119.7
+      },
+      {
+       "asset": "LCATL0011",
+       "start": 98.69,
+       "end": 108.39
+      }
+     ],
+     "best_overlapping_score": 0.7148
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4931",
+       "start": 16.3,
+       "end": 24.6
+      },
+      {
+       "asset": "LCATL0012",
+       "start": 16.0,
+       "end": 24.3
+      }
+     ],
+     "best_overlapping_score": 0.2539
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4931",
+       "start": 47.3,
+       "end": 58.0
+      },
+      {
+       "asset": "LCATL0012",
+       "start": 47.0,
+       "end": 57.7
+      }
+     ],
+     "best_overlapping_score": 0.6765
+    }
+   ],
+   "best_score": 0.7148
+  },
+  {
+   "id": "E09",
+   "query": "a shot of the open laptop on the desk, to sit under the pricing point",
+   "lane": "visual",
+   "split": "tune",
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": -4.917,
+       "end": 5.083
+      }
+     ],
+     "best_overlapping_score": 0.1433
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 5.093,
+       "end": 15.093
+      }
+     ],
+     "best_overlapping_score": 0.1549
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 15.103,
+       "end": 25.103
+      }
+     ],
+     "best_overlapping_score": 0.1648
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 25.113,
+       "end": 35.113
+      }
+     ],
+     "best_overlapping_score": 0.1514
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 35.123,
+       "end": 45.123
+      }
+     ],
+     "best_overlapping_score": 0.13
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 45.133,
+       "end": 55.133
+      }
+     ],
+     "best_overlapping_score": 0.157
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 55.143,
+       "end": 65.143
+      }
+     ],
+     "best_overlapping_score": 0.1516
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 65.153,
+       "end": 75.153
+      }
+     ],
+     "best_overlapping_score": 0.1553
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 75.163,
+       "end": 85.163
+      }
+     ],
+     "best_overlapping_score": 0.1518
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 85.173,
+       "end": 95.173
+      }
+     ],
+     "best_overlapping_score": 0.1524
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 95.183,
+       "end": 105.183
+      }
+     ],
+     "best_overlapping_score": 0.1521
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 105.193,
+       "end": 115.193
+      }
+     ],
+     "best_overlapping_score": 0.1465
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 115.203,
+       "end": 125.203
+      }
+     ],
+     "best_overlapping_score": 0.1584
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 125.213,
+       "end": 135.213
+      }
+     ],
+     "best_overlapping_score": 0.1536
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 135.223,
+       "end": 145.223
+      }
+     ],
+     "best_overlapping_score": 0.1548
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 145.233,
+       "end": 155.233
+      }
+     ],
+     "best_overlapping_score": 0.1475
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 155.243,
+       "end": 174.753
+      }
+     ],
+     "best_overlapping_score": 0.1621
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 174.763,
+       "end": 184.763
+      }
+     ],
+     "best_overlapping_score": 0.1593
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 184.773,
+       "end": 194.773
+      }
+     ],
+     "best_overlapping_score": 0.1607
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 194.783,
+       "end": 204.783
+      }
+     ],
+     "best_overlapping_score": 0.1642
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 204.793,
+       "end": 214.793
+      }
+     ],
+     "best_overlapping_score": 0.1491
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 214.803,
+       "end": 224.803
+      }
+     ],
+     "best_overlapping_score": 0.1668
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": -4.917,
+       "end": 5.083
+      }
+     ],
+     "best_overlapping_score": 0.2124
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 5.093,
+       "end": 15.093
+      }
+     ],
+     "best_overlapping_score": 0.1807
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 15.103,
+       "end": 25.103
+      }
+     ],
+     "best_overlapping_score": 0.1943
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 25.113,
+       "end": 35.113
+      }
+     ],
+     "best_overlapping_score": 0.2093
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 35.123,
+       "end": 45.123
+      }
+     ],
+     "best_overlapping_score": 0.2135
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 45.133,
+       "end": 55.133
+      }
+     ],
+     "best_overlapping_score": 0.2092
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 55.143,
+       "end": 65.143
+      }
+     ],
+     "best_overlapping_score": 0.2189
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 65.153,
+       "end": 75.153
+      }
+     ],
+     "best_overlapping_score": 0.1949
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 75.163,
+       "end": 85.163
+      }
+     ],
+     "best_overlapping_score": 0.2179
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 85.173,
+       "end": 95.173
+      }
+     ],
+     "best_overlapping_score": 0.2132
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 95.183,
+       "end": 105.183
+      }
+     ],
+     "best_overlapping_score": 0.1939
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 105.193,
+       "end": 115.193
+      }
+     ],
+     "best_overlapping_score": 0.1951
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 115.203,
+       "end": 125.203
+      }
+     ],
+     "best_overlapping_score": 0.1759
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 125.213,
+       "end": 135.213
+      }
+     ],
+     "best_overlapping_score": 0.2229
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 135.223,
+       "end": 145.223
+      }
+     ],
+     "best_overlapping_score": 0.2151
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 145.233,
+       "end": 155.233
+      }
+     ],
+     "best_overlapping_score": 0.1987
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 155.243,
+       "end": 174.753
+      }
+     ],
+     "best_overlapping_score": 0.2023
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 174.763,
+       "end": 184.763
+      }
+     ],
+     "best_overlapping_score": 0.2154
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 184.773,
+       "end": 194.773
+      }
+     ],
+     "best_overlapping_score": 0.2113
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 194.783,
+       "end": 204.783
+      }
+     ],
+     "best_overlapping_score": 0.2186
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 204.793,
+       "end": 214.793
+      }
+     ],
+     "best_overlapping_score": 0.234
+    }
+   ],
+   "best_score": 0.234
+  },
+  {
+   "id": "E10",
+   "query": "a shot of the studio, the dark geometric set behind the speaker",
+   "lane": "visual",
+   "split": "tune",
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": -4.917,
+       "end": 5.083
+      }
+     ],
+     "best_overlapping_score": 0.1322
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 5.093,
+       "end": 15.093
+      }
+     ],
+     "best_overlapping_score": 0.1213
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 15.103,
+       "end": 25.103
+      }
+     ],
+     "best_overlapping_score": 0.1256
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 25.113,
+       "end": 35.113
+      }
+     ],
+     "best_overlapping_score": 0.1179
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 35.123,
+       "end": 45.123
+      }
+     ],
+     "best_overlapping_score": 0.131
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 45.133,
+       "end": 55.133
+      }
+     ],
+     "best_overlapping_score": 0.1317
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 55.143,
+       "end": 65.143
+      }
+     ],
+     "best_overlapping_score": 0.1332
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 65.153,
+       "end": 75.153
+      }
+     ],
+     "best_overlapping_score": 0.1259
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 75.163,
+       "end": 85.163
+      }
+     ],
+     "best_overlapping_score": 0.1184
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 85.173,
+       "end": 95.173
+      }
+     ],
+     "best_overlapping_score": 0.1258
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 95.183,
+       "end": 105.183
+      }
+     ],
+     "best_overlapping_score": 0.13
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 105.193,
+       "end": 115.193
+      }
+     ],
+     "best_overlapping_score": 0.1317
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 115.203,
+       "end": 125.203
+      }
+     ],
+     "best_overlapping_score": 0.1122
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 125.213,
+       "end": 135.213
+      }
+     ],
+     "best_overlapping_score": 0.1376
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 135.223,
+       "end": 145.223
+      }
+     ],
+     "best_overlapping_score": 0.1296
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 145.233,
+       "end": 155.233
+      }
+     ],
+     "best_overlapping_score": 0.1217
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 155.243,
+       "end": 174.753
+      }
+     ],
+     "best_overlapping_score": 0.1414
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 174.763,
+       "end": 184.763
+      }
+     ],
+     "best_overlapping_score": 0.1386
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 184.773,
+       "end": 194.773
+      }
+     ],
+     "best_overlapping_score": 0.1451
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 194.783,
+       "end": 204.783
+      }
+     ],
+     "best_overlapping_score": 0.1233
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 204.793,
+       "end": 214.793
+      }
+     ],
+     "best_overlapping_score": 0.1265
+    }
+   ],
+   "best_score": 0.1652
+  },
+  {
+   "id": "E11",
+   "query": "a shot of the blue laptop screen at the edge of the frame",
+   "lane": "visual",
+   "split": "tune",
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": -4.917,
+       "end": 5.083
+      }
+     ],
+     "best_overlapping_score": 0.1297
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 5.093,
+       "end": 15.093
+      }
+     ],
+     "best_overlapping_score": 0.1054
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 15.103,
+       "end": 25.103
+      }
+     ],
+     "best_overlapping_score": 0.1281
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 25.113,
+       "end": 35.113
+      }
+     ],
+     "best_overlapping_score": 0.1052
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 35.123,
+       "end": 45.123
+      }
+     ],
+     "best_overlapping_score": 0.114
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 45.133,
+       "end": 55.133
+      }
+     ],
+     "best_overlapping_score": 0.1106
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 55.143,
+       "end": 65.143
+      }
+     ],
+     "best_overlapping_score": 0.1109
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 65.153,
+       "end": 75.153
+      }
+     ],
+     "best_overlapping_score": 0.1125
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 75.163,
+       "end": 85.163
+      }
+     ],
+     "best_overlapping_score": 0.1054
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 85.173,
+       "end": 95.173
+      }
+     ],
+     "best_overlapping_score": 0.1164
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 95.183,
+       "end": 105.183
+      }
+     ],
+     "best_overlapping_score": 0.1123
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 105.193,
+       "end": 115.193
+      }
+     ],
+     "best_overlapping_score": 0.1077
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 115.203,
+       "end": 125.203
+      }
+     ],
+     "best_overlapping_score": 0.1133
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 125.213,
+       "end": 135.213
+      }
+     ],
+     "best_overlapping_score": 0.1212
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 135.223,
+       "end": 145.223
+      }
+     ],
+     "best_overlapping_score": 0.1054
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 145.233,
+       "end": 155.233
+      }
+     ],
+     "best_overlapping_score": 0.107
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 155.243,
+       "end": 174.753
+      }
+     ],
+     "best_overlapping_score": 0.1164
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 174.763,
+       "end": 184.763
+      }
+     ],
+     "best_overlapping_score": 0.1339
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 184.773,
+       "end": 194.773
+      }
+     ],
+     "best_overlapping_score": 0.1327
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 194.783,
+       "end": 204.783
+      }
+     ],
+     "best_overlapping_score": 0.1157
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 204.793,
+       "end": 214.793
+      }
+     ],
+     "best_overlapping_score": 0.1065
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 214.803,
+       "end": 224.803
+      }
+     ],
+     "best_overlapping_score": 0.127
+    }
+   ],
+   "best_score": 0.221
+  },
+  {
+   "id": "E16",
+   "query": "the twenty percent line while the laptop is open on the desk",
+   "lane": "text",
+   "split": "tune",
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 3562.1,
+       "end": 3610.9
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 3558.3,
+       "end": 3607.1
+      }
+     ],
+     "best_overlapping_score": 0.3125
+    }
+   ],
+   "best_score": 0.3125
+  }
+ ],
+ "shipped_floors": {
+  "text_confident": 0.4,
+  "text_weak": 0.28,
+  "visual_query": 0.1611
+ },
+ "denominators": {
+  "negatives": {
+   "text": {
+    "tune": 10,
+    "heldout": 8
+   },
+   "visual": {
+    "tune": 8,
+    "heldout": 8
+   }
+  },
+  "positives": {
+   "text": {
+    "queries": 9,
+    "moments": 18
+   },
+   "visual": {
+    "queries": 3,
+    "moments": 86
+   }
+  }
+ },
+ "sweeps": {
+  "text": [
+   {
+    "floor": 0.2,
+    "false_positives": {
+     "tune": 10,
+     "heldout": 8
+    },
+    "false_positive_ids": [
+     "T01",
+     "T02",
+     "T03",
+     "T04",
+     "T05",
+     "T06",
+     "T07",
+     "T08",
+     "T09",
+     "T10",
+     "T11",
+     "T12",
+     "T13",
+     "T14",
+     "T15",
+     "T16",
+     "T17",
+     "T18"
+    ],
+    "near_misses": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "near_miss_ids": [],
+    "missed_present_queries": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "missed_present_query_ids": [],
+    "missed_present_moments": 0,
+    "present_moments_covered": 18,
+    "present_moments_never_covered": 0
+   },
+   {
+    "floor": 0.24,
+    "false_positives": {
+     "tune": 9,
+     "heldout": 7
+    },
+    "false_positive_ids": [
+     "T01",
+     "T02",
+     "T04",
+     "T05",
+     "T06",
+     "T07",
+     "T08",
+     "T09",
+     "T10",
+     "T11",
+     "T12",
+     "T13",
+     "T14",
+     "T15",
+     "T16",
+     "T17"
+    ],
+    "near_misses": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "near_miss_ids": [],
+    "missed_present_queries": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "missed_present_query_ids": [],
+    "missed_present_moments": 0,
+    "present_moments_covered": 18,
+    "present_moments_never_covered": 0
+   },
+   {
+    "floor": 0.26,
+    "false_positives": {
+     "tune": 7,
+     "heldout": 7
+    },
+    "false_positive_ids": [
+     "T02",
+     "T04",
+     "T05",
+     "T07",
+     "T08",
+     "T09",
+     "T10",
+     "T11",
+     "T12",
+     "T13",
+     "T14",
+     "T15",
+     "T16",
+     "T17"
+    ],
+    "near_misses": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "near_miss_ids": [],
+    "missed_present_queries": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "missed_present_query_ids": [],
+    "missed_present_moments": 1,
+    "present_moments_covered": 18,
+    "present_moments_never_covered": 0
+   },
+   {
+    "floor": 0.28,
+    "false_positives": {
+     "tune": 6,
+     "heldout": 5
+    },
+    "false_positive_ids": [
+     "T02",
+     "T04",
+     "T07",
+     "T08",
+     "T09",
+     "T10",
+     "T12",
+     "T13",
+     "T14",
+     "T15",
+     "T17"
+    ],
+    "near_misses": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "near_miss_ids": [],
+    "missed_present_queries": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "missed_present_query_ids": [],
+    "missed_present_moments": 1,
+    "present_moments_covered": 18,
+    "present_moments_never_covered": 0
+   },
+   {
+    "floor": 0.3,
+    "false_positives": {
+     "tune": 6,
+     "heldout": 3
+    },
+    "false_positive_ids": [
+     "T02",
+     "T04",
+     "T07",
+     "T08",
+     "T09",
+     "T10",
+     "T12",
+     "T14",
+     "T17"
+    ],
+    "near_misses": {
+     "tune": 0,
+     "heldout": 2
+    },
+    "near_miss_ids": [
+     "T13",
+     "T15"
+    ],
+    "missed_present_queries": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "missed_present_query_ids": [],
+    "missed_present_moments": 1,
+    "present_moments_covered": 18,
+    "present_moments_never_covered": 0
+   },
+   {
+    "floor": 0.32,
+    "false_positives": {
+     "tune": 5,
+     "heldout": 3
+    },
+    "false_positive_ids": [
+     "T02",
+     "T07",
+     "T08",
+     "T09",
+     "T10",
+     "T12",
+     "T14",
+     "T17"
+    ],
+    "near_misses": {
+     "tune": 1,
+     "heldout": 2
+    },
+    "near_miss_ids": [
+     "T04",
+     "T13",
+     "T15"
+    ],
+    "missed_present_queries": {
+     "tune": 1,
+     "heldout": 0
+    },
+    "missed_present_query_ids": [
+     "E16"
+    ],
+    "missed_present_moments": 2,
+    "present_moments_covered": 18,
+    "present_moments_never_covered": 0
+   },
+   {
+    "floor": 0.34,
+    "false_positives": {
+     "tune": 1,
+     "heldout": 3
+    },
+    "false_positive_ids": [
+     "T07",
+     "T09",
+     "T12",
+     "T17"
+    ],
+    "near_misses": {
+     "tune": 5,
+     "heldout": 2
+    },
+    "near_miss_ids": [
+     "T02",
+     "T04",
+     "T08",
+     "T10",
+     "T13",
+     "T14",
+     "T15"
+    ],
+    "missed_present_queries": {
+     "tune": 1,
+     "heldout": 0
+    },
+    "missed_present_query_ids": [
+     "E16"
+    ],
+    "missed_present_moments": 2,
+    "present_moments_covered": 18,
+    "present_moments_never_covered": 0
+   },
+   {
+    "floor": 0.36,
+    "false_positives": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "false_positive_ids": [],
+    "near_misses": {
+     "tune": 6,
+     "heldout": 5
+    },
+    "near_miss_ids": [
+     "T02",
+     "T04",
+     "T07",
+     "T08",
+     "T09",
+     "T10",
+     "T12",
+     "T13",
+     "T14",
+     "T15",
+     "T17"
+    ],
+    "missed_present_queries": {
+     "tune": 1,
+     "heldout": 0
+    },
+    "missed_present_query_ids": [
+     "E16"
+    ],
+    "missed_present_moments": 2,
+    "present_moments_covered": 18,
+    "present_moments_never_covered": 0
+   },
+   {
+    "floor": 0.38,
+    "false_positives": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "false_positive_ids": [],
+    "near_misses": {
+     "tune": 6,
+     "heldout": 5
+    },
+    "near_miss_ids": [
+     "T02",
+     "T04",
+     "T07",
+     "T08",
+     "T09",
+     "T10",
+     "T12",
+     "T13",
+     "T14",
+     "T15",
+     "T17"
+    ],
+    "missed_present_queries": {
+     "tune": 1,
+     "heldout": 0
+    },
+    "missed_present_query_ids": [
+     "E16"
+    ],
+    "missed_present_moments": 2,
+    "present_moments_covered": 18,
+    "present_moments_never_covered": 0
+   },
+   {
+    "floor": 0.4,
+    "false_positives": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "false_positive_ids": [],
+    "near_misses": {
+     "tune": 6,
+     "heldout": 5
+    },
+    "near_miss_ids": [
+     "T02",
+     "T04",
+     "T07",
+     "T08",
+     "T09",
+     "T10",
+     "T12",
+     "T13",
+     "T14",
+     "T15",
+     "T17"
+    ],
+    "missed_present_queries": {
+     "tune": 1,
+     "heldout": 0
+    },
+    "missed_present_query_ids": [
+     "E16"
+    ],
+    "missed_present_moments": 2,
+    "present_moments_covered": 18,
+    "present_moments_never_covered": 0
+   },
+   {
+    "floor": 0.42,
+    "false_positives": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "false_positive_ids": [],
+    "near_misses": {
+     "tune": 6,
+     "heldout": 5
+    },
+    "near_miss_ids": [
+     "T02",
+     "T04",
+     "T07",
+     "T08",
+     "T09",
+     "T10",
+     "T12",
+     "T13",
+     "T14",
+     "T15",
+     "T17"
+    ],
+    "missed_present_queries": {
+     "tune": 1,
+     "heldout": 0
+    },
+    "missed_present_query_ids": [
+     "E16"
+    ],
+    "missed_present_moments": 2,
+    "present_moments_covered": 18,
+    "present_moments_never_covered": 0
+   },
+   {
+    "floor": 0.44,
+    "false_positives": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "false_positive_ids": [],
+    "near_misses": {
+     "tune": 6,
+     "heldout": 5
+    },
+    "near_miss_ids": [
+     "T02",
+     "T04",
+     "T07",
+     "T08",
+     "T09",
+     "T10",
+     "T12",
+     "T13",
+     "T14",
+     "T15",
+     "T17"
+    ],
+    "missed_present_queries": {
+     "tune": 1,
+     "heldout": 0
+    },
+    "missed_present_query_ids": [
+     "E16"
+    ],
+    "missed_present_moments": 2,
+    "present_moments_covered": 18,
+    "present_moments_never_covered": 0
+   },
+   {
+    "floor": 0.46,
+    "false_positives": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "false_positive_ids": [],
+    "near_misses": {
+     "tune": 6,
+     "heldout": 5
+    },
+    "near_miss_ids": [
+     "T02",
+     "T04",
+     "T07",
+     "T08",
+     "T09",
+     "T10",
+     "T12",
+     "T13",
+     "T14",
+     "T15",
+     "T17"
+    ],
+    "missed_present_queries": {
+     "tune": 2,
+     "heldout": 0
+    },
+    "missed_present_query_ids": [
+     "E05",
+     "E16"
+    ],
+    "missed_present_moments": 3,
+    "present_moments_covered": 18,
+    "present_moments_never_covered": 0
+   },
+   {
+    "floor": 0.48,
+    "false_positives": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "false_positive_ids": [],
+    "near_misses": {
+     "tune": 6,
+     "heldout": 5
+    },
+    "near_miss_ids": [
+     "T02",
+     "T04",
+     "T07",
+     "T08",
+     "T09",
+     "T10",
+     "T12",
+     "T13",
+     "T14",
+     "T15",
+     "T17"
+    ],
+    "missed_present_queries": {
+     "tune": 2,
+     "heldout": 0
+    },
+    "missed_present_query_ids": [
+     "E05",
+     "E16"
+    ],
+    "missed_present_moments": 4,
+    "present_moments_covered": 18,
+    "present_moments_never_covered": 0
+   },
+   {
+    "floor": 0.5,
+    "false_positives": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "false_positive_ids": [],
+    "near_misses": {
+     "tune": 6,
+     "heldout": 5
+    },
+    "near_miss_ids": [
+     "T02",
+     "T04",
+     "T07",
+     "T08",
+     "T09",
+     "T10",
+     "T12",
+     "T13",
+     "T14",
+     "T15",
+     "T17"
+    ],
+    "missed_present_queries": {
+     "tune": 2,
+     "heldout": 0
+    },
+    "missed_present_query_ids": [
+     "E05",
+     "E16"
+    ],
+    "missed_present_moments": 4,
+    "present_moments_covered": 18,
+    "present_moments_never_covered": 0
+   }
+  ],
+  "visual": [
+   {
+    "floor": 0.1,
+    "false_positives": {
+     "tune": 8,
+     "heldout": 7
+    },
+    "false_positive_ids": [
+     "V01",
+     "V02",
+     "V03",
+     "V05",
+     "V06",
+     "V07",
+     "V08",
+     "V09",
+     "V10",
+     "V11",
+     "V12",
+     "V13",
+     "V14",
+     "V15",
+     "V16"
+    ],
+    "near_misses": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "near_miss_ids": [],
+    "missed_present_queries": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "missed_present_query_ids": [],
+    "missed_present_moments": 0,
+    "present_moments_covered": 0,
+    "present_moments_never_covered": 0
+   },
+   {
+    "floor": 0.12,
+    "false_positives": {
+     "tune": 7,
+     "heldout": 7
+    },
+    "false_positive_ids": [
+     "V01",
+     "V02",
+     "V03",
+     "V05",
+     "V06",
+     "V07",
+     "V08",
+     "V09",
+     "V10",
+     "V11",
+     "V12",
+     "V14",
+     "V15",
+     "V16"
+    ],
+    "near_misses": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "near_miss_ids": [],
+    "missed_present_queries": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "missed_present_query_ids": [],
+    "missed_present_moments": 0,
+    "present_moments_covered": 0,
+    "present_moments_never_covered": 0
+   },
+   {
+    "floor": 0.13,
+    "false_positives": {
+     "tune": 4,
+     "heldout": 6
+    },
+    "false_positive_ids": [
+     "V02",
+     "V05",
+     "V06",
+     "V07",
+     "V08",
+     "V09",
+     "V10",
+     "V11",
+     "V14",
+     "V16"
+    ],
+    "near_misses": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "near_miss_ids": [],
+    "missed_present_queries": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "missed_present_query_ids": [],
+    "missed_present_moments": 0,
+    "present_moments_covered": 0,
+    "present_moments_never_covered": 0
+   },
+   {
+    "floor": 0.14,
+    "false_positives": {
+     "tune": 1,
+     "heldout": 6
+    },
+    "false_positive_ids": [
+     "V02",
+     "V05",
+     "V06",
+     "V08",
+     "V10",
+     "V14",
+     "V16"
+    ],
+    "near_misses": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "near_miss_ids": [],
+    "missed_present_queries": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "missed_present_query_ids": [],
+    "missed_present_moments": 0,
+    "present_moments_covered": 0,
+    "present_moments_never_covered": 0
+   },
+   {
+    "floor": 0.15,
+    "false_positives": {
+     "tune": 1,
+     "heldout": 4
+    },
+    "false_positive_ids": [
+     "V05",
+     "V06",
+     "V10",
+     "V14",
+     "V16"
+    ],
+    "near_misses": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "near_miss_ids": [],
+    "missed_present_queries": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "missed_present_query_ids": [],
+    "missed_present_moments": 0,
+    "present_moments_covered": 0,
+    "present_moments_never_covered": 0
+   },
+   {
+    "floor": 0.16,
+    "false_positives": {
+     "tune": 1,
+     "heldout": 2
+    },
+    "false_positive_ids": [
+     "V05",
+     "V10",
+     "V14"
+    ],
+    "near_misses": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "near_miss_ids": [],
+    "missed_present_queries": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "missed_present_query_ids": [],
+    "missed_present_moments": 0,
+    "present_moments_covered": 0,
+    "present_moments_never_covered": 0
+   },
+   {
+    "floor": 0.1652,
+    "false_positives": {
+     "tune": 1,
+     "heldout": 2
+    },
+    "false_positive_ids": [
+     "V05",
+     "V10",
+     "V14"
+    ],
+    "near_misses": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "near_miss_ids": [],
+    "missed_present_queries": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "missed_present_query_ids": [],
+    "missed_present_moments": 0,
+    "present_moments_covered": 0,
+    "present_moments_never_covered": 0
+   },
+   {
+    "floor": 0.17,
+    "false_positives": {
+     "tune": 1,
+     "heldout": 1
+    },
+    "false_positive_ids": [
+     "V05",
+     "V14"
+    ],
+    "near_misses": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "near_miss_ids": [],
+    "missed_present_queries": {
+     "tune": 1,
+     "heldout": 0
+    },
+    "missed_present_query_ids": [
+     "E10"
+    ],
+    "missed_present_moments": 0,
+    "present_moments_covered": 0,
+    "present_moments_never_covered": 0
+   },
+   {
+    "floor": 0.18,
+    "false_positives": {
+     "tune": 0,
+     "heldout": 1
+    },
+    "false_positive_ids": [
+     "V14"
+    ],
+    "near_misses": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "near_miss_ids": [],
+    "missed_present_queries": {
+     "tune": 1,
+     "heldout": 0
+    },
+    "missed_present_query_ids": [
+     "E10"
+    ],
+    "missed_present_moments": 0,
+    "present_moments_covered": 0,
+    "present_moments_never_covered": 0
+   },
+   {
+    "floor": 0.19,
+    "false_positives": {
+     "tune": 0,
+     "heldout": 1
+    },
+    "false_positive_ids": [
+     "V14"
+    ],
+    "near_misses": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "near_miss_ids": [],
+    "missed_present_queries": {
+     "tune": 1,
+     "heldout": 0
+    },
+    "missed_present_query_ids": [
+     "E10"
+    ],
+    "missed_present_moments": 0,
+    "present_moments_covered": 0,
+    "present_moments_never_covered": 0
+   },
+   {
+    "floor": 0.2,
+    "false_positives": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "false_positive_ids": [],
+    "near_misses": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "near_miss_ids": [],
+    "missed_present_queries": {
+     "tune": 1,
+     "heldout": 0
+    },
+    "missed_present_query_ids": [
+     "E10"
+    ],
+    "missed_present_moments": 0,
+    "present_moments_covered": 0,
+    "present_moments_never_covered": 0
+   },
+   {
+    "floor": 0.22,
+    "false_positives": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "false_positive_ids": [],
+    "near_misses": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "near_miss_ids": [],
+    "missed_present_queries": {
+     "tune": 1,
+     "heldout": 0
+    },
+    "missed_present_query_ids": [
+     "E10"
+    ],
+    "missed_present_moments": 0,
+    "present_moments_covered": 0,
+    "present_moments_never_covered": 0
+   },
+   {
+    "floor": 0.24,
+    "false_positives": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "false_positive_ids": [],
+    "near_misses": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "near_miss_ids": [],
+    "missed_present_queries": {
+     "tune": 3,
+     "heldout": 0
+    },
+    "missed_present_query_ids": [
+     "E09",
+     "E10",
+     "E11"
+    ],
+    "missed_present_moments": 0,
+    "present_moments_covered": 0,
+    "present_moments_never_covered": 0
+   },
+   {
+    "floor": 0.3,
+    "false_positives": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "false_positive_ids": [],
+    "near_misses": {
+     "tune": 0,
+     "heldout": 0
+    },
+    "near_miss_ids": [],
+    "missed_present_queries": {
+     "tune": 3,
+     "heldout": 0
+    },
+    "missed_present_query_ids": [
+     "E09",
+     "E10",
+     "E11"
+    ],
+    "missed_present_moments": 0,
+    "present_moments_covered": 0,
+    "present_moments_never_covered": 0
+   }
+  ]
+ },
+ "fit": {
+  "text": {
+   "method": "balanced accuracy over labelled queries, fitted on the TUNE half of the negative corpus and the positive queries",
+   "cutoff": 0.4029,
+   "balanced_accuracy": 0.9444,
+   "present_retained_rate": 0.8889,
+   "absent_abstained_rate": 1.0,
+   "samples": 19,
+   "positives": 9,
+   "negatives": 10,
+   "status": "measured candidate; requires review before policy change"
+  },
+  "visual": {
+   "method": "balanced accuracy over labelled queries, fitted on the TUNE half of the negative corpus and the positive queries",
+   "cutoff": 0.1524,
+   "balanced_accuracy": 0.9375,
+   "present_retained_rate": 1.0,
+   "absent_abstained_rate": 0.875,
+   "samples": 11,
+   "positives": 3,
+   "negatives": 8,
+   "status": "measured candidate; requires review before policy change"
+  }
+ },
+ "fit_whole_corpus": {
+  "text": {
+   "method": "balanced accuracy over labelled queries, fitted on the WHOLE negative corpus and the positive queries",
+   "cutoff": 0.40695,
+   "balanced_accuracy": 0.9444,
+   "present_retained_rate": 0.8889,
+   "absent_abstained_rate": 1.0,
+   "samples": 27,
+   "positives": 9,
+   "negatives": 18,
+   "status": "measured candidate; requires review before policy change"
+  },
+  "visual": {
+   "method": "balanced accuracy over labelled queries, fitted on the WHOLE negative corpus and the positive queries",
+   "cutoff": 0.1611,
+   "balanced_accuracy": 0.9062,
+   "present_retained_rate": 1.0,
+   "absent_abstained_rate": 0.8125,
+   "samples": 19,
+   "positives": 3,
+   "negatives": 16,
+   "status": "measured candidate; requires review before policy change"
+  }
+ }
+}

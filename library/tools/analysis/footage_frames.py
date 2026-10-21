@@ -202,25 +202,51 @@ PER_SOURCE_POOL = 30
 
 # The measured cutoffs.  A query-level floor abstains on the whole query
 # when its best frame scores below it; a window-level floor drops a
-# WINDOW below it.  Both numbers come from the 2026-10-20 editorial
-# retrieval measurement on one corpus: present queries' top-1 scores run
-# 0.1652-0.2724, absent ones 0.1237-0.1447, and the lane's own
-# calibration puts the window-level cutoff at 0.22195 (balanced accuracy
-# 0.9565).
+# WINDOW below it.  Both numbers are measured, and both are measured
+# on the LABELLED corpus rather than on a hand-picked probe set.
 #
 # The QUERY floor is the one that ships ON, because the lane has to
 # abstain somewhere: without it an absent picture is handed to the
 # editor as five wrong windows (measured: 10 of the 41 false-positive
 # windows and 44 % of the false-positive seconds of the merged set).  It
-# is a narrow gate - the weakest present query on the corpus scores
-# 0.1652, so the floor sits 0.0152 below it - and the risk is stated:
-# a floor that is too high turns a present moment into "not found",
-# which is a silent recall loss.  `floor=None` turns it off.
+# is a narrow gate and the risk is stated: a floor that is too high
+# turns a present moment into "not found", which is a silent recall
+# loss.  `floor=None` turns it off.
+#
+# RECALIBRATED 2026-10-22 (VI-004) on a larger, independently labelled
+# NEGATIVE corpus - 16 absent picture queries labelled by LOOKING at
+# every one of the 1092 sampled frames, not by asking a search lane
+# whether it found something:
+#
+#   present queries' best scores   0.1652 (E10), 0.2210 (E11), 0.2340 (E09)
+#   absent  queries' best scores   0.0951 .. 0.1932
+#
+# The 2026-10-20 measurement had 3 absent probes whose best scores ran
+# 0.1237-0.1447, all under the floor, and the floor was set 0.0152 below
+# the weakest present query.  The larger corpus says the ABSENT band
+# reaches 0.1932 - it OVERLAPS the present band, which starts at 0.1652
+# - so the old floor answered 5 of the 16 absent queries with five
+# wrong windows each (31 %).
+#
+# The value now shipped is the one the engine's own method selects
+# (`library.tools.retrieval.calibration.abstention_threshold`, balanced
+# accuracy over labelled queries): 0.1611, the midpoint of the band
+# that separates the two refusable absent queries (0.1551, 0.1570) from
+# the weakest present query (0.1652).  Measured on the corpus: false
+# positives 5/16 -> 3/16, and every present query still answered (3/3,
+# the weakest with 0.0041 of margin).  The three false positives that
+# remain score 0.1665, 0.1787 and 0.1932 - ABOVE the weakest present
+# query - so no floor refuses them without discarding a moment that is
+# really in the footage, which is the trade this floor must not make.
 #
 # The WINDOW floor ships OFF: measured, it prices the wrong seconds well
 # down (merged 93.01 -> 22.94) but it costs recall (held-out 0.4316 ->
 # 0.3371), because it drops present windows whose best frame scores low.
-MEASURED_QUERY_FLOOR = 0.15
+# The 2026-10-22 corpus measures the same thing again: at 0.22195 it
+# would drop 84 of the 86 present visual moments (E09's best 43 moments
+# keep 19, E10's best is 0.1451 and E11's 0.1339, so both lose every
+# moment they have).
+MEASURED_QUERY_FLOOR = 0.1611
 MEASURED_WINDOW_FLOOR = 0.22195
 
 FRAME_INDEX_FILE = "frame_index.json"
@@ -551,6 +577,7 @@ class FrameIndex:
         self._matrix = None
         self._clip = None
         self._by_clip = None
+        self._scope = None
 
     @property
     def payload(self) -> dict:
@@ -629,6 +656,11 @@ class FrameIndex:
             # CLIP's held-out score distributions overlap, so a ranked
             # candidate is never evidence enough to call a find or a miss.
             "answer_status": "not_analyzed",
+            # What this answer MEANS, and the scope it measured.  The
+            # frame lane is a RANKING lane: it can say `not_observed`
+            # and it can never say `confirmed_absent`, because a
+            # ranking is not an assertion that the thing is not there.
+            "abstention": None,
         }
         matched = action_refusal_match(query)
         if matched is not None and not include_actions:
@@ -644,16 +676,28 @@ class FrameIndex:
                          "or retry with --include-actions to rank anyway"),
             }
             report["answer_status"] = "not_analyzed"
+            report["abstention"] = self._abstain(
+                ran=False, found=False, refused=True, scope_note=(
+                    "the frame lane does not answer action or gesture "
+                    "questions, so it measured nothing"))
             return report
         if not self.frames or self.matrix is None:
             report["error"] = ("this frame index holds no embeddings; "
                                "build it with `ren search-index <project> --frames`")
             report["answer_status"] = "not_analyzed"
+            report["abstention"] = self._abstain(
+                ran=False, found=False, scope_note=(
+                    "this frame index holds no embeddings, so no frame was "
+                    "measured"))
             return report
         vector = self._encode_text(query)
         if vector is None:
             report["error"] = "CLIP is not available on this machine"
             report["answer_status"] = "not_analyzed"
+            report["abstention"] = self._abstain(
+                ran=False, found=False, scope_note=(
+                    "CLIP is not available on this machine, so no frame was "
+                    "measured"))
             return report
         scores = self.matrix @ vector
         if per_source_pool is None:
@@ -686,7 +730,9 @@ class FrameIndex:
                 "score": round(float(scores[i]), 4),
                 "verified": False,
             })
-        report["answer_status"] = "insufficient_evidence"
+        report["answer_status"] = "found"
+        report["abstention"] = self._abstain(
+            ran=True, found=bool(report["results"]))
         return report
 
     def _candidate_pool(self, scores, global_frames: int,
@@ -830,6 +876,12 @@ class FrameIndex:
             # search: the reviewer needs to see what came closest.
             report["near_miss"] = report["results"][0] if report["results"] else None
             report["notice"] = FLOOR_NOTICE
+            # The lane searched its WHOLE measured scope and nothing in it
+            # cleared the floor.  That is `not_observed`, and it is not
+            # `confirmed_absent`: a ranking is not an assertion that the
+            # thing is not there.
+            report["abstention"] = self._abstain(
+                ran=True, found=False, near_miss=report.get("near_miss"))
             return report
         by_clip: dict = {}
         for hit in report["results"]:
@@ -861,6 +913,16 @@ class FrameIndex:
             ranges = [r for r in ranges if r["best_score"] >= window_floor]
         report["ranges"] = self._select_windows(ranges, top_ranges,
                                                 repeats, merge_gap_s)
+        if not report["ranges"]:
+            # Candidates were found but every window was dropped (the
+            # window floor, or the pool held nothing mergeable).  The
+            # lane answered with nothing, so it says so rather than
+            # reporting the frames it ranked.
+            report["abstained"] = True
+            report["answer_status"] = "abstained"
+            report["abstention"] = self._abstain(
+                ran=True, found=False,
+                near_miss=report["results"][0] if report["results"] else None)
         return report
 
     @staticmethod
@@ -909,6 +971,84 @@ class FrameIndex:
             "n_frames": len(members),
             "verified": False,
         }
+
+    def _abstain(self, *, ran: bool, found: bool, refused: bool = False,
+                 scope_note: str = "", near_miss: dict | None = None) -> dict:
+        """What this lane's answer MEANS, and the scope it measured.
+
+        The scope is the part of the answer that makes it true: "not
+        observed" is a claim about the frames the lane measured, so the
+        lane says which frames those were, at what cadence, over how
+        many sources, and whether the source videos have moved since.
+
+        The vocabulary is the evidence stack's
+        (`library.tools.retrieval.abstention`), so this lane, the text
+        lane and the plan layer cannot disagree about what an absence
+        is.
+        """
+        from library.tools.retrieval import abstention
+
+        scope = self._frame_scope()
+        note = " ".join(part for part in (scope["note"], scope_note) if part)
+        return abstention.lane_outcome(
+            lane="visual", ran=ran, found=found, refused=refused,
+            scope_complete=scope["complete"], scope_note=note,
+            near_miss=near_miss)
+
+    def _frame_scope(self) -> dict:
+        """The scope this lane measured, and whether it is the whole one.
+
+        A frame index measures a SAMPLE of the footage - one frame
+        every ten seconds - so its scope is the frames it holds, and
+        the answer says so.  The scope is not the whole one when the
+        index skipped a source, when the catalog names more sources
+        than the index holds, or when a source video has moved since
+        the index was built: in each of those the index is saying
+        something about footage that is no longer there.
+        """
+        if self._scope is not None:
+            return self._scope
+        payload = self.payload
+        sources = payload.get("sources") or []
+        skipped = payload.get("skipped") or []
+        frames = len(payload.get("frames") or [])
+        step = payload.get("step_s")
+        catalogued = None
+        try:
+            from library.tools.analysis.footage_segments import load_catalog
+            catalogued = len(load_catalog(self.project_folder))
+        except (OSError, ValueError, KeyError, TypeError):
+            catalogued = None
+        moved = []
+        try:
+            stale = self.staleness()
+            moved = list(stale.get("missing_now") or []) + list(
+                stale.get("changed") or [])
+        except (OSError, KeyError, TypeError):
+            moved = []
+        reasons = []
+        if skipped:
+            reasons.append(f"{len(skipped)} source(s) were skipped at build")
+        if catalogued is not None and len(sources) < catalogued:
+            reasons.append(f"the catalog names {catalogued} sources and this "
+                           f"index holds {len(sources)}")
+        if moved:
+            reasons.append(f"{len(moved)} source(s) moved since the index was "
+                           f"built")
+        if not sources:
+            reasons.append("this index holds no source")
+        complete = not reasons
+        cadence = f" every {step:g}s" if isinstance(step, (int, float)) else ""
+        note = (f"{frames} frames{cadence} over {len(sources)} source(s); "
+                f"the catalog names {catalogued} source(s)"
+                if catalogued is not None else
+                f"{frames} frames{cadence} over {len(sources)} source(s)")
+        if reasons:
+            note = note + " - " + "; ".join(reasons)
+        self._scope = {"complete": complete, "note": note,
+                       "sources": len(sources), "frames": frames,
+                       "skipped": len(skipped), "catalogued": catalogued}
+        return self._scope
 
     def staleness(self) -> dict:
         """Whether a source video moved since this index was built."""

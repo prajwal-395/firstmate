@@ -1303,7 +1303,7 @@ def test_adjacent_hits_merge_and_distant_ones_do_not(frame_index):
     """t=0/10 on one clip are one range; t=20 is the next sighting, and
     t=100 and the other clip are not in it."""
     report = frame_index.search_ranges("a laptop on a table", top_ranges=5)
-    assert report["answer_status"] == "insufficient_evidence"
+    assert report["answer_status"] == "found"
     assert report["refused"] is None
     ranges = report["ranges"]
     assert [(r["clip_id"], r["start"], r["end"]) for r in ranges] == [
@@ -1356,7 +1356,7 @@ def test_hits_are_ranked_unverified_and_never_claim_absence(
 
     monkeypatch.setattr(footage_frames, "_load_clip", flat_loader)
     report = frame_index.search_frames("a birthday cake with candles", top_k=3)
-    assert report["answer_status"] == "insufficient_evidence"
+    assert report["answer_status"] == "found"
     assert report["refused"] is None
     assert len(report["results"]) == 3, (
         "all-zero scores still return top-k: ranking is the answer")
@@ -1581,8 +1581,8 @@ def test_no_floor_ranks_whatever_the_frames_scored(tmp_path, monkeypatch):
 
 def test_the_measured_floor_is_the_shipped_default(tmp_path, monkeypatch):
     """The lane abstains at the MEASURED cutoff, and the cutoff is the
-    one the editorial retrieval corpus measured."""
-    assert footage_frames.MEASURED_QUERY_FLOOR == 0.15
+    one the LABELLED negative corpus measured (VI-004, 2026-10-22)."""
+    assert footage_frames.MEASURED_QUERY_FLOOR == 0.1611
     frames = [{"clip_id": "clip_a", "filename": "A.MOV", "t": 0.0}]
     matrix = np.zeros((1, 4), dtype="float32")
     matrix[0, 0] = 0.1499
@@ -1591,7 +1591,7 @@ def test_the_measured_floor_is_the_shipped_default(tmp_path, monkeypatch):
         np.array([1.0, 0.0, 0.0, 0.0], dtype="float32"))
     report = index.search_ranges("a birthday cake with candles")
     assert report["abstained"] is True
-    assert report["search_policy"]["query_floor"] == 0.15
+    assert report["search_policy"]["query_floor"] == 0.1611
 
 
 def test_the_window_floor_drops_a_weak_window_and_keeps_the_query(
@@ -3119,7 +3119,7 @@ def test_search_json_visual_lane_shares_the_hit_shape(
          "--index-dir", str(index_dir)]) == 0
     answer = json.loads(capsys.readouterr().out)
     assert answer["mode"] == "visual"
-    assert answer["answer_status"] == "insufficient_evidence"
+    assert answer["answer_status"] == "found"
     assert "absence cannot be concluded" in answer["notice"]
     assert answer["abstained"] is False
     top = answer["hits"][0]
@@ -3257,3 +3257,128 @@ def test_a_noun_point_is_not_a_gesture(frame_index):
                   "he points at the screen",
                   "the sign pointed at the crowd"):
         assert footage_frames.action_refusal_match(query) == "pointing", query
+
+
+# ─── What an empty answer MEANS (VI-004) ───────────────────────────
+#
+# The defect: a lane's empty answer was whatever that lane felt like
+# saying.  The text lane said `not_found`, the frame lane said
+# `abstained`, and the frame lane said `insufficient_evidence` on a
+# search that returned five windows - a claim that the evidence is
+# missing when the lane had five.  These tests name the three answers a
+# reader has to tell apart: not observed, insufficient evidence, and
+# confirmed absent.
+
+
+def test_the_frame_lane_says_it_found_the_candidates_it_ranked(frame_index):
+    """The defect: the frame lane reported `insufficient_evidence` on a
+    search that returned five ranges, which claims the evidence is
+    missing when the lane had five."""
+    report = frame_index.search_ranges("a laptop on a table", top_ranges=5)
+    assert report["ranges"], "this fixture ranks two clips, so it answers"
+    assert report["answer_status"] == "found"
+    assert report["abstention"]["outcome"] == "found"
+    assert report["abstention"]["answer_state"] == "present"
+
+
+def test_the_frame_lane_never_confirms_an_absence(frame_index):
+    """A RANKING is not an assertion.  CLIP ranking a studio frame for
+    "a plate of food" says the studio is the closest thing to a plate
+    of food; it does not say there is no plate of food."""
+    report = frame_index.search_ranges("a birthday cake with candles",
+                                       floor=0.9)
+    assert report["abstained"] is True
+    assert report["abstention"]["outcome"] == "not_observed"
+    assert report["abstention"]["answer_state"] == "not_observed", (
+        "a ranking lane can only ever reach not_observed; `absent` would "
+        "claim a measurement it never made")
+
+
+def test_the_frame_lane_names_the_scope_it_measured_and_its_near_miss(
+        frame_index):
+    """An abstain that cannot say WHICH frames it looked at, and what came
+    closest, reads as a broken search."""
+    report = frame_index.search_ranges("a birthday cake with candles",
+                                       floor=0.9)
+    abstention = report["abstention"]
+    assert abstention["scope"]["note"], "the scope travels with the answer"
+    assert abstention["scope"]["complete"] is True
+    assert abstention["near_miss"] is not None
+    assert report["near_miss"]["score"] == pytest.approx(
+        abstention["near_miss"]["score"])
+
+
+def test_the_text_lane_says_not_observed_over_the_scope_it_measured(
+        offline_index):
+    """`not found` is a claim about the footage, so it says which
+    footage - and the answer state says it is `not_observed` rather than
+    `absent`, because a ranking is not an assertion."""
+    idx, _ = offline_index
+    # The transcript covers every source the catalog names, so the lane
+    # searched the whole scope its question was about.
+    payload = dict(idx.payload)
+    coverage = dict(payload.get("coverage") or {})
+    coverage["memory_transcribed_clips"] = coverage.get("clips_in_catalog")
+    payload["coverage"] = coverage
+    idx._payload = payload
+    unfloored = idx.search_report("parking", top_k=len(idx.segments), floor=0)
+    best = max(r["dense_score"] for r in unfloored["results"])
+    report = idx.search_report("parking", top_k=5, floor=best + 0.01)
+    assert report["results"] == []
+    assert report["answer_status"] == "not_found"
+    assert report["abstention"]["outcome"] == "not_observed"
+    assert report["abstention"]["answer_state"] == "not_observed"
+    assert report["abstention"]["scope"]["complete"] is True
+    assert report["abstention"]["near_miss"]["dense_score"] == pytest.approx(best)
+
+
+def test_an_empty_answer_over_a_partial_scope_is_insufficient_evidence(
+        offline_index):
+    """The defect this names: an index that never transcribed one of the
+    sources cannot say "there is no such moment in the footage" - it can
+    only say the answer is about the index."""
+    idx, _ = offline_index
+    unfloored = idx.search_report("parking", top_k=len(idx.segments), floor=0)
+    best = max(r["dense_score"] for r in unfloored["results"])
+    report = idx.search_report("parking", top_k=5, floor=best + 0.01)
+    assert report["results"] == []
+    assert report["abstention"]["scope"]["complete"] is False
+    assert report["abstention"]["outcome"] == "insufficient_evidence"
+    assert report["abstention"]["answer_state"] == "inconclusive"
+
+
+def test_a_text_lane_with_no_embedder_says_insufficient_evidence(
+        project, tmp_path, monkeypatch):
+    """A keyword-only answer cannot tell an absent subject from different
+    wording, so it must not claim it looked and saw nothing."""
+    monkeypatch.setattr(footage_query, "load_embedder", lambda: (None, None))
+    index_dir = tmp_path / "noembed"
+    build_index(project, index_dir=index_dir)
+    index = FootageIndex(project, index_dir=index_dir)
+    report = index.search_report("parking", top_k=5, mode="lexical")
+    assert report["answer_status"] == "insufficient_evidence"
+    assert report["abstention"]["outcome"] == "insufficient_evidence"
+    assert report["abstention"]["answer_state"] in (
+        "inconclusive", "not_analyzed")
+
+
+def test_the_sound_lane_confirms_an_absence_it_measured(sound_index):
+    """The sound lane measured a source and recorded a label vocabulary,
+    so "no label of this kind in any measured source" is an assertion -
+    the one case a confirmed absence is earned."""
+    report = sound_index.sound_search("dog barking")
+    assert report["hits"] == []
+    assert report["abstention"]["outcome"] == "confirmed_absent"
+    assert report["abstention"]["answer_state"] == "absent"
+    assert "dog" not in report["available_labels"]
+
+
+def test_a_sound_lane_that_never_ran_does_not_confirm_anything(
+        offline_index):
+    """An index with no sound events has measured nothing, so it cannot
+    confirm an absence."""
+    idx, _ = offline_index
+    report = idx.sound_search("dog barking")
+    assert report["abstained"] is True
+    assert report["abstention"]["outcome"] == "insufficient_evidence"
+    assert report["abstention"]["answer_state"] != "absent"

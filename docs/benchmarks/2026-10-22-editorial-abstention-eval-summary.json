@@ -1,0 +1,2902 @@
+{
+ "ran_at": "2026-10-21T09:20:00Z",
+ "note": "The retrieval_eval summary of the editorial sets, before and after the frame lane's query floor moved 0.15 -> 0.1611 (VI-004).  Same project, same command, same scratch copy; the two summaries are identical in every field but the latency, which is machine noise.  The full reports are reproduced by the command in docs/benchmarks/2026-10-22-editorial-abstention.md.",
+ "sets": {
+  "merged": {
+   "before": {
+    "editorial": {
+     "queries_present": 12,
+     "queries_absent": 4,
+     "queries_unlabelled": 0,
+     "queries_refused": 0,
+     "refusals_correct": 0,
+     "macro_recall": 0.4573,
+     "macro_precision": 0.5,
+     "macro_recall_uncredited": 0.6299,
+     "macro_region_recall": 0.6111,
+     "credit_cap": "one credit per window per region",
+     "excess_seconds": 64.09,
+     "by_lane": {
+      "text": {
+       "queries_present": 9,
+       "queries_absent": 2,
+       "queries_unlabelled": 0,
+       "queries_refused": 0,
+       "macro_recall": 0.6019,
+       "macro_recall_uncredited": 0.8241,
+       "macro_precision": 0.6375,
+       "absent_abstained": 2
+      },
+      "visual": {
+       "queries_present": 3,
+       "queries_absent": 2,
+       "queries_unlabelled": 0,
+       "queries_refused": 0,
+       "macro_recall": 0.0236,
+       "macro_recall_uncredited": 0.0472,
+       "macro_precision": 0.1333,
+       "absent_abstained": 2
+      }
+     },
+     "absent_abstained": 4,
+     "requirement_recall": 1.0,
+     "requirement_agreement": 16,
+     "requirement_queries": 16,
+     "declared_modalities_missed": [],
+     "false_positive_consequence": {
+      "queries": 16,
+      "wrong_seconds_selected": 74.17,
+      "missing_seconds": 1161.04,
+      "ground_truth_seconds": 1209.74,
+      "coverage_fraction": 0.0403,
+      "shadowing_queries": 6,
+      "false_positive_windows": 27,
+      "false_positive_seconds": 390.99
+     }
+    },
+    "stage_attribution": {
+     "question": "which stage of retrieval lost the wanted moment",
+     "stages": [
+      "never_sampled",
+      "extraction_evidence_unavailable",
+      "never_transcribed",
+      "never_indexed",
+      "not_in_candidate_pool",
+      "removed_by_query_floor",
+      "removed_by_window_floor",
+      "ranked_too_low",
+      "temporal_localization",
+      "not_presented",
+      "touched_within_tolerance",
+      "point_window_not_credited",
+      "credited_to_sibling_in_region",
+      "credited"
+     ],
+     "declared_categories": [],
+     "pipeline_stages": [
+      "candidate_generation",
+      "credit_accounting",
+      "extraction_coverage",
+      "found",
+      "indexing",
+      "ranking",
+      "result_presentation",
+      "retrieval_floor",
+      "temporal_localization"
+     ],
+     "retrieval_failure_stages": [
+      "extraction_evidence_unavailable",
+      "never_indexed",
+      "never_sampled",
+      "never_transcribed",
+      "not_in_candidate_pool",
+      "not_presented",
+      "ranked_too_low",
+      "removed_by_query_floor",
+      "removed_by_window_floor",
+      "temporal_localization"
+     ],
+     "credit_accounting_stages": [
+      "credited_to_sibling_in_region",
+      "point_window_not_credited",
+      "touched_within_tolerance"
+     ],
+     "by_lane": {
+      "text": {
+       "touched_within_tolerance": 2,
+       "ranked_too_low": 2,
+       "removed_by_query_floor": 1
+      },
+      "visual": {
+       "not_presented": 40,
+       "temporal_localization": 4,
+       "ranked_too_low": 38,
+       "credited_to_sibling_in_region": 2
+      }
+     },
+     "by_category": {
+      "uncategorised": {
+       "touched_within_tolerance": 2,
+       "ranked_too_low": 40,
+       "not_presented": 40,
+       "temporal_localization": 4,
+       "credited_to_sibling_in_region": 2,
+       "removed_by_query_floor": 1
+      }
+     },
+     "by_requirement_kind": {
+      "textual:speech_content": {
+       "touched_within_tolerance": 2,
+       "ranked_too_low": 21,
+       "credited_to_sibling_in_region": 1,
+       "removed_by_query_floor": 1
+      },
+      "visual:action": {
+       "not_presented": 20,
+       "temporal_localization": 2,
+       "ranked_too_low": 19,
+       "credited_to_sibling_in_region": 1,
+       "removed_by_query_floor": 1
+      },
+      "visual:composition": {
+       "not_presented": 40,
+       "temporal_localization": 4,
+       "ranked_too_low": 38,
+       "credited_to_sibling_in_region": 2
+      },
+      "visual:object": {
+       "not_presented": 40,
+       "temporal_localization": 4,
+       "ranked_too_low": 19,
+       "credited_to_sibling_in_region": 1,
+       "removed_by_query_floor": 1
+      },
+      "visual:state": {
+       "not_presented": 20,
+       "temporal_localization": 2,
+       "ranked_too_low": 19,
+       "credited_to_sibling_in_region": 1,
+       "removed_by_query_floor": 1
+      },
+      "visual:person": {
+       "ranked_too_low": 19,
+       "credited_to_sibling_in_region": 1
+      },
+      "visual:scene": {
+       "ranked_too_low": 19,
+       "credited_to_sibling_in_region": 1
+      },
+      "temporal:interval": {
+       "removed_by_query_floor": 1
+      }
+     },
+     "queries": {
+      "E01": {
+       "lane": "text",
+       "category": "uncategorised",
+       "outcome": "missed",
+       "recall": 0.0,
+       "region_recall": 0.0,
+       "wanted_items": 1,
+       "credited_items": 0,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": "touched_within_tolerance",
+       "failure_pipeline_stage": "credit_accounting",
+       "failure_kind": "credit_accounting",
+       "uncredited_stages": {
+        "touched_within_tolerance": 1
+       },
+       "requirement_kinds": [
+        "textual:speech_content"
+       ]
+      },
+      "E02": {
+       "lane": "text",
+       "category": "uncategorised",
+       "outcome": "missed",
+       "recall": 0.6667,
+       "region_recall": 0.6667,
+       "wanted_items": 3,
+       "credited_items": 2,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": "ranked_too_low",
+       "failure_pipeline_stage": "ranking",
+       "failure_kind": "retrieval",
+       "uncredited_stages": {
+        "ranked_too_low": 1
+       },
+       "requirement_kinds": [
+        "textual:speech_content"
+       ]
+      },
+      "E03": {
+       "lane": "text",
+       "category": "uncategorised",
+       "outcome": "found",
+       "recall": 1.0,
+       "region_recall": 1.0,
+       "wanted_items": 2,
+       "credited_items": 2,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "textual:speech_content"
+       ]
+      },
+      "E04": {
+       "lane": "text",
+       "category": "uncategorised",
+       "outcome": "found",
+       "recall": 1.0,
+       "region_recall": 1.0,
+       "wanted_items": 1,
+       "credited_items": 1,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "textual:speech_content"
+       ]
+      },
+      "E05": {
+       "lane": "text",
+       "category": "uncategorised",
+       "outcome": "missed",
+       "recall": 0.0,
+       "region_recall": 0.0,
+       "wanted_items": 1,
+       "credited_items": 0,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": "touched_within_tolerance",
+       "failure_pipeline_stage": "credit_accounting",
+       "failure_kind": "credit_accounting",
+       "uncredited_stages": {
+        "touched_within_tolerance": 1
+       },
+       "requirement_kinds": [
+        "textual:speech_content"
+       ]
+      },
+      "E06": {
+       "lane": "text",
+       "category": "uncategorised",
+       "outcome": "found",
+       "recall": 1.0,
+       "region_recall": 1.0,
+       "wanted_items": 2,
+       "credited_items": 2,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "textual:speech_content",
+        "visual:person"
+       ]
+      },
+      "E07": {
+       "lane": "text",
+       "category": "uncategorised",
+       "outcome": "found",
+       "recall": 1.0,
+       "region_recall": 1.0,
+       "wanted_items": 3,
+       "credited_items": 3,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "textual:speech_content",
+        "visual:person"
+       ]
+      },
+      "E08": {
+       "lane": "text",
+       "category": "uncategorised",
+       "outcome": "missed",
+       "recall": 0.75,
+       "region_recall": 0.6667,
+       "wanted_items": 4,
+       "credited_items": 3,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": "ranked_too_low",
+       "failure_pipeline_stage": "ranking",
+       "failure_kind": "retrieval",
+       "uncredited_stages": {
+        "ranked_too_low": 1
+       },
+       "requirement_kinds": [
+        "textual:speech_content"
+       ]
+      },
+      "E09": {
+       "lane": "visual",
+       "category": "uncategorised",
+       "outcome": "missed",
+       "recall": 0.0233,
+       "region_recall": 1.0,
+       "wanted_items": 43,
+       "credited_items": 1,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": "not_presented",
+       "failure_pipeline_stage": "result_presentation",
+       "failure_kind": "retrieval",
+       "uncredited_stages": {
+        "not_presented": 20,
+        "temporal_localization": 2,
+        "ranked_too_low": 19,
+        "credited_to_sibling_in_region": 1
+       },
+       "requirement_kinds": [
+        "visual:action",
+        "visual:composition",
+        "visual:object",
+        "visual:state"
+       ]
+      },
+      "E10": {
+       "lane": "visual",
+       "category": "uncategorised",
+       "outcome": "missed",
+       "recall": 0.0476,
+       "region_recall": 1.0,
+       "wanted_items": 21,
+       "credited_items": 1,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": "ranked_too_low",
+       "failure_pipeline_stage": "ranking",
+       "failure_kind": "retrieval",
+       "uncredited_stages": {
+        "ranked_too_low": 19,
+        "credited_to_sibling_in_region": 1
+       },
+       "requirement_kinds": [
+        "textual:speech_content",
+        "visual:composition",
+        "visual:person",
+        "visual:scene"
+       ]
+      },
+      "E11": {
+       "lane": "visual",
+       "category": "uncategorised",
+       "outcome": "missed",
+       "recall": 0.0,
+       "region_recall": 0.0,
+       "wanted_items": 22,
+       "credited_items": 0,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": "not_presented",
+       "failure_pipeline_stage": "result_presentation",
+       "failure_kind": "retrieval",
+       "uncredited_stages": {
+        "not_presented": 20,
+        "temporal_localization": 2
+       },
+       "requirement_kinds": [
+        "visual:composition",
+        "visual:object"
+       ]
+      },
+      "E12": {
+       "lane": "text",
+       "category": "uncategorised",
+       "outcome": "absent_abstained",
+       "recall": null,
+       "region_recall": null,
+       "wanted_items": 0,
+       "credited_items": 0,
+       "instances_localized_on_sibling": null,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "textual:speech_content"
+       ]
+      },
+      "E13": {
+       "lane": "text",
+       "category": "uncategorised",
+       "outcome": "absent_abstained",
+       "recall": null,
+       "region_recall": null,
+       "wanted_items": 0,
+       "credited_items": 0,
+       "instances_localized_on_sibling": null,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "textual:speech_content"
+       ]
+      },
+      "E14": {
+       "lane": "visual",
+       "category": "uncategorised",
+       "outcome": "absent_abstained",
+       "recall": null,
+       "region_recall": null,
+       "wanted_items": 0,
+       "credited_items": 0,
+       "instances_localized_on_sibling": null,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "visual:composition",
+        "visual:object"
+       ]
+      },
+      "E15": {
+       "lane": "visual",
+       "category": "uncategorised",
+       "outcome": "absent_abstained",
+       "recall": null,
+       "region_recall": null,
+       "wanted_items": 0,
+       "credited_items": 0,
+       "instances_localized_on_sibling": null,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "visual:composition",
+        "visual:scene",
+        "visual:state"
+       ]
+      },
+      "E16": {
+       "lane": "text",
+       "category": "uncategorised",
+       "outcome": "missed",
+       "recall": 0.0,
+       "region_recall": 0.0,
+       "wanted_items": 1,
+       "credited_items": 0,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": "removed_by_query_floor",
+       "failure_pipeline_stage": "retrieval_floor",
+       "failure_kind": "retrieval",
+       "uncredited_stages": {
+        "removed_by_query_floor": 1
+       },
+       "requirement_kinds": [
+        "temporal:interval",
+        "textual:speech_content",
+        "visual:action",
+        "visual:object",
+        "visual:state"
+       ]
+      }
+     },
+     "missed_queries": [
+      "E01",
+      "E02",
+      "E05",
+      "E08",
+      "E09",
+      "E10",
+      "E11",
+      "E16"
+     ],
+     "missed_queries_without_a_stage": []
+    },
+    "calibration": {
+     "text": {
+      "reliability": {
+       "bins": [
+        {
+         "low": 0.0,
+         "high": 0.1,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.1,
+         "high": 0.2,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.2,
+         "high": 0.3,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.3,
+         "high": 0.4,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.4,
+         "high": 0.5,
+         "count": 6,
+         "mean_score": 0.4431,
+         "observed": 0.6667
+        },
+        {
+         "low": 0.5,
+         "high": 0.6,
+         "count": 6,
+         "mean_score": 0.5508,
+         "observed": 0.3333
+        },
+        {
+         "low": 0.6,
+         "high": 0.7,
+         "count": 14,
+         "mean_score": 0.6509,
+         "observed": 0.5
+        },
+        {
+         "low": 0.7,
+         "high": 0.8,
+         "count": 9,
+         "mean_score": 0.7492,
+         "observed": 1.0
+        },
+        {
+         "low": 0.8,
+         "high": 0.9,
+         "count": 4,
+         "mean_score": 0.8324,
+         "observed": 0.75
+        },
+        {
+         "low": 0.9,
+         "high": 1.0,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        }
+       ],
+       "samples": 39,
+       "positives": 25,
+       "negatives": 14,
+       "expected_calibration_error": 0.1883,
+       "uncalibratable": [],
+       "status": "measured",
+       "note": "the score is the RAW signal the floor judged on, not the fused rank; a fused score is not on a probability scale and cannot be calibrated"
+      },
+      "abstention": {
+       "cutoff": 0.6286,
+       "balanced_accuracy": 0.7371,
+       "present_retained_rate": 0.76,
+       "absent_abstained_rate": 0.7143,
+       "not_found_precision": 0.625,
+       "not_found_recall": 0.7143,
+       "not_found_true_positives": 10,
+       "not_found_false_positives": 6,
+       "status": "measured candidate; requires review before policy change",
+       "samples": 39,
+       "positives": 25,
+       "negatives": 14,
+       "method": "balanced accuracy over labelled windows",
+       "uncalibratable": []
+      },
+      "expected_calibration_error": 0.1883,
+      "verdict": "poorly calibrated: the score overstates its confidence",
+      "note": "calibration says how well the score reads; the threshold says whether it separates.  Both are needed and neither is the other"
+     },
+     "visual": {
+      "reliability": {
+       "bins": [
+        {
+         "low": 0.0,
+         "high": 0.1,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.1,
+         "high": 0.2,
+         "count": 6,
+         "mean_score": 0.1606,
+         "observed": 0.1667
+        },
+        {
+         "low": 0.2,
+         "high": 0.3,
+         "count": 9,
+         "mean_score": 0.2192,
+         "observed": 0.1111
+        },
+        {
+         "low": 0.3,
+         "high": 0.4,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.4,
+         "high": 0.5,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.5,
+         "high": 0.6,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.6,
+         "high": 0.7,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.7,
+         "high": 0.8,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.8,
+         "high": 0.9,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.9,
+         "high": 1.0,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        }
+       ],
+       "samples": 15,
+       "positives": 2,
+       "negatives": 13,
+       "expected_calibration_error": 0.0673,
+       "uncalibratable": [],
+       "status": "measured",
+       "note": "the score is the RAW signal the floor judged on, not the fused rank; a fused score is not on a probability scale and cannot be calibrated"
+      },
+      "abstention": {
+       "cutoff": 0.2316,
+       "balanced_accuracy": 0.75,
+       "present_retained_rate": 0.5,
+       "absent_abstained_rate": 1.0,
+       "not_found_precision": 0.9286,
+       "not_found_recall": 1.0,
+       "not_found_true_positives": 13,
+       "not_found_false_positives": 1,
+       "status": "measured candidate; requires review before policy change",
+       "samples": 15,
+       "positives": 2,
+       "negatives": 13,
+       "method": "balanced accuracy over labelled windows",
+       "uncalibratable": []
+      },
+      "expected_calibration_error": 0.0673,
+      "verdict": "calibrated: the score reads as a probability",
+      "note": "calibration says how well the score reads; the threshold says whether it separates.  Both are needed and neither is the other"
+     }
+    }
+   },
+   "after": {
+    "editorial": {
+     "queries_present": 12,
+     "queries_absent": 4,
+     "queries_unlabelled": 0,
+     "queries_refused": 0,
+     "refusals_correct": 0,
+     "macro_recall": 0.4573,
+     "macro_precision": 0.5,
+     "macro_recall_uncredited": 0.6299,
+     "macro_region_recall": 0.6111,
+     "credit_cap": "one credit per window per region",
+     "excess_seconds": 64.09,
+     "by_lane": {
+      "text": {
+       "queries_present": 9,
+       "queries_absent": 2,
+       "queries_unlabelled": 0,
+       "queries_refused": 0,
+       "macro_recall": 0.6019,
+       "macro_recall_uncredited": 0.8241,
+       "macro_precision": 0.6375,
+       "absent_abstained": 2
+      },
+      "visual": {
+       "queries_present": 3,
+       "queries_absent": 2,
+       "queries_unlabelled": 0,
+       "queries_refused": 0,
+       "macro_recall": 0.0236,
+       "macro_recall_uncredited": 0.0472,
+       "macro_precision": 0.1333,
+       "absent_abstained": 2
+      }
+     },
+     "absent_abstained": 4,
+     "requirement_recall": 1.0,
+     "requirement_agreement": 16,
+     "requirement_queries": 16,
+     "declared_modalities_missed": [],
+     "false_positive_consequence": {
+      "queries": 16,
+      "wrong_seconds_selected": 74.17,
+      "missing_seconds": 1161.04,
+      "ground_truth_seconds": 1209.74,
+      "coverage_fraction": 0.0403,
+      "shadowing_queries": 6,
+      "false_positive_windows": 27,
+      "false_positive_seconds": 390.99
+     }
+    },
+    "stage_attribution": {
+     "question": "which stage of retrieval lost the wanted moment",
+     "stages": [
+      "never_sampled",
+      "extraction_evidence_unavailable",
+      "never_transcribed",
+      "never_indexed",
+      "not_in_candidate_pool",
+      "removed_by_query_floor",
+      "removed_by_window_floor",
+      "ranked_too_low",
+      "temporal_localization",
+      "not_presented",
+      "touched_within_tolerance",
+      "point_window_not_credited",
+      "credited_to_sibling_in_region",
+      "credited"
+     ],
+     "declared_categories": [],
+     "pipeline_stages": [
+      "candidate_generation",
+      "credit_accounting",
+      "extraction_coverage",
+      "found",
+      "indexing",
+      "ranking",
+      "result_presentation",
+      "retrieval_floor",
+      "temporal_localization"
+     ],
+     "retrieval_failure_stages": [
+      "extraction_evidence_unavailable",
+      "never_indexed",
+      "never_sampled",
+      "never_transcribed",
+      "not_in_candidate_pool",
+      "not_presented",
+      "ranked_too_low",
+      "removed_by_query_floor",
+      "removed_by_window_floor",
+      "temporal_localization"
+     ],
+     "credit_accounting_stages": [
+      "credited_to_sibling_in_region",
+      "point_window_not_credited",
+      "touched_within_tolerance"
+     ],
+     "by_lane": {
+      "text": {
+       "touched_within_tolerance": 2,
+       "ranked_too_low": 2,
+       "removed_by_query_floor": 1
+      },
+      "visual": {
+       "not_presented": 40,
+       "temporal_localization": 4,
+       "ranked_too_low": 38,
+       "credited_to_sibling_in_region": 2
+      }
+     },
+     "by_category": {
+      "uncategorised": {
+       "touched_within_tolerance": 2,
+       "ranked_too_low": 40,
+       "not_presented": 40,
+       "temporal_localization": 4,
+       "credited_to_sibling_in_region": 2,
+       "removed_by_query_floor": 1
+      }
+     },
+     "by_requirement_kind": {
+      "textual:speech_content": {
+       "touched_within_tolerance": 2,
+       "ranked_too_low": 21,
+       "credited_to_sibling_in_region": 1,
+       "removed_by_query_floor": 1
+      },
+      "visual:action": {
+       "not_presented": 20,
+       "temporal_localization": 2,
+       "ranked_too_low": 19,
+       "credited_to_sibling_in_region": 1,
+       "removed_by_query_floor": 1
+      },
+      "visual:composition": {
+       "not_presented": 40,
+       "temporal_localization": 4,
+       "ranked_too_low": 38,
+       "credited_to_sibling_in_region": 2
+      },
+      "visual:object": {
+       "not_presented": 40,
+       "temporal_localization": 4,
+       "ranked_too_low": 19,
+       "credited_to_sibling_in_region": 1,
+       "removed_by_query_floor": 1
+      },
+      "visual:state": {
+       "not_presented": 20,
+       "temporal_localization": 2,
+       "ranked_too_low": 19,
+       "credited_to_sibling_in_region": 1,
+       "removed_by_query_floor": 1
+      },
+      "visual:person": {
+       "ranked_too_low": 19,
+       "credited_to_sibling_in_region": 1
+      },
+      "visual:scene": {
+       "ranked_too_low": 19,
+       "credited_to_sibling_in_region": 1
+      },
+      "temporal:interval": {
+       "removed_by_query_floor": 1
+      }
+     },
+     "queries": {
+      "E01": {
+       "lane": "text",
+       "category": "uncategorised",
+       "outcome": "missed",
+       "recall": 0.0,
+       "region_recall": 0.0,
+       "wanted_items": 1,
+       "credited_items": 0,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": "touched_within_tolerance",
+       "failure_pipeline_stage": "credit_accounting",
+       "failure_kind": "credit_accounting",
+       "uncredited_stages": {
+        "touched_within_tolerance": 1
+       },
+       "requirement_kinds": [
+        "textual:speech_content"
+       ]
+      },
+      "E02": {
+       "lane": "text",
+       "category": "uncategorised",
+       "outcome": "missed",
+       "recall": 0.6667,
+       "region_recall": 0.6667,
+       "wanted_items": 3,
+       "credited_items": 2,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": "ranked_too_low",
+       "failure_pipeline_stage": "ranking",
+       "failure_kind": "retrieval",
+       "uncredited_stages": {
+        "ranked_too_low": 1
+       },
+       "requirement_kinds": [
+        "textual:speech_content"
+       ]
+      },
+      "E03": {
+       "lane": "text",
+       "category": "uncategorised",
+       "outcome": "found",
+       "recall": 1.0,
+       "region_recall": 1.0,
+       "wanted_items": 2,
+       "credited_items": 2,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "textual:speech_content"
+       ]
+      },
+      "E04": {
+       "lane": "text",
+       "category": "uncategorised",
+       "outcome": "found",
+       "recall": 1.0,
+       "region_recall": 1.0,
+       "wanted_items": 1,
+       "credited_items": 1,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "textual:speech_content"
+       ]
+      },
+      "E05": {
+       "lane": "text",
+       "category": "uncategorised",
+       "outcome": "missed",
+       "recall": 0.0,
+       "region_recall": 0.0,
+       "wanted_items": 1,
+       "credited_items": 0,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": "touched_within_tolerance",
+       "failure_pipeline_stage": "credit_accounting",
+       "failure_kind": "credit_accounting",
+       "uncredited_stages": {
+        "touched_within_tolerance": 1
+       },
+       "requirement_kinds": [
+        "textual:speech_content"
+       ]
+      },
+      "E06": {
+       "lane": "text",
+       "category": "uncategorised",
+       "outcome": "found",
+       "recall": 1.0,
+       "region_recall": 1.0,
+       "wanted_items": 2,
+       "credited_items": 2,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "textual:speech_content",
+        "visual:person"
+       ]
+      },
+      "E07": {
+       "lane": "text",
+       "category": "uncategorised",
+       "outcome": "found",
+       "recall": 1.0,
+       "region_recall": 1.0,
+       "wanted_items": 3,
+       "credited_items": 3,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "textual:speech_content",
+        "visual:person"
+       ]
+      },
+      "E08": {
+       "lane": "text",
+       "category": "uncategorised",
+       "outcome": "missed",
+       "recall": 0.75,
+       "region_recall": 0.6667,
+       "wanted_items": 4,
+       "credited_items": 3,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": "ranked_too_low",
+       "failure_pipeline_stage": "ranking",
+       "failure_kind": "retrieval",
+       "uncredited_stages": {
+        "ranked_too_low": 1
+       },
+       "requirement_kinds": [
+        "textual:speech_content"
+       ]
+      },
+      "E09": {
+       "lane": "visual",
+       "category": "uncategorised",
+       "outcome": "missed",
+       "recall": 0.0233,
+       "region_recall": 1.0,
+       "wanted_items": 43,
+       "credited_items": 1,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": "not_presented",
+       "failure_pipeline_stage": "result_presentation",
+       "failure_kind": "retrieval",
+       "uncredited_stages": {
+        "not_presented": 20,
+        "temporal_localization": 2,
+        "ranked_too_low": 19,
+        "credited_to_sibling_in_region": 1
+       },
+       "requirement_kinds": [
+        "visual:action",
+        "visual:composition",
+        "visual:object",
+        "visual:state"
+       ]
+      },
+      "E10": {
+       "lane": "visual",
+       "category": "uncategorised",
+       "outcome": "missed",
+       "recall": 0.0476,
+       "region_recall": 1.0,
+       "wanted_items": 21,
+       "credited_items": 1,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": "ranked_too_low",
+       "failure_pipeline_stage": "ranking",
+       "failure_kind": "retrieval",
+       "uncredited_stages": {
+        "ranked_too_low": 19,
+        "credited_to_sibling_in_region": 1
+       },
+       "requirement_kinds": [
+        "textual:speech_content",
+        "visual:composition",
+        "visual:person",
+        "visual:scene"
+       ]
+      },
+      "E11": {
+       "lane": "visual",
+       "category": "uncategorised",
+       "outcome": "missed",
+       "recall": 0.0,
+       "region_recall": 0.0,
+       "wanted_items": 22,
+       "credited_items": 0,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": "not_presented",
+       "failure_pipeline_stage": "result_presentation",
+       "failure_kind": "retrieval",
+       "uncredited_stages": {
+        "not_presented": 20,
+        "temporal_localization": 2
+       },
+       "requirement_kinds": [
+        "visual:composition",
+        "visual:object"
+       ]
+      },
+      "E12": {
+       "lane": "text",
+       "category": "uncategorised",
+       "outcome": "absent_abstained",
+       "recall": null,
+       "region_recall": null,
+       "wanted_items": 0,
+       "credited_items": 0,
+       "instances_localized_on_sibling": null,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "textual:speech_content"
+       ]
+      },
+      "E13": {
+       "lane": "text",
+       "category": "uncategorised",
+       "outcome": "absent_abstained",
+       "recall": null,
+       "region_recall": null,
+       "wanted_items": 0,
+       "credited_items": 0,
+       "instances_localized_on_sibling": null,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "textual:speech_content"
+       ]
+      },
+      "E14": {
+       "lane": "visual",
+       "category": "uncategorised",
+       "outcome": "absent_abstained",
+       "recall": null,
+       "region_recall": null,
+       "wanted_items": 0,
+       "credited_items": 0,
+       "instances_localized_on_sibling": null,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "visual:composition",
+        "visual:object"
+       ]
+      },
+      "E15": {
+       "lane": "visual",
+       "category": "uncategorised",
+       "outcome": "absent_abstained",
+       "recall": null,
+       "region_recall": null,
+       "wanted_items": 0,
+       "credited_items": 0,
+       "instances_localized_on_sibling": null,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "visual:composition",
+        "visual:scene",
+        "visual:state"
+       ]
+      },
+      "E16": {
+       "lane": "text",
+       "category": "uncategorised",
+       "outcome": "missed",
+       "recall": 0.0,
+       "region_recall": 0.0,
+       "wanted_items": 1,
+       "credited_items": 0,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": "removed_by_query_floor",
+       "failure_pipeline_stage": "retrieval_floor",
+       "failure_kind": "retrieval",
+       "uncredited_stages": {
+        "removed_by_query_floor": 1
+       },
+       "requirement_kinds": [
+        "temporal:interval",
+        "textual:speech_content",
+        "visual:action",
+        "visual:object",
+        "visual:state"
+       ]
+      }
+     },
+     "missed_queries": [
+      "E01",
+      "E02",
+      "E05",
+      "E08",
+      "E09",
+      "E10",
+      "E11",
+      "E16"
+     ],
+     "missed_queries_without_a_stage": []
+    },
+    "calibration": {
+     "text": {
+      "reliability": {
+       "bins": [
+        {
+         "low": 0.0,
+         "high": 0.1,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.1,
+         "high": 0.2,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.2,
+         "high": 0.3,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.3,
+         "high": 0.4,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.4,
+         "high": 0.5,
+         "count": 6,
+         "mean_score": 0.4431,
+         "observed": 0.6667
+        },
+        {
+         "low": 0.5,
+         "high": 0.6,
+         "count": 6,
+         "mean_score": 0.5508,
+         "observed": 0.3333
+        },
+        {
+         "low": 0.6,
+         "high": 0.7,
+         "count": 14,
+         "mean_score": 0.6509,
+         "observed": 0.5
+        },
+        {
+         "low": 0.7,
+         "high": 0.8,
+         "count": 9,
+         "mean_score": 0.7492,
+         "observed": 1.0
+        },
+        {
+         "low": 0.8,
+         "high": 0.9,
+         "count": 4,
+         "mean_score": 0.8324,
+         "observed": 0.75
+        },
+        {
+         "low": 0.9,
+         "high": 1.0,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        }
+       ],
+       "samples": 39,
+       "positives": 25,
+       "negatives": 14,
+       "expected_calibration_error": 0.1883,
+       "uncalibratable": [],
+       "status": "measured",
+       "note": "the score is the RAW signal the floor judged on, not the fused rank; a fused score is not on a probability scale and cannot be calibrated"
+      },
+      "abstention": {
+       "cutoff": 0.6286,
+       "balanced_accuracy": 0.7371,
+       "present_retained_rate": 0.76,
+       "absent_abstained_rate": 0.7143,
+       "not_found_precision": 0.625,
+       "not_found_recall": 0.7143,
+       "not_found_true_positives": 10,
+       "not_found_false_positives": 6,
+       "status": "measured candidate; requires review before policy change",
+       "samples": 39,
+       "positives": 25,
+       "negatives": 14,
+       "method": "balanced accuracy over labelled windows",
+       "uncalibratable": []
+      },
+      "expected_calibration_error": 0.1883,
+      "verdict": "poorly calibrated: the score overstates its confidence",
+      "note": "calibration says how well the score reads; the threshold says whether it separates.  Both are needed and neither is the other"
+     },
+     "visual": {
+      "reliability": {
+       "bins": [
+        {
+         "low": 0.0,
+         "high": 0.1,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.1,
+         "high": 0.2,
+         "count": 6,
+         "mean_score": 0.1606,
+         "observed": 0.1667
+        },
+        {
+         "low": 0.2,
+         "high": 0.3,
+         "count": 9,
+         "mean_score": 0.2192,
+         "observed": 0.1111
+        },
+        {
+         "low": 0.3,
+         "high": 0.4,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.4,
+         "high": 0.5,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.5,
+         "high": 0.6,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.6,
+         "high": 0.7,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.7,
+         "high": 0.8,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.8,
+         "high": 0.9,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.9,
+         "high": 1.0,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        }
+       ],
+       "samples": 15,
+       "positives": 2,
+       "negatives": 13,
+       "expected_calibration_error": 0.0673,
+       "uncalibratable": [],
+       "status": "measured",
+       "note": "the score is the RAW signal the floor judged on, not the fused rank; a fused score is not on a probability scale and cannot be calibrated"
+      },
+      "abstention": {
+       "cutoff": 0.2316,
+       "balanced_accuracy": 0.75,
+       "present_retained_rate": 0.5,
+       "absent_abstained_rate": 1.0,
+       "not_found_precision": 0.9286,
+       "not_found_recall": 1.0,
+       "not_found_true_positives": 13,
+       "not_found_false_positives": 1,
+       "status": "measured candidate; requires review before policy change",
+       "samples": 15,
+       "positives": 2,
+       "negatives": 13,
+       "method": "balanced accuracy over labelled windows",
+       "uncalibratable": []
+      },
+      "expected_calibration_error": 0.0673,
+      "verdict": "calibrated: the score reads as a probability",
+      "note": "calibration says how well the score reads; the threshold says whether it separates.  Both are needed and neither is the other"
+     }
+    }
+   }
+  },
+  "heldout": {
+   "before": {
+    "editorial": {
+     "queries_present": 9,
+     "queries_absent": 3,
+     "queries_unlabelled": 5,
+     "queries_refused": 1,
+     "refusals_correct": 1,
+     "macro_recall": 0.3592,
+     "macro_precision": 0.2667,
+     "macro_recall_uncredited": 0.385,
+     "macro_region_recall": 1.0,
+     "credit_cap": "one credit per window per region",
+     "excess_seconds": 24.08,
+     "by_lane": {
+      "text": {
+       "queries_present": 3,
+       "queries_absent": 1,
+       "queries_unlabelled": 1,
+       "queries_refused": 0,
+       "macro_recall": 1.0,
+       "macro_recall_uncredited": 1.0,
+       "macro_precision": 0.4,
+       "absent_abstained": 1
+      },
+      "visual": {
+       "queries_present": 6,
+       "queries_absent": 2,
+       "queries_unlabelled": 4,
+       "queries_refused": 1,
+       "macro_recall": 0.0388,
+       "macro_recall_uncredited": 0.0775,
+       "macro_precision": 0.2,
+       "absent_abstained": 2
+      }
+     },
+     "absent_abstained": 3,
+     "requirement_recall": 1.0,
+     "requirement_agreement": 18,
+     "requirement_queries": 18,
+     "declared_modalities_missed": [],
+     "false_positive_consequence": {
+      "queries": 12,
+      "wrong_seconds_selected": 55.0,
+      "missing_seconds": 1781.98,
+      "ground_truth_seconds": 1821.01,
+      "coverage_fraction": 0.0214,
+      "shadowing_queries": 5,
+      "false_positive_windows": 31,
+      "false_positive_seconds": 257.65
+     }
+    },
+    "stage_attribution": {
+     "question": "which stage of retrieval lost the wanted moment",
+     "stages": [
+      "never_sampled",
+      "extraction_evidence_unavailable",
+      "never_transcribed",
+      "never_indexed",
+      "not_in_candidate_pool",
+      "removed_by_query_floor",
+      "removed_by_window_floor",
+      "ranked_too_low",
+      "temporal_localization",
+      "not_presented",
+      "touched_within_tolerance",
+      "point_window_not_credited",
+      "credited_to_sibling_in_region",
+      "credited"
+     ],
+     "declared_categories": [
+      "absent_event",
+      "action",
+      "identity",
+      "location",
+      "object_state"
+     ],
+     "pipeline_stages": [
+      "candidate_generation",
+      "credit_accounting",
+      "extraction_coverage",
+      "found",
+      "indexing",
+      "ranking",
+      "result_presentation",
+      "retrieval_floor",
+      "temporal_localization"
+     ],
+     "retrieval_failure_stages": [
+      "extraction_evidence_unavailable",
+      "never_indexed",
+      "never_sampled",
+      "never_transcribed",
+      "not_in_candidate_pool",
+      "not_presented",
+      "ranked_too_low",
+      "removed_by_query_floor",
+      "removed_by_window_floor",
+      "temporal_localization"
+     ],
+     "credit_accounting_stages": [
+      "credited_to_sibling_in_region",
+      "point_window_not_credited",
+      "touched_within_tolerance"
+     ],
+     "by_lane": {
+      "visual": {
+       "not_presented": 40,
+       "temporal_localization": 4,
+       "ranked_too_low": 116,
+       "credited_to_sibling_in_region": 6
+      }
+     },
+     "by_category": {
+      "absent_event": {},
+      "action": {},
+      "identity": {
+       "ranked_too_low": 39,
+       "credited_to_sibling_in_region": 2
+      },
+      "location": {
+       "ranked_too_low": 39,
+       "credited_to_sibling_in_region": 2
+      },
+      "object_state": {
+       "not_presented": 20,
+       "temporal_localization": 2,
+       "ranked_too_low": 19,
+       "credited_to_sibling_in_region": 1
+      },
+      "object": {
+       "not_presented": 20,
+       "temporal_localization": 2,
+       "ranked_too_low": 19,
+       "credited_to_sibling_in_region": 1
+      }
+     },
+     "by_requirement_kind": {
+      "visual:action": {
+       "not_presented": 20,
+       "temporal_localization": 2,
+       "ranked_too_low": 39,
+       "credited_to_sibling_in_region": 2
+      },
+      "visual:composition": {
+       "not_presented": 20,
+       "temporal_localization": 2,
+       "ranked_too_low": 78,
+       "credited_to_sibling_in_region": 4
+      },
+      "visual:object": {
+       "not_presented": 40,
+       "temporal_localization": 4,
+       "ranked_too_low": 97,
+       "credited_to_sibling_in_region": 5
+      },
+      "visual:state": {
+       "not_presented": 20,
+       "temporal_localization": 2,
+       "ranked_too_low": 19,
+       "credited_to_sibling_in_region": 1
+      },
+      "textual:speech_content": {
+       "not_presented": 20,
+       "temporal_localization": 2,
+       "ranked_too_low": 78,
+       "credited_to_sibling_in_region": 4
+      },
+      "visual:person": {
+       "ranked_too_low": 58,
+       "credited_to_sibling_in_region": 3
+      },
+      "visual:scene": {
+       "ranked_too_low": 38,
+       "credited_to_sibling_in_region": 2
+      }
+     },
+     "queries": {
+      "H01": {
+       "lane": "visual",
+       "category": "object",
+       "outcome": "missed",
+       "recall": 0.0233,
+       "region_recall": 1.0,
+       "wanted_items": 43,
+       "credited_items": 1,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": "not_presented",
+       "failure_pipeline_stage": "result_presentation",
+       "failure_kind": "retrieval",
+       "uncredited_stages": {
+        "not_presented": 20,
+        "temporal_localization": 2,
+        "ranked_too_low": 19,
+        "credited_to_sibling_in_region": 1
+       },
+       "requirement_kinds": [
+        "visual:action",
+        "visual:composition",
+        "visual:object",
+        "visual:state"
+       ]
+      },
+      "H02": {
+       "lane": "visual",
+       "category": "object_state",
+       "outcome": "missed",
+       "recall": 0.0233,
+       "region_recall": 1.0,
+       "wanted_items": 43,
+       "credited_items": 1,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": "not_presented",
+       "failure_pipeline_stage": "result_presentation",
+       "failure_kind": "retrieval",
+       "uncredited_stages": {
+        "not_presented": 20,
+        "temporal_localization": 2,
+        "ranked_too_low": 19,
+        "credited_to_sibling_in_region": 1
+       },
+       "requirement_kinds": [
+        "textual:speech_content",
+        "visual:object"
+       ]
+      },
+      "H03": {
+       "lane": "visual",
+       "category": "identity",
+       "outcome": "missed",
+       "recall": 0.0455,
+       "region_recall": 1.0,
+       "wanted_items": 22,
+       "credited_items": 1,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": "ranked_too_low",
+       "failure_pipeline_stage": "ranking",
+       "failure_kind": "retrieval",
+       "uncredited_stages": {
+        "ranked_too_low": 20,
+        "credited_to_sibling_in_region": 1
+       },
+       "requirement_kinds": [
+        "textual:speech_content",
+        "visual:action",
+        "visual:composition",
+        "visual:object",
+        "visual:person"
+       ]
+      },
+      "H04": {
+       "lane": "visual",
+       "category": "identity",
+       "outcome": "missed",
+       "recall": 0.0476,
+       "region_recall": 1.0,
+       "wanted_items": 21,
+       "credited_items": 1,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": "ranked_too_low",
+       "failure_pipeline_stage": "ranking",
+       "failure_kind": "retrieval",
+       "uncredited_stages": {
+        "ranked_too_low": 19,
+        "credited_to_sibling_in_region": 1
+       },
+       "requirement_kinds": [
+        "visual:composition",
+        "visual:object",
+        "visual:person",
+        "visual:scene"
+       ]
+      },
+      "H05": {
+       "lane": "visual",
+       "category": "location",
+       "outcome": "missed",
+       "recall": 0.0476,
+       "region_recall": 1.0,
+       "wanted_items": 21,
+       "credited_items": 1,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": "ranked_too_low",
+       "failure_pipeline_stage": "ranking",
+       "failure_kind": "retrieval",
+       "uncredited_stages": {
+        "ranked_too_low": 19,
+        "credited_to_sibling_in_region": 1
+       },
+       "requirement_kinds": [
+        "textual:speech_content",
+        "visual:person",
+        "visual:scene"
+       ]
+      },
+      "H06": {
+       "lane": "visual",
+       "category": "location",
+       "outcome": "missed",
+       "recall": 0.0455,
+       "region_recall": 1.0,
+       "wanted_items": 22,
+       "credited_items": 1,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": "ranked_too_low",
+       "failure_pipeline_stage": "ranking",
+       "failure_kind": "retrieval",
+       "uncredited_stages": {
+        "ranked_too_low": 20,
+        "credited_to_sibling_in_region": 1
+       },
+       "requirement_kinds": [
+        "textual:speech_content",
+        "visual:composition",
+        "visual:object"
+       ]
+      },
+      "H07": {
+       "lane": "visual",
+       "category": "absent_event",
+       "outcome": "absent_abstained",
+       "recall": null,
+       "region_recall": null,
+       "wanted_items": 0,
+       "credited_items": 0,
+       "instances_localized_on_sibling": null,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "visual:composition",
+        "visual:object"
+       ]
+      },
+      "H08": {
+       "lane": "visual",
+       "category": "absent_event",
+       "outcome": "absent_abstained",
+       "recall": null,
+       "region_recall": null,
+       "wanted_items": 0,
+       "credited_items": 0,
+       "instances_localized_on_sibling": null,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "visual:composition",
+        "visual:object",
+        "visual:state"
+       ]
+      },
+      "H09": {
+       "lane": "text",
+       "category": "absent_event",
+       "outcome": "absent_abstained",
+       "recall": null,
+       "region_recall": null,
+       "wanted_items": 0,
+       "credited_items": 0,
+       "instances_localized_on_sibling": null,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "textual:speech_content"
+       ]
+      },
+      "H10": {
+       "lane": "visual",
+       "category": "action",
+       "outcome": "refused_by_design",
+       "recall": null,
+       "region_recall": null,
+       "wanted_items": 0,
+       "credited_items": 0,
+       "instances_localized_on_sibling": null,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "textual:speech_content",
+        "visual:action",
+        "visual:person"
+       ]
+      },
+      "H11": {
+       "lane": "visual",
+       "category": "action",
+       "outcome": "unlabelled_not_scored",
+       "recall": null,
+       "region_recall": null,
+       "wanted_items": 0,
+       "credited_items": 0,
+       "instances_localized_on_sibling": null,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "textual:speech_content",
+        "visual:action",
+        "visual:object"
+       ]
+      },
+      "H12": {
+       "lane": "visual",
+       "category": "object_state",
+       "outcome": "unlabelled_not_scored",
+       "recall": null,
+       "region_recall": null,
+       "wanted_items": 0,
+       "credited_items": 0,
+       "instances_localized_on_sibling": null,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "textual:speech_content",
+        "visual:object"
+       ]
+      },
+      "H13": {
+       "lane": "visual",
+       "category": "identity",
+       "outcome": "unlabelled_not_scored",
+       "recall": null,
+       "region_recall": null,
+       "wanted_items": 0,
+       "credited_items": 0,
+       "instances_localized_on_sibling": null,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "textual:speech_content",
+        "visual:composition"
+       ]
+      },
+      "H14": {
+       "lane": "visual",
+       "category": "location",
+       "outcome": "unlabelled_not_scored",
+       "recall": null,
+       "region_recall": null,
+       "wanted_items": 0,
+       "credited_items": 0,
+       "instances_localized_on_sibling": null,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "textual:speech_content",
+        "visual:scene"
+       ]
+      },
+      "H15": {
+       "lane": "text",
+       "category": "absent_event",
+       "outcome": "unlabelled_not_scored",
+       "recall": null,
+       "region_recall": null,
+       "wanted_items": 0,
+       "credited_items": 0,
+       "instances_localized_on_sibling": null,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "textual:speech_content",
+        "visual:state"
+       ]
+      },
+      "H16": {
+       "lane": "text",
+       "category": "uncategorised",
+       "outcome": "found",
+       "recall": 1.0,
+       "region_recall": 1.0,
+       "wanted_items": 1,
+       "credited_items": 1,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "textual:speech_content"
+       ]
+      },
+      "H17": {
+       "lane": "text",
+       "category": "uncategorised",
+       "outcome": "found",
+       "recall": 1.0,
+       "region_recall": 1.0,
+       "wanted_items": 1,
+       "credited_items": 1,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "textual:speech_content"
+       ]
+      },
+      "H18": {
+       "lane": "text",
+       "category": "uncategorised",
+       "outcome": "found",
+       "recall": 1.0,
+       "region_recall": 1.0,
+       "wanted_items": 1,
+       "credited_items": 1,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "textual:speech_content"
+       ]
+      }
+     },
+     "missed_queries": [
+      "H01",
+      "H02",
+      "H03",
+      "H04",
+      "H05",
+      "H06"
+     ],
+     "missed_queries_without_a_stage": []
+    },
+    "calibration": {
+     "visual": {
+      "reliability": {
+       "bins": [
+        {
+         "low": 0.0,
+         "high": 0.1,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.1,
+         "high": 0.2,
+         "count": 7,
+         "mean_score": 0.1853,
+         "observed": 0.1429
+        },
+        {
+         "low": 0.2,
+         "high": 0.3,
+         "count": 23,
+         "mean_score": 0.2319,
+         "observed": 0.2174
+        },
+        {
+         "low": 0.3,
+         "high": 0.4,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.4,
+         "high": 0.5,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.5,
+         "high": 0.6,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.6,
+         "high": 0.7,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.7,
+         "high": 0.8,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.8,
+         "high": 0.9,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.9,
+         "high": 1.0,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        }
+       ],
+       "samples": 30,
+       "positives": 6,
+       "negatives": 24,
+       "expected_calibration_error": 0.021,
+       "uncalibratable": [],
+       "status": "measured",
+       "note": "the score is the RAW signal the floor judged on, not the fused rank; a fused score is not on a probability scale and cannot be calibrated"
+      },
+      "abstention": {
+       "cutoff": 0.2297,
+       "balanced_accuracy": 0.6667,
+       "present_retained_rate": 0.6667,
+       "absent_abstained_rate": 0.6667,
+       "not_found_precision": 0.8889,
+       "not_found_recall": 0.6667,
+       "not_found_true_positives": 16,
+       "not_found_false_positives": 2,
+       "status": "measured candidate; requires review before policy change",
+       "samples": 30,
+       "positives": 6,
+       "negatives": 24,
+       "method": "balanced accuracy over labelled windows",
+       "uncalibratable": []
+      },
+      "expected_calibration_error": 0.021,
+      "verdict": "calibrated: the score reads as a probability",
+      "note": "calibration says how well the score reads; the threshold says whether it separates.  Both are needed and neither is the other"
+     },
+     "text": {
+      "reliability": {
+       "bins": [
+        {
+         "low": 0.0,
+         "high": 0.1,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.1,
+         "high": 0.2,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.2,
+         "high": 0.3,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.3,
+         "high": 0.4,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.4,
+         "high": 0.5,
+         "count": 2,
+         "mean_score": 0.4183,
+         "observed": 0.5
+        },
+        {
+         "low": 0.5,
+         "high": 0.6,
+         "count": 4,
+         "mean_score": 0.5358,
+         "observed": 0.0
+        },
+        {
+         "low": 0.6,
+         "high": 0.7,
+         "count": 3,
+         "mean_score": 0.6663,
+         "observed": 0.3333
+        },
+        {
+         "low": 0.7,
+         "high": 0.8,
+         "count": 2,
+         "mean_score": 0.7579,
+         "observed": 1.0
+        },
+        {
+         "low": 0.8,
+         "high": 0.9,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.9,
+         "high": 1.0,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        }
+       ],
+       "samples": 11,
+       "positives": 4,
+       "negatives": 7,
+       "expected_calibration_error": 0.3445,
+       "uncalibratable": [],
+       "status": "measured",
+       "note": "the score is the RAW signal the floor judged on, not the fused rank; a fused score is not on a probability scale and cannot be calibrated"
+      },
+      "abstention": {
+       "cutoff": 0.71225,
+       "balanced_accuracy": 0.75,
+       "present_retained_rate": 0.5,
+       "absent_abstained_rate": 1.0,
+       "not_found_precision": 0.7778,
+       "not_found_recall": 1.0,
+       "not_found_true_positives": 7,
+       "not_found_false_positives": 2,
+       "status": "measured candidate; requires review before policy change",
+       "samples": 11,
+       "positives": 4,
+       "negatives": 7,
+       "method": "balanced accuracy over labelled windows",
+       "uncalibratable": []
+      },
+      "expected_calibration_error": 0.3445,
+      "verdict": "miscalibrated: the score does not read as a probability",
+      "note": "calibration says how well the score reads; the threshold says whether it separates.  Both are needed and neither is the other"
+     }
+    }
+   },
+   "after": {
+    "editorial": {
+     "queries_present": 9,
+     "queries_absent": 3,
+     "queries_unlabelled": 5,
+     "queries_refused": 1,
+     "refusals_correct": 1,
+     "macro_recall": 0.3592,
+     "macro_precision": 0.2667,
+     "macro_recall_uncredited": 0.385,
+     "macro_region_recall": 1.0,
+     "credit_cap": "one credit per window per region",
+     "excess_seconds": 24.08,
+     "by_lane": {
+      "text": {
+       "queries_present": 3,
+       "queries_absent": 1,
+       "queries_unlabelled": 1,
+       "queries_refused": 0,
+       "macro_recall": 1.0,
+       "macro_recall_uncredited": 1.0,
+       "macro_precision": 0.4,
+       "absent_abstained": 1
+      },
+      "visual": {
+       "queries_present": 6,
+       "queries_absent": 2,
+       "queries_unlabelled": 4,
+       "queries_refused": 1,
+       "macro_recall": 0.0388,
+       "macro_recall_uncredited": 0.0775,
+       "macro_precision": 0.2,
+       "absent_abstained": 2
+      }
+     },
+     "absent_abstained": 3,
+     "requirement_recall": 1.0,
+     "requirement_agreement": 18,
+     "requirement_queries": 18,
+     "declared_modalities_missed": [],
+     "false_positive_consequence": {
+      "queries": 12,
+      "wrong_seconds_selected": 55.0,
+      "missing_seconds": 1781.98,
+      "ground_truth_seconds": 1821.01,
+      "coverage_fraction": 0.0214,
+      "shadowing_queries": 5,
+      "false_positive_windows": 31,
+      "false_positive_seconds": 257.65
+     }
+    },
+    "stage_attribution": {
+     "question": "which stage of retrieval lost the wanted moment",
+     "stages": [
+      "never_sampled",
+      "extraction_evidence_unavailable",
+      "never_transcribed",
+      "never_indexed",
+      "not_in_candidate_pool",
+      "removed_by_query_floor",
+      "removed_by_window_floor",
+      "ranked_too_low",
+      "temporal_localization",
+      "not_presented",
+      "touched_within_tolerance",
+      "point_window_not_credited",
+      "credited_to_sibling_in_region",
+      "credited"
+     ],
+     "declared_categories": [
+      "absent_event",
+      "action",
+      "identity",
+      "location",
+      "object_state"
+     ],
+     "pipeline_stages": [
+      "candidate_generation",
+      "credit_accounting",
+      "extraction_coverage",
+      "found",
+      "indexing",
+      "ranking",
+      "result_presentation",
+      "retrieval_floor",
+      "temporal_localization"
+     ],
+     "retrieval_failure_stages": [
+      "extraction_evidence_unavailable",
+      "never_indexed",
+      "never_sampled",
+      "never_transcribed",
+      "not_in_candidate_pool",
+      "not_presented",
+      "ranked_too_low",
+      "removed_by_query_floor",
+      "removed_by_window_floor",
+      "temporal_localization"
+     ],
+     "credit_accounting_stages": [
+      "credited_to_sibling_in_region",
+      "point_window_not_credited",
+      "touched_within_tolerance"
+     ],
+     "by_lane": {
+      "visual": {
+       "not_presented": 40,
+       "temporal_localization": 4,
+       "ranked_too_low": 116,
+       "credited_to_sibling_in_region": 6
+      }
+     },
+     "by_category": {
+      "absent_event": {},
+      "action": {},
+      "identity": {
+       "ranked_too_low": 39,
+       "credited_to_sibling_in_region": 2
+      },
+      "location": {
+       "ranked_too_low": 39,
+       "credited_to_sibling_in_region": 2
+      },
+      "object_state": {
+       "not_presented": 20,
+       "temporal_localization": 2,
+       "ranked_too_low": 19,
+       "credited_to_sibling_in_region": 1
+      },
+      "object": {
+       "not_presented": 20,
+       "temporal_localization": 2,
+       "ranked_too_low": 19,
+       "credited_to_sibling_in_region": 1
+      }
+     },
+     "by_requirement_kind": {
+      "visual:action": {
+       "not_presented": 20,
+       "temporal_localization": 2,
+       "ranked_too_low": 39,
+       "credited_to_sibling_in_region": 2
+      },
+      "visual:composition": {
+       "not_presented": 20,
+       "temporal_localization": 2,
+       "ranked_too_low": 78,
+       "credited_to_sibling_in_region": 4
+      },
+      "visual:object": {
+       "not_presented": 40,
+       "temporal_localization": 4,
+       "ranked_too_low": 97,
+       "credited_to_sibling_in_region": 5
+      },
+      "visual:state": {
+       "not_presented": 20,
+       "temporal_localization": 2,
+       "ranked_too_low": 19,
+       "credited_to_sibling_in_region": 1
+      },
+      "textual:speech_content": {
+       "not_presented": 20,
+       "temporal_localization": 2,
+       "ranked_too_low": 78,
+       "credited_to_sibling_in_region": 4
+      },
+      "visual:person": {
+       "ranked_too_low": 58,
+       "credited_to_sibling_in_region": 3
+      },
+      "visual:scene": {
+       "ranked_too_low": 38,
+       "credited_to_sibling_in_region": 2
+      }
+     },
+     "queries": {
+      "H01": {
+       "lane": "visual",
+       "category": "object",
+       "outcome": "missed",
+       "recall": 0.0233,
+       "region_recall": 1.0,
+       "wanted_items": 43,
+       "credited_items": 1,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": "not_presented",
+       "failure_pipeline_stage": "result_presentation",
+       "failure_kind": "retrieval",
+       "uncredited_stages": {
+        "not_presented": 20,
+        "temporal_localization": 2,
+        "ranked_too_low": 19,
+        "credited_to_sibling_in_region": 1
+       },
+       "requirement_kinds": [
+        "visual:action",
+        "visual:composition",
+        "visual:object",
+        "visual:state"
+       ]
+      },
+      "H02": {
+       "lane": "visual",
+       "category": "object_state",
+       "outcome": "missed",
+       "recall": 0.0233,
+       "region_recall": 1.0,
+       "wanted_items": 43,
+       "credited_items": 1,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": "not_presented",
+       "failure_pipeline_stage": "result_presentation",
+       "failure_kind": "retrieval",
+       "uncredited_stages": {
+        "not_presented": 20,
+        "temporal_localization": 2,
+        "ranked_too_low": 19,
+        "credited_to_sibling_in_region": 1
+       },
+       "requirement_kinds": [
+        "textual:speech_content",
+        "visual:object"
+       ]
+      },
+      "H03": {
+       "lane": "visual",
+       "category": "identity",
+       "outcome": "missed",
+       "recall": 0.0455,
+       "region_recall": 1.0,
+       "wanted_items": 22,
+       "credited_items": 1,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": "ranked_too_low",
+       "failure_pipeline_stage": "ranking",
+       "failure_kind": "retrieval",
+       "uncredited_stages": {
+        "ranked_too_low": 20,
+        "credited_to_sibling_in_region": 1
+       },
+       "requirement_kinds": [
+        "textual:speech_content",
+        "visual:action",
+        "visual:composition",
+        "visual:object",
+        "visual:person"
+       ]
+      },
+      "H04": {
+       "lane": "visual",
+       "category": "identity",
+       "outcome": "missed",
+       "recall": 0.0476,
+       "region_recall": 1.0,
+       "wanted_items": 21,
+       "credited_items": 1,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": "ranked_too_low",
+       "failure_pipeline_stage": "ranking",
+       "failure_kind": "retrieval",
+       "uncredited_stages": {
+        "ranked_too_low": 19,
+        "credited_to_sibling_in_region": 1
+       },
+       "requirement_kinds": [
+        "visual:composition",
+        "visual:object",
+        "visual:person",
+        "visual:scene"
+       ]
+      },
+      "H05": {
+       "lane": "visual",
+       "category": "location",
+       "outcome": "missed",
+       "recall": 0.0476,
+       "region_recall": 1.0,
+       "wanted_items": 21,
+       "credited_items": 1,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": "ranked_too_low",
+       "failure_pipeline_stage": "ranking",
+       "failure_kind": "retrieval",
+       "uncredited_stages": {
+        "ranked_too_low": 19,
+        "credited_to_sibling_in_region": 1
+       },
+       "requirement_kinds": [
+        "textual:speech_content",
+        "visual:person",
+        "visual:scene"
+       ]
+      },
+      "H06": {
+       "lane": "visual",
+       "category": "location",
+       "outcome": "missed",
+       "recall": 0.0455,
+       "region_recall": 1.0,
+       "wanted_items": 22,
+       "credited_items": 1,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": "ranked_too_low",
+       "failure_pipeline_stage": "ranking",
+       "failure_kind": "retrieval",
+       "uncredited_stages": {
+        "ranked_too_low": 20,
+        "credited_to_sibling_in_region": 1
+       },
+       "requirement_kinds": [
+        "textual:speech_content",
+        "visual:composition",
+        "visual:object"
+       ]
+      },
+      "H07": {
+       "lane": "visual",
+       "category": "absent_event",
+       "outcome": "absent_abstained",
+       "recall": null,
+       "region_recall": null,
+       "wanted_items": 0,
+       "credited_items": 0,
+       "instances_localized_on_sibling": null,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "visual:composition",
+        "visual:object"
+       ]
+      },
+      "H08": {
+       "lane": "visual",
+       "category": "absent_event",
+       "outcome": "absent_abstained",
+       "recall": null,
+       "region_recall": null,
+       "wanted_items": 0,
+       "credited_items": 0,
+       "instances_localized_on_sibling": null,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "visual:composition",
+        "visual:object",
+        "visual:state"
+       ]
+      },
+      "H09": {
+       "lane": "text",
+       "category": "absent_event",
+       "outcome": "absent_abstained",
+       "recall": null,
+       "region_recall": null,
+       "wanted_items": 0,
+       "credited_items": 0,
+       "instances_localized_on_sibling": null,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "textual:speech_content"
+       ]
+      },
+      "H10": {
+       "lane": "visual",
+       "category": "action",
+       "outcome": "refused_by_design",
+       "recall": null,
+       "region_recall": null,
+       "wanted_items": 0,
+       "credited_items": 0,
+       "instances_localized_on_sibling": null,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "textual:speech_content",
+        "visual:action",
+        "visual:person"
+       ]
+      },
+      "H11": {
+       "lane": "visual",
+       "category": "action",
+       "outcome": "unlabelled_not_scored",
+       "recall": null,
+       "region_recall": null,
+       "wanted_items": 0,
+       "credited_items": 0,
+       "instances_localized_on_sibling": null,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "textual:speech_content",
+        "visual:action",
+        "visual:object"
+       ]
+      },
+      "H12": {
+       "lane": "visual",
+       "category": "object_state",
+       "outcome": "unlabelled_not_scored",
+       "recall": null,
+       "region_recall": null,
+       "wanted_items": 0,
+       "credited_items": 0,
+       "instances_localized_on_sibling": null,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "textual:speech_content",
+        "visual:object"
+       ]
+      },
+      "H13": {
+       "lane": "visual",
+       "category": "identity",
+       "outcome": "unlabelled_not_scored",
+       "recall": null,
+       "region_recall": null,
+       "wanted_items": 0,
+       "credited_items": 0,
+       "instances_localized_on_sibling": null,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "textual:speech_content",
+        "visual:composition"
+       ]
+      },
+      "H14": {
+       "lane": "visual",
+       "category": "location",
+       "outcome": "unlabelled_not_scored",
+       "recall": null,
+       "region_recall": null,
+       "wanted_items": 0,
+       "credited_items": 0,
+       "instances_localized_on_sibling": null,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "textual:speech_content",
+        "visual:scene"
+       ]
+      },
+      "H15": {
+       "lane": "text",
+       "category": "absent_event",
+       "outcome": "unlabelled_not_scored",
+       "recall": null,
+       "region_recall": null,
+       "wanted_items": 0,
+       "credited_items": 0,
+       "instances_localized_on_sibling": null,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "textual:speech_content",
+        "visual:state"
+       ]
+      },
+      "H16": {
+       "lane": "text",
+       "category": "uncategorised",
+       "outcome": "found",
+       "recall": 1.0,
+       "region_recall": 1.0,
+       "wanted_items": 1,
+       "credited_items": 1,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "textual:speech_content"
+       ]
+      },
+      "H17": {
+       "lane": "text",
+       "category": "uncategorised",
+       "outcome": "found",
+       "recall": 1.0,
+       "region_recall": 1.0,
+       "wanted_items": 1,
+       "credited_items": 1,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "textual:speech_content"
+       ]
+      },
+      "H18": {
+       "lane": "text",
+       "category": "uncategorised",
+       "outcome": "found",
+       "recall": 1.0,
+       "region_recall": 1.0,
+       "wanted_items": 1,
+       "credited_items": 1,
+       "instances_localized_on_sibling": 0,
+       "failure_stage": null,
+       "failure_pipeline_stage": null,
+       "failure_kind": null,
+       "uncredited_stages": {},
+       "requirement_kinds": [
+        "textual:speech_content"
+       ]
+      }
+     },
+     "missed_queries": [
+      "H01",
+      "H02",
+      "H03",
+      "H04",
+      "H05",
+      "H06"
+     ],
+     "missed_queries_without_a_stage": []
+    },
+    "calibration": {
+     "visual": {
+      "reliability": {
+       "bins": [
+        {
+         "low": 0.0,
+         "high": 0.1,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.1,
+         "high": 0.2,
+         "count": 7,
+         "mean_score": 0.1853,
+         "observed": 0.1429
+        },
+        {
+         "low": 0.2,
+         "high": 0.3,
+         "count": 23,
+         "mean_score": 0.2319,
+         "observed": 0.2174
+        },
+        {
+         "low": 0.3,
+         "high": 0.4,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.4,
+         "high": 0.5,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.5,
+         "high": 0.6,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.6,
+         "high": 0.7,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.7,
+         "high": 0.8,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.8,
+         "high": 0.9,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.9,
+         "high": 1.0,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        }
+       ],
+       "samples": 30,
+       "positives": 6,
+       "negatives": 24,
+       "expected_calibration_error": 0.021,
+       "uncalibratable": [],
+       "status": "measured",
+       "note": "the score is the RAW signal the floor judged on, not the fused rank; a fused score is not on a probability scale and cannot be calibrated"
+      },
+      "abstention": {
+       "cutoff": 0.2297,
+       "balanced_accuracy": 0.6667,
+       "present_retained_rate": 0.6667,
+       "absent_abstained_rate": 0.6667,
+       "not_found_precision": 0.8889,
+       "not_found_recall": 0.6667,
+       "not_found_true_positives": 16,
+       "not_found_false_positives": 2,
+       "status": "measured candidate; requires review before policy change",
+       "samples": 30,
+       "positives": 6,
+       "negatives": 24,
+       "method": "balanced accuracy over labelled windows",
+       "uncalibratable": []
+      },
+      "expected_calibration_error": 0.021,
+      "verdict": "calibrated: the score reads as a probability",
+      "note": "calibration says how well the score reads; the threshold says whether it separates.  Both are needed and neither is the other"
+     },
+     "text": {
+      "reliability": {
+       "bins": [
+        {
+         "low": 0.0,
+         "high": 0.1,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.1,
+         "high": 0.2,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.2,
+         "high": 0.3,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.3,
+         "high": 0.4,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.4,
+         "high": 0.5,
+         "count": 2,
+         "mean_score": 0.4183,
+         "observed": 0.5
+        },
+        {
+         "low": 0.5,
+         "high": 0.6,
+         "count": 4,
+         "mean_score": 0.5358,
+         "observed": 0.0
+        },
+        {
+         "low": 0.6,
+         "high": 0.7,
+         "count": 3,
+         "mean_score": 0.6663,
+         "observed": 0.3333
+        },
+        {
+         "low": 0.7,
+         "high": 0.8,
+         "count": 2,
+         "mean_score": 0.7579,
+         "observed": 1.0
+        },
+        {
+         "low": 0.8,
+         "high": 0.9,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        },
+        {
+         "low": 0.9,
+         "high": 1.0,
+         "count": 0,
+         "mean_score": null,
+         "observed": null
+        }
+       ],
+       "samples": 11,
+       "positives": 4,
+       "negatives": 7,
+       "expected_calibration_error": 0.3445,
+       "uncalibratable": [],
+       "status": "measured",
+       "note": "the score is the RAW signal the floor judged on, not the fused rank; a fused score is not on a probability scale and cannot be calibrated"
+      },
+      "abstention": {
+       "cutoff": 0.71225,
+       "balanced_accuracy": 0.75,
+       "present_retained_rate": 0.5,
+       "absent_abstained_rate": 1.0,
+       "not_found_precision": 0.7778,
+       "not_found_recall": 1.0,
+       "not_found_true_positives": 7,
+       "not_found_false_positives": 2,
+       "status": "measured candidate; requires review before policy change",
+       "samples": 11,
+       "positives": 4,
+       "negatives": 7,
+       "method": "balanced accuracy over labelled windows",
+       "uncalibratable": []
+      },
+      "expected_calibration_error": 0.3445,
+      "verdict": "miscalibrated: the score does not read as a probability",
+      "note": "calibration says how well the score reads; the threshold says whether it separates.  Both are needed and neither is the other"
+     }
+    }
+   }
+  }
+ }
+}

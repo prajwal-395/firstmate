@@ -1,0 +1,471 @@
+{
+  "name": "editorial-abstention-negatives-2026-10-22",
+  "schema_version": 1,
+  "registered": "2026-10-22",
+  "registered_before_measurement": true,
+  "protocol": "A NEGATIVE corpus for the search lanes' abstention: queries whose subject is NOT in the measured scope, labelled by LOOKING at the scope rather than by a search's own scores. Every label here was established by reading the footage or the transcript, never by asking a search lane whether it found something - a lane that says 'not found' is the thing being measured, so it cannot also be the thing that says what is not there. The corpus is split in two: `tune` is the half a floor may be fitted on, and `heldout` is the half no floor is fitted on, so the reported improvement is measured on negatives the floor never saw. Each entry names the guard that keeps its label honest: `words` means the subject's words occur ZERO times in the measured transcript, and the bench REFUSES to score such an entry if that stops being true; `frames` means the subject is absent from every one of the sampled frames, which was established by looking at all of them. The three entries marked `carried_from` are the negatives the editorial sets already carried (E13, H09, H07, H08, E15); they are re-verified here against this scope, not re-labelled.",
+  "scope": {
+    "corpus": "GEO vs SEO podcast, two speakers (Craig, Akshita), two fixed cameras, 7 MXF sources",
+    "project": "ren-scratch-retrieval-bench (a Ren-owned scratch copy; the captain's project is never written to)",
+    "text_scope": {
+      "unit": "speech segment",
+      "count": 2854,
+      "note": "every speech segment of the measured transcript, all seven sources"
+    },
+    "visual_scope": {
+      "unit": "sampled frame",
+      "count": 1092,
+      "sampling_seconds": 10,
+      "note": "every frame the frame index sampled, over 181.58 video minutes of the seven sources"
+    },
+    "what_is_actually_in_the_picture": "one studio: a dark geometric acoustic-panel wall, a potted plant, a dark marble table, laptops, two speakers, and the other speaker's hands in the foreground on one camera. There is no B-roll, no cutaway, no street, no kitchen, no animal."
+  },
+  "verification": {
+    "text": "The transcript of the two long takes (LC4932, 4941.10 s; LCATL0013, 4099.60 s) was read end to end - 2310 lines, every utterance - and the subject word of each negative below was counted over all 2854 speech segments of the measured scope. A subject that is absent from the words AND from a marketing-podcast topic is absent from the recording.",
+    "visual": "All 1092 sampled frames were looked at, as 23 contact sheets of 48 labelled frames each (clip id and second), covering every frame the frame index holds. No frame holds any of the visual subjects below. The sampling is 10 s, so an event shorter than 10 s could in principle be unsampled; every subject below is an object that would be visible for far longer than the sampling gap if it were present.",
+    "who": "labelled by the lane that ran this work, 2026-10-22, on the scratch copy named above"
+  },
+  "queries": [
+    {
+      "id": "T01",
+      "query": "the chocolate chip cookie recipe he reads out",
+      "lane": "text",
+      "category": "cooking",
+      "split": "tune",
+      "subject_words": [
+        "chocolate",
+        "chip",
+        "cookie",
+        "recipe",
+        "bake",
+        "oven"
+      ],
+      "carried_from": "editorial_retrieval_set.json E13",
+      "guard": "words"
+    },
+    {
+      "id": "T02",
+      "query": "the part where he explains how to train a puppy to sit",
+      "lane": "text",
+      "category": "pets",
+      "split": "tune",
+      "subject_words": [
+        "puppy",
+        "dog",
+        "train"
+      ],
+      "carried_from": "editorial_retrieval_heldout_set.json H09",
+      "guard": "words"
+    },
+    {
+      "id": "T03",
+      "query": "the recipe for beef wellington",
+      "lane": "text",
+      "category": "cooking",
+      "split": "heldout",
+      "subject_words": [
+        "beef",
+        "wellington",
+        "recipe",
+        "pastry"
+      ],
+      "guard": "words"
+    },
+    {
+      "id": "T04",
+      "query": "the part where she explains how to bake sourdough bread",
+      "lane": "text",
+      "category": "cooking",
+      "split": "tune",
+      "subject_words": [
+        "sourdough",
+        "bread",
+        "bake",
+        "starter",
+        "dough"
+      ],
+      "guard": "words"
+    },
+    {
+      "id": "T05",
+      "query": "the tutorial on how to tie a bowline knot",
+      "lane": "text",
+      "category": "knots",
+      "split": "heldout",
+      "subject_words": [
+        "bowline",
+        "knot",
+        "rope"
+      ],
+      "guard": "words"
+    },
+    {
+      "id": "T06",
+      "query": "the story about a motorcycle ride through the mountains",
+      "lane": "text",
+      "category": "vehicles",
+      "split": "tune",
+      "subject_words": [
+        "motorcycle",
+        "bike",
+        "ride",
+        "mountains"
+      ],
+      "guard": "words"
+    },
+    {
+      "id": "T07",
+      "query": "the bit about training for a marathon",
+      "lane": "text",
+      "category": "fitness",
+      "split": "heldout",
+      "subject_words": [
+        "marathon",
+        "training",
+        "runner",
+        "race"
+      ],
+      "guard": "words"
+    },
+    {
+      "id": "T08",
+      "query": "the story about a wedding in las vegas",
+      "lane": "text",
+      "category": "weddings",
+      "split": "tune",
+      "subject_words": [
+        "wedding",
+        "vegas",
+        "bride",
+        "groom"
+      ],
+      "guard": "words"
+    },
+    {
+      "id": "T09",
+      "query": "the bit where they complain about the cost of filling up the car",
+      "lane": "text",
+      "category": "vehicles",
+      "split": "heldout",
+      "subject_words": [
+        "car",
+        "fuel",
+        "petrol",
+        "fill"
+      ],
+      "guard": "words"
+    },
+    {
+      "id": "T10",
+      "query": "the part where they compare electric cars with petrol cars",
+      "lane": "text",
+      "category": "vehicles",
+      "split": "tune",
+      "subject_words": [
+        "electric",
+        "car",
+        "petrol"
+      ],
+      "guard": "words"
+    },
+    {
+      "id": "T11",
+      "query": "the explanation of how the tides work",
+      "lane": "text",
+      "category": "science",
+      "split": "heldout",
+      "subject_words": [
+        "tides",
+        "tide",
+        "ocean",
+        "moon"
+      ],
+      "guard": "words"
+    },
+    {
+      "id": "T12",
+      "query": "the segment about a cat and a dog living together",
+      "lane": "text",
+      "category": "pets",
+      "split": "tune",
+      "subject_words": [
+        "cat",
+        "dog"
+      ],
+      "guard": "words"
+    },
+    {
+      "id": "T13",
+      "query": "the advice about choosing a puppy from a breeder",
+      "lane": "text",
+      "category": "pets",
+      "split": "heldout",
+      "subject_words": [
+        "puppy",
+        "breeder"
+      ],
+      "guard": "words"
+    },
+    {
+      "id": "T14",
+      "query": "the bit where he explains how a rocket launch works",
+      "lane": "text",
+      "category": "space",
+      "split": "tune",
+      "subject_words": [
+        "rocket",
+        "launch",
+        "spacecraft",
+        "orbit"
+      ],
+      "guard": "words"
+    },
+    {
+      "id": "T15",
+      "query": "the story about learning to play the guitar as a teenager",
+      "lane": "text",
+      "category": "music",
+      "split": "heldout",
+      "subject_words": [
+        "guitar",
+        "teenager"
+      ],
+      "guard": "words"
+    },
+    {
+      "id": "T16",
+      "query": "the part where they talk about the weather in the desert",
+      "lane": "text",
+      "category": "weather",
+      "split": "tune",
+      "subject_words": [
+        "weather",
+        "desert"
+      ],
+      "guard": "words"
+    },
+    {
+      "id": "T17",
+      "query": "the mention of a bicycle ride to work",
+      "lane": "text",
+      "category": "vehicles",
+      "split": "heldout",
+      "subject_words": [
+        "bicycle",
+        "ride"
+      ],
+      "guard": "words"
+    },
+    {
+      "id": "T18",
+      "query": "the explanation of how a refrigerator works",
+      "lane": "text",
+      "category": "appliances",
+      "split": "tune",
+      "subject_words": [
+        "refrigerator",
+        "fridge",
+        "freezer",
+        "kitchen"
+      ],
+      "guard": "words"
+    },
+    {
+      "id": "V01",
+      "query": "a shot of a dog lying on the floor",
+      "lane": "visual",
+      "category": "animal",
+      "split": "tune",
+      "subject_words": [
+        "dog"
+      ],
+      "carried_from": "editorial_retrieval_heldout_set.json H07",
+      "guard": "frames"
+    },
+    {
+      "id": "V02",
+      "query": "a shot of a whiteboard covered in handwriting",
+      "lane": "visual",
+      "category": "object",
+      "split": "heldout",
+      "subject_words": [
+        "whiteboard",
+        "handwriting"
+      ],
+      "carried_from": "editorial_retrieval_heldout_set.json H08",
+      "guard": "frames"
+    },
+    {
+      "id": "V03",
+      "query": "a shot of a busy city street full of cars",
+      "lane": "visual",
+      "category": "location",
+      "split": "tune",
+      "subject_words": [
+        "city",
+        "street",
+        "cars"
+      ],
+      "carried_from": "editorial_retrieval_set.json E15",
+      "guard": "frames"
+    },
+    {
+      "id": "V04",
+      "query": "a shot of a motorcycle parked on the street",
+      "lane": "visual",
+      "category": "vehicle",
+      "split": "heldout",
+      "subject_words": [
+        "motorcycle",
+        "parked",
+        "street"
+      ],
+      "guard": "frames"
+    },
+    {
+      "id": "V05",
+      "query": "a shot of a plate of food on the table",
+      "lane": "visual",
+      "category": "object",
+      "split": "tune",
+      "subject_words": [
+        "plate",
+        "food"
+      ],
+      "guard": "frames"
+    },
+    {
+      "id": "V06",
+      "query": "a shot of a cat sitting on a sofa",
+      "lane": "visual",
+      "category": "animal",
+      "split": "heldout",
+      "subject_words": [
+        "cat",
+        "sofa"
+      ],
+      "guard": "frames"
+    },
+    {
+      "id": "V07",
+      "query": "a shot of snow on the ground",
+      "lane": "visual",
+      "category": "weather",
+      "split": "tune",
+      "subject_words": [
+        "snow"
+      ],
+      "guard": "frames"
+    },
+    {
+      "id": "V08",
+      "query": "a shot of a brick building",
+      "lane": "visual",
+      "category": "location",
+      "split": "heldout",
+      "subject_words": [
+        "brick",
+        "building"
+      ],
+      "guard": "frames"
+    },
+    {
+      "id": "V09",
+      "query": "a shot of a birthday cake with candles",
+      "lane": "visual",
+      "category": "object",
+      "split": "tune",
+      "subject_words": [
+        "birthday",
+        "cake",
+        "candles"
+      ],
+      "guard": "frames"
+    },
+    {
+      "id": "V10",
+      "query": "a shot of someone playing the piano",
+      "lane": "visual",
+      "category": "object",
+      "split": "heldout",
+      "subject_words": [
+        "piano"
+      ],
+      "guard": "frames"
+    },
+    {
+      "id": "V11",
+      "query": "a shot of a horse galloping on a beach",
+      "lane": "visual",
+      "category": "animal",
+      "split": "tune",
+      "subject_words": [
+        "horse",
+        "beach"
+      ],
+      "guard": "frames"
+    },
+    {
+      "id": "V12",
+      "query": "an underwater coral reef",
+      "lane": "visual",
+      "category": "location",
+      "split": "heldout",
+      "subject_words": [
+        "underwater",
+        "coral",
+        "reef"
+      ],
+      "guard": "frames"
+    },
+    {
+      "id": "V13",
+      "query": "a shot of a bicycle leaning against a wall",
+      "lane": "visual",
+      "category": "object",
+      "split": "tune",
+      "subject_words": [
+        "bicycle",
+        "wall"
+      ],
+      "guard": "frames"
+    },
+    {
+      "id": "V14",
+      "query": "a shot of a book being read",
+      "lane": "visual",
+      "category": "object",
+      "split": "heldout",
+      "subject_words": [
+        "book",
+        "read"
+      ],
+      "guard": "frames"
+    },
+    {
+      "id": "V15",
+      "query": "a shot of a car driving on a highway",
+      "lane": "visual",
+      "category": "vehicle",
+      "split": "tune",
+      "subject_words": [
+        "car",
+        "highway"
+      ],
+      "guard": "frames"
+    },
+    {
+      "id": "V16",
+      "query": "a shot of a football match on a television",
+      "lane": "visual",
+      "category": "object",
+      "split": "heldout",
+      "subject_words": [
+        "football",
+        "match",
+        "television"
+      ],
+      "guard": "frames"
+    }
+  ]
+}

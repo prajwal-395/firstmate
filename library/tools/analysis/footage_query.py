@@ -77,6 +77,8 @@ import time
 from collections import Counter
 from pathlib import Path
 
+from collections.abc import Mapping
+
 from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
 
 import numpy as np
@@ -186,6 +188,24 @@ RRF_K = 60
 # well as a floor: below 0.40 and above 0.28 a hit is reported as
 # "the closest thing was this, and it is not confident", which is a
 # different answer from both silence and a confident wrong row.
+#
+# RECALIBRATED 2026-10-22 (VI-004) on a larger, independently labelled
+# NEGATIVE corpus - 18 absent text queries labelled by READING the
+# measured transcript (2,854 speech segments; the subject words of each
+# negative occur ZERO times in it), against the 9 present queries of
+# the editorial set:
+#
+#   absent  queries' best dense scores   0.2240 .. 0.3589
+#   present queries' best dense scores   0.3125 .. 0.8662
+#
+# The floor is CONFIRMED at 0.40: zero of the 18 absent queries clear
+# it, and the engine's own method (`library.tools.retrieval.calibration
+# .abstention_threshold`, balanced accuracy over labelled queries)
+# selects 0.40695 on the same corpus - the same decision, because no
+# labelled score lies between 0.40 and 0.40695.  The price is stated:
+# 2 of the 18 present moments sit below the floor (E16 at 0.3125 and
+# E08's third at 0.2539), and E16 is still reported as a NEAR MISS in
+# the weak band rather than being silently dropped.
 DENSE_SCORE_FLOOR = 0.40
 DENSE_WEAK_FLOOR = 0.28
 
@@ -248,7 +268,9 @@ DENSE_FLOORS = {
     "all-minilm-l6-v2": (
         0.40, 0.28,
         "001: 17 clips, 409 segments, 12 present + 8 absent queries - "
-        "the calibration table in the comment above.",
+        "the calibration table in the comment above; CONFIRMED 2026-10-22 "
+        "on the editorial corpus: 18 independently labelled absent text "
+        "queries, none of which clears 0.40.",
     ),
     "sentence-transformers": (
         0.40, 0.28,
@@ -258,7 +280,8 @@ DENSE_FLOORS = {
     "transformers+mean-pooling": (
         0.40, 0.28,
         "same MiniLM calibration; fallback backend serving the same "
-        "MiniLM checkpoint.",
+        "MiniLM checkpoint; CONFIRMED 2026-10-22 on the editorial corpus "
+        "(18 labelled absent queries, none of which clears 0.40).",
     ),
 }
 
@@ -2423,6 +2446,12 @@ class FootageIndex:
             "coverage": coverage,
             "query_intent": "visual" if visual_intent else "general",
             "answer_status": None,
+            # What this answer MEANS.  `answer_status` is the lane's
+            # own vocabulary; `abstention` is the one the evidence
+            # stack reads, and it says WHICH scope the lane measured -
+            # without that, "not found" reads as a claim about the
+            # footage when it is a claim about the index.
+            "abstention": None,
         }
         if (mode in ("hybrid", "dense")
                 and not self.payload.get("embed_dimension")):
@@ -2432,11 +2461,18 @@ class FootageIndex:
             report["abstained"] = True
             report["answer_status"] = "not_analysed"
             report["error"] = "not analysed: this index has no visual evidence coverage"
+            report["abstention"] = self._abstain(
+                ran=False, found=False, scope_note=(
+                    "this index carries no visual evidence coverage, so the "
+                    "picture was never measured for this question"))
             if external_hits is not None:
                 merge_external_evidence(report, external_hits)
             return report
         if not self.segments:
             report["error"] = "This index has no segments; build it against a project with ingest output."
+            report["abstention"] = self._abstain(
+                ran=False, found=False, scope_note=(
+                    "this index holds no rows, so nothing was measured"))
             if external_hits is not None:
                 merge_external_evidence(report, external_hits)
             return report
@@ -2469,6 +2505,11 @@ class FootageIndex:
             report["error_hint"] = "no segment passes the facet filters"
             report["embedding_candidates"] = 0
             report["answer_status"] = "abstained"
+            report["abstention"] = self._abstain(
+                ran=True, found=False, scope_note=(
+                    "the lane searched every indexed row and the FACET "
+                    "FILTER excluded all of them, so the measured scope is "
+                    "the filtered set and not the whole index"))
             if external_hits is not None:
                 merge_external_evidence(report, external_hits)
             return report
@@ -2481,6 +2522,10 @@ class FootageIndex:
         if combined is None:
             report["error"] = "This index has no embeddings; use mode='lexical'."
             report["answer_status"] = "insufficient_evidence"
+            report["abstention"] = self._abstain(
+                ran=False, found=False, scope_note=(
+                    "this index holds no embeddings, so no similarity was "
+                    "measured at all"))
             if external_hits is not None:
                 merge_external_evidence(report, external_hits)
             return report
@@ -2557,17 +2602,117 @@ class FootageIndex:
         # A lexical-only fallback can rank useful leads, but it cannot
         # distinguish an absent subject from different wording. Keep those
         # rows visible as leads without presenting them as confirmed finds.
+        lexical_only = dense is None or mode == "lexical"
         if report["results"]:
             report["answer_status"] = (
-                "insufficient_evidence" if dense is None or mode == "lexical"
+                "insufficient_evidence" if lexical_only
                 else "found")
         else:
             report["answer_status"] = (
                 "not_found" if dense is not None
                 else "insufficient_evidence")
+        # The outcome the evidence stack reads.  A keyword-only answer
+        # is NOT a not-observed: a BM25 floor cannot tell an absent
+        # subject from different wording, so the lane ran but could not
+        # measure the question.  The near miss travels with it, so an
+        # abstain that cannot name what came closest is impossible.
+        report["abstention"] = self._abstain(
+            ran=not lexical_only,
+            found=bool(report["results"]),
+            scope_note=(
+                "the answer is keyword-only, so nothing was measured by "
+                "similarity" if lexical_only else ""),
+            near_miss=report.get("best_rejected"))
         if external_hits is not None:
             merge_external_evidence(report, external_hits)
         return report
+
+    def _abstain(self, *, ran: bool, found: bool, scope_note: str = "",
+                 has_explicit_negative: bool = False,
+                 scope: Mapping | None = None,
+                 near_miss: Mapping | None = None) -> dict:
+        """What this lane's answer MEANS, and the scope it measured.
+
+        The scope is the part of the answer that makes it true: "not
+        observed" is a claim about the footage the lane measured, so
+        the lane says which footage that was, and says whether it is
+        the whole catalog.  A lane that cannot show its scope is the
+        whole scope says `insufficient_evidence`, not `not_observed` -
+        the empty answer is then about the index, not about the
+        footage.
+
+        The vocabulary is the evidence stack's
+        (`library.tools.retrieval.abstention`), so this lane, the
+        frame lane and the plan layer cannot disagree about what an
+        absence is.
+        """
+        from library.tools.retrieval import abstention
+
+        scope = dict(scope) if scope else self._text_scope()
+        note = " ".join(part for part in (scope["note"], scope_note) if part)
+        return abstention.lane_outcome(
+            lane="text", ran=ran, found=found,
+            scope_complete=scope["complete"], scope_note=note,
+            has_explicit_negative=has_explicit_negative,
+            near_miss=near_miss)
+
+    def _sound_scope(self, events_by_clip: Mapping) -> dict:
+        """The scope the sound lane measured, and whether it is the whole one.
+
+        The sound lane writes one document per source it analysed, so
+        the sources it holds ARE the sources it measured - and a source
+        it never wrote is a source it never listened to.
+        """
+        return self._label_scope(events_by_clip, "sound")
+
+    def _label_scope(self, measured_by_clip: Mapping, what: str) -> dict:
+        """The scope a LABEL lane measured, and whether it is the whole one.
+
+        The sound and on-screen-text lanes write one document per
+        source they analysed, so the sources they hold ARE the sources
+        they measured - and a source they never wrote is a source they
+        never looked at.
+        """
+        measured = sorted(measured_by_clip)
+        coverage = self.payload.get("coverage") or {}
+        catalogued = coverage.get("clips_in_catalog")
+        complete = (isinstance(catalogued, int) and catalogued > 0
+                    and len(measured) >= catalogued)
+        note = (f"the {what} lane measured {len(measured)} source(s); "
+                f"the catalog names {catalogued} source(s)"
+                if isinstance(catalogued, int) else
+                f"the {what} lane measured {len(measured)} source(s) and the "
+                f"index records no catalog, so the scope cannot be shown to "
+                f"be the whole one")
+        return {"complete": complete, "note": note, "clips": measured,
+                "catalogued": catalogued, "covered": len(measured)}
+
+    def _text_scope(self) -> dict:
+        """The scope this lane measured, and whether it is the whole one.
+
+        The index records how many sources the catalog named and how
+        many carry a transcript.  When the two agree, the lane has
+        searched everything the question was about; when they do not,
+        an empty answer is a claim about the index and nothing more.
+        """
+        coverage = self.payload.get("coverage") or {}
+        catalogued = coverage.get("clips_in_catalog")
+        transcribed = coverage.get("memory_transcribed_clips")
+        with_speech = {segment.get("clip_id") for segment in self.segments
+                        if segment.get("kind") == "speech"}
+        covered = transcribed if isinstance(transcribed, int) else len(with_speech)
+        if isinstance(catalogued, int) and catalogued > 0:
+            complete = covered >= catalogued
+            note = (f"{covered} of {catalogued} catalogued sources carry a "
+                    f"transcript; {len(self.segments)} indexed rows in all")
+        else:
+            complete = False
+            note = (f"{covered} sources carry a transcript and the index "
+                    f"records no catalog, so the scope cannot be shown to "
+                    f"be the whole one")
+        return {"complete": complete, "note": note,
+                "clips": sorted(clip for clip in with_speech if clip),
+                "catalogued": catalogued, "covered": covered}
 
     # ── video chunks (the unified-space visual lane) ───────────────
 
@@ -2761,6 +2906,7 @@ class FootageIndex:
             "available_labels": [],
             "abstained": False,
             "error": None,
+            "abstention": None,
         }
         if not events_by_clip:
             report["abstained"] = True
@@ -2768,12 +2914,20 @@ class FootageIndex:
                 "no sound events in this index - the M5 sound lane "
                 "(sound.json) was never written for any clip, so there is "
                 "no PANNs label to search")
+            report["abstention"] = self._abstain(
+                ran=False, found=False, scope_note=(
+                    "the sound lane never wrote a label for any source, so "
+                    "no sound was measured"))
             return report
 
         tokens = _tokenize(query)
         if not tokens:
             report["abstained"] = True
             report["error"] = "no sound label to look for"
+            report["abstention"] = self._abstain(
+                ran=False, found=False, scope_note=(
+                    "the query names no term, so there was nothing to look "
+                    "for"))
             return report
 
         labels = sorted({
@@ -2804,6 +2958,19 @@ class FootageIndex:
         report["hits"] = hits[:max(0, top_k)]
         report["matched"] = len(hits)
         report["abstained"] = not hits
+        # The sound lane is the ONE lane whose scope can carry an
+        # EXPLICIT negative: the sound lane measured a source and
+        # recorded a label vocabulary, so "no label of this kind in any
+        # measured source" is an assertion, not a ranking.  The claim it
+        # makes is about the measured label vocabulary, and it says so.
+        report["abstention"] = self._abstain(
+            ran=True, found=bool(hits),
+            has_explicit_negative=not hits,
+            scope=self._sound_scope(events_by_clip),
+            scope_note=(
+                f"the sound lane measured {len(events_by_clip)} source(s) and "
+                f"recorded {len(labels)} label(s); no label of this kind is "
+                f"among them" if not hits else ""))
         return report
 
     def project_graph(self, query: str, **kwargs) -> dict:
@@ -2990,6 +3157,7 @@ class FootageIndex:
             "available_texts": [],
             "abstained": False,
             "error": None,
+            "abstention": None,
         }
         if not texts_by_clip:
             report["abstained"] = True
@@ -2997,12 +3165,20 @@ class FootageIndex:
                 "no on-screen text in this index - step 1.07 "
                 "(ocr_extraction) never ran for any clip, so there is "
                 "no tracked text to search")
+            report["abstention"] = self._abstain(
+                ran=False, found=False, scope_note=(
+                    "the on-screen-text lane never ran for any source, so "
+                    "no text was measured"))
             return report
 
         tokens = _tokenize(query)
         if not tokens:
             report["abstained"] = True
             report["error"] = "no on-screen text to look for"
+            report["abstention"] = self._abstain(
+                ran=False, found=False, scope_note=(
+                    "the query names no term, so there was nothing to look "
+                    "for"))
             return report
 
         texts = sorted({
@@ -3032,6 +3208,18 @@ class FootageIndex:
         report["hits"] = hits[:max(0, top_k)]
         report["matched"] = len(hits)
         report["abstained"] = not hits
+        # The on-screen-text lane measured a source and recorded a
+        # string vocabulary, so "no string of this kind in any measured
+        # source" is an assertion over the measured vocabulary - the
+        # same shape as the sound lane's.
+        report["abstention"] = self._abstain(
+            ran=True, found=bool(hits),
+            has_explicit_negative=not hits,
+            scope=self._label_scope(texts_by_clip, "on-screen text"),
+            scope_note=(
+                f"the on-screen-text lane measured {len(texts_by_clip)} "
+                f"source(s) and recorded {len(texts)} string(s); no string "
+                f"of this kind is among them" if not hits else ""))
         return report
 
     def combined_search(self, said: str, shown: str, top_k: int = 5) -> dict:
@@ -4220,6 +4408,7 @@ def _print_report(report):
 
     print("\nNOTHING in this footage cleared the floor - that is the answer, "
           "not an empty result set.")
+    _print_abstention(report.get("abstention"))
     best = report.get("best_rejected")
     if best:
         print(f"  closest: {best['dense_score']:.3f} < {report['floor']:.2f}  "
@@ -4229,6 +4418,26 @@ def _print_report(report):
               f"{report['weak_floor']:.2f} and {report['floor']:.2f} - not confident:")
         _print_hits(report["weak"])
     _print_external_evidence(report)
+
+
+def _print_abstention(abstention):
+    """What the answer MEANS, and the scope it measured.
+
+    The three answers a reader has to tell apart are `not_observed`
+    (the lane searched its whole scope and saw nothing), `insufficient
+    _evidence` (it could not search the whole scope) and
+    `confirmed_absent` (the scope carries an explicit negative).  The
+    scope line says WHICH footage the claim is about, because a claim
+    about the footage and a claim about the index read the same way
+    without it.
+    """
+    if not abstention:
+        return
+    print(f"  outcome: {abstention.get('outcome')}  "
+          f"({abstention.get('answer_state')}) - {abstention.get('basis')}")
+    scope = abstention.get("scope") or {}
+    if scope.get("note"):
+        print(f"  scope: {scope['note']}")
 
 
 def _print_chunk_report(report):
@@ -4307,8 +4516,13 @@ def _print_frame_report(report):
     if not report["ranges"]:
         if report.get("abstained"):
             print(f"\nAbstained - {report.get('abstention_reason', '')}")
+            near = report.get("near_miss")
+            if near:
+                print(f"  closest: {near['score']:.3f}  {near['clip_id']} "
+                      f"({near['filename']}) {near['timecode']}  [UNVERIFIED]")
         else:
             print("\nNo ranges - the frame index holds nothing to rank.")
+        _print_abstention(report.get("abstention"))
         return
     for i, span in enumerate(report["ranges"]):
         print(f"\n{i + 1}. {span['clip_id']} ({span['filename']}) "

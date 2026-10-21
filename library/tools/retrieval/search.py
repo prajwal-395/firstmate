@@ -236,6 +236,10 @@ def search_footage(project_folder, query: str, *, top_k: int = 5,
         "answer_status": text_report.get("answer_status"),
         "returned": len(text_report.get("results") or ()),
         "error": text_report.get("error"),
+        # What the lane's answer MEANS, and the scope it measured: the
+        # plan-level absence below is a claim about the whole plan, and
+        # this is the per-lane claim under it.
+        "abstention": text_report.get("abstention"),
     }
     lanes_ran.append(LANE_TEXT)
     rows.extend(_text_rows(text_report))
@@ -248,6 +252,7 @@ def search_footage(project_folder, query: str, *, top_k: int = 5,
             "returned": len(ocr_report.get("hits") or ()),
             "error": ocr_report.get("error"),
             "available_texts": ocr_report.get("available_texts", []),
+            "abstention": ocr_report.get("abstention"),
         }
         if not ocr_report.get("error"):
             lanes_ran.append(LANE_OCR)
@@ -261,6 +266,7 @@ def search_footage(project_folder, query: str, *, top_k: int = 5,
             "returned": len(sound_report.get("hits") or ()),
             "error": sound_report.get("error"),
             "available_labels": sound_report.get("available_labels", []),
+            "abstention": sound_report.get("abstention"),
         }
         if not sound_report.get("error"):
             lanes_ran.append(LANE_SOUND)
@@ -278,6 +284,7 @@ def search_footage(project_folder, query: str, *, top_k: int = 5,
             "returned": len(visual_report.get("ranges") or ()),
             "error": visual_error,
             "refused": visual_refused,
+            "abstention": visual_report.get("abstention"),
         }
         if visual_error is None and not visual_refused:
             lanes_ran.append(LANE_VISUAL)
