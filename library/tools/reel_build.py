@@ -19863,13 +19863,29 @@ def build_reel_variants(project_slug: str, reel_number: int,
                                     for value in outcomes),
                     "segments": len(outcomes),
                 }
+            # The ACCEPTED state of the branch that was just placed:
+            # its grade, its Fusion comps, its transform, its keyframes
+            # and its sound (VC-003).  Two branches compared say what
+            # the branch did to the approved work, and not only what it
+            # did to the cut.  Never fails the build: a state that
+            # cannot be read is recorded as carrying none.
+            accepted = None
+            try:
+                from library.tools import accepted_state as _accepted
+                from library.tools import reel_read as _reel_read
+
+                accepted = _accepted.capture_tracks(
+                    _reel_read.read_tracks(placed))
+            except Exception:  # noqa: BLE001 - absent, never invented
+                accepted = None
             _variants.record_build(
                 project_folder, int(reel_number), moment.timeline_name,
                 str(spec.get("suffix", "")), rows,
                 watch=str(spec.get("watch", "")),
                 declares=list(spec.get("declares") or ()),
                 resolve_timeline_id=str(placed.GetUniqueId() or ""),
-                render_cache=render_cache)
+                render_cache=render_cache,
+                accepted=accepted)
     except Exception:
         # Atomic batch (see docstring): every variant this call placed
         # goes, and names it never reached are tolerated by the

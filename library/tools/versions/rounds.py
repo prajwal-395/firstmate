@@ -620,7 +620,9 @@ def _is_rerender(earlier, later) -> bool:
     return bool(_spans(earlier)) and _spans(earlier) == _spans(later)
 
 
-def diff_reel(earlier_rows: Mapping, later_rows: Mapping) -> dict:
+def diff_reel(earlier_rows: Mapping, later_rows: Mapping, *,
+              earlier_accepted: Mapping | None = None,
+              later_accepted: Mapping | None = None) -> dict:
     """One reel, two rounds: every row that differs, and how.
 
     `reel_replace_guard.diff_rows` answers for every row the EARLIER
@@ -628,6 +630,14 @@ def diff_reel(earlier_rows: Mapping, later_rows: Mapping) -> dict:
     guard rightly ignores because it is asked about loss. A round diff
     is asked about CHANGE, so the rows only the later side carries are
     added back here rather than a second differ being written.
+
+    The ACCEPTED state (VC-003) is compared here too, when both sides
+    carry one: a row diff cannot see a grade, a Fusion comp, a
+    transform, a keyframe or a level, so a round that kept the cut and
+    changed the look reads as unchanged.  The comparison reports the
+    DENOMINATOR - how many accepted items were compared - so "nothing
+    changed" and "nothing of the forty accepted items changed" are
+    different claims.
     """
     from library.tools import reel_replace_guard as guard
 
@@ -672,15 +682,40 @@ def diff_reel(earlier_rows: Mapping, later_rows: Mapping) -> dict:
             continue
         rows.append({
             "key": key, "name": row.get("name", ""), "state": ADDED_ROW,
-            "earlier_count": None, "later_count": row.get("count"),
-            "earlier_frames": None, "later_frames": row.get("frames"),
+            "earlier_count": None, "earlier_frames": None,
+            "later_count": row.get("count"),
+            "later_frames": row.get("frames"),
             "gone": [], "gained": list(row.get("items") or ()),
         })
-    return {"rows": rows,
-            "changed": [row for row in rows
-                        if row["state"] not in (UNCHANGED, RERENDERED)],
-            "rerendered": [row for row in rows
-                           if row["state"] == RERENDERED]}
+    report = {"rows": rows,
+              "changed": [row for row in rows
+                          if row["state"] not in (UNCHANGED, RERENDERED)],
+              "rerendered": [row for row in rows
+                             if row["state"] == RERENDERED]}
+    accepted = _accepted_diff(earlier_accepted, later_accepted)
+    if accepted is not None:
+        report["accepted"] = accepted
+    return report
+
+
+def _accepted_diff(earlier_accepted: Mapping | None,
+                    later_accepted: Mapping | None) -> dict | None:
+    """The accepted state of two versions, and what moved between them.
+
+    None where a side carries no accepted state: an absent measurement
+    is not a pass, and it is not a failure either - the report says it
+    could not be compared, and the row diff stands on its own.
+    """
+    if not earlier_accepted or not later_accepted:
+        return None
+    from library.tools import accepted_state
+
+    try:
+        return accepted_state.verify(earlier_accepted, later_accepted)
+    except Exception as exc:  # noqa: BLE001 - an unreadable accepted
+        # state is unmeasured, never a pass.
+        return {"status": "unmeasured", "reason": str(exc),
+                "findings": [], "canvas": [], "counts": {}}
 
 
 def diff_rounds(project_folder, earlier: int, later: int) -> dict:
@@ -714,7 +749,11 @@ def diff_rounds(project_folder, earlier: int, later: int) -> dict:
                            "rows": [], "changed": []}
             continue
         entry = diff_reel(_rows_for_round(project_folder, first_reels[name]),
-                          _rows_for_round(project_folder, second_reels[name]))
+                          _rows_for_round(project_folder, second_reels[name]),
+                          earlier_accepted=_accepted_for_round(
+                              project_folder, first_reels[name]),
+                          later_accepted=_accepted_for_round(
+                              project_folder, second_reels[name]))
         entry["state"] = (UNCHANGED if not entry["changed"]
                           else "rebuilt and changed")
         entry["built_with"] = second_reels[name].get("built_with", "")
@@ -731,6 +770,26 @@ def _rows_for_round(project_folder, entry: Mapping) -> dict:
 
     return reel_versions.rows_for_revision(project_folder,
                                            str(entry["revision_id"]))
+
+
+def _accepted_for_round(project_folder, entry: Mapping) -> dict | None:
+    """The accepted state a round's reel version carries, if it carries one.
+
+    A version that was recorded before the accepted state was kept
+    carries none: an absent measurement is not a pass, and the round
+    diff says it could not compare rather than claiming nothing
+    changed.
+    """
+    if "rows" in entry:
+        return None
+    from library.tools.versions import reel_versions
+
+    found = reel_versions.version_for_revision(
+        project_folder, str(entry.get("revision_id") or ""))
+    if found is None:
+        return None
+    accepted = found[1].get("accepted")
+    return dict(accepted) if isinstance(accepted, Mapping) else None
 
 
 def row_line(row: Mapping) -> str:

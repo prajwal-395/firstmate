@@ -1269,23 +1269,49 @@ def _marker_keys(snapshot: dict) -> set:
 
 
 def diff(earlier: dict, later: dict) -> dict:
-    """What changed between two snapshots: rows, then markers.
+    """What changed between two snapshots: rows, markers, and the
+    ACCEPTED STATE.
 
     Rows go through `versions.rounds.diff_reel` over `reel_read.rows_of`,
     the differ promotion and round-diff already use, so the shadow never
     disagrees with them about what a row holds.
+
+    The accepted state is the reel's GRADE, its FUSION comps, its
+    TRANSFORM, its KEYFRAMES and its SOUND (VC-003).  A row diff cannot
+    see any of them: two generations can hold the same cut and a
+    different grade, and the row diff calls that unchanged.  The
+    accepted comparison names what moved, with the denominator - how
+    many accepted items were compared and how many of them changed.
     """
     from library.tools.reel_read import rows_of
     from library.tools.versions.rounds import diff_reel
 
     before, after = _marker_keys(earlier), _marker_keys(later)
     fields = ("level", "frame", "color", "name", "note")
+    accepted = _accepted_diff(earlier, later)
     return {
         "rows": diff_reel(rows_of(earlier), rows_of(later)),
         "markers_added": [dict(zip(fields, k)) for k in sorted(after - before)],
         "markers_removed": [dict(zip(fields, k))
                             for k in sorted(before - after)],
+        "accepted": accepted,
     }
+
+
+def _accepted_diff(earlier: dict, later: dict) -> dict:
+    """The accepted state of two recorded generations, and what moved.
+
+    Never raises: a state that cannot be read is UNMEASURED, and a
+    diff that cannot read a state says so rather than refusing the
+    comparison the caller asked for.
+    """
+    from library.tools import accepted_state
+
+    try:
+        return accepted_state.verify(earlier, later)
+    except Exception as exc:  # noqa: BLE001 - an unreadable state is
+        return {"status": "unmeasured", "reason": str(exc),
+                "findings": [], "canvas": [], "counts": {}}
 
 
 def _resolve_scope(args, parser) -> tuple:

@@ -10764,3 +10764,55 @@ no look of its own.
 `library/tools/explainer_plan.py` owns the beat route,
 `library/tools/explainer_render.py` the scene renderer,
 `tests/unit/captions/test_explainer_beats.py` names each defect.
+## the-approved-work-nobody-could-compare
+
+A reel's accepted work is its GRADE, its FUSION comps, its TRANSFORM, its
+KEYFRAMES and its SOUND. Three comparisons in the engine were blind to
+all of it, and all three agreed to be silent.
+
+**What it cost.** Three defects, measured on a Ren-owned scratch copy of
+a graded reel (`scripts/accepted_state_proof.py`; the recorded
+generations of `Ren Scratch - breaktest`, reel 13, read from the
+timeline shadow with no Resolve touched):
+
+- the VERSION RECORD - the committed `.timeline.json`
+  (`library/tools/timeline_serializer.py`) - reduced a clip's Fusion
+  comps to a COUNT and a list of NAMES, kept only the CDL of the grade,
+  and carried no keyframes at all. Two versions that differed in a
+  comp's CANVAS, in the grade's NODES or in the shot's MOTION diffed as
+  the same reel;
+- the RECORDED-STATE COMPARISON (`timeline_shadow.diff`) compared two
+  recorded generations by their ROWS and their markers, so a generation
+  that arrived with a different grade on a shot read as the same
+  timeline with a different cut;
+- the UNDO's own verification (`undo_journal.projection`) carried the
+  transform and the CDL, and carried no keyframes, no comp canvas and
+  no sound - so a captain who hand-moved a keyframe or a level after a
+  touch was read as "the timeline has not moved", and the undo reversed
+  straight over the work.
+
+**Measured, before and after, with the denominators** (17 pairs of
+recorded generations, one graded reel):
+
+- accepted items the version comparison could compare: 0/4271 before,
+  4271/4271 after;
+- accepted items that MOVED and the old comparison named: 0/13 before,
+  13/13 after (every one a transform - a `Pan` or a `Tilt` on a shot
+  the row diff reported as unchanged);
+- rows the old comparison did report: 1/17 pairs - the cut moved, and
+  the look did not, and only the cut was ever going to be seen.
+
+**The rule.** The accepted state of a reel is ONE reading
+(`library/tools/accepted_state.py`), and every comparison of two states
+carries it: the version comparison, the recorded-state comparison, the
+round diff, and the undo's own gate. An accepted grade, Fusion comp,
+transform, keyframe and level may only change when the request
+authorizes it, and the comparison reports the DENOMINATOR - how many
+accepted items were compared, how many moved, how many of those no
+authorized scope permits - so "nothing changed" and "nothing of the
+forty accepted items changed" are different claims. A difference nobody
+can judge is UNPROVABLE, and an unprovable difference is not a pass:
+the invariant fails closed on it. The CANVAS is part of the accepted
+state: a comp re-authored on another canvas, and a reel whose delivery
+canvas changed, are both named (the second is Reel 26's signature, and
+the first is what a version comparison could not see).

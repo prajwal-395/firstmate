@@ -258,6 +258,16 @@ def _adopt(project_folder: str, project, resolve, timeline_name: str, *,
         # The look of the generation this version records.
         "preservation": preservation,
     }
+    accepted = None
+    try:
+        from library.tools import accepted_state
+
+        accepted = accepted_state.capture_tracks(tracks)
+    except Exception:  # noqa: BLE001 - the accepted state is
+        # instrumentation: a reel that cannot be read into one is
+        # recorded as carrying none, never invented, and the adoption
+        # goes ahead.
+        accepted = None
     entry = reel_versions.record(
         project_folder, target.GetName(),
         kind=reel_versions.KIND_ADOPT,
@@ -272,6 +282,7 @@ def _adopt(project_folder: str, project, resolve, timeline_name: str, *,
         operations=[{"kind": "external_hand_edit"}],
         timeline_id=unique_id,
         adopted=True,
+        **({"accepted": accepted} if accepted else {}),
         recovery_archive=receipt)
     reel_versions.attach_recovery_archive(
         project_folder, target.GetName(), int(entry["version"]), receipt)

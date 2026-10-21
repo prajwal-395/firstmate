@@ -171,6 +171,9 @@ FAMILY_BLOCKERS = {
     "library.tools.assignment_edit_workflow.WorkflowRefused":
         "ambiguous_intent",
     "library.tools.assignment_spine.AssignmentDecisionRequired": "unsafe_state",
+    "library.tools.accepted_state.AcceptedStateMoved": "unsafe_state",
+    "library.tools.accepted_state.AcceptedStateUnprovable":
+        "insufficient_evidence",
     "library.tools.behind_subject.BehindSubjectRefused": "missing_media",
     "library.tools.breakpoints.BreakpointError": "unsupported_operation",
     "library.tools.caption_timing.CaptionRebaseRefused": "missing_media",

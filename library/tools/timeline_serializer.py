@@ -277,12 +277,41 @@ def serialize_timeline_state(
                     "cdl": detail["color"]["cdl"],
                     "color_group_name": detail["color"]["color_group"],
                     "grade_version_names": [],
+                    # VC-003: the grade is the WHOLE grade.  A version
+                    # record that kept the CDL and dropped the nodes
+                    # and the LUTs could not say whether the grade
+                    # moved: a grade that reads the same and is not
+                    # (a node relabelled, a LUT swapped) diffed as
+                    # unchanged.  The keys are the ones a live
+                    # reading carries, so ONE comparison reads both.
+                    "color_group": detail["color"]["color_group"],
+                    "node_count": detail["color"]["node_count"],
+                    "luts": detail["color"]["luts"],
+                    "nodes": detail["color"]["nodes"],
                 }
 
                 clip_data["fusion"] = {
                     "comp_count": detail["fusion"]["comp_count"],
                     "comp_names": detail["fusion"]["comp_names"],
+                    # VC-003: a comp COUNT and a list of NAMES are not
+                    # a comp.  The comps' own bodies - their TOOLS and
+                    # the CANVAS each was AUTHORED on - are what a
+                    # version comparison needs: Reel 26's closing shot
+                    # carried the same comp names as its neighbours and
+                    # was drawn on the source canvas, so its vignette
+                    # and glow landed on a different picture (QA-005).
+                    "comps": detail["fusion"].get("comps") or [],
                 }
+
+                # VC-003: the keyframes, the fades and the level.  The
+                # first two are the shot's MOTION and its EDGES; the
+                # third is its SOUND.  A version record that carried
+                # none of them could not tell an approved shot from a
+                # shot that had been re-graded, re-animated or
+                # re-leveled under the same cut.
+                clip_data["keyframes"] = detail.get("keyframes") or {}
+                clip_data["fades"] = detail.get("fades")
+                clip_data["volume"] = detail.get("volume")
 
                 # Markers
                 clip_data["markers"] = []

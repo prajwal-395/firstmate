@@ -2432,12 +2432,14 @@ def close_entry(project_folder, entry: dict, *, after_timeline: Any,
             project_folder, entry["final"], rows)
     except Exception:  # noqa: BLE001 - absent, not invented
         component_manifest = None
+    accepted_after = _accepted_state((entry.get("after") or {}).get("tracks"))
     version = reel_versions.record(
         project_folder, entry["final"], kind=reel_versions.KIND_TOUCH,
         rows=rows, journal=entry["id"], batch=entry.get("batch") or None,
         axi_transaction_id=(entry.get("spec") or {}).get("transaction_id"),
         component_manifest=component_manifest,
         revision_id=entry.get("revision_id"),
+        **({"accepted": accepted_after} if accepted_after else {}),
         intent=(entry.get("accepted_edit") or {}).get("intent") or "touch-up",
         operations=[dict(operation)
                     for operation in (entry.get("spec") or {}).get("edits", ())
@@ -2544,6 +2546,22 @@ def _key(detail: Mapping) -> tuple:
             _source_trim(detail, "undo comparison"),
             str(detail.get("source_file") or ""),
             str(detail.get("name") or ""))
+
+
+def _accepted_state(tracks) -> dict | None:
+    """The accepted state of a recorded set of tracks, or None.
+
+    The version ledger keeps it, so a VERSION COMPARISON can say what
+    moved between two versions of a reel and not only what moved in the
+    cut (VC-003).  Never fails the act it instruments: a state that
+    cannot be read is recorded as carrying none, never invented.
+    """
+    try:
+        from library.tools import accepted_state
+
+        return accepted_state.capture_tracks(tracks)
+    except Exception:  # noqa: BLE001 - absent, never invented
+        return None
 
 
 def _grade(detail: Mapping) -> dict:
@@ -2804,7 +2822,8 @@ def undo_in_place(*, timeline, media_pool, entry: Mapping, entry_root: str,
     the post-touch state - read only for colour grades. `resolve_media`
     maps a source file path to a live media pool item.
     """
-    from library.tools import edit_recovery, marker_carry, reel_read
+    from library.tools import (accepted_state, edit_recovery, marker_carry,
+                               reel_read)
 
     receipt: dict = {"entry": entry["id"]}
     before = entry["before"]["tracks"]
@@ -2819,6 +2838,27 @@ def undo_in_place(*, timeline, media_pool, entry: Mapping, entry_root: str,
             f"({', '.join(d['row'] for d in moved)}): {moved}",
             "undoing the touch over it would destroy that work - "
             "nothing was changed",
+            "undo the later work first (`ren undo <project> --list` "
+            "shows the acts, newest first), then undo this touch")
+    # 1b. The ACCEPTED state must read as the touch left it (VC-003).
+    # The projection above carries the transform and the CDL, and it
+    # carries no KEYFRAMES, no comp CANVAS and no SOUND: a captain who
+    # hand-moved a keyframe or a level after the touch was read as
+    # "the timeline has not moved", and the undo reversed straight over
+    # the work.  The accepted state is compared by the engine's own
+    # reading (`accepted_state`), on the same recorded states.
+    accepted_moved = accepted_state.moved_accepted_items(
+        {"tracks": after}, {"tracks": live})
+    if accepted_moved:
+        named = ", ".join(
+            f"{row.get('row')} {row.get('name') or row.get('shot')}: "
+            f"{row.get('part')} {row.get('field')}"
+            for row in accepted_moved[:5])
+        raise TimelineMovedSinceTouch(
+            f"{entry['final']!r}'s accepted state has changed since touch "
+            f"{entry['id']} ({named})",
+            "undoing the touch over it would destroy work that was "
+            "approved - nothing was changed",
             "undo the later work first (`ren undo <project> --list` "
             "shows the acts, newest first), then undo this touch")
 
@@ -3394,12 +3434,15 @@ def _undo_touch_connected(project_folder, entry, connect,
         plan_provenance.finish_timeline_inventory(
             review_dir, inventory_operation,
             reel_replace_guard.timeline_inventory(project))
+    accepted_undo = _accepted_state((entry.get("before") or {}).get("tracks"))
     version = reel_versions.record(project_folder, final,
                                    kind=reel_versions.KIND_UNDO, rows=rows,
                                    undoes=entry.get("version"),
                                    journal=entry["id"],
                                    axi_transaction_id=(entry.get("spec") or {}).get(
-                                       "transaction_id"))
+                                       "transaction_id"),
+                                   **({"accepted": accepted_undo}
+                                      if accepted_undo else {}))
     if entry.get("version"):
         reel_versions.mark_undone(project_folder, final,
                                   int(entry["version"]),
@@ -4199,6 +4242,16 @@ def restore_version(project_folder: str, final: str, version: int, *,
     declared = reel_signoff.parse_supersede(supersede)
     signoff = reel_signoff.assert_declared(
         project_folder, final, declared, command="ren undo")
+    # VC-003: a restore replaces the whole generation, so it replaces
+    # the APPROVED work with it - the grade, the Fusion comps, the
+    # transform, the keyframes and the sound.  The version comparison
+    # says what that is, and the restore records it: a restore that
+    # quietly changes the accepted look is the defect this closes.  The
+    # comparison is REPORTED, not refused: restoring an earlier version
+    # is the captain's own act, and the captain's own declaration (the
+    # supersede) is what authorizes it.  A version that carries no
+    # accepted state says so - an absent measurement is not a pass.
+    accepted_change = _accepted_change(current, target)
     (restore_archive(project_folder, final, target, receipt)
      if restore_archive else _restore_archive_by_resolve_id(
          project_folder, final, target, receipt,
@@ -4235,7 +4288,42 @@ def restore_version(project_folder: str, final: str, version: int, *,
             "preservation_verified": bool(preservation["verified"]),
             "preservation_note": str(preservation.get("reason") or ""),
             "timeline_id": normalized["timeline_id"],
+            "accepted": accepted_change,
             "version": int(entry["version"])}
+
+
+def _accepted_change(current: Mapping, target: Mapping) -> dict:
+    """What the restore changes in the reel's ACCEPTED state.
+
+    The two versions' accepted states, compared by the engine's own
+    reading (`accepted_state`).  A version recorded before the
+    accepted state was kept carries none: the report says it could not
+    be compared, and the restore goes ahead - an absent measurement is
+    not a pass and not a failure either.
+
+    This is NOT the restore's own verification of the look it brought
+    back (VC-004's `preservation` record, read after the import
+    against the live timeline).  This one is read BEFORE the import,
+    between two versions, and it answers a different question: what
+    approved work does this restore replace?
+    """
+    from library.tools import accepted_state
+
+    left = current.get("accepted")
+    right = target.get("accepted")
+    if not isinstance(left, Mapping) or not isinstance(right, Mapping):
+        return {"status": "unmeasured",
+                "reason": ("one of the two versions carries no accepted "
+                           "state, so the restore's effect on the approved "
+                           "grade, comps, transform, keyframes and sound "
+                           "could not be compared"),
+                "counts": {}}
+    try:
+        return accepted_state.verify(left, right)
+    except Exception as exc:  # noqa: BLE001 - an unreadable accepted
+        # state is unmeasured, never a pass.
+        return {"status": "unmeasured", "reason": str(exc),
+                "findings": [], "canvas": [], "counts": {}}
 
 
 def _apply_touch(project_folder: str, spec: Mapping):
@@ -4311,11 +4399,13 @@ def redo_touch(project_folder: str, entry_id: str, *, connect=None,
     apply_touch(project_folder, spec)
     rows = (read_live_rows or _live_rows_reader(
         project_folder, connect))(entry["final"])
+    accepted_redo = _accepted_state((entry.get("after") or {}).get("tracks"))
     version = reel_versions.record(
         project_folder, entry["final"], kind=reel_versions.KIND_REDO,
         rows=rows, redoes=undo_version, journal=entry["id"],
         axi_transaction_id=(entry.get("spec") or {}).get(
-            "transaction_id"))
+            "transaction_id"),
+        **({"accepted": accepted_redo} if accepted_redo else {}))
     try:
         from library.tools import reel_edit_history as _history
         _history.try_record_ren_act(

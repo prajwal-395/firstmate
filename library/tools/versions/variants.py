@@ -1316,7 +1316,8 @@ def record_build(project_folder, reel_number: int, base_final: str,
                  suffix: str, rows: Mapping, watch: str = "",
                  declares: Sequence[str] = (), built_at: str = "",
                  resolve_timeline_id: str = "",
-                 render_cache: Mapping | None = None) -> dict:
+                 render_cache: Mapping | None = None,
+                 accepted: Mapping | None = None) -> dict:
     """Record one built variant: what it is and what it contains.
 
     Keyed by the variant's TIMELINE NAME, which is the only identity
@@ -1357,6 +1358,7 @@ def record_build(project_folder, reel_number: int, base_final: str,
         creative_branch_revision=str(
             (branch_record or {}).get("revision_id") or ""),
         component_manifest=component_manifest, author="variant_build",
+        **({"accepted": dict(accepted)} if accepted else {}),
         intent=f"build {final}", operations=semantic_changes,
         git_revision=current_branch(str(project_folder)),
         verification={"rows_recorded": True,
@@ -1385,6 +1387,11 @@ def record_build(project_folder, reel_number: int, base_final: str,
         "semantic_changes": semantic_changes,
         "component_manifest": component_manifest,
         "render_cache": dict(render_cache or {}),
+        # VC-003: the branch's ACCEPTED state - the grade, the comps,
+        # the transform, the keyframes and the sound this branch was
+        # built with.  Two branches compared say what the branch did to
+        # the approved work, not only what it did to the cut.
+        **({"accepted": dict(accepted)} if accepted else {}),
         "materialized": True,
         "resolve_timeline_id": str(resolve_timeline_id or ""),
         "rows_digest": rounds.digest_rows(row_snapshot),
@@ -1578,7 +1585,11 @@ def compare(project_folder, reel_number: int, earlier_suffix: str,
     diff = rounds.diff_reel(_rows_for_build(project_folder,
                                             entries[earlier_suffix]),
                             _rows_for_build(project_folder,
-                                            entries[later_suffix]))
+                                            entries[later_suffix]),
+                            earlier_accepted=entries[earlier_suffix].get(
+                                "accepted"),
+                            later_accepted=entries[later_suffix].get(
+                                "accepted"))
     diff["reel"] = int(reel_number)
     diff["earlier"] = entries[earlier_suffix]["timeline"]
     diff["later"] = entries[later_suffix]["timeline"]

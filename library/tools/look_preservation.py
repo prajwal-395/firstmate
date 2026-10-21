@@ -60,9 +60,10 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from library.tools.edit_state_preservation import PICTURE_PROPERTIES
+from library.tools.preservation_invariant import AUDIO_KEYS
 
 #: The parts of a shot's look, in the order they are reported.
-LOOK_PARTS = ("transform", "grade", "fusion", "keyframes")
+LOOK_PARTS = ("transform", "grade", "fusion", "keyframes", "sound")
 
 #: The conflict domain each part belongs to.  The vocabulary is the
 #: engine's own (`edit_patch.CONFLICT_DOMAINS`), so a look finding and
@@ -72,6 +73,7 @@ PART_DOMAINS = {
     "keyframes": "picture_transform",
     "grade": "color",
     "fusion": "fusion",
+    "sound": "audio_mix",
 }
 
 #: Two numbers this close are the same number.  The transform write
@@ -141,12 +143,19 @@ def _transform(clip: Mapping) -> dict:
 
 
 def _grade(clip: Mapping) -> dict:
-    """The shot's grade, in the Color page's own vocabulary."""
+    """The shot's grade, in the Color page's own vocabulary.
+
+    The keys are the ones the Color page answers with, and the ones a
+    VERSION RECORD carries: a version that keeps the CDL and drops the
+    nodes and the LUTs cannot say whether the grade moved, so the
+    version record keeps them and this reads them (`VC-003`).
+    """
     color = clip.get("color") or {}
     if not isinstance(color, Mapping):
         return {}
     grade = {}
-    for key in ("cdl", "node_count", "luts", "nodes", "color_group"):
+    for key in ("cdl", "node_count", "luts", "nodes", "color_group",
+                "color_group_name"):
         if key in color:
             grade[key] = color[key]
     return grade
@@ -195,6 +204,44 @@ def _keyframes(clip: Mapping) -> dict:
     return dict(keyframes) if isinstance(keyframes, Mapping) else {}
 
 
+def _sound(clip: Mapping) -> dict:
+    """The shot's SOUND: its level, its fades and its linked audio.
+
+    The sound of a shot is not its picture: an AUDIO row's own
+    transform keys are its mix, and a PICTURE row's sound is the audio
+    it is linked to - the partner's own level, fades and enablement,
+    because that is the state a rebuild would lose silently.
+
+    A field the recording does not carry is left out: an absent field
+    is absent evidence, and a comparison that treated it as an empty
+    one would report a change nobody observed.
+    """
+    sound: dict = {}
+    transform = clip.get("transform")
+    if isinstance(transform, Mapping):
+        mix = {key: transform[key] for key in AUDIO_KEYS if key in transform}
+        if mix:
+            sound["mix"] = mix
+    if "volume" in clip:
+        sound["volume"] = clip["volume"]
+    fades = clip.get("fades")
+    if isinstance(fades, Mapping):
+        sound["fades"] = dict(fades)
+    linked = clip.get("linked_clips")
+    if isinstance(linked, (list, tuple)):
+        partners = []
+        for partner in linked:
+            if not isinstance(partner, Mapping):
+                continue
+            partners.append({
+                "enabled": partner.get("enabled"),
+                "fades": partner.get("fades"),
+            })
+        if partners:
+            sound["linked"] = partners
+    return sound
+
+
 def shot_look(clip: Mapping) -> dict:
     """The look of ONE shot, from a recorded clip."""
     identity = _identity(clip)
@@ -211,6 +258,7 @@ def shot_look(clip: Mapping) -> dict:
         "grade": _grade(clip),
         "fusion": _fusion(clip),
         "keyframes": _keyframes(clip),
+        "sound": _sound(clip),
     }
 
 
@@ -219,9 +267,13 @@ def capture_look(snapshot: Mapping) -> dict:
 
     A snapshot is what `reel_read.read_reel` returns and what the
     timeline shadow stores: the timeline, its rows, and every clip on
-    them.  The delivery canvas is read off the snapshot itself, so the
-    canvas report compares a comp's canvas with the canvas the reel
-    actually delivers.
+    them.  It is ALSO what a VERSION RECORD holds - the committed
+    `.timeline.json` the version comparison diffs - and that record
+    keeps the same clip fields, so one comparison reads both.  The
+    delivery canvas is read off the snapshot itself (or, for a version
+    record, off its own `metadata.resolution`), so the canvas report
+    compares a comp's canvas with the canvas the reel actually
+    delivers.
     """
     if not isinstance(snapshot, Mapping):
         raise LookPreservationError(
@@ -235,13 +287,41 @@ def capture_look(snapshot: Mapping) -> dict:
                 continue
             shots.append(shot_look(clip))
     return {
-        "timeline": str(snapshot.get("timeline") or ""),
-        "delivery": {
-            "width": snapshot.get("width"),
-            "height": snapshot.get("height"),
-        },
+        "timeline": str(snapshot.get("timeline") or "") or _name_of(snapshot),
+        "delivery": _delivery_of(snapshot),
         "shots": shots,
     }
+
+
+def _name_of(snapshot: Mapping) -> str:
+    """The state's own name, in the shape it keeps it.
+
+    A live snapshot names the timeline at the top level; a VERSION
+    RECORD names it under `metadata`.  One reading serves both.
+    """
+    metadata = snapshot.get("metadata")
+    if isinstance(metadata, Mapping):
+        return str(metadata.get("name") or "")
+    return ""
+
+
+def _delivery_of(snapshot: Mapping) -> dict:
+    """The canvas this state delivers, in the state's own words.
+
+    A live snapshot carries `width`/`height`; a VERSION RECORD carries
+    its resolution under `metadata`.  A state that names neither
+    delivers an UNKNOWN canvas, and an unknown canvas is not a canvas:
+    the canvas report then says nothing rather than guessing one.
+    """
+    width = snapshot.get("width")
+    height = snapshot.get("height")
+    if width is None or height is None:
+        metadata = snapshot.get("metadata")
+        resolution = (metadata or {}).get("resolution") if isinstance(
+            metadata, Mapping) else None
+        if isinstance(resolution, (list, tuple)) and len(resolution) == 2:
+            width, height = resolution[0], resolution[1]
+    return {"width": width, "height": height}
 
 
 # ── Comparing two looks ────────────────────────────────────────────────
@@ -354,6 +434,7 @@ def compare_look(before: Mapping, after: Mapping, *, scope=None,
     after_shots = list(after.get("shots") or ())
     pairs, only_before, only_after = _match_shots(before_shots, after_shots)
     findings: list[dict] = []
+    compared_items = 0
     for old, new in pairs:
         old_id = str(old.get("shot_id") or "")
         if approved is not None and old_id not in approved:
@@ -365,8 +446,16 @@ def compare_look(before: Mapping, after: Mapping, *, scope=None,
                 targets.append(target)
         for part in LOOK_PARTS:
             domain = PART_DOMAINS[part]
-            for field, was, now in _differences(old.get(part), new.get(part),
-                                                part):
+            old_part = old.get(part)
+            new_part = new.get(part)
+            if old_part or new_part:
+                # An accepted ITEM: one part of one shot that the
+                # comparison reads.  The count is the DENOMINATOR the
+                # report answers with - a comparison that found one
+                # change out of forty accepted items is not the same
+                # claim as one that found one out of two.
+                compared_items += 1
+            for field, was, now in _differences(old_part, new_part, part):
                 findings.append({
                     "shot": old_id,
                     "row": old.get("row"),
@@ -405,6 +494,15 @@ def compare_look(before: Mapping, after: Mapping, *, scope=None,
         "status": status,
         "findings": findings,
         "shots_compared": len(pairs),
+        "counts": {
+            "shots": len(pairs),
+            "accepted_items": compared_items,
+            "changed": len(findings),
+            "unauthorized": sum(1 for row in findings
+                                if row.get("authorized") is False),
+            "unjudged": sum(1 for row in findings
+                            if row.get("authorized") is None),
+        },
         "shots_only_before": [str(shot.get("shot_id") or "")
                               for shot in only_before],
         "shots_only_after": [str(shot.get("shot_id") or "")
