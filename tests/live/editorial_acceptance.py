@@ -18,7 +18,28 @@ from dataclasses import asdict, dataclass
 from time import perf_counter
 from typing import Any
 
+from library.tools import report_provenance
 from tests.live.evaluation_levels import catalog as evaluation_level_catalog
+
+#: The fixture every ordinary request ran against: the qualification
+#: project and the scratch timeline on it. It is named in the report's
+#: provenance, because a request measured against another fixture is
+#: another measurement.
+QUALIFICATION_FIXTURE = "Ren Qualification / fm-scratch qualify"
+
+
+def _fixture_state(rows) -> str:
+    """Whether the fixture was there to run against.
+
+    A run whose fixture could not be seeded measured the ENVIRONMENT,
+    not the backend, and its rows say so. The scope names the state,
+    so a run in one state never replaces a run in the other.
+    """
+    for row in rows:
+        error = str(row.get("error") or "")
+        if "could not seed" in error:
+            return "unavailable"
+    return "seeded"
 
 
 @dataclass(frozen=True)
@@ -205,7 +226,19 @@ def run_tasks(execute_instruction: Callable[[str, Mapping[str, Any]], Mapping[st
         },
     }
     report["reliability_metrics"] = summarize(rows)
-    return report
+    fixture = f"{QUALIFICATION_FIXTURE} ({_fixture_state(rows)})"
+    return report_provenance.stamp(
+        report,
+        evidence_kind="live-qualification",
+        fixture=fixture,
+        producer=("tests/live/editorial_acceptance.py:run_tasks "
+                  "(driver: tests/live/editorial_live_adapter.py)"),
+        scope={
+            "measurement": "ordinary_request_acceptance",
+            "evaluation_level": 2,
+            "task_set": ",".join(task.id for task in selected_tasks),
+            "fixture": fixture,
+        })
 
 
 def run_discovery_probe(
@@ -329,7 +362,7 @@ def run_blind_requests(execute_request: Callable[[str, Mapping[str, Any]],
                    "instruction_to_verified_seconds": None}
         rows.append(row)
     from tests.live.editorial_reliability_metrics import summarize
-    return {
+    report = {
         "schema": "ren-blind-editorial-requests/1",
         "evaluation_levels": evaluation_level_catalog(),
         "evaluation": {
@@ -358,4 +391,16 @@ def run_blind_requests(execute_request: Callable[[str, Mapping[str, Any]],
         "results": rows,
         "reliability_metrics": summarize(rows),
     }
+    return report_provenance.stamp(
+        report,
+        evidence_kind="orchestration",
+        fixture=QUALIFICATION_FIXTURE,
+        producer=("tests/live/editorial_acceptance.py:run_blind_requests "
+                  "(driver: tests/live/blind_driver.py)"),
+        scope={
+            "measurement": "blind_editorial_requests",
+            "evaluation_level": 3,
+            "task_set": ",".join(task.id for task in TASKS + COMPOUND_REQUESTS),
+            "fixture": QUALIFICATION_FIXTURE,
+        })
 

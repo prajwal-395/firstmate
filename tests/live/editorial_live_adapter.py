@@ -36,6 +36,7 @@ import time
 from pathlib import Path
 from time import perf_counter
 
+from library.tools import report_provenance
 from tests.live import small_edit_qualification as q
 
 PROJECT = "Ren Qualification"
@@ -2845,8 +2846,8 @@ def main() -> int:
         report = editorial_acceptance.run_blind_requests(
             blind_driver.execute_request)
         REPORT_DIR.mkdir(parents=True, exist_ok=True)
-        out = REPORT_DIR / "editorial-acceptance-blind.json"
-        out.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        out = report_provenance.write_report(
+            REPORT_DIR / "editorial-acceptance-blind.json", report)
         print(json.dumps({"passed": report["passed"],
                           "failed": report["failed"],
                           "safe_refusals": report.get("safe_refusals", 0),
@@ -2863,8 +2864,8 @@ def main() -> int:
     report = editorial_acceptance.run_tasks(execute_instruction)
     report["failure_categories"] = _failure_categories(report["results"])
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
-    out = REPORT_DIR / "editorial-request-acceptance.json"
-    out.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    out = report_provenance.write_report(
+        REPORT_DIR / "editorial-request-acceptance.json", report)
     print(json.dumps({"passed": report["passed"],
                       "failed": report["failed"],
                       "failure_categories": report["failure_categories"],

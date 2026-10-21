@@ -1,4 +1,27 @@
 {
+  "provenance": {
+    "environment": {
+      "machine": "not_recorded",
+      "platform": "not_recorded",
+      "python_version": "not_recorded"
+    },
+    "environment_note": "the machine that produced this report is not recorded in it",
+    "evaluation_schema": "ren-editorial-task-record/1",
+    "evidence_kind": "live-qualification",
+    "fixture": "the substrate the record names",
+    "producer": "the live lane's task record",
+    "resolve_version": "not_recorded",
+    "run_timestamp": "not_recorded",
+    "run_timestamp_note": "this report predates provenance headers; the recording revision is dated 2026-10-20T18:46:01-04:00",
+    "scope": {
+      "evaluation_level": "not_applicable",
+      "fixture": "the substrate the record names",
+      "measurement": "editorial_task_record",
+      "task_set": "two-voices-at-once"
+    },
+    "source_commit": "fd5ccb5ae82454e4608dde17dc71eb88c947d90d",
+    "source_commit_note": "the revision that recorded the MEASUREMENT this file reports; the measurement predates provenance headers, so the revision it ran at is not recorded in it"
+  },
   "brief_id": "two-voices-at-once",
   "delivery": {},
   "execution": {

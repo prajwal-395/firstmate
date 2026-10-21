@@ -53,6 +53,7 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from library.tools import footage_analysis
+from library.tools import report_provenance
 from library.tools.retrieval import regions as regions_mod
 from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
 
@@ -966,7 +967,37 @@ def run(project: str, eval_set: dict, families: Sequence[str] = FAMILIES,
         enrich_visual_result(eval_set, result, frame_index=frame_index, corpus=corpus,
                              rules=eval_set["scoring"]["visual"])
         result["summary"]["visual_benchmark"] = result["visual_benchmark"]
-    return result
+    return _with_provenance(result, eval_set, project, families)
+
+
+def _with_provenance(result: dict, eval_set: dict, project: str,
+                     families: Sequence[str]) -> dict:
+    """The report carrying the claim's provenance.
+
+    A retrieval number is a claim about ONE pre-registered set, scored
+    against ONE project's footage, by the shipped search paths. The
+    scope says so, so a number measured on another set, or on another
+    corpus, is never read as this one.
+    """
+    stamped = dict(result)
+    stamped["provenance"] = report_provenance.header(
+        evidence_kind="live-qualification",
+        evaluation_schema=str(result.get("schema")
+                              or "ren-retrieval-evaluation/1"),
+        fixture=(f"eval set {eval_set.get('name') or 'not_recorded'}; "
+                 f"corpus {result.get('project') or 'not_recorded'}"),
+        source_commit=result.get("code_revision"),
+        run_timestamp=result.get("ran_at"),
+        producer="library/tools/retrieval_eval.py:run (ren eval-search)",
+        scope={
+            "measurement": "retrieval_evaluation",
+            "evaluation_level": "not_applicable",
+            "task_set": str(eval_set.get("name") or "not_recorded"),
+            "fixture": str(result.get("project") or "not_recorded"),
+        },
+        families=list(families),
+    )
+    return stamped
 
 
 def _editorial_by_lane(editorial: List[dict]) -> dict:

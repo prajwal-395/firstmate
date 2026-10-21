@@ -1,4 +1,35 @@
 {
+  "provenance": {
+    "environment": {
+      "machine": "not_recorded",
+      "platform": "not_recorded",
+      "python_version": "not_recorded"
+    },
+    "environment_note": "the machine that produced this report is not recorded in it",
+    "evaluation_schema": "ren-editorial-acceptance/2",
+    "evidence_kind": "live-qualification",
+    "fixture": "Ren Qualification / fm-scratch qualify (seeded)",
+    "producer": "tests/live/editorial_acceptance.py:run_tasks (driver: tests/live/editorial_live_adapter.py)",
+    "reconciliation": {
+      "denominator": "10 typed requests",
+      "how_to_read_the_two": "both are live-qualification runs of the same ten requests in different environments; the newer one does not silently replace the older one",
+      "result": "6 of 10 passed",
+      "the_older_measurement_of_the_same_measurement": "tests/live/reports/editorial-request-acceptance-2026-10-20.json (1 of 10, fixture could not be seeded)",
+      "what_this_file_measures": "the ten ordinary typed requests at evaluation level 2, run on 2026-10-21 with the qualification fixture seeded",
+      "why_the_failures_are_not_environment_failures": "the 4 failing rows are production-route refusals - no production-qualified executor for clip.delete, clip.trim's source delete, overlay.replace's delete and the camera switch - so they are supported-failed, not missing evidence"
+    },
+    "resolve_version": "not_recorded",
+    "run_timestamp": "not_recorded",
+    "run_timestamp_note": "this report predates provenance headers; the recording revision is dated 2026-10-21T01:37:46-04:00",
+    "scope": {
+      "evaluation_level": 2,
+      "fixture": "Ren Qualification / fm-scratch qualify (seeded)",
+      "measurement": "ordinary_request_acceptance",
+      "task_set": "move_lower_third,resize_logo,add_logo_five_seconds,trim_pause,replace_graphic,restyle_captions,remove_broll,insert_relevant_broll,right_speaker_camera,improve_opening"
+    },
+    "source_commit": "53a22521f31cc25c30231ff2460be06857f37e33",
+    "source_commit_note": "the revision that recorded the MEASUREMENT this file reports; the measurement predates provenance headers, so the revision it ran at is not recorded in it"
+  },
   "schema": "ren-editorial-acceptance/2",
   "evaluation_levels": [
     {

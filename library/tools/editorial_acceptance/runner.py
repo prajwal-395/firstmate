@@ -47,6 +47,7 @@ from library.tools.editorial_acceptance import (
 from library.tools.editorial_acceptance import (
     record as record_module,
 )
+from library.tools import report_provenance
 
 SCHEMA = "ren-editorial-acceptance/4"
 
@@ -304,7 +305,45 @@ def run_acceptance(records: Sequence[Mapping[str, Any]], *,
     }
     if demonstration is not None:
         report["demonstration"] = demonstration
-    return report
+    return report_provenance.stamp(
+        report,
+        evidence_kind="editorial-acceptance",
+        fixture=_fixture_of(the_set, the_catalogue),
+        producer=("library/tools/editorial_acceptance/runner.py:run_acceptance "
+                  "(ren accept)"),
+        scope={
+            "measurement": "editorial_brief_acceptance",
+            "evaluation_level": 4,
+            "task_set": str(the_set.get("sha256") or "not_recorded"),
+            "fixture": _scope_fixture(the_set),
+        })
+
+
+def _scope_fixture(the_set: Mapping[str, Any]) -> str:
+    """The fixture a brief acceptance measurement is scoped by.
+
+    The brief SET's digest, not its path: the path is where the set
+    happened to live on the machine that ran it, and a scope that
+    changes with the checkout is not a scope.
+    """
+    digest = str(the_set.get("sha256") or "")
+    return f"brief set sha256 {digest}" if digest else "brief set not_recorded"
+
+
+def _fixture_of(the_set: Mapping[str, Any],
+                catalogue: Mapping[str, Any]) -> str:
+    """The material this measurement ran against, named.
+
+    A brief acceptance report is measured against a brief SET and a
+    substrate CATALOGUE; both are named, so a reader knows which set the
+    score belongs to and cannot read it as a score of any other.
+    """
+    path = str(the_set.get("path") or "")
+    digest = str(the_set.get("sha256") or "")
+    substrates = catalogue.get("substrates") if isinstance(catalogue, Mapping) else None
+    return (f"brief set {path or 'not_recorded'}"
+            f"{' sha256 ' + digest if digest else ''}"
+            f"; substrate catalogue {len(substrates or {})} substrates")
 
 
 def _premise_view(scored_rows: Sequence[Mapping[str, Any]],
@@ -453,12 +492,14 @@ def _demonstration(records: Sequence[Mapping[str, Any]],
 
 def write_report(report: Mapping[str, Any],
                  path: str | Path | None = None) -> Path:
-    """Write the report where the live lane and the reviewer will find it."""
+    """Write the report where the live lane and the reviewer will find it.
+
+    A report measured in a different SCOPE than the one already at the
+    path is written BESIDE it, never over it: two measurements of two
+    things are not a newer and an older version of one measurement.
+    """
     target = Path(path) if path is not None else default_report_path()
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n",
-                      encoding="utf-8")
-    return target
+    return report_provenance.write_report(target, report)
 
 
 def read_records(source: str | Path) -> list[dict[str, Any]]:

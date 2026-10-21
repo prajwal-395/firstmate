@@ -40,6 +40,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from library.tools import report_provenance
+
 SCHEMA = "ren-editorial-task-record/1"
 
 #: The sections the harness reads, in the order a run produces them.
@@ -52,8 +54,11 @@ SECTIONS: tuple[str, ...] = (
 )
 
 #: The sections a record may carry beyond the five. The assessment is
-#: filled by the harness, not by the run.
-OPTIONAL_SECTIONS: tuple[str, ...] = ("assessment", "resource", "run")
+#: filled by the harness, not by the run. The PROVENANCE says which
+#: revision produced the record, on what, and when - without it a
+#: record is a claim nobody can trace to a run.
+OPTIONAL_SECTIONS: tuple[str, ...] = ("assessment", "resource", "run",
+                                      "provenance")
 
 
 class RecordError(ValueError):
@@ -125,7 +130,26 @@ def validate(record: Any) -> list[str]:
         substrate = project.get("substrate")
         if substrate is not None and not isinstance(substrate, str):
             problems.append("the project substrate is not a string")
+    provenance = record.get("provenance")
+    if provenance is not None:
+        problems.extend(
+            f"provenance: {problem}"
+            for problem in report_provenance.validate(provenance))
     return problems
+
+
+def stamp_record(record: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+    """The record carrying its provenance.
+
+    The record is the RUN's account of itself, so the provenance is the
+    run's: the revision it ran from, the environment it ran in and the
+    fixture it ran against. A record with no provenance is a record
+    nobody can trace back to a run, which is why the writer stamps one.
+    """
+    stamped = dict(record)
+    stamped["provenance"] = report_provenance.header(
+        evaluation_schema=SCHEMA, **kwargs)
+    return stamped
 
 
 def read(path: str | Path) -> dict[str, Any]:

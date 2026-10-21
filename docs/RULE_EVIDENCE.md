@@ -9029,3 +9029,43 @@ placement path re-acquires its project and timeline by identity
 refuses rather than reads through, but the cursor can still move between two
 sections that both hold the instance.
 d5c7e0b29 (Read the project Resolve has open, and say so when it is not)
+## the-report-that-replaced-the-report
+
+**The rule:** A report carries its provenance - the revision it came from, the environment, the
+fixture, the Resolve build, the time, the evaluation schema, the KIND of evidence and the SCOPE
+it was measured in - and a report measured in one scope never replaces a report measured in
+another. `library/tools/report_provenance.py`; `docs/REPORT_PROVENANCE.md`.
+
+**What happened.** `tests/live/reports/editorial-acceptance.json` held the E2E editorial workflow
+assessment (`ren-editorial-e2e-workflow-assessment/1`, ten workflows, nine incomplete, evidence
+from the repository only - no live Resolve workflow was run). PR #2952 - "Connect editorial
+workflows to assignment AXI transactions" - rewrote that file with an ordinary-request
+measurement instead (`ren-editorial-acceptance/2`, ten typed requests, 1 passed). The assessment
+was not copied anywhere first: `git show ec91965c8:tests/live/reports/editorial-acceptance.json`
+is the only place it survived.
+
+The replacement was of a DIFFERENT SCOPE - a different measurement, a different schema, a
+different denominator - and nothing in the file said so. `docs/EDITORIAL_ACCEPTANCE.md` still
+described the file as "the E2E workflow assessment", so the documentation and the file disagreed
+and nobody noticed for four days.
+
+Two ordinary-request measurements then sat side by side with the same schema and the same ten
+task ids, and no way to tell which was which: `editorial-acceptance.json` read 1 of 10, and
+`editorial-request-acceptance.json` (PR #3033) read 6 of 10. The 1-of-10 run failed nine of its
+ten rows because the qualification pool carried no `qual_a.mp4` - the fixture could not be
+seeded, so those rows measure the ENVIRONMENT. The 6-of-10 run had the fixture seeded, and its
+four failures are production-route refusals: no production-qualified executor for
+`clip.delete`, for `clip.trim`'s source delete, for `overlay.replace`'s delete, or for the camera
+switch. Two numbers, one schema, one task set, two environments, and no field that said so.
+
+**Where it is.** `library/tools/report_provenance.py` owns the vocabulary: the seven provenance
+fields, the five evidence kinds, the scope, and `write_report`, which writes a differently
+scoped report BESIDE the one at the path instead of over it and records what a same-scope
+report superseded. The writers carry it: the editorial acceptance runner and task record, the
+retrieval evaluation, the AXI qualification registry and each imported row, the performance
+profile, and the live lane's ordinary-request and blind reports.
+
+**What it does not fix.** The committed reports were produced before the header existed, so the
+machine and the time that produced them are still `not_recorded` - the header names the
+revision that RECORDED each file and does not pretend to know the revision it ran at. No live
+benchmark was re-run to obtain any of this.

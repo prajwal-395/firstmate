@@ -292,6 +292,13 @@ keeps `editorial-acceptance.json`: a typed request, an editorial brief
 and a workflow assessment are three different measurements, and one file
 holding more than one of them would make them look comparable.
 
+A fourth file holds the ordinary-request measurement of 2026-10-20
+(`editorial-request-acceptance-2026-10-20.json`, 1 of 10). It is a
+fourth MEASUREMENT rather than a fourth copy: the two ordinary-request
+runs differ in the environment they ran in, and each one carries the
+scope that says so. `docs/REPORT_PROVENANCE.md` has the vocabulary and
+the two numbers side by side.
+
 ## The recurring demonstration
 
 The punch list's section 12 asks for one benchmark task, run again and

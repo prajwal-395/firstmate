@@ -1,4 +1,27 @@
 {
+  "provenance": {
+    "environment": {
+      "machine": "not_recorded",
+      "platform": "not_recorded",
+      "python_version": "not_recorded"
+    },
+    "environment_note": "the machine that produced this report is not recorded in it",
+    "evaluation_schema": "ren-editorial-acceptance/4",
+    "evidence_kind": "editorial-acceptance",
+    "fixture": "brief set /Users/prajwal/.treehouse/video-editing-pilot-9487f5/60/video-editing-pilot/library/tools/editorial_acceptance/brief_set.json sha256 965880c76546d20010a625fccfda1614f13d6c338b9cc10e63355c5dac95cf21",
+    "producer": "library/tools/editorial_acceptance/runner.py:run_acceptance (ren accept)",
+    "resolve_version": "not_recorded",
+    "run_timestamp": "not_recorded",
+    "run_timestamp_note": "this report predates provenance headers; the recording revision is dated 2026-10-20T21:45:49-04:00",
+    "scope": {
+      "evaluation_level": 4,
+      "fixture": "brief set sha256 965880c76546d20010a625fccfda1614f13d6c338b9cc10e63355c5dac95cf21",
+      "measurement": "editorial_brief_acceptance",
+      "task_set": "965880c76546d20010a625fccfda1614f13d6c338b9cc10e63355c5dac95cf21"
+    },
+    "source_commit": "85b20281c30922d896a7d36d10ab54fc22487917",
+    "source_commit_note": "the revision that recorded the MEASUREMENT this file reports; the measurement predates provenance headers, so the revision it ran at is not recorded in it"
+  },
   "brief_set": {
     "brief_count": 8,
     "coverage": {

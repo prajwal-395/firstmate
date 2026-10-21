@@ -1234,6 +1234,7 @@ def profile(rows: list[dict[str, Any]], run_id: str) -> dict[str, Any]:
                       **{k: (round(v, 3) if isinstance(v, float) else v)
                          for k, v in b.items()}})
     external_s = max(0.0, total - own_code_s)
+    from library.tools import perf_report
     return {"run_id": run_id, "total_wall_s": round(total, 3),
             "own_code_s": round(own_code_s, 3),
             "own_code_pct": (round(100 * own_code_s / total, 1)
@@ -1258,6 +1259,7 @@ def profile(rows: list[dict[str, Any]], run_id: str) -> dict[str, Any]:
             },
             "resolve": resolve_kpis(spans, total, caps, counts=counts),
             "spans_without_capability_row": sorted(set(by_cap) - cap_names),
+            "provenance": perf_report.provenance(rows, run_id),
             **report_sections(rows, run_id)}
 
 

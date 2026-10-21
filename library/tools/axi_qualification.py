@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from library.tools import axi_qualification_dimensions as dimensions
+from library.tools import report_provenance
 
 REGISTRY_PATH = Path(__file__).resolve().with_name("axi_qualification_records.json")
 REPORT_SCHEMA = "ren-axi-qualification-result/v2"
@@ -426,13 +427,22 @@ def _read_registry(path: Path) -> dict:
 
 
 def import_result(report_path: Path, registry_path: Path = REGISTRY_PATH) -> tuple[str, str]:
-    """Import a completed result, replacing only its exact op/backend row."""
+    """Import a completed result, replacing only its exact op/backend row.
+
+    The registry itself carries the provenance of the import - the
+    revision the evidence was recorded at, and the report every row
+    came from - so a qualification is traceable to the run that earned
+    it and not only to the file that was imported. The ROW keeps the
+    shape the router reads: a row that gained a field would no longer
+    re-import from the committed evidence report it was built from.
+    """
     report = json.loads(report_path.read_text(encoding="utf-8"))
     pair, record = parse_result(report)
     payload = _read_registry(registry_path)
     key = f"{pair[0]}::{pair[1]}"
     if report.get("schema") == COMPOUND_REPORT_SCHEMA:
         payload["compound_records"][key] = record
+        payload["provenance"] = _registry_provenance(payload, report_path, pair)
         registry_path.parent.mkdir(parents=True, exist_ok=True)
         registry_path.write_text(
             json.dumps(payload, indent=2, sort_keys=True) + "\n",
@@ -445,10 +455,57 @@ def import_result(report_path: Path, registry_path: Path = REGISTRY_PATH) -> tup
         raise QualificationReportError(
             f"no registered implementation exists for {pair[0]} on {pair[1]}")
     payload["records"][key] = record
+    payload["provenance"] = _registry_provenance(payload, report_path, pair)
     registry_path.parent.mkdir(parents=True, exist_ok=True)
     registry_path.write_text(
         json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return pair
+
+
+def _fixture_of(report: Mapping[str, Any]) -> str:
+    """The fixture a qualification measurement ran against."""
+    conditions = report.get("project_conditions")
+    if isinstance(conditions, list) and conditions:
+        return "; ".join(str(condition) for condition in conditions)
+    return report_provenance.NOT_RECORDED
+
+
+def _registry_provenance(payload: Mapping[str, Any], report_path: Path,
+                         pair: tuple[str, str]) -> dict[str, Any]:
+    """The provenance of the REGISTRY: what was imported, and from where."""
+    imported = payload.get("imported")
+    rows = list(imported) if isinstance(imported, list) else []
+    entry = {
+        "operation_id": pair[0],
+        "backend": pair[1],
+        "source_report": report_path.name,
+        "source_commit": report_provenance.commit_for_path(report_path),
+    }
+    row = (payload.get("records") or {}).get(f"{pair[0]}::{pair[1]}") \
+        or (payload.get("compound_records") or {}).get(
+            f"{pair[0]}::{pair[1]}")
+    if isinstance(row, Mapping):
+        entry["resolve_version"] = row.get("resolve_version")
+    rows = [row for row in rows if not (
+        isinstance(row, Mapping)
+        and row.get("operation_id") == pair[0]
+        and row.get("backend") == pair[1])]
+    rows.append(entry)
+    payload["imported"] = sorted(
+        rows, key=lambda row: (row["operation_id"], row["backend"]))
+    return report_provenance.header(
+        evidence_kind="live-qualification",
+        evaluation_schema=REGISTRY_SCHEMA,
+        fixture="one qualification fixture per row, named by the row",
+        resolve_build=report_provenance.NOT_RECORDED,
+        producer="library/tools/axi_qualification.py:import_result",
+        scope={
+            "measurement": "axi_qualification_registry",
+            "evaluation_level": 1,
+            "task_set": "one row per operation/backend pair",
+            "fixture": "one qualification fixture per row, named by the row",
+        },
+    )
 
 
 def load_qualification_records(path: Path = REGISTRY_PATH) -> dict:

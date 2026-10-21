@@ -1,4 +1,120 @@
 {
+  "imported": [
+    {
+      "backend": "resolve_axi",
+      "operation_id": "broll.insert",
+      "resolve_version": "21.1.0.14",
+      "source_commit": "4abb1694feeed83f0a6781760e0a70fea20b0c40",
+      "source_report": "tests/live/reports/registry/broll.insert__resolve_axi.json"
+    },
+    {
+      "backend": "resolve_axi",
+      "operation_id": "caption.style",
+      "resolve_version": "21.1.0.14",
+      "source_commit": "e044751d26334d939a56ca94e5a869752c924cb5",
+      "source_report": "tests/live/reports/registry/caption.style__resolve_axi.json"
+    },
+    {
+      "backend": "edit_patch",
+      "operation_id": "clip.delete",
+      "resolve_version": "21.1.0.14",
+      "source_commit": "4abb1694feeed83f0a6781760e0a70fea20b0c40",
+      "source_report": "tests/live/reports/registry/clip.delete__edit_patch.json"
+    },
+    {
+      "backend": "resolve_axi",
+      "operation_id": "clip.delete",
+      "resolve_version": "21.1.0.14",
+      "source_commit": "00ebeb85e342c06045f2c60e408d92abe0cf1821",
+      "source_report": "tests/live/reports/registry/clip.delete__resolve_axi.json"
+    },
+    {
+      "backend": "resolve_axi",
+      "operation_id": "clip.insert",
+      "resolve_version": "21.1.0.14",
+      "source_commit": "4abb1694feeed83f0a6781760e0a70fea20b0c40",
+      "source_report": "tests/live/reports/registry/clip.insert__resolve_axi.json"
+    },
+    {
+      "backend": "resolve_axi",
+      "operation_id": "clip.remove",
+      "resolve_version": "21.1.0.14",
+      "source_commit": "e044751d26334d939a56ca94e5a869752c924cb5",
+      "source_report": "tests/live/reports/registry/clip.remove__resolve_axi.json"
+    },
+    {
+      "backend": "edit_patch",
+      "operation_id": "clip.replace",
+      "resolve_version": "21.1.0.14",
+      "source_commit": "4abb1694feeed83f0a6781760e0a70fea20b0c40",
+      "source_report": "tests/live/reports/registry/clip.replace__edit_patch.json"
+    },
+    {
+      "backend": "edit_patch",
+      "operation_id": "clip.set_property",
+      "resolve_version": "21.1.0.14",
+      "source_commit": "eb526c4f0ea491f6a0164d8bf6341dc08eb4cfe6",
+      "source_report": "tests/live/reports/registry/clip.set_property__edit_patch.json"
+    },
+    {
+      "backend": "edit_patch",
+      "operation_id": "marker.add",
+      "resolve_version": "not_recorded",
+      "source_commit": "83bb5c1c383f73e64d548485cd7aa56b75297b92",
+      "source_report": "tests/live/reports/registry/marker.add__edit_patch.json"
+    },
+    {
+      "backend": "edit_patch",
+      "operation_id": "mask.create",
+      "resolve_version": "21.1.0.14",
+      "source_commit": "00ebeb85e342c06045f2c60e408d92abe0cf1821",
+      "source_report": "tests/live/reports/registry/mask.create__edit_patch.json"
+    },
+    {
+      "backend": "resolve_axi",
+      "operation_id": "reel.opening",
+      "resolve_version": "21.1.0.14",
+      "source_commit": "55bb7c519baba276e0f6f079171a52abbc84a153",
+      "source_report": "tests/live/reports/registry/reel.opening__resolve_axi.json"
+    },
+    {
+      "backend": "edit_patch",
+      "operation_id": "retime.segments",
+      "resolve_version": "21.1.0.14",
+      "source_commit": "00ebeb85e342c06045f2c60e408d92abe0cf1821",
+      "source_report": "tests/live/reports/registry/retime.segments__edit_patch.json"
+    },
+    {
+      "backend": "edit_patch",
+      "operation_id": "track.add",
+      "resolve_version": "21.1.0.14",
+      "source_commit": "e044751d26334d939a56ca94e5a869752c924cb5",
+      "source_report": "tests/live/reports/registry/track.add__edit_patch.json"
+    }
+  ],
+  "provenance": {
+    "environment": {
+      "machine": "not_recorded",
+      "platform": "not_recorded",
+      "python_version": "not_recorded"
+    },
+    "environment_note": "the machine that produced this report is not recorded in it",
+    "evaluation_schema": "ren-axi-qualification-registry/v1",
+    "evidence_kind": "live-qualification",
+    "fixture": "one qualification fixture per row, named by the row",
+    "producer": "library/tools/axi_qualification.py:import_result",
+    "resolve_version": "not_recorded",
+    "run_timestamp": "not_recorded",
+    "run_timestamp_note": "this report predates provenance headers; the recording revision is dated 2026-10-21T03:11:12-04:00",
+    "scope": {
+      "evaluation_level": 1,
+      "fixture": "one qualification fixture per row, named by the row",
+      "measurement": "axi_qualification_registry",
+      "task_set": "one row per operation/backend pair"
+    },
+    "source_commit": "55bb7c519baba276e0f6f079171a52abbc84a153",
+    "source_commit_note": "the revision that recorded the MEASUREMENT this file reports; the measurement predates provenance headers, so the revision it ran at is not recorded in it"
+  },
   "compound_records": {},
   "records": {
     "broll.insert::resolve_axi": {

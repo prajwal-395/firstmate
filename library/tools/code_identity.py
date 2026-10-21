@@ -109,6 +109,10 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/pause_class.py",
         "library/tools/preservation_invariant.py",
         "library/tools/render_perception.py",
+        # The report provenance every live measurement carries: it is
+        # reached by this step's dependency closure, so a fix to it is a
+        # fix to the step's cached inputs.
+        "library/tools/report_provenance.py",
         "library/tools/source_quality.py",
         "library/tools/speech_take.py",
         "library/tools/temporal_events.py",
@@ -734,6 +738,10 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/pause_class.py",
         "library/tools/preservation_invariant.py",
         "library/tools/render_perception.py",
+        # The report provenance every live measurement carries: it is
+        # reached by this step's dependency closure, so a fix to it is a
+        # fix to the step's cached inputs.
+        "library/tools/report_provenance.py",
         "library/tools/source_quality.py",
         "library/tools/speech_take.py",
         "library/tools/temporal_events.py",
@@ -1373,6 +1381,10 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/pause_class.py",
         "library/tools/preservation_invariant.py",
         "library/tools/render_perception.py",
+        # The report provenance every live measurement carries: it is
+        # reached by this step's dependency closure, so a fix to it is a
+        # fix to the step's cached inputs.
+        "library/tools/report_provenance.py",
         "library/tools/source_quality.py",
         "library/tools/speech_take.py",
         "library/tools/temporal_events.py",
@@ -2051,6 +2063,10 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/pause_class.py",
         "library/tools/preservation_invariant.py",
         "library/tools/render_perception.py",
+        # The report provenance every live measurement carries: it is
+        # reached by this step's dependency closure, so a fix to it is a
+        # fix to the step's cached inputs.
+        "library/tools/report_provenance.py",
         "library/tools/source_quality.py",
         "library/tools/speech_take.py",
         "library/tools/temporal_events.py",
@@ -2710,6 +2726,10 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/pause_class.py",
         "library/tools/preservation_invariant.py",
         "library/tools/render_perception.py",
+        # The report provenance every live measurement carries: it is
+        # reached by this step's dependency closure, so a fix to it is a
+        # fix to the step's cached inputs.
+        "library/tools/report_provenance.py",
         "library/tools/source_quality.py",
         "library/tools/speech_take.py",
         "library/tools/temporal_events.py",

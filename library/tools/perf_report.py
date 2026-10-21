@@ -26,9 +26,11 @@ adds an ANALYSIS, never a second ledger.
 
 from __future__ import annotations
 
+import datetime as _dt
 from typing import Any
 
 from library.tools import perf_ledger
+from library.tools import report_provenance
 
 #: The cost dimensions a profile reports. A dimension no row measured
 #: stays `None` and is named in `dimensions_unmeasured`.
@@ -39,6 +41,53 @@ COST_DIMENSIONS = ("wall_s", "cpu_s", "model_tokens", "model_bytes",
 #: percentage (the row keeps the raw number too), so a reader can
 #: re-derive it rather than trust the band.
 MEMORY_PRESSURES = ("normal", "warn", "critical")
+
+#: The schema a performance profile is written in. It is named here
+#: because the profile is a report like any other, and a reader has to
+#: know which numbers this shape carries.
+PROFILE_SCHEMA = "ren-perf-profile/1"
+
+
+def provenance(rows: list[dict[str, Any]], run_id: str) -> dict[str, Any]:
+    """The provenance of a performance profile.
+
+    A profile is a MEASUREMENT of a run that happened, so the evidence
+    kind is the live one: these numbers came from rows a run recorded,
+    not from a fixture that answered for it. The scope says which run,
+    and the run's own window is read off the rows, so a profile cannot
+    be quoted as the cost of some other run.
+    """
+    spans = [row for row in rows
+             if row.get("run_id") == run_id
+             and row.get("started_at") is not None]
+    started = [float(row["started_at"]) for row in spans]
+    window = None
+    if started:
+        window = {
+            "first_row_at": _utc(min(started)),
+            "last_row_at": _utc(max(float(row["started_at"])
+                                    + float(row.get("wall_s") or 0.0)
+                                    for row in spans)),
+        }
+    return report_provenance.header(
+        evidence_kind="live-qualification",
+        evaluation_schema=PROFILE_SCHEMA,
+        fixture=f"the performance ledger's rows for run {run_id}",
+        producer="library/tools/perf_report.py:provenance (ren profile)",
+        scope={
+            "measurement": "performance_profile",
+            "evaluation_level": "not_applicable",
+            "task_set": f"run {run_id}",
+            "fixture": f"the performance ledger's rows for run {run_id}",
+        },
+        run_window=window,
+    )
+
+
+def _utc(epoch: float) -> str:
+    """An epoch second, in the one timestamp format reports carry."""
+    return _dt.datetime.fromtimestamp(
+        epoch, _dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 # ── PERF-001: which stage of an edit the time went to ──────────────

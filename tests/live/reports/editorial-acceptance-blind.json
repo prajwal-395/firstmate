@@ -1,4 +1,27 @@
 {
+  "provenance": {
+    "environment": {
+      "machine": "not_recorded",
+      "platform": "not_recorded",
+      "python_version": "not_recorded"
+    },
+    "environment_note": "the machine that produced this report is not recorded in it",
+    "evaluation_schema": "ren-blind-editorial-requests/1",
+    "evidence_kind": "orchestration",
+    "fixture": "Ren Qualification / fm-scratch qualify",
+    "producer": "tests/live/editorial_acceptance.py:run_blind_requests (driver: tests/live/blind_driver.py)",
+    "resolve_version": "not_recorded",
+    "run_timestamp": "not_recorded",
+    "run_timestamp_note": "this report predates provenance headers; the recording revision is dated 2026-10-20T08:51:42-04:00",
+    "scope": {
+      "evaluation_level": 3,
+      "fixture": "Ren Qualification / fm-scratch qualify",
+      "measurement": "blind_editorial_requests",
+      "task_set": "move_lower_third,resize_logo,add_logo_five_seconds,trim_pause,replace_graphic,restyle_captions,remove_broll,insert_relevant_broll,right_speaker_camera,improve_opening,compound_move_and_resize,compound_trim_and_replace"
+    },
+    "source_commit": "e639429152872256848270e4a016870d6eeac71a",
+    "source_commit_note": "the revision that recorded the MEASUREMENT this file reports; the measurement predates provenance headers, so the revision it ran at is not recorded in it"
+  },
   "schema": "ren-blind-editorial-requests/1",
   "evaluation_levels": [
     {
