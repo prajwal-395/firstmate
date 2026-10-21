@@ -634,6 +634,33 @@ def normalise_beats_declaration(raw: Any) -> dict:
             else:
                 _absolute_box(element.get("box"), f"{label}.box")
             _check_motion(element, label)
+            if element.get("spin") is not None:
+                try:
+                    float(element["spin"])
+                except (TypeError, ValueError):
+                    raise ExplainerError(
+                        f"{label}.spin is {element['spin']!r}, which is "
+                        f"not a number of degrees per second.") from None
+            if element.get("pulse") is not None:
+                pulse = element.get("pulse")
+                if not isinstance(pulse, dict):
+                    raise ExplainerError(
+                        f"{label}.pulse must be a mapping, got "
+                        f"{type(pulse).__name__}.")
+                for key in ("scale", "float", "period"):
+                    if pulse.get(key) is None:
+                        continue
+                    try:
+                        float(pulse[key])
+                    except (TypeError, ValueError):
+                        raise ExplainerError(
+                            f"{label}.pulse.{key} is {pulse[key]!r}, which "
+                            f"is not a number.") from None
+                if pulse.get("period") is not None \
+                        and float(pulse["period"]) <= 0:
+                    raise ExplainerError(
+                        f"{label}.pulse.period is {pulse['period']}; a "
+                        f"breath with no period is not a breath.")
             if element.get("drift") is not None:
                 drift = element.get("drift")
                 if (not isinstance(drift, (list, tuple)) or len(drift) != 2):
@@ -1342,6 +1369,8 @@ def plan_beats(declarations: Sequence[Any], lines: Sequence[dict],
                                       or raw.get("stay_seconds") or 0.0),
                 "drift": tuple(float(v) for v in (element.get("drift")
                                                   or (0.0, 0.0))),
+                "pulse": dict(element.get("pulse") or {}),
+                "spin": element.get("spin"),
             })
         if raw.get("elements") and not elements:
             continue
@@ -1558,6 +1587,25 @@ def beat_scene_props(beats: Sequence[Beat], declaration: dict, *,
                         {"at": max(0.0, arrival),
                          "value": rest + float(pair[index])},
                     ] + list(track)
+        # The PULSE: the element keeps CHANGING for as long as it is on
+        # the frame - it breathes.  A beat whose picture arrives and then
+        # stands still leaves the frame unchanged for the seconds the
+        # word is still being said, and the captain's frames showed
+        # exactly that ("0.5-6.5 s is the same frame").  The engine
+        # SAMPLES the pulse into keyframes, because the scene renderer's
+        # tracks are keyframed and nothing else is needed to make a
+        # picture move every frame of its life.
+        # The last beat has no next beat, so it has no exit - but it
+        # still LIVES until the end of the scene, and a picture that
+        # stops breathing when its beat is the last one is a still.
+        life_end = (exit_at if exit_at is not None
+                    else max(landing, duration_frames / float(fps or 1.0)))
+        pulse = first_entry.get("pulse") or {}
+        if pulse:
+            _apply_pulse(placement, pulse, landing, life_end, fps)
+        spin = first_entry.get("spin")
+        if spin:
+            _apply_spin(placement, float(spin), landing, life_end, fps)
         # The DRIFT: the element keeps MOVING for as long as it is on
         # the frame.  An element that arrives and then stands still is a
         # card, and a card is not an animation - the tutorial's lesson
@@ -1634,6 +1682,19 @@ def beat_scene_props(beats: Sequence[Beat], declaration: dict, *,
         arrival = _beat_arrival(beat, start_seconds)
         opacity = [{"at": max(0.0, arrival), "value": 0.0},
                    {"at": max(0.0, landing), "value": 1.0}]
+        # The label LEAVES with its beat.  A label that stays on the
+        # frame after its beat is over prints itself over the NEXT
+        # beat's label in the same box, and the smear that follows is
+        # unreadable (the captain's frames, 2026-10-21).
+        position = ordered.index(beat)
+        exit_at = None
+        if position + 1 < len(ordered):
+            exit_at = _beat_arrival(ordered[position + 1], start_seconds)
+        ramp = beat_ramp_seconds(beat.exit or "cut", fps)
+        if exit_at is not None:
+            fade_start = max(landing, exit_at - ramp)
+            opacity += [{"at": fade_start, "value": 1.0},
+                        {"at": max(fade_start, exit_at), "value": 0.0}]
         label_placement = _world_box(beat.label_box, width, height)
         label_placement["opacity"] = opacity
         layers.append({
@@ -1700,6 +1761,86 @@ def _put_key(track: Any, at: float, value: float) -> List[dict]:
     keys = [k for k in keys if float(k["at"]) < at - 1e-9]
     keys.append({"at": at, "value": value})
     return keys
+
+
+def _track_value_at(track: Any, at: float) -> float:
+    """The value a keyframed track holds at `at`.
+
+    The tracks here are flat (a value changes at a keyframe and holds
+    until the next), which is what the scene renderer draws.
+    """
+    if isinstance(track, (int, float)):
+        return float(track)
+    value = 0.0
+    for key in track or ():
+        if float(key["at"]) <= at:
+            value = float(key["value"])
+        else:
+            break
+    return value
+
+
+def _apply_spin(placement: dict, degrees_per_second: float, landing: float,
+                exit_at: float, fps: float) -> None:
+    """The element TURNS for as long as it is on the frame.
+
+    A picture that only breathes can still read as a still; a picture
+    that turns cannot.  The rate is the declaration's - the engine
+    states no rate of its own (AGENTS.md 10.5) - and it is sampled into
+    the rotation track the scene renderer already reads.
+    """
+    start = max(0.0, landing)
+    end = max(start + 1e-6, exit_at)
+    step = max(1, int(round(float(fps) / 8.0)))
+    at = start
+    while at < end:
+        placement["rotate"] = _put_key(
+            placement.get("rotate"), at,
+            degrees_per_second * (at - start))
+        at += step / float(fps or 1.0)
+
+
+def _apply_pulse(placement: dict, pulse: dict, landing: float,
+                 exit_at: float, fps: float) -> None:
+    """Sample a PULSE into the placement's tracks.
+
+    `scale` is how much the element breathes (a share of its own size)
+    and `float` how far it rises and falls (world units); `period` is
+    how long one breath takes.  All three are the declaration's - the
+    engine states no rate of its own (AGENTS.md 10.5).  The samples are
+    keyframes on the tracks the scene renderer already reads, so a
+    breathing element needs no new drawing code.
+    """
+    import math
+
+    scale = float(pulse.get("scale") or 0.0)
+    rise = float(pulse.get("float") or 0.0)
+    period = float(pulse.get("period") or 0.0)
+    if period <= 0 or (scale == 0.0 and rise == 0.0):
+        return
+    start = max(0.0, landing)
+    end = max(start + 1e-6, exit_at)
+    step = max(1, int(round(float(fps) * period / 6.0)))
+    samples: List[float] = []
+    at = start
+    while at < end:
+        samples.append(at)
+        at += step / float(fps or 1.0)
+    if not samples:
+        return
+    width_track = placement.get("width")
+    y_track = placement.get("y")
+    for at in samples:
+        phase = 2.0 * math.pi * ((at - start) / period)
+        breath = math.sin(phase)
+        if scale:
+            base = _track_value_at(width_track, at)
+            placement["width"] = _put_key(
+                placement.get("width"), at, base * (1.0 + scale * breath))
+        if rise:
+            base = _track_value_at(y_track, at)
+            placement["y"] = _put_key(
+                placement.get("y"), at, base - rise * breath)
 
 
 def _scene_layer(entry: dict, prefix: str, width: int, height: int,

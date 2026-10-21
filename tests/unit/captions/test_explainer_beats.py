@@ -599,3 +599,89 @@ def test_a_persistent_layer_with_neither_picture_nor_type_is_refused():
              "hold_seconds": 1.0,
              "persistent": [{"box": [0, 0, 10, 10]}]})
     assert "neither an asset nor text" in str(nothing.value)
+
+
+# ── Something must visibly change INSIDE a beat ──────────────────────
+
+def test_a_pulsing_element_changes_on_every_frame_of_its_life():
+    """A beat whose picture arrives and then stands still leaves the
+    frame unchanged for the seconds the word is still being said.
+
+    "0.5-6.5 s is the same frame ... something must visibly change every
+    beat and inside each beat" (the captain's frames, 2026-10-21).  A
+    PULSE is the declaration's breathing: the engine samples it into
+    keyframes on the tracks the scene renderer already reads.
+    """
+    declaration = _declaration()
+    declaration["beats"] = [{
+        "quote": "answers specific questions",
+        "elements": [{"id": "pic", "asset": "brand_assets/question.svg",
+                      "box": [40, 210, 1040, 1210],
+                      "entrance": "scale",
+                      "motion": {"scale_from": 0.86},
+                      "pulse": {"scale": 0.06, "period": 1.0}}],
+    }]
+    declared = ex.normalise_beats_declaration(declaration)
+    anchored = ex.plan_beats(declared[ex.BEATS_KEY], _lines(), 10.0,
+                              resolve_asset=_resolve, fps=23.976)
+    props = ex.beat_scene_props(
+        anchored.beats, declared, width=1080, height=1920, fps=23.976,
+        duration_frames=240, start_seconds=0.0)
+    image = [l for l in props["layers"] if l["kind"] == "image"][0]
+    width = image["placement"]["width"]
+    values = [k["value"] for k in width]
+    assert len(values) > 6, values
+    # It is not one number repeated: the element is a different size on
+    # different frames of its own life.
+    assert len(set(values)) > 3, values
+
+
+def test_a_pulse_with_no_period_is_refused():
+    """A breath with no period is not a breath."""
+    declaration = _declaration()
+    declaration["beats"] = [{
+        "quote": "customer",
+        "elements": [{"id": "pic", "asset": "brand_assets/pic.svg",
+                      "box": [0, 0, 10, 10],
+                      "pulse": {"scale": 0.05, "period": 0}}],
+    }]
+    with pytest.raises(ex.ExplainerError) as no_period:
+        ex.normalise_beats_declaration(declaration)
+    assert "period" in str(no_period.value)
+
+
+def test_a_spinning_element_turns_for_as_long_as_it_is_there():
+    """A picture that only breathes can still read as a still."""
+    declaration = _declaration()
+    declaration["beats"] = [{
+        "quote": "answers specific questions",
+        "elements": [{"id": "pic", "asset": "brand_assets/question.svg",
+                      "box": [40, 210, 1040, 1210],
+                      "spin": 30}],
+    }]
+    declared = ex.normalise_beats_declaration(declaration)
+    anchored = ex.plan_beats(declared[ex.BEATS_KEY], _lines(), 10.0,
+                              resolve_asset=_resolve, fps=23.976)
+    props = ex.beat_scene_props(
+        anchored.beats, declared, width=1080, height=1920, fps=23.976,
+        duration_frames=240, start_seconds=0.0)
+    image = [l for l in props["layers"] if l["kind"] == "image"][0]
+    rotate = image["placement"]["rotate"]
+    assert isinstance(rotate, list) and len(rotate) > 3, rotate
+    assert rotate[-1]["value"] > rotate[0]["value"], rotate
+
+
+def test_a_label_leaves_with_its_beat():
+    """A label that stays on the frame after its beat is over prints
+    itself over the NEXT beat's label in the same box, and the smear
+    that follows is unreadable (the captain's frames, 2026-10-21)."""
+    anchored = ex.plan_beats(
+        _declaration()["beats"], _lines(), 10.0, resolve_asset=_resolve)
+    props = ex.beat_scene_props(
+        anchored.beats, _declaration(), width=1080, height=1920,
+        fps=23.976, duration_frames=240, start_seconds=0.0)
+    labels = [l for l in props["layers"] if l["id"].startswith("label-")]
+    assert labels
+    for label in labels:
+        opacity = label["placement"]["opacity"]
+        assert opacity[-1]["value"] == 0.0, opacity
