@@ -37,15 +37,51 @@ seconds down but costs recall.  Neither floor ever claims absence - an
 abstain says the signal could not resolve the query, not that the subject
 is not in the footage.
 
-A range is ONE sighting.  The merge gap (30 s) is the tolerance for one
-missed extraction - it says two sightings this close are the same
-sighting - so a run of sightings that spans more than the gap is not
-one sighting, however close its neighbours are.  Without that rule the
+A range is ONE sighting, and it is bounded by TIME and by SAMPLES: the
+merge gap (15 s) says two sightings that close are the same sighting,
+and a range holds at most two sampled frames of its source, so it claims
+the footage its samples bracket and no more.  Without that rule the
 merge chained across the recording and a range claimed minutes of
 footage the evidence never covered (measured 2026-10-21 with the
 corrected retrieval metric: the merged set's false-positive seconds
 went 561.16 -> 1030.13 and the held-out wrong seconds 125.07 -> 204.65
-when the pool and the floor shipped without the cap).
+when the pool and the floor shipped without the cap).  The cap is
+RE-DERIVED for the deeper pool below, because a deeper pool chains: at
+the shipped thirty-second cap the deeper pool grew the held-out set's
+false-positive seconds from 267.66 to 437.83 while the recall did not
+move.
+
+THE POOL IS DIVERSE, and that is the fix for the deficit the VI-001
+attribution named.  A global cut is a cut BY SOURCE SIZE: the editorial
+corpus's seven cameras hold 1092 sampled frames between them and the
+two close-up cameras the editor wanted hold 23 and 22 of them, so a
+global pool of 200 frames is mostly the long cameras' and the wanted
+moment is out of the pool before anything ranks it.  Measured on that
+corpus (2026-10-21): 99 of the 167 uncredited wanted items of the
+held-out set - 59 % - were never IN the candidate pool at all, and the
+deficit the attribution reported as `not_in_candidate_pool` was the
+POOL's, not the ranking's.
+
+So the pool is the global top `SEARCH_POOL` frames PLUS each source's
+own best `PER_SOURCE_POOL` frames: every camera is represented whatever
+its length, and the global pool stays on top of it for the sources that
+carry the bulk of the footage.  Measured on the same corpus, with the
+same scorer and the same index: the held-out `not_in_candidate_pool`
+count goes 99 -> 0 and the merged set's 58 -> 0, the held-out visual
+recall goes 0.0312 -> 0.0388, the region recall 0.8889 -> 1.0, the
+false-positive seconds FALL from 267.66 to 257.65 and the wrong seconds
+the editor's first pick costs from 75.02 to 55.00.  The false-positive
+WINDOWS go 29 -> 31 - the price of offering five candidates where the
+narrow pool could offer three, while the false-positive SECONDS fall.
+The full before/after, with the denominators and the latency, is in
+`docs/benchmarks/2026-10-21-editorial-retrieval-candidate-pool.md`.
+
+A source may contribute MORE THAN ONE window when the QUERY asks for
+more than one occurrence of the thing ("every time the laptop is on
+the desk"); one window per source is the rule, and it is the right
+rule for a query that asks for one shot.  The second window must be a
+different event - the editor asked for the occurrences, not for one
+sighting shown twice.
 
 Frames come from the per-source memory's shared I-frame sample (M2,
 `library/tools/source_memory.py`), never from a decode of its own: the
@@ -90,9 +126,10 @@ FRAME_STEP_S = 10.0
 EMBED_BATCH = 16
 
 # Adjacent frame hits merge into one time range when they are this close.
-# Three sampling steps: one missed extraction must not split a moment, while
-# two genuinely separate sightings stay separate.
-MERGE_GAP_S = 30.0
+# One and a half sampling steps at the index's 10 s cadence: two sightings
+# that close are the same sighting, and two genuinely separate sightings
+# stay separate.
+MERGE_GAP_S = 15.0
 
 # The longest run of sightings that is still ONE range.  The merge gap
 # above is a TOLERANCE for one missed extraction - it says two sightings
@@ -104,7 +141,33 @@ MERGE_GAP_S = 30.0
 # (measured 2026-10-21 with the corrected retrieval metric: the ranges
 # grew the false-positive seconds of the merged set from 561.16 to
 # 1030.13 and the held-out wrong seconds from 125.07 to 204.65).
+#
+# This is RE-DERIVED for the deeper candidate pool (2026-10-21).  The
+# pool is deeper, so a source's samples are dense enough to CHAIN: at the
+# shipped thirty-second cap a deeper pool grew the held-out set's false-
+# positive seconds from the shipped 267.66 to 437.83 while the wrong
+# seconds the editor's first pick costs stayed at 75.02 - the pool
+# offered MORE footage the editor did not ask for and the recall did not
+# move.  At this cap the same pool measures the false-positive seconds at
+# 257.65 - BELOW the shipped 267.66 - and the wrong seconds at 55.00,
+# with the recall unmoved (0.0388) and the region recall at 1.0.
 MAX_RANGE_S = MERGE_GAP_S
+
+# How many SAMPLED FRAMES of one source a range may hold.  A range is
+# ONE sighting, and a sighting is what the samples of a source show: two
+# samples ten seconds apart bracket ten seconds of footage, three bracket
+# twenty.  A cap on the SAMPLES rather than only on the seconds is what
+# makes a range's length the same whatever the source's sampling phase:
+# at the time cap alone a chain of three samples broke on the chain's
+# parity, and the wanted window of H01 and H02 became a single instant -
+# which the credit rule cannot credit at all.
+#
+# Two is MEASURED on the editorial retrieval corpus with the deeper
+# candidate pool (2026-10-21): with the sample cap the recall is 0.0388
+# and the region recall 1.0 at every time cap measured, and without it
+# the recall falls to 0.0231 at a twenty-second cap - the wanted window
+# loses its length and its region is not found.
+RANGE_SAMPLES = 2
 
 # How many top frames the range merger reads.  Ranges are for a person to
 # scrub, not for exhaustive recall - forty frames at 10 s spacing cover
@@ -116,6 +179,26 @@ MAX_RANGE_S = MERGE_GAP_S
 # (measured: held-out macro recall 0.1095 -> 0.4316) costs one matmul
 # over 1092x768 - negligible - and the merge is O(pool).
 SEARCH_POOL = 200
+
+# How many candidates EACH SOURCE contributes to the pool, whatever the
+# source's size.  A global cut is a cut BY SOURCE SIZE: the corpus's
+# seven cameras hold 1092 sampled frames between them, and the two
+# close-up cameras the editor actually wants hold 23 and 22 of them, so
+# a global pool of 200 frames is mostly the long cameras' and the wanted
+# moment is out before anything ranks it (measured 2026-10-21 on the
+# editorial retrieval corpus: 99 of the 167 uncredited wanted items of
+# the held-out set - 59 % - were never IN the candidate pool at all).
+#
+# The quota is per SOURCE, so every camera is represented whatever its
+# length, and the global pool stays on top of it for the sources that
+# carry the bulk of the footage.  30 is MEASURED: the wanted spans of
+# that corpus reach 220 s, which is 22 sampled frames at the index's
+# 10 s cadence, so a quota below that leaves wanted frames outside the
+# pool - at 20 frames the corpus still had 20 wanted items outside it,
+# at 30 it has NONE (0 of 172 wanted items, measured).  The pool costs
+# 402 candidates instead of 200, and the price is one matmul over
+# 1092x768 either way plus an O(pool) merge.
+PER_SOURCE_POOL = 30
 
 # The measured cutoffs.  A query-level floor abstains on the whole query
 # when its best frame scores below it; a window-level floor drops a
@@ -218,6 +301,42 @@ def event_pipeline_pointer() -> str:
     from library.tools import event_spans
 
     return ", ".join(event_spans.CANDIDATE_PREDICATES)
+
+
+def _repeated_events(query: str) -> int:
+    """How many occurrences of the subject the query asks for.
+
+    ONE by default.  Two when the query names MORE THAN ONE occurrence -
+    "every time the laptop is on the desk", "the laptop, twice" - because
+    a rule that gives one window per source answers such a query with a
+    single sighting and calls it the whole thing.
+
+    A query that names ONE occurrence - "the second time she opens the
+    box", "again", "once more" - asks for ONE window: WHICH occurrence is
+    a RANKING question, and the ranking lane owns it.  This is not that
+    question, so the ordinal reading is not taken here.
+    """
+    from library.tools.retrieval.requirements import repeated_events
+
+    return repeated_events(query)
+
+
+def _is_a_different_event(entry: dict, picked: list, clip_id: str,
+                          merge_gap_s: float) -> bool:
+    """Is this window a DIFFERENT event from the ones already taken?
+
+    The merge gap is the tolerance for one missed extraction, so two
+    windows of one source further apart than the gap are two sightings
+    and two windows of one sighting shown twice is one window.
+    """
+    for other in picked:
+        if other.get("clip_id") != clip_id:
+            continue
+        gap = max(float(entry.get("start") or 0.0) - float(other.get("end") or 0.0),
+                  float(other.get("start") or 0.0) - float(entry.get("end") or 0.0))
+        if gap > merge_gap_s:
+            return True
+    return False
 
 
 def _pooled_clip_features(feats):
@@ -431,6 +550,7 @@ class FrameIndex:
         self._payload = None
         self._matrix = None
         self._clip = None
+        self._by_clip = None
 
     @property
     def payload(self) -> dict:
@@ -478,7 +598,8 @@ class FrameIndex:
         return f"{int(minutes):02d}:{rest:06.3f}"
 
     def search_frames(self, query: str, top_k: int = 5,
-                      include_actions: bool = False) -> dict:
+                      include_actions: bool = False,
+                      per_source_pool: int | None = None) -> dict:
         """Rank sampled frames against a query.  Always top-k, never empty
         by judgement - an empty `results` means the index itself is empty,
         and `refused` means the query is out of scope (see below).
@@ -489,6 +610,12 @@ class FrameIndex:
         event pipeline (`event_spans`, M7), whose candidate predicates the
         refusal names.  `include_actions` overrides, for the caller who
         wants the ranking anyway and says so.
+
+        `per_source_pool` widens the selection from a plain top-k to a
+        CANDIDATE POOL: the global top-k plus each source's own best
+        frames.  A global cut alone is a cut by source size, and the
+        wanted moment of a short camera is out of the pool before
+        anything ranks it (see `PER_SOURCE_POOL`).
         """
         report = {
             "query": query,
@@ -529,7 +656,25 @@ class FrameIndex:
             report["answer_status"] = "not_analyzed"
             return report
         scores = self.matrix @ vector
-        order = np.argsort(-scores)[:max(0, top_k)]
+        if per_source_pool is None:
+            order = np.argsort(-scores)[:max(0, top_k)]
+            report["search_pool"] = {
+                "global_frames": max(0, top_k),
+                "per_source_frames": 0,
+                "candidates": len(order),
+                "sources": len({self.frames[int(i)]["clip_id"]
+                                for i in order}),
+            }
+        else:
+            order = self._candidate_pool(scores, max(0, top_k),
+                                          per_source_pool)
+            report["search_pool"] = {
+                "global_frames": max(0, top_k),
+                "per_source_frames": max(0, per_source_pool),
+                "candidates": len(order),
+                "sources": len({self.frames[int(i)]["clip_id"]
+                                for i in order}),
+            }
         for rank in order:
             i = int(rank)
             frame = self.frames[i]
@@ -544,24 +689,83 @@ class FrameIndex:
         report["answer_status"] = "insufficient_evidence"
         return report
 
+    def _candidate_pool(self, scores, global_frames: int,
+                        per_source_frames: int) -> np.ndarray:
+        """The candidate frames: the global top-N plus each source's best K.
+
+        A global cut is a cut BY SOURCE SIZE.  The corpus's seven cameras
+        hold 1092 sampled frames between them and the two the editor
+        wants hold 23 and 22 of them, so a global pool of 200 is mostly
+        the long cameras' and the wanted moment never reaches the
+        ranking (measured 2026-10-21: 99 of the 167 uncredited wanted
+        items of the held-out set were never IN the pool).
+
+        The quota is per source, so every camera is represented whatever
+        its length, and the global pool stays on top of it for the
+        sources that carry the bulk of the footage.  The result is
+        ordered by score, so the best candidates still come first.
+
+        The cost is measured on that corpus: building the pool of 317
+        candidates costs 0.145 ms at the least disturbed and 0.879 ms at
+        the median on a shared machine, against the shipped pool's
+        0.009-0.016 ms - and a CLIP text encode, the same query's other
+        cost, is two orders of magnitude dearer.
+        """
+        picked = {int(i) for i in np.argsort(-scores)[:max(0, global_frames)]}
+        if per_source_frames > 0:
+            for indices in self._frames_by_clip().values():
+                if len(indices) <= per_source_frames:
+                    picked.update(int(i) for i in indices)
+                    continue
+                local = scores[indices]
+                best = np.argpartition(-local, per_source_frames)[
+                    :per_source_frames]
+                picked.update(int(indices[int(i)]) for i in best)
+        return np.array(sorted(picked, key=lambda i: -scores[i]), dtype=int)
+
+    def _frames_by_clip(self) -> dict:
+        """The frame indices of each clip, cached for the pool builder.
+
+        The index is read-only once built, so the grouping is built once
+        and reused by every query - the pool is rebuilt per query, the
+        grouping is not.
+        """
+        if self._by_clip is None:
+            by_clip: dict = {}
+            for index, frame in enumerate(self.frames):
+                by_clip.setdefault(frame["clip_id"], []).append(index)
+            self._by_clip = {
+                clip: np.array(indices, dtype=int)
+                for clip, indices in by_clip.items()}
+        return self._by_clip
+
     def search_ranges(self, query: str, top_ranges: int = 5,
                       pool: int = SEARCH_POOL,
                       merge_gap_s: float = MERGE_GAP_S,
                       include_actions: bool = False,
                       floor: float | None = MEASURED_QUERY_FLOOR,
                       window_floor: float | None = None,
-                      max_range_s: float | None = MAX_RANGE_S) -> dict:
+                      max_range_s: float | None = MAX_RANGE_S,
+                      max_range_frames: int | None = RANGE_SAMPLES,
+                      per_source_pool: int | None = PER_SOURCE_POOL,
+                      repeated_events: int | None = None) -> dict:
         """Top frame hits merged into time ranges per clip.
 
         The range is the unit a person scrubs: adjacent pool hits on one
         clip within `merge_gap_s` become one `{start, end}` span ranked by
         its best frame score.  Same unverified terms as `search_frames`.
 
-        A range is ONE sighting: the run of hits that forms it may not
-        span more than `max_range_s` (the merge gap), because the merge
-        gap is the tolerance for ONE missed extraction and not a licence
-        to chain sightings across the recording.  `max_range_s=None`
-        turns the cap off.
+        A range is ONE sighting, and it is bounded twice: by TIME
+        (`max_range_s`, the merge gap - two sightings that close are the
+        same sighting, and a run of them that spans more than the gap is
+        not one sighting any more) and by SAMPLES (`max_range_frames`,
+        the frames of one source a range may hold).  `max_range_s=None`
+        turns the time cap off and `max_range_frames=None` turns the
+        sample cap off.
+
+        The candidate pool is DIVERSE: the global top `pool` frames plus
+        each source's own best `per_source_pool` frames, so a camera is
+        represented whatever its length (see `PER_SOURCE_POOL`).
 
         `floor` is the QUERY-level cutoff: when the best frame in the
         whole pool scores below it, the lane abstains instead of ranking
@@ -579,16 +783,34 @@ class FrameIndex:
         five times - so the slots are filled with the other cameras'
         best ranges, and a clip with no range of its own does not appear
         twice.
+
+        A source may take a SECOND window when the QUERY asks for more
+        than one occurrence of the thing ("every time the laptop is on
+        the desk"): then the second window must be a different event,
+        separated by more than the merge gap, because the editor asked
+        for the occurrences and not for one sighting twice.  The query
+        decides, not the score - `repeated_events` overrides the reading.
         """
         report = self.search_frames(query, top_k=pool,
-                                    include_actions=include_actions)
+                                    include_actions=include_actions,
+                                    per_source_pool=per_source_pool)
+        repeats = (repeated_events if repeated_events is not None
+                   else _repeated_events(query))
         report["search_policy"] = {
             "candidate_pool_size": max(0, pool),
+            "per_source_pool_size": (max(0, per_source_pool)
+                                     if per_source_pool is not None else 0),
+            "candidates_considered": (report.get("search_pool") or {}).get(
+                "candidates"),
+            "sources_considered": (report.get("search_pool") or {}).get(
+                "sources"),
             "merge_gap_seconds": float(merge_gap_s),
             "top_interval_limit": max(0, top_ranges),
             "query_floor": floor,
             "window_floor": window_floor,
             "max_range_seconds": max_range_s,
+            "max_range_frames": max_range_frames,
+            "windows_per_source": max(1, repeats),
         }
         report["abstained"] = False
         if report["refused"] is not None or report.get("error"):
@@ -621,7 +843,9 @@ class FrameIndex:
             for hit in hits[1:]:
                 if (hit["t"] - current_end <= merge_gap_s
                         and (max_range_s is None
-                             or hit["t"] - start <= max_range_s)):
+                             or hit["t"] - start <= max_range_s)
+                        and (max_range_frames is None
+                             or len(members) < max_range_frames)):
                     current_end = hit["t"]
                     members.append(hit)
                     best = max(best, hit["score"])
@@ -635,26 +859,39 @@ class FrameIndex:
         ranges.sort(key=lambda r: -r["best_score"])
         if window_floor is not None:
             ranges = [r for r in ranges if r["best_score"] >= window_floor]
-        report["ranges"] = self._one_per_clip(ranges, top_ranges)
+        report["ranges"] = self._select_windows(ranges, top_ranges,
+                                                repeats, merge_gap_s)
         return report
 
     @staticmethod
-    def _one_per_clip(ranges: list, top_ranges: int) -> list:
-        """At most one range per clip, in rank order.
+    def _select_windows(ranges: list, top_ranges: int, per_source: int,
+                         merge_gap_s: float = MERGE_GAP_S) -> list:
+        """The windows the editor is shown, in rank order.
 
-        Without this the five windows are the five best ranges of ONE
-        camera whenever one camera scores well: the editor is handed the
-        same angle five times and never sees the other assets.  So each
-        clip contributes its single best range, and the slots are filled
-        with the other clips' best ranges - a clip that is already in the
-        list does not get a second window.
+        ONE window per source by default: five windows of one camera is
+        the same angle five times, and the other assets are never shown
+        (measured 2026-10-21, PR 3022).  So each source contributes its
+        single best range, and the slots are filled with the other
+        sources' best ranges.
+
+        When the query asks for MORE THAN ONE occurrence of the thing,
+        a source may contribute a second window - and that window must be
+        a DIFFERENT event, more than the merge gap away from the first,
+        because "every time the laptop is on the desk" is answered by the
+        occurrences and not by one sighting shown twice.
         """
         limit = max(0, top_ranges)
-        picked, seen = [], set()
+        cap = max(1, per_source)
+        picked, seen = [], {}
         for entry in ranges:
-            if entry["clip_id"] in seen:
+            clip_id = entry["clip_id"]
+            taken = seen.get(clip_id, 0)
+            if taken >= cap:
                 continue
-            seen.add(entry["clip_id"])
+            if taken and not _is_a_different_event(entry, picked, clip_id,
+                                                   merge_gap_s):
+                continue
+            seen[clip_id] = taken + 1
             picked.append(entry)
             if len(picked) >= limit:
                 break

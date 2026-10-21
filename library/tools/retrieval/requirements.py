@@ -201,6 +201,20 @@ REPETITION_CUES = (
 """A count of occurrences.  "the second time she opens the box" names an
 ordinal, and the ordinal is part of the requirement, not decoration."""
 
+REPEATED_EVENT_CUES = (
+    "every time", "each time", "all the times", "both times", "twice",
+    "two times", "repeatedly", "throughout",
+)
+"""A query that asks for MORE THAN ONE occurrence of the thing.
+
+"the moment she opens the box" asks for one occurrence and one window.
+"every time she opens the box" asks for the occurrences, and the answer
+needs more than one window from the same source - a rule that gives one
+window per source answers it with a single sighting and calls it the
+whole thing.  This is the reading the candidate generation uses to let a
+source contribute a second window (`library.tools.analysis.footage_frames`
+`REPEATED_EVENT_WINDOWS`)."""
+
 DURATION_CUES = ("how long", "for how long", "pause", "pauses", "paused",
                  "for a moment", "for a second", "briefly", "shortly")
 """How long something lasts."""
@@ -689,6 +703,28 @@ def decompose(query: str) -> RetrievalPlan:
 def plan_for(query: str) -> dict:
     """`decompose`, as a plain dict, for callers that serialise a plan."""
     return decompose(query).to_dict()
+
+
+def repeated_events(query: str) -> int:
+    """How many occurrences of the subject the query asks for.
+
+    ONE by default.  Two when the query names MORE THAN ONE occurrence -
+    "every time she opens the box", "the laptop, twice".
+
+    A query that names ONE occurrence - "the second time she opens the
+    box", "again", "once more" - asks for ONE window: WHICH occurrence is
+    a RANKING question, and the ranking lane owns it.  So the ordinal
+    reading is not taken here, and this says one.
+
+    The caller is the candidate generation, which lets one source
+    contribute a second window when the query asks for more than one
+    occurrence (`library.tools.analysis.footage_frames`).
+    """
+    lowered = (query or "").lower()
+    for cue in REPEATED_EVENT_CUES:
+        if cue in lowered:
+            return 2
+    return 1
 
 
 def describe(plan: RetrievalPlan) -> str:

@@ -30,6 +30,7 @@ from library.tools.retrieval.requirements import (
     RetrievalRequirement,
     UnknownRequirement,
     decompose,
+    repeated_events,
     requirement_kinds,
 )
 
@@ -63,6 +64,20 @@ def test_the_second_time_carries_its_ordinal():
     assert repetition, "'the second time' is a count, and a count is a requirement"
     assert repetition[0].ordinal == 2, (
         "the ordinal decides WHICH occurrence, and it is not decoration")
+
+
+def test_a_query_naming_more_than_one_occurrence_asks_for_more_than_one():
+    """VI-002: the candidate generation lets one source contribute a
+    second window when the query asks for the OCCURRENCES.
+
+    A query that names ONE occurrence asks for one window: which
+    occurrence is a ranking question, and the ranking lane owns it.
+    """
+    assert repeated_events("a shot of the laptop on the desk") == 1
+    assert repeated_events("the second time she opens the box") == 1
+    assert repeated_events("the laptop on the desk, again") == 1
+    assert repeated_events("every time the laptop is on the desk") == 2
+    assert repeated_events("the laptop on the desk, twice") == 2
 
 
 def test_a_connective_between_two_clauses_is_a_temporal_requirement():

@@ -1,0 +1,5088 @@
+{
+ "eval_set": "editorial-retrieval-v1",
+ "eval_categories": [],
+ "ran_at": "2026-10-21T05:38:11+00:00",
+ "code_revision": "03ac1f7f606af076994ff72a3fe07f5f99c06472",
+ "project": "ren-scratch-retrieval-bench",
+ "assets_missing_from_project": [],
+ "sealed_labels_applied": [],
+ "summary": {
+  "editorial": {
+   "queries_present": 12,
+   "queries_absent": 4,
+   "queries_unlabelled": 0,
+   "queries_refused": 0,
+   "refusals_correct": 0,
+   "macro_recall": 0.4573,
+   "macro_precision": 0.5,
+   "macro_recall_uncredited": 0.6299,
+   "macro_region_recall": 0.6111,
+   "credit_cap": "one credit per window per region",
+   "excess_seconds": 64.09,
+   "by_lane": {
+    "text": {
+     "queries_present": 9,
+     "queries_absent": 2,
+     "queries_unlabelled": 0,
+     "queries_refused": 0,
+     "macro_recall": 0.6019,
+     "macro_recall_uncredited": 0.8241,
+     "macro_precision": 0.6375,
+     "absent_abstained": 2
+    },
+    "visual": {
+     "queries_present": 3,
+     "queries_absent": 2,
+     "queries_unlabelled": 0,
+     "queries_refused": 0,
+     "macro_recall": 0.0236,
+     "macro_recall_uncredited": 0.0472,
+     "macro_precision": 0.1333,
+     "absent_abstained": 2
+    }
+   },
+   "absent_abstained": 4,
+   "requirement_recall": 1.0,
+   "requirement_agreement": 16,
+   "requirement_queries": 16,
+   "declared_modalities_missed": [],
+   "false_positive_consequence": {
+    "queries": 16,
+    "wrong_seconds_selected": 74.17,
+    "missing_seconds": 1161.04,
+    "ground_truth_seconds": 1209.74,
+    "coverage_fraction": 0.0403,
+    "shadowing_queries": 6,
+    "false_positive_windows": 27,
+    "false_positive_seconds": 390.99
+   }
+  },
+  "stage_attribution": {
+   "question": "which stage of retrieval lost the wanted moment",
+   "stages": [
+    "never_sampled",
+    "extraction_evidence_unavailable",
+    "never_transcribed",
+    "never_indexed",
+    "not_in_candidate_pool",
+    "removed_by_query_floor",
+    "removed_by_window_floor",
+    "ranked_too_low",
+    "temporal_localization",
+    "not_presented",
+    "touched_within_tolerance",
+    "point_window_not_credited",
+    "credited_to_sibling_in_region",
+    "credited"
+   ],
+   "declared_categories": [],
+   "pipeline_stages": [
+    "candidate_generation",
+    "credit_accounting",
+    "extraction_coverage",
+    "found",
+    "indexing",
+    "ranking",
+    "result_presentation",
+    "retrieval_floor",
+    "temporal_localization"
+   ],
+   "retrieval_failure_stages": [
+    "extraction_evidence_unavailable",
+    "never_indexed",
+    "never_sampled",
+    "never_transcribed",
+    "not_in_candidate_pool",
+    "not_presented",
+    "ranked_too_low",
+    "removed_by_query_floor",
+    "removed_by_window_floor",
+    "temporal_localization"
+   ],
+   "credit_accounting_stages": [
+    "credited_to_sibling_in_region",
+    "point_window_not_credited",
+    "touched_within_tolerance"
+   ],
+   "by_lane": {
+    "text": {
+     "touched_within_tolerance": 2,
+     "ranked_too_low": 2,
+     "removed_by_query_floor": 1
+    },
+    "visual": {
+     "not_presented": 40,
+     "temporal_localization": 4,
+     "ranked_too_low": 38,
+     "credited_to_sibling_in_region": 2
+    }
+   },
+   "by_category": {
+    "uncategorised": {
+     "touched_within_tolerance": 2,
+     "ranked_too_low": 40,
+     "not_presented": 40,
+     "temporal_localization": 4,
+     "credited_to_sibling_in_region": 2,
+     "removed_by_query_floor": 1
+    }
+   },
+   "by_requirement_kind": {
+    "textual:speech_content": {
+     "touched_within_tolerance": 2,
+     "ranked_too_low": 21,
+     "credited_to_sibling_in_region": 1,
+     "removed_by_query_floor": 1
+    },
+    "visual:action": {
+     "not_presented": 20,
+     "temporal_localization": 2,
+     "ranked_too_low": 19,
+     "credited_to_sibling_in_region": 1,
+     "removed_by_query_floor": 1
+    },
+    "visual:composition": {
+     "not_presented": 40,
+     "temporal_localization": 4,
+     "ranked_too_low": 38,
+     "credited_to_sibling_in_region": 2
+    },
+    "visual:object": {
+     "not_presented": 40,
+     "temporal_localization": 4,
+     "ranked_too_low": 19,
+     "credited_to_sibling_in_region": 1,
+     "removed_by_query_floor": 1
+    },
+    "visual:state": {
+     "not_presented": 20,
+     "temporal_localization": 2,
+     "ranked_too_low": 19,
+     "credited_to_sibling_in_region": 1,
+     "removed_by_query_floor": 1
+    },
+    "visual:person": {
+     "ranked_too_low": 19,
+     "credited_to_sibling_in_region": 1
+    },
+    "visual:scene": {
+     "ranked_too_low": 19,
+     "credited_to_sibling_in_region": 1
+    },
+    "temporal:interval": {
+     "removed_by_query_floor": 1
+    }
+   },
+   "queries": {
+    "E01": {
+     "lane": "text",
+     "category": "uncategorised",
+     "outcome": "missed",
+     "recall": 0.0,
+     "region_recall": 0.0,
+     "wanted_items": 1,
+     "credited_items": 0,
+     "instances_localized_on_sibling": 0,
+     "failure_stage": "touched_within_tolerance",
+     "failure_pipeline_stage": "credit_accounting",
+     "failure_kind": "credit_accounting",
+     "uncredited_stages": {
+      "touched_within_tolerance": 1
+     },
+     "requirement_kinds": [
+      "textual:speech_content"
+     ]
+    },
+    "E02": {
+     "lane": "text",
+     "category": "uncategorised",
+     "outcome": "missed",
+     "recall": 0.6667,
+     "region_recall": 0.6667,
+     "wanted_items": 3,
+     "credited_items": 2,
+     "instances_localized_on_sibling": 0,
+     "failure_stage": "ranked_too_low",
+     "failure_pipeline_stage": "ranking",
+     "failure_kind": "retrieval",
+     "uncredited_stages": {
+      "ranked_too_low": 1
+     },
+     "requirement_kinds": [
+      "textual:speech_content"
+     ]
+    },
+    "E03": {
+     "lane": "text",
+     "category": "uncategorised",
+     "outcome": "found",
+     "recall": 1.0,
+     "region_recall": 1.0,
+     "wanted_items": 2,
+     "credited_items": 2,
+     "instances_localized_on_sibling": 0,
+     "failure_stage": null,
+     "failure_pipeline_stage": null,
+     "failure_kind": null,
+     "uncredited_stages": {},
+     "requirement_kinds": [
+      "textual:speech_content"
+     ]
+    },
+    "E04": {
+     "lane": "text",
+     "category": "uncategorised",
+     "outcome": "found",
+     "recall": 1.0,
+     "region_recall": 1.0,
+     "wanted_items": 1,
+     "credited_items": 1,
+     "instances_localized_on_sibling": 0,
+     "failure_stage": null,
+     "failure_pipeline_stage": null,
+     "failure_kind": null,
+     "uncredited_stages": {},
+     "requirement_kinds": [
+      "textual:speech_content"
+     ]
+    },
+    "E05": {
+     "lane": "text",
+     "category": "uncategorised",
+     "outcome": "missed",
+     "recall": 0.0,
+     "region_recall": 0.0,
+     "wanted_items": 1,
+     "credited_items": 0,
+     "instances_localized_on_sibling": 0,
+     "failure_stage": "touched_within_tolerance",
+     "failure_pipeline_stage": "credit_accounting",
+     "failure_kind": "credit_accounting",
+     "uncredited_stages": {
+      "touched_within_tolerance": 1
+     },
+     "requirement_kinds": [
+      "textual:speech_content"
+     ]
+    },
+    "E06": {
+     "lane": "text",
+     "category": "uncategorised",
+     "outcome": "found",
+     "recall": 1.0,
+     "region_recall": 1.0,
+     "wanted_items": 2,
+     "credited_items": 2,
+     "instances_localized_on_sibling": 0,
+     "failure_stage": null,
+     "failure_pipeline_stage": null,
+     "failure_kind": null,
+     "uncredited_stages": {},
+     "requirement_kinds": [
+      "textual:speech_content",
+      "visual:person"
+     ]
+    },
+    "E07": {
+     "lane": "text",
+     "category": "uncategorised",
+     "outcome": "found",
+     "recall": 1.0,
+     "region_recall": 1.0,
+     "wanted_items": 3,
+     "credited_items": 3,
+     "instances_localized_on_sibling": 0,
+     "failure_stage": null,
+     "failure_pipeline_stage": null,
+     "failure_kind": null,
+     "uncredited_stages": {},
+     "requirement_kinds": [
+      "textual:speech_content",
+      "visual:person"
+     ]
+    },
+    "E08": {
+     "lane": "text",
+     "category": "uncategorised",
+     "outcome": "missed",
+     "recall": 0.75,
+     "region_recall": 0.6667,
+     "wanted_items": 4,
+     "credited_items": 3,
+     "instances_localized_on_sibling": 0,
+     "failure_stage": "ranked_too_low",
+     "failure_pipeline_stage": "ranking",
+     "failure_kind": "retrieval",
+     "uncredited_stages": {
+      "ranked_too_low": 1
+     },
+     "requirement_kinds": [
+      "textual:speech_content"
+     ]
+    },
+    "E09": {
+     "lane": "visual",
+     "category": "uncategorised",
+     "outcome": "missed",
+     "recall": 0.0233,
+     "region_recall": 1.0,
+     "wanted_items": 43,
+     "credited_items": 1,
+     "instances_localized_on_sibling": 0,
+     "failure_stage": "not_presented",
+     "failure_pipeline_stage": "result_presentation",
+     "failure_kind": "retrieval",
+     "uncredited_stages": {
+      "not_presented": 20,
+      "temporal_localization": 2,
+      "ranked_too_low": 19,
+      "credited_to_sibling_in_region": 1
+     },
+     "requirement_kinds": [
+      "visual:action",
+      "visual:composition",
+      "visual:object",
+      "visual:state"
+     ]
+    },
+    "E10": {
+     "lane": "visual",
+     "category": "uncategorised",
+     "outcome": "missed",
+     "recall": 0.0476,
+     "region_recall": 1.0,
+     "wanted_items": 21,
+     "credited_items": 1,
+     "instances_localized_on_sibling": 0,
+     "failure_stage": "ranked_too_low",
+     "failure_pipeline_stage": "ranking",
+     "failure_kind": "retrieval",
+     "uncredited_stages": {
+      "ranked_too_low": 19,
+      "credited_to_sibling_in_region": 1
+     },
+     "requirement_kinds": [
+      "textual:speech_content",
+      "visual:composition",
+      "visual:person",
+      "visual:scene"
+     ]
+    },
+    "E11": {
+     "lane": "visual",
+     "category": "uncategorised",
+     "outcome": "missed",
+     "recall": 0.0,
+     "region_recall": 0.0,
+     "wanted_items": 22,
+     "credited_items": 0,
+     "instances_localized_on_sibling": 0,
+     "failure_stage": "not_presented",
+     "failure_pipeline_stage": "result_presentation",
+     "failure_kind": "retrieval",
+     "uncredited_stages": {
+      "not_presented": 20,
+      "temporal_localization": 2
+     },
+     "requirement_kinds": [
+      "visual:composition",
+      "visual:object"
+     ]
+    },
+    "E12": {
+     "lane": "text",
+     "category": "uncategorised",
+     "outcome": "absent_abstained",
+     "recall": null,
+     "region_recall": null,
+     "wanted_items": 0,
+     "credited_items": 0,
+     "instances_localized_on_sibling": null,
+     "failure_stage": null,
+     "failure_pipeline_stage": null,
+     "failure_kind": null,
+     "uncredited_stages": {},
+     "requirement_kinds": [
+      "textual:speech_content"
+     ]
+    },
+    "E13": {
+     "lane": "text",
+     "category": "uncategorised",
+     "outcome": "absent_abstained",
+     "recall": null,
+     "region_recall": null,
+     "wanted_items": 0,
+     "credited_items": 0,
+     "instances_localized_on_sibling": null,
+     "failure_stage": null,
+     "failure_pipeline_stage": null,
+     "failure_kind": null,
+     "uncredited_stages": {},
+     "requirement_kinds": [
+      "textual:speech_content"
+     ]
+    },
+    "E14": {
+     "lane": "visual",
+     "category": "uncategorised",
+     "outcome": "absent_abstained",
+     "recall": null,
+     "region_recall": null,
+     "wanted_items": 0,
+     "credited_items": 0,
+     "instances_localized_on_sibling": null,
+     "failure_stage": null,
+     "failure_pipeline_stage": null,
+     "failure_kind": null,
+     "uncredited_stages": {},
+     "requirement_kinds": [
+      "visual:composition",
+      "visual:object"
+     ]
+    },
+    "E15": {
+     "lane": "visual",
+     "category": "uncategorised",
+     "outcome": "absent_abstained",
+     "recall": null,
+     "region_recall": null,
+     "wanted_items": 0,
+     "credited_items": 0,
+     "instances_localized_on_sibling": null,
+     "failure_stage": null,
+     "failure_pipeline_stage": null,
+     "failure_kind": null,
+     "uncredited_stages": {},
+     "requirement_kinds": [
+      "visual:composition",
+      "visual:scene",
+      "visual:state"
+     ]
+    },
+    "E16": {
+     "lane": "text",
+     "category": "uncategorised",
+     "outcome": "missed",
+     "recall": 0.0,
+     "region_recall": 0.0,
+     "wanted_items": 1,
+     "credited_items": 0,
+     "instances_localized_on_sibling": 0,
+     "failure_stage": "removed_by_query_floor",
+     "failure_pipeline_stage": "retrieval_floor",
+     "failure_kind": "retrieval",
+     "uncredited_stages": {
+      "removed_by_query_floor": 1
+     },
+     "requirement_kinds": [
+      "temporal:interval",
+      "textual:speech_content",
+      "visual:action",
+      "visual:object",
+      "visual:state"
+     ]
+    }
+   },
+   "missed_queries": [
+    "E01",
+    "E02",
+    "E05",
+    "E08",
+    "E09",
+    "E10",
+    "E11",
+    "E16"
+   ],
+   "missed_queries_without_a_stage": []
+  },
+  "calibration": {
+   "text": {
+    "reliability": {
+     "bins": [
+      {
+       "low": 0.0,
+       "high": 0.1,
+       "count": 0,
+       "mean_score": null,
+       "observed": null
+      },
+      {
+       "low": 0.1,
+       "high": 0.2,
+       "count": 0,
+       "mean_score": null,
+       "observed": null
+      },
+      {
+       "low": 0.2,
+       "high": 0.3,
+       "count": 0,
+       "mean_score": null,
+       "observed": null
+      },
+      {
+       "low": 0.3,
+       "high": 0.4,
+       "count": 0,
+       "mean_score": null,
+       "observed": null
+      },
+      {
+       "low": 0.4,
+       "high": 0.5,
+       "count": 6,
+       "mean_score": 0.4431,
+       "observed": 0.6667
+      },
+      {
+       "low": 0.5,
+       "high": 0.6,
+       "count": 6,
+       "mean_score": 0.5508,
+       "observed": 0.3333
+      },
+      {
+       "low": 0.6,
+       "high": 0.7,
+       "count": 14,
+       "mean_score": 0.6509,
+       "observed": 0.5
+      },
+      {
+       "low": 0.7,
+       "high": 0.8,
+       "count": 9,
+       "mean_score": 0.7492,
+       "observed": 1.0
+      },
+      {
+       "low": 0.8,
+       "high": 0.9,
+       "count": 4,
+       "mean_score": 0.8324,
+       "observed": 0.75
+      },
+      {
+       "low": 0.9,
+       "high": 1.0,
+       "count": 0,
+       "mean_score": null,
+       "observed": null
+      }
+     ],
+     "samples": 39,
+     "positives": 25,
+     "negatives": 14,
+     "expected_calibration_error": 0.1883,
+     "uncalibratable": [],
+     "status": "measured",
+     "note": "the score is the RAW signal the floor judged on, not the fused rank; a fused score is not on a probability scale and cannot be calibrated"
+    },
+    "abstention": {
+     "cutoff": 0.6286,
+     "balanced_accuracy": 0.7371,
+     "present_retained_rate": 0.76,
+     "absent_abstained_rate": 0.7143,
+     "not_found_precision": 0.625,
+     "not_found_recall": 0.7143,
+     "not_found_true_positives": 10,
+     "not_found_false_positives": 6,
+     "status": "measured candidate; requires review before policy change",
+     "samples": 39,
+     "positives": 25,
+     "negatives": 14,
+     "method": "balanced accuracy over labelled windows",
+     "uncalibratable": []
+    },
+    "expected_calibration_error": 0.1883,
+    "verdict": "poorly calibrated: the score overstates its confidence",
+    "note": "calibration says how well the score reads; the threshold says whether it separates.  Both are needed and neither is the other"
+   },
+   "visual": {
+    "reliability": {
+     "bins": [
+      {
+       "low": 0.0,
+       "high": 0.1,
+       "count": 0,
+       "mean_score": null,
+       "observed": null
+      },
+      {
+       "low": 0.1,
+       "high": 0.2,
+       "count": 6,
+       "mean_score": 0.1606,
+       "observed": 0.1667
+      },
+      {
+       "low": 0.2,
+       "high": 0.3,
+       "count": 9,
+       "mean_score": 0.2192,
+       "observed": 0.1111
+      },
+      {
+       "low": 0.3,
+       "high": 0.4,
+       "count": 0,
+       "mean_score": null,
+       "observed": null
+      },
+      {
+       "low": 0.4,
+       "high": 0.5,
+       "count": 0,
+       "mean_score": null,
+       "observed": null
+      },
+      {
+       "low": 0.5,
+       "high": 0.6,
+       "count": 0,
+       "mean_score": null,
+       "observed": null
+      },
+      {
+       "low": 0.6,
+       "high": 0.7,
+       "count": 0,
+       "mean_score": null,
+       "observed": null
+      },
+      {
+       "low": 0.7,
+       "high": 0.8,
+       "count": 0,
+       "mean_score": null,
+       "observed": null
+      },
+      {
+       "low": 0.8,
+       "high": 0.9,
+       "count": 0,
+       "mean_score": null,
+       "observed": null
+      },
+      {
+       "low": 0.9,
+       "high": 1.0,
+       "count": 0,
+       "mean_score": null,
+       "observed": null
+      }
+     ],
+     "samples": 15,
+     "positives": 2,
+     "negatives": 13,
+     "expected_calibration_error": 0.0673,
+     "uncalibratable": [],
+     "status": "measured",
+     "note": "the score is the RAW signal the floor judged on, not the fused rank; a fused score is not on a probability scale and cannot be calibrated"
+    },
+    "abstention": {
+     "cutoff": 0.2316,
+     "balanced_accuracy": 0.75,
+     "present_retained_rate": 0.5,
+     "absent_abstained_rate": 1.0,
+     "not_found_precision": 0.9286,
+     "not_found_recall": 1.0,
+     "not_found_true_positives": 13,
+     "not_found_false_positives": 1,
+     "status": "measured candidate; requires review before policy change",
+     "samples": 15,
+     "positives": 2,
+     "negatives": 13,
+     "method": "balanced accuracy over labelled windows",
+     "uncalibratable": []
+    },
+    "expected_calibration_error": 0.0673,
+    "verdict": "calibrated: the score reads as a probability",
+    "note": "calibration says how well the score reads; the threshold says whether it separates.  Both are needed and neither is the other"
+   }
+  },
+  "latency_seconds": {
+   "editorial": {
+    "median": 0.623,
+    "max": 15.365,
+    "n": 16
+   }
+  }
+ },
+ "coverage": {
+  "assets": 7,
+  "video_minutes": 181.58,
+  "asset_status": {
+   "partial": 7
+  },
+  "lanes_present": {
+   "media": 7,
+   "transcript": 7,
+   "frames": 7,
+   "persons": 7,
+   "identity": 7,
+   "clock": 7,
+   "events": 7,
+   "verdicts": 7
+  },
+  "speech_seconds": 8020.7,
+  "speech_fraction_of_footage": 0.7362,
+  "frames_with_face_fraction": {
+   "LCATL0011.MXF": 0.9837,
+   "LCATL0012.MXF": 1.0,
+   "LCATL0013.MXF": 0.9999,
+   "LCATL0014.MXF": 0.9964,
+   "LC4930.MXF": 0.9978,
+   "LC4931.MXF": 0.9965,
+   "LC4932.MXF": 0.9993
+  },
+  "frame_sample_max_gap_seconds": {
+   "LCATL0011.MXF": 0.501,
+   "LCATL0012.MXF": 0.501,
+   "LCATL0013.MXF": 0.501,
+   "LCATL0014.MXF": 0.501,
+   "LC4930.MXF": 0.501,
+   "LC4931.MXF": 0.501,
+   "LC4932.MXF": 0.501
+  },
+  "per_asset_status": {
+   "LCATL0011.MXF": {
+    "status": "partial",
+    "missing": [
+     "expressions"
+    ],
+    "failure_reason": null
+   },
+   "LCATL0012.MXF": {
+    "status": "partial",
+    "missing": [
+     "expressions"
+    ],
+    "failure_reason": null
+   },
+   "LCATL0013.MXF": {
+    "status": "partial",
+    "missing": [
+     "expressions"
+    ],
+    "failure_reason": null
+   },
+   "LCATL0014.MXF": {
+    "status": "partial",
+    "missing": [
+     "expressions"
+    ],
+    "failure_reason": null
+   },
+   "LC4930.MXF": {
+    "status": "partial",
+    "missing": [
+     "expressions"
+    ],
+    "failure_reason": null
+   },
+   "LC4931.MXF": {
+    "status": "partial",
+    "missing": [
+     "expressions"
+    ],
+    "failure_reason": null
+   },
+   "LC4932.MXF": {
+    "status": "partial",
+    "missing": [
+     "expressions"
+    ],
+    "failure_reason": null
+   }
+  }
+ },
+ "processing_time": [],
+ "results": [
+  {
+   "id": "E01",
+   "family": "editorial",
+   "query": "the twenty percent line, where he says a beautiful website is only twenty percent of what AI looks at",
+   "editorial_need": "the hook for the opening cut",
+   "lane": "text",
+   "category": null,
+   "returned": 5,
+   "rows": [
+    {
+     "asset": "LC4932",
+     "start": 1431.05,
+     "end": 1444.22,
+     "score": 0.0318,
+     "dense": 0.6156,
+     "text": "but if you spent a lot of money on redesigning your website, like fifty to a hundred grand, you're definitely gonna wann",
+     "hit": false
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1427.26,
+     "end": 1443.36,
+     "score": 0.0318,
+     "dense": 0.6147,
+     "text": "but and if you spent a lot of money on redesigning your website, like fifty to a hundred grand, you're definitely gonna ",
+     "hit": false
+    },
+    {
+     "asset": "LC4932",
+     "start": 3611.17,
+     "end": 3622.57,
+     "score": 0.0315,
+     "dense": 0.5242,
+     "text": "and your website is just a part of your whole profile and that's only twenty percent.",
+     "hit": true
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1416.9,
+     "end": 1428.87,
+     "score": 0.0276,
+     "dense": 0.5469,
+     "text": "when it comes to ai, people assume this, but it's not just reading your website, right?",
+     "hit": false
+    },
+    {
+     "asset": "LC4932",
+     "start": 1420.72,
+     "end": 1432.66,
+     "score": 0.0273,
+     "dense": 0.5469,
+     "text": "when it comes to ai, people assume this, but it's not just reading your website, right?",
+     "hit": false
+    }
+   ],
+   "requirements": {
+    "declared": [
+     "textual"
+    ],
+    "decomposed": [
+     "textual"
+    ],
+    "decomposed_kinds": [
+     "textual:speech_content"
+    ],
+    "missing": [],
+    "extra": [],
+    "unambiguous_extra": [],
+    "ambiguous_requirements": 0,
+    "requirement_recall": 1.0,
+    "agrees": true
+   },
+   "refused": null,
+   "error": null,
+   "degraded": null,
+   "kind": "present",
+   "moments": 1,
+   "moments_found": 0,
+   "recall": 0.0,
+   "recall_uncredited": 1.0,
+   "moments_overlapped": 1,
+   "regions": 1,
+   "regions_found": 0,
+   "region_recall": 0.0,
+   "credit_cap": "one credit per window per region",
+   "excess_seconds": 0.0,
+   "precision": 0.2,
+   "first_hit_rank": 3,
+   "consequence": {
+    "selection_k": 1,
+    "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+    "selected": 1,
+    "wrong_windows_selected": 1,
+    "wrong_seconds_selected": 13.17,
+    "excess_seconds_selected": 0.0,
+    "right_windows_selected": 0,
+    "ground_truth_seconds": 48.8,
+    "covered_seconds": 0.0,
+    "missing_seconds": 48.8,
+    "coverage_fraction": 0.0,
+    "shadowing": true,
+    "false_positive_windows": 4,
+    "false_positive_seconds": 63.85,
+    "excess_seconds": 10.67,
+    "excess_seconds_note": "the seconds a window that holds something the editor asked for covers OUTSIDE the wanted span: footage nobody asked for, carried by a window that also holds something they did.  A window that holds nothing wanted is charged in full as a false-positive window, and is not charged twice",
+    "notes": [
+     "a wrong window outranks every right one, so the first pick is the wrong one",
+     "the selection leaves part of the wanted moment out",
+     "the returned windows carry footage outside the wanted moment, and that footage is charged"
+    ]
+   },
+   "calibration_samples": [
+    {
+     "query_id": "E01",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.6156,
+     "hit": false
+    },
+    {
+     "query_id": "E01",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.6147,
+     "hit": false
+    },
+    {
+     "query_id": "E01",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.5242,
+     "hit": true
+    },
+    {
+     "query_id": "E01",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.5469,
+     "hit": false
+    },
+    {
+     "query_id": "E01",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.5469,
+     "hit": false
+    }
+   ],
+   "attribution": {
+    "lane": "text",
+    "query_id": "E01",
+    "category": null,
+    "outcome": "missed",
+    "wanted_items": 1,
+    "credited_items": 0,
+    "instances_localized_on_sibling": 0,
+    "stages": {
+     "touched_within_tolerance": 1
+    },
+    "uncredited_stages": {
+     "touched_within_tolerance": 1
+    },
+    "failure_stage": "touched_within_tolerance",
+    "failure_pipeline_stage": "credit_accounting",
+    "failure_kind": "credit_accounting",
+    "is_retrieval_failure": false,
+    "per_moment": [
+     {
+      "moment": 0,
+      "stage": "touched_within_tolerance",
+      "instances": [
+       {
+        "asset": "LC4932",
+        "start": 3562.1,
+        "end": 3610.9,
+        "stage": "touched_within_tolerance",
+        "detail": {
+         "reason": "a returned window touches it only inside the overlap tolerance, so the credit rule did not count it",
+         "windows": 1
+        }
+       },
+       {
+        "asset": "LCATL0013",
+        "start": 3558.3,
+        "end": 3607.1,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "the transcript holds it and the ranking did not put it in the top k",
+         "indexed_segments_on_clip": 1025
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "seconds": 15.365
+  },
+  {
+   "id": "E02",
+   "family": "editorial",
+   "query": "the nail salon example, the one about the place that specialises in 3D nail art",
+   "editorial_need": "a concrete example for the middle of the piece",
+   "lane": "text",
+   "category": null,
+   "returned": 5,
+   "rows": [
+    {
+     "asset": "LC4932",
+     "start": 2774.63,
+     "end": 2783.77,
+     "score": 0.0328,
+     "dense": 0.8194,
+     "text": "yeah, and if you're a salon that specializes in 3d nail art",
+     "hit": true
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2770.85,
+     "end": 2777.79,
+     "score": 0.0318,
+     "dense": 0.7794,
+     "text": "yeah, and if you're salon that specializes in three d nail art",
+     "hit": true
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 384.32,
+     "end": 401.63,
+     "score": 0.0315,
+     "dense": 0.6749,
+     "text": "um so let's let's take your nail salon example.",
+     "hit": false
+    },
+    {
+     "asset": "LC4932",
+     "start": 2743.26,
+     "end": 2768.19,
+     "score": 0.031,
+     "dense": 0.7272,
+     "text": "and if you're a salon that specializes in 3d nail art and your content is built around that niche, ai is gonna pull you ",
+     "hit": true
+    },
+    {
+     "asset": "LC4932",
+     "start": 4487.17,
+     "end": 4492.75,
+     "score": 0.031,
+     "dense": 0.6749,
+     "text": "um so let's let's take your nail salon example.",
+     "hit": false
+    }
+   ],
+   "requirements": {
+    "declared": [
+     "textual"
+    ],
+    "decomposed": [
+     "textual"
+    ],
+    "decomposed_kinds": [
+     "textual:speech_content"
+    ],
+    "missing": [],
+    "extra": [],
+    "unambiguous_extra": [],
+    "ambiguous_requirements": 0,
+    "requirement_recall": 1.0,
+    "agrees": true
+   },
+   "refused": null,
+   "error": null,
+   "degraded": null,
+   "kind": "present",
+   "moments": 3,
+   "moments_found": 2,
+   "recall": 0.6667,
+   "recall_uncredited": 0.6667,
+   "moments_overlapped": 2,
+   "regions": 3,
+   "regions_found": 2,
+   "region_recall": 0.6667,
+   "credit_cap": "one credit per window per region",
+   "excess_seconds": 17.01,
+   "precision": 0.6,
+   "first_hit_rank": 1,
+   "consequence": {
+    "selection_k": 1,
+    "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+    "selected": 1,
+    "wrong_windows_selected": 0,
+    "wrong_seconds_selected": 4.44,
+    "excess_seconds_selected": 4.44,
+    "right_windows_selected": 1,
+    "ground_truth_seconds": 28.3,
+    "covered_seconds": 2.7,
+    "missing_seconds": 25.6,
+    "coverage_fraction": 0.0954,
+    "shadowing": false,
+    "false_positive_windows": 2,
+    "false_positive_seconds": 39.9,
+    "excess_seconds": 17.01,
+    "excess_seconds_note": "the seconds a window that holds something the editor asked for covers OUTSIDE the wanted span: footage nobody asked for, carried by a window that also holds something they did.  A window that holds nothing wanted is charged in full as a false-positive window, and is not charged twice",
+    "notes": [
+     "the selection leaves part of the wanted moment out",
+     "the returned windows carry footage outside the wanted moment, and that footage is charged"
+    ]
+   },
+   "calibration_samples": [
+    {
+     "query_id": "E02",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.8194,
+     "hit": true
+    },
+    {
+     "query_id": "E02",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.7794,
+     "hit": true
+    },
+    {
+     "query_id": "E02",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.6749,
+     "hit": false
+    },
+    {
+     "query_id": "E02",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.7272,
+     "hit": true
+    },
+    {
+     "query_id": "E02",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.6749,
+     "hit": false
+    }
+   ],
+   "attribution": {
+    "lane": "text",
+    "query_id": "E02",
+    "category": null,
+    "outcome": "missed",
+    "wanted_items": 3,
+    "credited_items": 2,
+    "instances_localized_on_sibling": 0,
+    "stages": {
+     "credited": 2,
+     "ranked_too_low": 1
+    },
+    "uncredited_stages": {
+     "ranked_too_low": 1
+    },
+    "failure_stage": "ranked_too_low",
+    "failure_pipeline_stage": "ranking",
+    "failure_kind": "retrieval",
+    "is_retrieval_failure": true,
+    "per_moment": [
+     {
+      "moment": 0,
+      "stage": "credited",
+      "instances": [
+       {
+        "asset": "LC4932",
+        "start": 2752.5,
+        "end": 2765.1,
+        "stage": "credited",
+        "detail": {
+         "reason": "the capped credit rule credited it",
+         "windows": 1
+        }
+       },
+       {
+        "asset": "LCATL0013",
+        "start": 2748.7,
+        "end": 2761.3,
+        "stage": "credited",
+        "detail": {
+         "reason": "the capped credit rule credited it",
+         "windows": 0
+        }
+       }
+      ]
+     },
+     {
+      "moment": 1,
+      "stage": "credited",
+      "instances": [
+       {
+        "asset": "LC4932",
+        "start": 2776.8,
+        "end": 2779.5,
+        "stage": "credited",
+        "detail": {
+         "reason": "the capped credit rule credited it",
+         "windows": 1
+        }
+       },
+       {
+        "asset": "LCATL0013",
+        "start": 2773.0,
+        "end": 2775.7,
+        "stage": "credited",
+        "detail": {
+         "reason": "the capped credit rule credited it",
+         "windows": 1
+        }
+       }
+      ]
+     },
+     {
+      "moment": 2,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LC4932",
+        "start": 2800.2,
+        "end": 2813.2,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "the transcript holds it and the ranking did not put it in the top k",
+         "indexed_segments_on_clip": 1285
+        }
+       },
+       {
+        "asset": "LCATL0013",
+        "start": 2796.4,
+        "end": 2809.4,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "the transcript holds it and the ranking did not put it in the top k",
+         "indexed_segments_on_clip": 1025
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "seconds": 0.47
+  },
+  {
+   "id": "E03",
+   "family": "editorial",
+   "query": "the client story about the SEO team stuffing keywords into the H1 tags",
+   "editorial_need": "a war story for the credibility section",
+   "lane": "text",
+   "category": null,
+   "returned": 5,
+   "rows": [
+    {
+     "asset": "LC4930",
+     "start": 201.98,
+     "end": 212.77,
+     "score": 0.0325,
+     "dense": 0.8121,
+     "text": "their seo team had stuffed all their h one h1 tags with keywords.",
+     "hit": false
+    },
+    {
+     "asset": "LC4931",
+     "start": 155.54,
+     "end": 168.98,
+     "score": 0.0325,
+     "dense": 0.832,
+     "text": "yeah, so last week we ran an audit on a client and their team, their seo team had stuffed all their keywords um with h1 ",
+     "hit": true
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 187.96,
+     "end": 197.79,
+     "score": 0.0315,
+     "dense": 0.7937,
+     "text": "so you ran an audit last week on a client where we saw an seo team stuff um all the h1 tags with keywords.",
+     "hit": true
+    },
+    {
+     "asset": "LC4931",
+     "start": 188.26,
+     "end": 198.13,
+     "score": 0.031,
+     "dense": 0.7937,
+     "text": "so you ran an audit last week on a client where we saw an seo team stuff um all the h1 tags with keywords.",
+     "hit": true
+    },
+    {
+     "asset": "LC4931",
+     "start": 158.38,
+     "end": 170.47,
+     "score": 0.0308,
+     "dense": 0.6871,
+     "text": "i was supposed to say h1 tags with keywords.",
+     "hit": true
+    }
+   ],
+   "requirements": {
+    "declared": [
+     "textual"
+    ],
+    "decomposed": [
+     "textual"
+    ],
+    "decomposed_kinds": [
+     "textual:speech_content"
+    ],
+    "missing": [],
+    "extra": [],
+    "unambiguous_extra": [],
+    "ambiguous_requirements": 0,
+    "requirement_recall": 1.0,
+    "agrees": true
+   },
+   "refused": null,
+   "error": null,
+   "degraded": null,
+   "kind": "present",
+   "moments": 2,
+   "moments_found": 2,
+   "recall": 1.0,
+   "recall_uncredited": 1.0,
+   "moments_overlapped": 2,
+   "regions": 2,
+   "regions_found": 2,
+   "region_recall": 1.0,
+   "credit_cap": "one credit per window per region",
+   "excess_seconds": 10.61,
+   "precision": 0.8,
+   "first_hit_rank": 2,
+   "consequence": {
+    "selection_k": 1,
+    "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+    "selected": 1,
+    "wrong_windows_selected": 1,
+    "wrong_seconds_selected": 10.79,
+    "excess_seconds_selected": 0.0,
+    "right_windows_selected": 0,
+    "ground_truth_seconds": 13.8,
+    "covered_seconds": 0.0,
+    "missing_seconds": 13.8,
+    "coverage_fraction": 0.0,
+    "shadowing": true,
+    "false_positive_windows": 1,
+    "false_positive_seconds": 21.4,
+    "excess_seconds": 10.61,
+    "excess_seconds_note": "the seconds a window that holds something the editor asked for covers OUTSIDE the wanted span: footage nobody asked for, carried by a window that also holds something they did.  A window that holds nothing wanted is charged in full as a false-positive window, and is not charged twice",
+    "notes": [
+     "a wrong window outranks every right one, so the first pick is the wrong one",
+     "the selection leaves part of the wanted moment out",
+     "the returned windows carry footage outside the wanted moment, and that footage is charged"
+    ]
+   },
+   "calibration_samples": [
+    {
+     "query_id": "E03",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.8121,
+     "hit": false
+    },
+    {
+     "query_id": "E03",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.832,
+     "hit": true
+    },
+    {
+     "query_id": "E03",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.7937,
+     "hit": true
+    },
+    {
+     "query_id": "E03",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.7937,
+     "hit": true
+    },
+    {
+     "query_id": "E03",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.6871,
+     "hit": true
+    }
+   ],
+   "attribution": {
+    "lane": "text",
+    "query_id": "E03",
+    "category": null,
+    "outcome": "found",
+    "wanted_items": 2,
+    "credited_items": 2,
+    "instances_localized_on_sibling": 0,
+    "stages": {
+     "credited": 2
+    },
+    "uncredited_stages": {},
+    "failure_stage": null,
+    "failure_pipeline_stage": null,
+    "failure_kind": null,
+    "is_retrieval_failure": false,
+    "per_moment": [
+     {
+      "moment": 0,
+      "stage": "credited",
+      "instances": [
+       {
+        "asset": "LC4931",
+        "start": 158.4,
+        "end": 166.1,
+        "stage": "credited",
+        "detail": {
+         "reason": "the capped credit rule credited it",
+         "windows": 2
+        }
+       },
+       {
+        "asset": "LCATL0012",
+        "start": 158.1,
+        "end": 165.8,
+        "stage": "credited",
+        "detail": {
+         "reason": "the capped credit rule credited it",
+         "windows": 0
+        }
+       }
+      ]
+     },
+     {
+      "moment": 1,
+      "stage": "credited",
+      "instances": [
+       {
+        "asset": "LC4931",
+        "start": 190.2,
+        "end": 196.3,
+        "stage": "credited",
+        "detail": {
+         "reason": "the capped credit rule credited it",
+         "windows": 1
+        }
+       },
+       {
+        "asset": "LCATL0012",
+        "start": 189.9,
+        "end": 196.0,
+        "stage": "credited",
+        "detail": {
+         "reason": "the capped credit rule credited it",
+         "windows": 1
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "seconds": 0.255
+  },
+  {
+   "id": "E04",
+   "family": "editorial",
+   "query": "the bit about why AI treats YouTube as a source it can trust",
+   "editorial_need": "the answer to the objection in the brief",
+   "lane": "text",
+   "category": null,
+   "returned": 5,
+   "rows": [
+    {
+     "asset": "LCATL0013",
+     "start": 3986.62,
+     "end": 3998.35,
+     "score": 0.0302,
+     "dense": 0.6959,
+     "text": "why is uh youtube so important for ai systems or something like that?",
+     "hit": false
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2941.55,
+     "end": 2950.7,
+     "score": 0.028,
+     "dense": 0.6044,
+     "text": "when it comes to ai it's really about trust, credibility.",
+     "hit": false
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 4019.27,
+     "end": 4032.62,
+     "score": 0.0276,
+     "dense": 0.7159,
+     "text": "the reason is because youtube's been there for so long and it does count it as a very trustworthy source of information.",
+     "hit": true
+    },
+    {
+     "asset": "LC4932",
+     "start": 2945.36,
+     "end": 2954.3,
+     "score": 0.0276,
+     "dense": 0.6044,
+     "text": "when it comes to ai it's really about trust, credibility.",
+     "hit": false
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2941.55,
+     "end": 2950.7,
+     "score": 0.0263,
+     "dense": 0.5514,
+     "text": "so what is making ai really trust a brand?",
+     "hit": false
+    }
+   ],
+   "requirements": {
+    "declared": [
+     "textual"
+    ],
+    "decomposed": [
+     "textual"
+    ],
+    "decomposed_kinds": [
+     "textual:speech_content"
+    ],
+    "missing": [],
+    "extra": [],
+    "unambiguous_extra": [],
+    "ambiguous_requirements": 0,
+    "requirement_recall": 1.0,
+    "agrees": true
+   },
+   "refused": null,
+   "error": null,
+   "degraded": null,
+   "kind": "present",
+   "moments": 1,
+   "moments_found": 1,
+   "recall": 1.0,
+   "recall_uncredited": 1.0,
+   "moments_overlapped": 1,
+   "regions": 1,
+   "regions_found": 1,
+   "region_recall": 1.0,
+   "credit_cap": "one credit per window per region",
+   "excess_seconds": 0.0,
+   "precision": 0.2,
+   "first_hit_rank": 3,
+   "consequence": {
+    "selection_k": 1,
+    "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+    "selected": 1,
+    "wrong_windows_selected": 1,
+    "wrong_seconds_selected": 11.73,
+    "excess_seconds_selected": 0.0,
+    "right_windows_selected": 0,
+    "ground_truth_seconds": 30.0,
+    "covered_seconds": 0.0,
+    "missing_seconds": 30.0,
+    "coverage_fraction": 0.0,
+    "shadowing": true,
+    "false_positive_windows": 4,
+    "false_positive_seconds": 38.97,
+    "excess_seconds": 0.0,
+    "excess_seconds_note": "the seconds a window that holds something the editor asked for covers OUTSIDE the wanted span: footage nobody asked for, carried by a window that also holds something they did.  A window that holds nothing wanted is charged in full as a false-positive window, and is not charged twice",
+    "notes": [
+     "a wrong window outranks every right one, so the first pick is the wrong one",
+     "the selection leaves part of the wanted moment out"
+    ]
+   },
+   "calibration_samples": [
+    {
+     "query_id": "E04",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.6959,
+     "hit": false
+    },
+    {
+     "query_id": "E04",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.6044,
+     "hit": false
+    },
+    {
+     "query_id": "E04",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.7159,
+     "hit": true
+    },
+    {
+     "query_id": "E04",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.6044,
+     "hit": false
+    },
+    {
+     "query_id": "E04",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.5514,
+     "hit": false
+    }
+   ],
+   "attribution": {
+    "lane": "text",
+    "query_id": "E04",
+    "category": null,
+    "outcome": "found",
+    "wanted_items": 1,
+    "credited_items": 1,
+    "instances_localized_on_sibling": 0,
+    "stages": {
+     "credited": 1
+    },
+    "uncredited_stages": {},
+    "failure_stage": null,
+    "failure_pipeline_stage": null,
+    "failure_kind": null,
+    "is_retrieval_failure": false,
+    "per_moment": [
+     {
+      "moment": 0,
+      "stage": "credited",
+      "instances": [
+       {
+        "asset": "LC4932",
+        "start": 4015.5,
+        "end": 4045.5,
+        "stage": "credited",
+        "detail": {
+         "reason": "the capped credit rule credited it",
+         "windows": 0
+        }
+       },
+       {
+        "asset": "LCATL0013",
+        "start": 4011.7,
+        "end": 4041.7,
+        "stage": "credited",
+        "detail": {
+         "reason": "the capped credit rule credited it",
+         "windows": 1
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "seconds": 0.289
+  },
+  {
+   "id": "E05",
+   "family": "editorial",
+   "query": "the press credibility mention, the one where being in the Atlanta Journal-Constitution builds trust",
+   "editorial_need": "a proof point for the trust section",
+   "lane": "text",
+   "category": null,
+   "returned": 4,
+   "rows": [
+    {
+     "asset": "LCATL0013",
+     "start": 2941.55,
+     "end": 2950.7,
+     "score": 0.0323,
+     "dense": 0.4024,
+     "text": "when it comes to ai it's really about trust, credibility.",
+     "hit": false
+    },
+    {
+     "asset": "LC4932",
+     "start": 2945.36,
+     "end": 2954.3,
+     "score": 0.0318,
+     "dense": 0.4024,
+     "text": "when it comes to ai it's really about trust, credibility.",
+     "hit": false
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3044.21,
+     "end": 3072.59,
+     "score": 0.0298,
+     "dense": 0.4549,
+     "text": "just like how you would trust a company that's been cited in multiple press releases, has a really good reputation, has ",
+     "hit": true
+    },
+    {
+     "asset": "LC4932",
+     "start": 3048.01,
+     "end": 3076.37,
+     "score": 0.0287,
+     "dense": 0.455,
+     "text": "just like how you would trust a company that's been cited in multiple press releases, has a really good reputation, has ",
+     "hit": true
+    }
+   ],
+   "requirements": {
+    "declared": [
+     "textual"
+    ],
+    "decomposed": [
+     "textual"
+    ],
+    "decomposed_kinds": [
+     "textual:speech_content"
+    ],
+    "missing": [],
+    "extra": [],
+    "unambiguous_extra": [],
+    "ambiguous_requirements": 0,
+    "requirement_recall": 1.0,
+    "agrees": true
+   },
+   "refused": null,
+   "error": null,
+   "degraded": null,
+   "kind": "present",
+   "moments": 1,
+   "moments_found": 0,
+   "recall": 0.0,
+   "recall_uncredited": 1.0,
+   "moments_overlapped": 1,
+   "regions": 1,
+   "regions_found": 0,
+   "region_recall": 0.0,
+   "credit_cap": "one credit per window per region",
+   "excess_seconds": 0.0,
+   "precision": 0.5,
+   "first_hit_rank": 3,
+   "consequence": {
+    "selection_k": 1,
+    "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+    "selected": 1,
+    "wrong_windows_selected": 1,
+    "wrong_seconds_selected": 9.15,
+    "excess_seconds_selected": 0.0,
+    "right_windows_selected": 0,
+    "ground_truth_seconds": 31.0,
+    "covered_seconds": 0.0,
+    "missing_seconds": 31.0,
+    "coverage_fraction": 0.0,
+    "shadowing": true,
+    "false_positive_windows": 2,
+    "false_positive_seconds": 73.65,
+    "excess_seconds": 55.56,
+    "excess_seconds_note": "the seconds a window that holds something the editor asked for covers OUTSIDE the wanted span: footage nobody asked for, carried by a window that also holds something they did.  A window that holds nothing wanted is charged in full as a false-positive window, and is not charged twice",
+    "notes": [
+     "a wrong window outranks every right one, so the first pick is the wrong one",
+     "the selection leaves part of the wanted moment out",
+     "the returned windows carry footage outside the wanted moment, and that footage is charged"
+    ]
+   },
+   "calibration_samples": [
+    {
+     "query_id": "E05",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.4024,
+     "hit": false
+    },
+    {
+     "query_id": "E05",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.4024,
+     "hit": false
+    },
+    {
+     "query_id": "E05",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.4549,
+     "hit": true
+    },
+    {
+     "query_id": "E05",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.455,
+     "hit": true
+    }
+   ],
+   "attribution": {
+    "lane": "text",
+    "query_id": "E05",
+    "category": null,
+    "outcome": "missed",
+    "wanted_items": 1,
+    "credited_items": 0,
+    "instances_localized_on_sibling": 0,
+    "stages": {
+     "touched_within_tolerance": 1
+    },
+    "uncredited_stages": {
+     "touched_within_tolerance": 1
+    },
+    "failure_stage": "touched_within_tolerance",
+    "failure_pipeline_stage": "credit_accounting",
+    "failure_kind": "credit_accounting",
+    "is_retrieval_failure": false,
+    "per_moment": [
+     {
+      "moment": 0,
+      "stage": "touched_within_tolerance",
+      "instances": [
+       {
+        "asset": "LC4932",
+        "start": 3016.6,
+        "end": 3047.6,
+        "stage": "touched_within_tolerance",
+        "detail": {
+         "reason": "a returned window touches it only inside the overlap tolerance, so the credit rule did not count it",
+         "windows": 1
+        }
+       },
+       {
+        "asset": "LCATL0013",
+        "start": 3012.8,
+        "end": 3043.8,
+        "stage": "touched_within_tolerance",
+        "detail": {
+         "reason": "a returned window touches it only inside the overlap tolerance, so the credit rule did not count it",
+         "windows": 1
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "seconds": 0.218
+  },
+  {
+   "id": "E06",
+   "family": "editorial",
+   "query": "the comparison of a ten person agency against a company fifty times its size",
+   "editorial_need": "the scale argument",
+   "lane": "text",
+   "category": null,
+   "returned": 5,
+   "rows": [
+    {
+     "asset": "LCATL0013",
+     "start": 849.47,
+     "end": 860.8,
+     "score": 0.0328,
+     "dense": 0.6619,
+     "text": "i've seen a ten person agency get recommended over a company fifty times their size and that's because every source they",
+     "hit": true
+    },
+    {
+     "asset": "LC4932",
+     "start": 853.86,
+     "end": 870.14,
+     "score": 0.0318,
+     "dense": 0.6416,
+     "text": "not at all i've seen a 10 person agency get recommended over a company fifty times their size, and that's because every ",
+     "hit": true
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 828.03,
+     "end": 840.81,
+     "score": 0.0315,
+     "dense": 0.4719,
+     "text": "no, it doesn't um i've seen ten person agencies get recommended in ai over companies fifty times their size.",
+     "hit": true
+    },
+    {
+     "asset": "LC4932",
+     "start": 832.43,
+     "end": 843.8,
+     "score": 0.031,
+     "dense": 0.4719,
+     "text": "no, it doesn't um i've seen ten person agencies get recommended in ai over companies fifty times their size.",
+     "hit": true
+    },
+    {
+     "asset": "LC4932",
+     "start": 629.15,
+     "end": 645.8,
+     "score": 0.0306,
+     "dense": 0.5484,
+     "text": "and if you're the founder of a business, you're a 10 man shop, your fifty person shop, maybe you're a hundred person sho",
+     "hit": false
+    }
+   ],
+   "requirements": {
+    "declared": [
+     "textual"
+    ],
+    "decomposed": [
+     "textual",
+     "visual"
+    ],
+    "decomposed_kinds": [
+     "textual:speech_content",
+     "visual:person"
+    ],
+    "missing": [],
+    "extra": [
+     "visual"
+    ],
+    "unambiguous_extra": [],
+    "ambiguous_requirements": 2,
+    "requirement_recall": 1.0,
+    "agrees": true
+   },
+   "refused": null,
+   "error": null,
+   "degraded": null,
+   "kind": "present",
+   "moments": 2,
+   "moments_found": 2,
+   "recall": 1.0,
+   "recall_uncredited": 1.0,
+   "moments_overlapped": 2,
+   "regions": 2,
+   "regions_found": 2,
+   "region_recall": 1.0,
+   "credit_cap": "one credit per window per region",
+   "excess_seconds": 8.08,
+   "precision": 0.8,
+   "first_hit_rank": 1,
+   "consequence": {
+    "selection_k": 1,
+    "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+    "selected": 1,
+    "wrong_windows_selected": 0,
+    "wrong_seconds_selected": 2.63,
+    "excess_seconds_selected": 2.63,
+    "right_windows_selected": 1,
+    "ground_truth_seconds": 37.6,
+    "covered_seconds": 8.7,
+    "missing_seconds": 28.9,
+    "coverage_fraction": 0.2314,
+    "shadowing": false,
+    "false_positive_windows": 1,
+    "false_positive_seconds": 24.73,
+    "excess_seconds": 8.08,
+    "excess_seconds_note": "the seconds a window that holds something the editor asked for covers OUTSIDE the wanted span: footage nobody asked for, carried by a window that also holds something they did.  A window that holds nothing wanted is charged in full as a false-positive window, and is not charged twice",
+    "notes": [
+     "the selection leaves part of the wanted moment out",
+     "the returned windows carry footage outside the wanted moment, and that footage is charged"
+    ]
+   },
+   "calibration_samples": [
+    {
+     "query_id": "E06",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.6619,
+     "hit": true
+    },
+    {
+     "query_id": "E06",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.6416,
+     "hit": true
+    },
+    {
+     "query_id": "E06",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.4719,
+     "hit": true
+    },
+    {
+     "query_id": "E06",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.4719,
+     "hit": true
+    },
+    {
+     "query_id": "E06",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.5484,
+     "hit": false
+    }
+   ],
+   "attribution": {
+    "lane": "text",
+    "query_id": "E06",
+    "category": null,
+    "outcome": "found",
+    "wanted_items": 2,
+    "credited_items": 2,
+    "instances_localized_on_sibling": 0,
+    "stages": {
+     "credited": 2
+    },
+    "uncredited_stages": {},
+    "failure_stage": null,
+    "failure_pipeline_stage": null,
+    "failure_kind": null,
+    "is_retrieval_failure": false,
+    "per_moment": [
+     {
+      "moment": 0,
+      "stage": "credited",
+      "instances": [
+       {
+        "asset": "LC4932",
+        "start": 832.4,
+        "end": 841.5,
+        "stage": "credited",
+        "detail": {
+         "reason": "the capped credit rule credited it",
+         "windows": 1
+        }
+       },
+       {
+        "asset": "LCATL0013",
+        "start": 828.6,
+        "end": 837.7,
+        "stage": "credited",
+        "detail": {
+         "reason": "the capped credit rule credited it",
+         "windows": 1
+        }
+       }
+      ]
+     },
+     {
+      "moment": 1,
+      "stage": "credited",
+      "instances": [
+       {
+        "asset": "LC4932",
+        "start": 856.9,
+        "end": 885.4,
+        "stage": "credited",
+        "detail": {
+         "reason": "the capped credit rule credited it",
+         "windows": 1
+        }
+       },
+       {
+        "asset": "LCATL0013",
+        "start": 853.1,
+        "end": 881.6,
+        "stage": "credited",
+        "detail": {
+         "reason": "the capped credit rule credited it",
+         "windows": 1
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "seconds": 0.211
+  },
+  {
+   "id": "E07",
+   "family": "editorial",
+   "query": "the question about which CRM to use for a ten person law firm",
+   "editorial_need": "the example that shows the decision being made",
+   "lane": "text",
+   "category": null,
+   "returned": 5,
+   "rows": [
+    {
+     "asset": "LCATL0013",
+     "start": 158.31,
+     "end": 173.91,
+     "score": 0.0325,
+     "dense": 0.779,
+     "text": "best what's the best crm if i run a 1-person law firm?",
+     "hit": true
+    },
+    {
+     "asset": "LC4932",
+     "start": 162.1,
+     "end": 177.72,
+     "score": 0.0325,
+     "dense": 0.8662,
+     "text": "best what's the best crm if i run a 10 person law firm?",
+     "hit": true
+    },
+    {
+     "asset": "LC4932",
+     "start": 32.44,
+     "end": 46.97,
+     "score": 0.0315,
+     "dense": 0.6657,
+     "text": "so instead of typing best crm small business, they're asking chat gpt, what's the best crm if i run a ten person law fir",
+     "hit": true
+    },
+    {
+     "asset": "LC4932",
+     "start": 57.47,
+     "end": 72.48,
+     "score": 0.031,
+     "dense": 0.7312,
+     "text": "okay, i'm just gonna say instead, i'm just gonna say yeah, instead of typing crm small business on google, now they're t",
+     "hit": true
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 28.65,
+     "end": 44.76,
+     "score": 0.0294,
+     "dense": 0.5869,
+     "text": "mm i feel like the best c rm so instead of typing best c rm small business, they're asking chat gpt what's the best crm ",
+     "hit": true
+    }
+   ],
+   "requirements": {
+    "declared": [
+     "textual"
+    ],
+    "decomposed": [
+     "textual",
+     "visual"
+    ],
+    "decomposed_kinds": [
+     "textual:speech_content",
+     "visual:person"
+    ],
+    "missing": [],
+    "extra": [
+     "visual"
+    ],
+    "unambiguous_extra": [],
+    "ambiguous_requirements": 2,
+    "requirement_recall": 1.0,
+    "agrees": true
+   },
+   "refused": null,
+   "error": null,
+   "degraded": null,
+   "kind": "present",
+   "moments": 3,
+   "moments_found": 3,
+   "recall": 1.0,
+   "recall_uncredited": 1.0,
+   "moments_overlapped": 3,
+   "regions": 3,
+   "regions_found": 3,
+   "region_recall": 1.0,
+   "credit_cap": "one credit per window per region",
+   "excess_seconds": 10.08,
+   "precision": 1.0,
+   "first_hit_rank": 1,
+   "consequence": {
+    "selection_k": 1,
+    "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+    "selected": 1,
+    "wrong_windows_selected": 0,
+    "wrong_seconds_selected": 0.0,
+    "excess_seconds_selected": 0.0,
+    "right_windows_selected": 1,
+    "ground_truth_seconds": 38.0,
+    "covered_seconds": 15.6,
+    "missing_seconds": 22.4,
+    "coverage_fraction": 0.4105,
+    "shadowing": false,
+    "false_positive_windows": 0,
+    "false_positive_seconds": 10.08,
+    "excess_seconds": 10.08,
+    "excess_seconds_note": "the seconds a window that holds something the editor asked for covers OUTSIDE the wanted span: footage nobody asked for, carried by a window that also holds something they did.  A window that holds nothing wanted is charged in full as a false-positive window, and is not charged twice",
+    "notes": [
+     "the selection leaves part of the wanted moment out",
+     "every returned window holds something that was asked for",
+     "the returned windows carry footage outside the wanted moment, and that footage is charged"
+    ]
+   },
+   "calibration_samples": [
+    {
+     "query_id": "E07",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.779,
+     "hit": true
+    },
+    {
+     "query_id": "E07",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.8662,
+     "hit": true
+    },
+    {
+     "query_id": "E07",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.6657,
+     "hit": true
+    },
+    {
+     "query_id": "E07",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.7312,
+     "hit": true
+    },
+    {
+     "query_id": "E07",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.5869,
+     "hit": true
+    }
+   ],
+   "attribution": {
+    "lane": "text",
+    "query_id": "E07",
+    "category": null,
+    "outcome": "found",
+    "wanted_items": 3,
+    "credited_items": 3,
+    "instances_localized_on_sibling": 0,
+    "stages": {
+     "credited": 3
+    },
+    "uncredited_stages": {},
+    "failure_stage": null,
+    "failure_pipeline_stage": null,
+    "failure_kind": null,
+    "is_retrieval_failure": false,
+    "per_moment": [
+     {
+      "moment": 0,
+      "stage": "credited",
+      "instances": [
+       {
+        "asset": "LC4932",
+        "start": 36.7,
+        "end": 47.0,
+        "stage": "credited",
+        "detail": {
+         "reason": "the capped credit rule credited it",
+         "windows": 1
+        }
+       },
+       {
+        "asset": "LCATL0013",
+        "start": 32.9,
+        "end": 43.2,
+        "stage": "credited",
+        "detail": {
+         "reason": "the capped credit rule credited it",
+         "windows": 1
+        }
+       }
+      ]
+     },
+     {
+      "moment": 1,
+      "stage": "credited",
+      "instances": [
+       {
+        "asset": "LC4932",
+        "start": 60.5,
+        "end": 70.5,
+        "stage": "credited",
+        "detail": {
+         "reason": "the capped credit rule credited it",
+         "windows": 1
+        }
+       },
+       {
+        "asset": "LCATL0013",
+        "start": 56.7,
+        "end": 66.7,
+        "stage": "credited",
+        "detail": {
+         "reason": "the capped credit rule credited it",
+         "windows": 0
+        }
+       }
+      ]
+     },
+     {
+      "moment": 2,
+      "stage": "credited",
+      "instances": [
+       {
+        "asset": "LC4932",
+        "start": 160.0,
+        "end": 177.7,
+        "stage": "credited",
+        "detail": {
+         "reason": "the capped credit rule credited it",
+         "windows": 1
+        }
+       },
+       {
+        "asset": "LCATL0013",
+        "start": 156.2,
+        "end": 173.9,
+        "stage": "credited",
+        "detail": {
+         "reason": "the capped credit rule credited it",
+         "windows": 1
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "seconds": 0.23
+  },
+  {
+   "id": "E08",
+   "family": "editorial",
+   "query": "the pushback from the marketing directors, the one calling GEO just SEO two point oh",
+   "editorial_need": "the objection, for the section that answers it",
+   "lane": "text",
+   "category": null,
+   "returned": 5,
+   "rows": [
+    {
+     "asset": "LC4930",
+     "start": 106.76,
+     "end": 119.73,
+     "score": 0.0318,
+     "dense": 0.708,
+     "text": "they're calling gio basically seo two point z and then they keep moving on, or a ceo is telling their cmo or their head ",
+     "hit": true
+    },
+    {
+     "asset": "LC4931",
+     "start": 38.73,
+     "end": 57.99,
+     "score": 0.0317,
+     "dense": 0.6765,
+     "text": "i keep hearing marketing directors say, yes, it's just seo two point oh and then you might have a ceo going in their cmo",
+     "hit": true
+    },
+    {
+     "asset": "LCATL0011",
+     "start": 95.44,
+     "end": 103.12,
+     "score": 0.0315,
+     "dense": 0.7148,
+     "text": "they're calling geo basically seo 2.0 and then they keep moving on.",
+     "hit": true
+    },
+    {
+     "asset": "LC4930",
+     "start": 61.88,
+     "end": 72.65,
+     "score": 0.0313,
+     "dense": 0.645,
+     "text": "so i i just keep hearing this from marketing directors that are just calling it seo point two point zero and then they m",
+     "hit": true
+    },
+    {
+     "asset": "LCATL0011",
+     "start": 50.56,
+     "end": 61.32,
+     "score": 0.0313,
+     "dense": 0.6499,
+     "text": "so i i just keep hearing this from marketing directors, they're just calling it seo point two point zero and then they m",
+     "hit": true
+    }
+   ],
+   "requirements": {
+    "declared": [
+     "textual"
+    ],
+    "decomposed": [
+     "textual"
+    ],
+    "decomposed_kinds": [
+     "textual:speech_content"
+    ],
+    "missing": [],
+    "extra": [],
+    "unambiguous_extra": [],
+    "ambiguous_requirements": 0,
+    "requirement_recall": 1.0,
+    "agrees": true
+   },
+   "refused": null,
+   "error": null,
+   "degraded": null,
+   "kind": "present",
+   "moments": 4,
+   "moments_found": 3,
+   "recall": 0.75,
+   "recall_uncredited": 0.75,
+   "moments_overlapped": 3,
+   "regions": 3,
+   "regions_found": 2,
+   "region_recall": 0.6667,
+   "credit_cap": "one credit per window per region",
+   "excess_seconds": 18.31,
+   "precision": 1.0,
+   "first_hit_rank": 1,
+   "consequence": {
+    "selection_k": 1,
+    "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+    "selected": 1,
+    "wrong_windows_selected": 0,
+    "wrong_seconds_selected": 2.24,
+    "excess_seconds_selected": 2.24,
+    "right_windows_selected": 1,
+    "ground_truth_seconds": 35.4,
+    "covered_seconds": 9.7,
+    "missing_seconds": 25.7,
+    "coverage_fraction": 0.274,
+    "shadowing": false,
+    "false_positive_windows": 0,
+    "false_positive_seconds": 18.31,
+    "excess_seconds": 18.31,
+    "excess_seconds_note": "the seconds a window that holds something the editor asked for covers OUTSIDE the wanted span: footage nobody asked for, carried by a window that also holds something they did.  A window that holds nothing wanted is charged in full as a false-positive window, and is not charged twice",
+    "notes": [
+     "the selection leaves part of the wanted moment out",
+     "every returned window holds something that was asked for",
+     "the returned windows carry footage outside the wanted moment, and that footage is charged"
+    ]
+   },
+   "calibration_samples": [
+    {
+     "query_id": "E08",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.708,
+     "hit": true
+    },
+    {
+     "query_id": "E08",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.6765,
+     "hit": true
+    },
+    {
+     "query_id": "E08",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.7148,
+     "hit": true
+    },
+    {
+     "query_id": "E08",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.645,
+     "hit": true
+    },
+    {
+     "query_id": "E08",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.6499,
+     "hit": true
+    }
+   ],
+   "attribution": {
+    "lane": "text",
+    "query_id": "E08",
+    "category": null,
+    "outcome": "missed",
+    "wanted_items": 4,
+    "credited_items": 3,
+    "instances_localized_on_sibling": 0,
+    "stages": {
+     "credited": 3,
+     "ranked_too_low": 1
+    },
+    "uncredited_stages": {
+     "ranked_too_low": 1
+    },
+    "failure_stage": "ranked_too_low",
+    "failure_pipeline_stage": "ranking",
+    "failure_kind": "retrieval",
+    "is_retrieval_failure": true,
+    "per_moment": [
+     {
+      "moment": 0,
+      "stage": "credited",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 66.0,
+        "end": 72.7,
+        "stage": "credited",
+        "detail": {
+         "reason": "the capped credit rule credited it",
+         "windows": 1
+        }
+       },
+       {
+        "asset": "LCATL0011",
+        "start": 54.69,
+        "end": 61.39,
+        "stage": "credited",
+        "detail": {
+         "reason": "the capped credit rule credited it",
+         "windows": 1
+        }
+       }
+      ]
+     },
+     {
+      "moment": 1,
+      "stage": "credited",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 110.0,
+        "end": 119.7,
+        "stage": "credited",
+        "detail": {
+         "reason": "the capped credit rule credited it",
+         "windows": 1
+        }
+       },
+       {
+        "asset": "LCATL0011",
+        "start": 98.69,
+        "end": 108.39,
+        "stage": "credited",
+        "detail": {
+         "reason": "the capped credit rule credited it",
+         "windows": 1
+        }
+       }
+      ]
+     },
+     {
+      "moment": 2,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LC4931",
+        "start": 16.3,
+        "end": 24.6,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "the transcript holds it and the ranking did not put it in the top k",
+         "indexed_segments_on_clip": 106
+        }
+       },
+       {
+        "asset": "LCATL0012",
+        "start": 16.0,
+        "end": 24.3,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "the transcript holds it and the ranking did not put it in the top k",
+         "indexed_segments_on_clip": 102
+        }
+       }
+      ]
+     },
+     {
+      "moment": 3,
+      "stage": "credited",
+      "instances": [
+       {
+        "asset": "LC4931",
+        "start": 47.3,
+        "end": 58.0,
+        "stage": "credited",
+        "detail": {
+         "reason": "the capped credit rule credited it",
+         "windows": 1
+        }
+       },
+       {
+        "asset": "LCATL0012",
+        "start": 47.0,
+        "end": 57.7,
+        "stage": "credited",
+        "detail": {
+         "reason": "the capped credit rule credited it",
+         "windows": 0
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "seconds": 0.283
+  },
+  {
+   "id": "E09",
+   "family": "editorial",
+   "query": "a shot of the open laptop on the desk, to sit under the pricing point",
+   "editorial_need": "picture for the pricing line",
+   "lane": "visual",
+   "category": null,
+   "returned": 5,
+   "rows": [
+    {
+     "asset": "LCATL0011",
+     "start": 199.783,
+     "end": 209.793,
+     "score": 0.234,
+     "dense": null,
+     "text": "",
+     "hit": true
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 20.103,
+     "end": 30.113,
+     "score": 0.2292,
+     "dense": null,
+     "text": "",
+     "hit": false
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1879.961,
+     "end": 1889.971,
+     "score": 0.2237,
+     "dense": null,
+     "text": "",
+     "hit": false
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 560.143,
+     "end": 560.143,
+     "score": 0.215,
+     "dense": null,
+     "text": "",
+     "hit": false
+    },
+    {
+     "asset": "LC4932",
+     "start": 4650.229,
+     "end": 4660.239,
+     "score": 0.2072,
+     "dense": null,
+     "text": "",
+     "hit": false
+    }
+   ],
+   "requirements": {
+    "declared": [
+     "visual"
+    ],
+    "decomposed": [
+     "visual"
+    ],
+    "decomposed_kinds": [
+     "visual:action",
+     "visual:composition",
+     "visual:object",
+     "visual:state"
+    ],
+    "missing": [],
+    "extra": [],
+    "unambiguous_extra": [],
+    "ambiguous_requirements": 0,
+    "requirement_recall": 1.0,
+    "agrees": true
+   },
+   "refused": null,
+   "error": null,
+   "degraded": null,
+   "kind": "present",
+   "moments": 43,
+   "moments_found": 1,
+   "recall": 0.0233,
+   "recall_uncredited": 0.0465,
+   "moments_overlapped": 2,
+   "regions": 1,
+   "regions_found": 1,
+   "region_recall": 1.0,
+   "credit_cap": "one credit per window per region",
+   "excess_seconds": 0.0,
+   "precision": 0.2,
+   "first_hit_rank": 1,
+   "consequence": {
+    "selection_k": 1,
+    "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+    "selected": 1,
+    "wrong_windows_selected": 0,
+    "wrong_seconds_selected": 0.0,
+    "excess_seconds_selected": 0.0,
+    "right_windows_selected": 1,
+    "ground_truth_seconds": 449.02,
+    "covered_seconds": 12.0,
+    "missing_seconds": 437.02,
+    "coverage_fraction": 0.0267,
+    "shadowing": false,
+    "false_positive_windows": 4,
+    "false_positive_seconds": 30.03,
+    "excess_seconds": 0.0,
+    "excess_seconds_note": "the seconds a window that holds something the editor asked for covers OUTSIDE the wanted span: footage nobody asked for, carried by a window that also holds something they did.  A window that holds nothing wanted is charged in full as a false-positive window, and is not charged twice",
+    "notes": [
+     "the selection leaves part of the wanted moment out"
+    ]
+   },
+   "calibration_samples": [
+    {
+     "query_id": "E09",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.234,
+     "hit": true
+    },
+    {
+     "query_id": "E09",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.2292,
+     "hit": false
+    },
+    {
+     "query_id": "E09",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.2237,
+     "hit": false
+    },
+    {
+     "query_id": "E09",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.215,
+     "hit": false
+    },
+    {
+     "query_id": "E09",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.2072,
+     "hit": false
+    }
+   ],
+   "attribution": {
+    "lane": "visual",
+    "query_id": "E09",
+    "category": null,
+    "outcome": "missed",
+    "wanted_items": 43,
+    "credited_items": 1,
+    "instances_localized_on_sibling": 0,
+    "stages": {
+     "not_presented": 20,
+     "temporal_localization": 2,
+     "ranked_too_low": 19,
+     "credited": 1,
+     "credited_to_sibling_in_region": 1
+    },
+    "uncredited_stages": {
+     "not_presented": 20,
+     "temporal_localization": 2,
+     "ranked_too_low": 19,
+     "credited_to_sibling_in_region": 1
+    },
+    "failure_stage": "not_presented",
+    "failure_pipeline_stage": "result_presentation",
+    "failure_kind": "retrieval",
+    "is_retrieval_failure": true,
+    "per_moment": [
+     {
+      "moment": 0,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": -4.917,
+        "end": 5.083,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 1,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 5.093,
+        "end": 15.093,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 2,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 15.103,
+        "end": 25.103,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 3,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 25.113,
+        "end": 35.113,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 4,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 35.123,
+        "end": 45.123,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 5,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 45.133,
+        "end": 55.133,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 6,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 55.143,
+        "end": 65.143,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 7,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 65.153,
+        "end": 75.153,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 8,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 75.163,
+        "end": 85.163,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 9,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 85.173,
+        "end": 95.173,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 10,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 95.183,
+        "end": 105.183,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 11,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 105.193,
+        "end": 115.193,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 12,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 115.203,
+        "end": 125.203,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 13,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 125.213,
+        "end": 135.213,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 14,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 135.223,
+        "end": 145.223,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 15,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 145.233,
+        "end": 155.233,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 16,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 155.243,
+        "end": 174.753,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 17,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 174.763,
+        "end": 184.763,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 18,
+      "stage": "temporal_localization",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 184.773,
+        "end": 194.773,
+        "stage": "temporal_localization",
+        "detail": {
+         "reason": "the window that covers it is on the sibling angle, not on this asset",
+         "sibling_asset": "LCATL0011"
+        }
+       }
+      ]
+     },
+     {
+      "moment": 19,
+      "stage": "temporal_localization",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 194.783,
+        "end": 204.783,
+        "stage": "temporal_localization",
+        "detail": {
+         "reason": "the window that covers it is on the sibling angle, not on this asset",
+         "sibling_asset": "LCATL0011"
+        }
+       }
+      ]
+     },
+     {
+      "moment": 20,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 204.793,
+        "end": 214.793,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 21,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 214.803,
+        "end": 224.803,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 22,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": -4.917,
+        "end": 5.083,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.2124,
+         "presented_window_score": 0.234,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 23,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 5.093,
+        "end": 15.093,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.1807,
+         "presented_window_score": 0.234,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 24,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 15.103,
+        "end": 25.103,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.1943,
+         "presented_window_score": 0.234,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 25,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 25.113,
+        "end": 35.113,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.2093,
+         "presented_window_score": 0.234,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 26,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 35.123,
+        "end": 45.123,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.2135,
+         "presented_window_score": 0.234,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 27,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 45.133,
+        "end": 55.133,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.2092,
+         "presented_window_score": 0.234,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 28,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 55.143,
+        "end": 65.143,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.2189,
+         "presented_window_score": 0.234,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 29,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 65.153,
+        "end": 75.153,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.1949,
+         "presented_window_score": 0.234,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 30,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 75.163,
+        "end": 85.163,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.2179,
+         "presented_window_score": 0.234,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 31,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 85.173,
+        "end": 95.173,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.2132,
+         "presented_window_score": 0.234,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 32,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 95.183,
+        "end": 105.183,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.1939,
+         "presented_window_score": 0.234,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 33,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 105.193,
+        "end": 115.193,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.1951,
+         "presented_window_score": 0.234,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 34,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 115.203,
+        "end": 125.203,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.1759,
+         "presented_window_score": 0.234,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 35,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 125.213,
+        "end": 135.213,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.2229,
+         "presented_window_score": 0.234,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 36,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 135.223,
+        "end": 145.223,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.2151,
+         "presented_window_score": 0.234,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 37,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 145.233,
+        "end": 155.233,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.1987,
+         "presented_window_score": 0.234,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 38,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 155.243,
+        "end": 174.753,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.2023,
+         "presented_window_score": 0.234,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 39,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 174.763,
+        "end": 184.763,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.2154,
+         "presented_window_score": 0.234,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 40,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 184.773,
+        "end": 194.773,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.2113,
+         "presented_window_score": 0.234,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 41,
+      "stage": "credited",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 194.783,
+        "end": 204.783,
+        "stage": "credited",
+        "detail": {
+         "reason": "the capped credit rule credited it",
+         "windows": 1,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 42,
+      "stage": "credited_to_sibling_in_region",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 204.793,
+        "end": 214.793,
+        "stage": "credited_to_sibling_in_region",
+        "detail": {
+         "reason": "a returned window covers it, and the region's one credit went to another moment in the same region",
+         "windows": 1,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "seconds": 11.662
+  },
+  {
+   "id": "E10",
+   "family": "editorial",
+   "query": "a shot of the studio, the dark geometric set behind the speaker",
+   "editorial_need": "establishing picture for the cold open",
+   "lane": "visual",
+   "category": null,
+   "returned": 5,
+   "rows": [
+    {
+     "asset": "LCATL0013",
+     "start": 3259.84,
+     "end": 3269.85,
+     "score": 0.1652,
+     "dense": null,
+     "text": "",
+     "hit": false
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 540.123,
+     "end": 550.133,
+     "score": 0.1538,
+     "dense": null,
+     "text": "",
+     "hit": false
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 0.083,
+     "end": 10.093,
+     "score": 0.1535,
+     "dense": null,
+     "text": "",
+     "hit": false
+    },
+    {
+     "asset": "LC4932",
+     "start": 2970.05,
+     "end": 2970.05,
+     "score": 0.1535,
+     "dense": null,
+     "text": "",
+     "hit": false
+    },
+    {
+     "asset": "LCATL0011",
+     "start": 179.763,
+     "end": 189.773,
+     "score": 0.1451,
+     "dense": null,
+     "text": "",
+     "hit": true
+    }
+   ],
+   "requirements": {
+    "declared": [
+     "visual"
+    ],
+    "decomposed": [
+     "textual",
+     "visual"
+    ],
+    "decomposed_kinds": [
+     "textual:speech_content",
+     "visual:composition",
+     "visual:person",
+     "visual:scene"
+    ],
+    "missing": [],
+    "extra": [
+     "textual"
+    ],
+    "unambiguous_extra": [],
+    "ambiguous_requirements": 2,
+    "requirement_recall": 1.0,
+    "agrees": true
+   },
+   "refused": null,
+   "error": null,
+   "degraded": null,
+   "kind": "present",
+   "moments": 21,
+   "moments_found": 1,
+   "recall": 0.0476,
+   "recall_uncredited": 0.0952,
+   "moments_overlapped": 2,
+   "regions": 1,
+   "regions_found": 1,
+   "region_recall": 1.0,
+   "credit_cap": "one credit per window per region",
+   "excess_seconds": 0.0,
+   "precision": 0.2,
+   "first_hit_rank": 5,
+   "consequence": {
+    "selection_k": 1,
+    "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+    "selected": 1,
+    "wrong_windows_selected": 1,
+    "wrong_seconds_selected": 10.01,
+    "excess_seconds_selected": 0.0,
+    "right_windows_selected": 0,
+    "ground_truth_seconds": 219.51,
+    "covered_seconds": 0.0,
+    "missing_seconds": 219.51,
+    "coverage_fraction": 0.0,
+    "shadowing": true,
+    "false_positive_windows": 4,
+    "false_positive_seconds": 30.03,
+    "excess_seconds": 0.0,
+    "excess_seconds_note": "the seconds a window that holds something the editor asked for covers OUTSIDE the wanted span: footage nobody asked for, carried by a window that also holds something they did.  A window that holds nothing wanted is charged in full as a false-positive window, and is not charged twice",
+    "notes": [
+     "a wrong window outranks every right one, so the first pick is the wrong one",
+     "the selection leaves part of the wanted moment out"
+    ]
+   },
+   "calibration_samples": [
+    {
+     "query_id": "E10",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.1652,
+     "hit": false
+    },
+    {
+     "query_id": "E10",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.1538,
+     "hit": false
+    },
+    {
+     "query_id": "E10",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.1535,
+     "hit": false
+    },
+    {
+     "query_id": "E10",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.1535,
+     "hit": false
+    },
+    {
+     "query_id": "E10",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.1451,
+     "hit": true
+    }
+   ],
+   "attribution": {
+    "lane": "visual",
+    "query_id": "E10",
+    "category": null,
+    "outcome": "missed",
+    "wanted_items": 21,
+    "credited_items": 1,
+    "instances_localized_on_sibling": 0,
+    "stages": {
+     "ranked_too_low": 19,
+     "credited": 1,
+     "credited_to_sibling_in_region": 1
+    },
+    "uncredited_stages": {
+     "ranked_too_low": 19,
+     "credited_to_sibling_in_region": 1
+    },
+    "failure_stage": "ranked_too_low",
+    "failure_pipeline_stage": "ranking",
+    "failure_kind": "retrieval",
+    "is_retrieval_failure": true,
+    "per_moment": [
+     {
+      "moment": 0,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": -4.917,
+        "end": 5.083,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.1322,
+         "presented_window_score": 0.1451,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 1,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 5.093,
+        "end": 15.093,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.1213,
+         "presented_window_score": 0.1451,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 2,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 15.103,
+        "end": 25.103,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.1256,
+         "presented_window_score": 0.1451,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 3,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 25.113,
+        "end": 35.113,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.1179,
+         "presented_window_score": 0.1451,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 4,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 35.123,
+        "end": 45.123,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.131,
+         "presented_window_score": 0.1451,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 5,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 45.133,
+        "end": 55.133,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.1317,
+         "presented_window_score": 0.1451,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 6,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 55.143,
+        "end": 65.143,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.1332,
+         "presented_window_score": 0.1451,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 7,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 65.153,
+        "end": 75.153,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.1259,
+         "presented_window_score": 0.1451,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 8,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 75.163,
+        "end": 85.163,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.1184,
+         "presented_window_score": 0.1451,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 9,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 85.173,
+        "end": 95.173,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.1258,
+         "presented_window_score": 0.1451,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 10,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 95.183,
+        "end": 105.183,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.13,
+         "presented_window_score": 0.1451,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 11,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 105.193,
+        "end": 115.193,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.1317,
+         "presented_window_score": 0.1451,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 12,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 115.203,
+        "end": 125.203,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.1122,
+         "presented_window_score": 0.1451,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 13,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 125.213,
+        "end": 135.213,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.1376,
+         "presented_window_score": 0.1451,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 14,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 135.223,
+        "end": 145.223,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.1296,
+         "presented_window_score": 0.1451,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 15,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 145.233,
+        "end": 155.233,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.1217,
+         "presented_window_score": 0.1451,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 16,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 155.243,
+        "end": 174.753,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.1414,
+         "presented_window_score": 0.1451,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 17,
+      "stage": "credited",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 174.763,
+        "end": 184.763,
+        "stage": "credited",
+        "detail": {
+         "reason": "the capped credit rule credited it",
+         "windows": 1,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 18,
+      "stage": "credited_to_sibling_in_region",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 184.773,
+        "end": 194.773,
+        "stage": "credited_to_sibling_in_region",
+        "detail": {
+         "reason": "a returned window covers it, and the region's one credit went to another moment in the same region",
+         "windows": 1,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 19,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 194.783,
+        "end": 204.783,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.1233,
+         "presented_window_score": 0.1451,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 20,
+      "stage": "ranked_too_low",
+      "instances": [
+       {
+        "asset": "LCATL0011",
+        "start": 204.793,
+        "end": 214.793,
+        "stage": "ranked_too_low",
+        "detail": {
+         "reason": "a better-scoring window on the same clip took the slot",
+         "candidate_score": 0.1265,
+         "presented_window_score": 0.1451,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "seconds": 1.138
+  },
+  {
+   "id": "E11",
+   "family": "editorial",
+   "query": "a shot of the blue laptop screen at the edge of the frame",
+   "editorial_need": "the screen read from the other camera",
+   "lane": "visual",
+   "category": null,
+   "returned": 5,
+   "rows": [
+    {
+     "asset": "LCATL0013",
+     "start": 2879.96,
+     "end": 2889.97,
+     "score": 0.221,
+     "dense": null,
+     "text": "",
+     "hit": false
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 560.143,
+     "end": 560.143,
+     "score": 0.2154,
+     "dense": null,
+     "text": "",
+     "hit": false
+    },
+    {
+     "asset": "LCATL0011",
+     "start": 199.783,
+     "end": 209.793,
+     "score": 0.2147,
+     "dense": null,
+     "text": "",
+     "hit": false
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 20.103,
+     "end": 30.113,
+     "score": 0.2128,
+     "dense": null,
+     "text": "",
+     "hit": false
+    },
+    {
+     "asset": "LC4932",
+     "start": 4650.229,
+     "end": 4660.239,
+     "score": 0.1924,
+     "dense": null,
+     "text": "",
+     "hit": false
+    }
+   ],
+   "requirements": {
+    "declared": [
+     "visual"
+    ],
+    "decomposed": [
+     "visual"
+    ],
+    "decomposed_kinds": [
+     "visual:composition",
+     "visual:object"
+    ],
+    "missing": [],
+    "extra": [],
+    "unambiguous_extra": [],
+    "ambiguous_requirements": 0,
+    "requirement_recall": 1.0,
+    "agrees": true
+   },
+   "refused": null,
+   "error": null,
+   "degraded": null,
+   "kind": "present",
+   "moments": 22,
+   "moments_found": 0,
+   "recall": 0.0,
+   "recall_uncredited": 0.0,
+   "moments_overlapped": 0,
+   "regions": 1,
+   "regions_found": 0,
+   "region_recall": 0.0,
+   "credit_cap": "one credit per window per region",
+   "excess_seconds": 0.0,
+   "precision": 0.0,
+   "first_hit_rank": null,
+   "consequence": {
+    "selection_k": 1,
+    "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+    "selected": 1,
+    "wrong_windows_selected": 1,
+    "wrong_seconds_selected": 10.01,
+    "excess_seconds_selected": 0.0,
+    "right_windows_selected": 0,
+    "ground_truth_seconds": 229.51,
+    "covered_seconds": 0.0,
+    "missing_seconds": 229.51,
+    "coverage_fraction": 0.0,
+    "shadowing": true,
+    "false_positive_windows": 5,
+    "false_positive_seconds": 40.04,
+    "excess_seconds": 0.0,
+    "excess_seconds_note": "the seconds a window that holds something the editor asked for covers OUTSIDE the wanted span: footage nobody asked for, carried by a window that also holds something they did.  A window that holds nothing wanted is charged in full as a false-positive window, and is not charged twice",
+    "notes": [
+     "a wrong window outranks every right one, so the first pick is the wrong one",
+     "the selection leaves part of the wanted moment out"
+    ]
+   },
+   "calibration_samples": [
+    {
+     "query_id": "E11",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.221,
+     "hit": false
+    },
+    {
+     "query_id": "E11",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.2154,
+     "hit": false
+    },
+    {
+     "query_id": "E11",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.2147,
+     "hit": false
+    },
+    {
+     "query_id": "E11",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.2128,
+     "hit": false
+    },
+    {
+     "query_id": "E11",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.1924,
+     "hit": false
+    }
+   ],
+   "attribution": {
+    "lane": "visual",
+    "query_id": "E11",
+    "category": null,
+    "outcome": "missed",
+    "wanted_items": 22,
+    "credited_items": 0,
+    "instances_localized_on_sibling": 0,
+    "stages": {
+     "not_presented": 20,
+     "temporal_localization": 2
+    },
+    "uncredited_stages": {
+     "not_presented": 20,
+     "temporal_localization": 2
+    },
+    "failure_stage": "not_presented",
+    "failure_pipeline_stage": "result_presentation",
+    "failure_kind": "retrieval",
+    "is_retrieval_failure": true,
+    "per_moment": [
+     {
+      "moment": 0,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": -4.917,
+        "end": 5.083,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 1,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 5.093,
+        "end": 15.093,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 2,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 15.103,
+        "end": 25.103,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 3,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 25.113,
+        "end": 35.113,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 4,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 35.123,
+        "end": 45.123,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 5,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 45.133,
+        "end": 55.133,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 6,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 55.143,
+        "end": 65.143,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 7,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 65.153,
+        "end": 75.153,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 8,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 75.163,
+        "end": 85.163,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 9,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 85.173,
+        "end": 95.173,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 10,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 95.183,
+        "end": 105.183,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 11,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 105.193,
+        "end": 115.193,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 12,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 115.203,
+        "end": 125.203,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 13,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 125.213,
+        "end": 135.213,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 14,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 135.223,
+        "end": 145.223,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 15,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 145.233,
+        "end": 155.233,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 16,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 155.243,
+        "end": 174.753,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 17,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 174.763,
+        "end": 184.763,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 18,
+      "stage": "temporal_localization",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 184.773,
+        "end": 194.773,
+        "stage": "temporal_localization",
+        "detail": {
+         "reason": "the window that covers it is on the sibling angle, not on this asset",
+         "sibling_asset": "LCATL0011"
+        }
+       }
+      ]
+     },
+     {
+      "moment": 19,
+      "stage": "temporal_localization",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 194.783,
+        "end": 204.783,
+        "stage": "temporal_localization",
+        "detail": {
+         "reason": "the window that covers it is on the sibling angle, not on this asset",
+         "sibling_asset": "LCATL0011"
+        }
+       }
+      ]
+     },
+     {
+      "moment": 20,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 204.793,
+        "end": 214.793,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     },
+     {
+      "moment": 21,
+      "stage": "not_presented",
+      "instances": [
+       {
+        "asset": "LC4930",
+        "start": 214.803,
+        "end": 224.803,
+        "stage": "not_presented",
+        "detail": {
+         "reason": "the clip's window was cut before the editor saw it",
+         "pool_frames_on_clip": 23,
+         "localized_on_sibling": null
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "seconds": 0.346
+  },
+  {
+   "id": "E12",
+   "family": "editorial",
+   "query": "the part where he explains how to train a puppy to sit",
+   "editorial_need": "a warm-up line that is not in this episode",
+   "lane": "text",
+   "category": null,
+   "returned": 0,
+   "rows": [],
+   "requirements": {
+    "declared": [
+     "textual"
+    ],
+    "decomposed": [
+     "textual"
+    ],
+    "decomposed_kinds": [
+     "textual:speech_content"
+    ],
+    "missing": [],
+    "extra": [],
+    "unambiguous_extra": [],
+    "ambiguous_requirements": 0,
+    "requirement_recall": 1.0,
+    "agrees": true
+   },
+   "refused": null,
+   "error": null,
+   "degraded": null,
+   "kind": "absent",
+   "abstained": true,
+   "consequence": {
+    "selection_k": 1,
+    "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+    "selected": 0,
+    "wrong_windows_selected": 0,
+    "wrong_seconds_selected": 0,
+    "excess_seconds_selected": 0,
+    "right_windows_selected": 0,
+    "ground_truth_seconds": 0,
+    "covered_seconds": 0,
+    "missing_seconds": 0.0,
+    "coverage_fraction": null,
+    "shadowing": false,
+    "false_positive_windows": 0,
+    "false_positive_seconds": 0,
+    "excess_seconds": 0,
+    "excess_seconds_note": "the seconds a window that holds something the editor asked for covers OUTSIDE the wanted span: footage nobody asked for, carried by a window that also holds something they did.  A window that holds nothing wanted is charged in full as a false-positive window, and is not charged twice",
+    "notes": [
+     "nothing was wanted here; every window is a false positive",
+     "every returned window holds something that was asked for"
+    ]
+   },
+   "calibration_samples": [],
+   "attribution": {
+    "lane": "text",
+    "query_id": "E12",
+    "category": null,
+    "outcome": "absent_abstained",
+    "wanted_items": 0,
+    "credited_items": 0,
+    "stages": {},
+    "uncredited_stages": {},
+    "failure_stage": null,
+    "failure_pipeline_stage": null,
+    "failure_kind": null,
+    "is_retrieval_failure": false,
+    "per_moment": []
+   },
+   "seconds": 1.157
+  },
+  {
+   "id": "E13",
+   "family": "editorial",
+   "query": "the chocolate chip cookie recipe he reads out",
+   "editorial_need": "a recipe read-out that is not in this episode",
+   "lane": "text",
+   "category": null,
+   "returned": 0,
+   "rows": [],
+   "requirements": {
+    "declared": [
+     "textual"
+    ],
+    "decomposed": [
+     "textual"
+    ],
+    "decomposed_kinds": [
+     "textual:speech_content"
+    ],
+    "missing": [],
+    "extra": [],
+    "unambiguous_extra": [],
+    "ambiguous_requirements": 0,
+    "requirement_recall": 1.0,
+    "agrees": true
+   },
+   "refused": null,
+   "error": null,
+   "degraded": null,
+   "kind": "absent",
+   "abstained": true,
+   "consequence": {
+    "selection_k": 1,
+    "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+    "selected": 0,
+    "wrong_windows_selected": 0,
+    "wrong_seconds_selected": 0,
+    "excess_seconds_selected": 0,
+    "right_windows_selected": 0,
+    "ground_truth_seconds": 0,
+    "covered_seconds": 0,
+    "missing_seconds": 0.0,
+    "coverage_fraction": null,
+    "shadowing": false,
+    "false_positive_windows": 0,
+    "false_positive_seconds": 0,
+    "excess_seconds": 0,
+    "excess_seconds_note": "the seconds a window that holds something the editor asked for covers OUTSIDE the wanted span: footage nobody asked for, carried by a window that also holds something they did.  A window that holds nothing wanted is charged in full as a false-positive window, and is not charged twice",
+    "notes": [
+     "nothing was wanted here; every window is a false positive",
+     "every returned window holds something that was asked for"
+    ]
+   },
+   "calibration_samples": [],
+   "attribution": {
+    "lane": "text",
+    "query_id": "E13",
+    "category": null,
+    "outcome": "absent_abstained",
+    "wanted_items": 0,
+    "credited_items": 0,
+    "stages": {},
+    "uncredited_stages": {},
+    "failure_stage": null,
+    "failure_pipeline_stage": null,
+    "failure_kind": null,
+    "is_retrieval_failure": false,
+    "per_moment": []
+   },
+   "seconds": 0.623
+  },
+  {
+   "id": "E14",
+   "family": "editorial",
+   "query": "a shot of a dog lying on the floor",
+   "editorial_need": "a cutaway of a dog, for warmth",
+   "lane": "visual",
+   "category": null,
+   "returned": 0,
+   "rows": [],
+   "requirements": {
+    "declared": [
+     "visual"
+    ],
+    "decomposed": [
+     "visual"
+    ],
+    "decomposed_kinds": [
+     "visual:composition",
+     "visual:object"
+    ],
+    "missing": [],
+    "extra": [],
+    "unambiguous_extra": [],
+    "ambiguous_requirements": 0,
+    "requirement_recall": 1.0,
+    "agrees": true
+   },
+   "refused": null,
+   "error": null,
+   "degraded": null,
+   "kind": "absent",
+   "abstained": true,
+   "consequence": {
+    "selection_k": 1,
+    "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+    "selected": 0,
+    "wrong_windows_selected": 0,
+    "wrong_seconds_selected": 0,
+    "excess_seconds_selected": 0,
+    "right_windows_selected": 0,
+    "ground_truth_seconds": 0,
+    "covered_seconds": 0,
+    "missing_seconds": 0.0,
+    "coverage_fraction": null,
+    "shadowing": false,
+    "false_positive_windows": 0,
+    "false_positive_seconds": 0,
+    "excess_seconds": 0,
+    "excess_seconds_note": "the seconds a window that holds something the editor asked for covers OUTSIDE the wanted span: footage nobody asked for, carried by a window that also holds something they did.  A window that holds nothing wanted is charged in full as a false-positive window, and is not charged twice",
+    "notes": [
+     "nothing was wanted here; every window is a false positive",
+     "every returned window holds something that was asked for"
+    ]
+   },
+   "calibration_samples": [],
+   "attribution": {
+    "lane": "visual",
+    "query_id": "E14",
+    "category": null,
+    "outcome": "absent_abstained",
+    "wanted_items": 0,
+    "credited_items": 0,
+    "stages": {},
+    "uncredited_stages": {},
+    "failure_stage": null,
+    "failure_pipeline_stage": null,
+    "failure_kind": null,
+    "is_retrieval_failure": false,
+    "per_moment": []
+   },
+   "seconds": 0.886
+  },
+  {
+   "id": "E15",
+   "family": "editorial",
+   "query": "a shot of a busy city street full of cars",
+   "editorial_need": "a city cutaway, for the b-roll bed",
+   "lane": "visual",
+   "category": null,
+   "returned": 0,
+   "rows": [],
+   "requirements": {
+    "declared": [
+     "visual"
+    ],
+    "decomposed": [
+     "visual"
+    ],
+    "decomposed_kinds": [
+     "visual:composition",
+     "visual:scene",
+     "visual:state"
+    ],
+    "missing": [],
+    "extra": [],
+    "unambiguous_extra": [],
+    "ambiguous_requirements": 0,
+    "requirement_recall": 1.0,
+    "agrees": true
+   },
+   "refused": null,
+   "error": null,
+   "degraded": null,
+   "kind": "absent",
+   "abstained": true,
+   "consequence": {
+    "selection_k": 1,
+    "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+    "selected": 0,
+    "wrong_windows_selected": 0,
+    "wrong_seconds_selected": 0,
+    "excess_seconds_selected": 0,
+    "right_windows_selected": 0,
+    "ground_truth_seconds": 0,
+    "covered_seconds": 0,
+    "missing_seconds": 0.0,
+    "coverage_fraction": null,
+    "shadowing": false,
+    "false_positive_windows": 0,
+    "false_positive_seconds": 0,
+    "excess_seconds": 0,
+    "excess_seconds_note": "the seconds a window that holds something the editor asked for covers OUTSIDE the wanted span: footage nobody asked for, carried by a window that also holds something they did.  A window that holds nothing wanted is charged in full as a false-positive window, and is not charged twice",
+    "notes": [
+     "nothing was wanted here; every window is a false positive",
+     "every returned window holds something that was asked for"
+    ]
+   },
+   "calibration_samples": [],
+   "attribution": {
+    "lane": "visual",
+    "query_id": "E15",
+    "category": null,
+    "outcome": "absent_abstained",
+    "wanted_items": 0,
+    "credited_items": 0,
+    "stages": {},
+    "uncredited_stages": {},
+    "failure_stage": null,
+    "failure_pipeline_stage": null,
+    "failure_kind": null,
+    "is_retrieval_failure": false,
+    "per_moment": []
+   },
+   "seconds": 0.735
+  },
+  {
+   "id": "E16",
+   "family": "editorial",
+   "query": "the twenty percent line while the laptop is open on the desk",
+   "editorial_need": "the spoken line AND the picture that goes with it",
+   "lane": "text",
+   "category": null,
+   "returned": 0,
+   "rows": [],
+   "requirements": {
+    "declared": [
+     "textual",
+     "visual"
+    ],
+    "decomposed": [
+     "temporal",
+     "textual",
+     "visual"
+    ],
+    "decomposed_kinds": [
+     "temporal:interval",
+     "textual:speech_content",
+     "visual:action",
+     "visual:object",
+     "visual:state"
+    ],
+    "missing": [],
+    "extra": [
+     "temporal"
+    ],
+    "unambiguous_extra": [],
+    "ambiguous_requirements": 4,
+    "requirement_recall": 1.0,
+    "agrees": true
+   },
+   "refused": null,
+   "error": null,
+   "degraded": null,
+   "kind": "present",
+   "moments": 1,
+   "moments_found": 0,
+   "recall": 0.0,
+   "recall_uncredited": 0.0,
+   "moments_overlapped": 0,
+   "regions": 1,
+   "regions_found": 0,
+   "region_recall": 0.0,
+   "credit_cap": "one credit per window per region",
+   "excess_seconds": 0.0,
+   "precision": null,
+   "first_hit_rank": null,
+   "consequence": {
+    "selection_k": 1,
+    "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+    "selected": 0,
+    "wrong_windows_selected": 0,
+    "wrong_seconds_selected": 0,
+    "excess_seconds_selected": 0,
+    "right_windows_selected": 0,
+    "ground_truth_seconds": 48.8,
+    "covered_seconds": 0.0,
+    "missing_seconds": 48.8,
+    "coverage_fraction": 0.0,
+    "shadowing": false,
+    "false_positive_windows": 0,
+    "false_positive_seconds": 0,
+    "excess_seconds": 0,
+    "excess_seconds_note": "the seconds a window that holds something the editor asked for covers OUTSIDE the wanted span: footage nobody asked for, carried by a window that also holds something they did.  A window that holds nothing wanted is charged in full as a false-positive window, and is not charged twice",
+    "notes": [
+     "the selection leaves part of the wanted moment out",
+     "every returned window holds something that was asked for"
+    ]
+   },
+   "calibration_samples": [],
+   "attribution": {
+    "lane": "text",
+    "query_id": "E16",
+    "category": null,
+    "outcome": "missed",
+    "wanted_items": 1,
+    "credited_items": 0,
+    "instances_localized_on_sibling": 0,
+    "stages": {
+     "removed_by_query_floor": 1
+    },
+    "uncredited_stages": {
+     "removed_by_query_floor": 1
+    },
+    "failure_stage": "removed_by_query_floor",
+    "failure_pipeline_stage": "retrieval_floor",
+    "failure_kind": "retrieval",
+    "is_retrieval_failure": true,
+    "per_moment": [
+     {
+      "moment": 0,
+      "stage": "removed_by_query_floor",
+      "instances": [
+       {
+        "asset": "LC4932",
+        "start": 3562.1,
+        "end": 3610.9,
+        "stage": "removed_by_query_floor",
+        "detail": {
+         "reason": "the lane abstained: nothing it considered cleared the floor",
+         "floor": 0.4
+        }
+       },
+       {
+        "asset": "LCATL0013",
+        "start": 3558.3,
+        "end": 3607.1,
+        "stage": "removed_by_query_floor",
+        "detail": {
+         "reason": "the lane abstained: nothing it considered cleared the floor",
+         "floor": 0.4
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "seconds": 0.907
+  }
+ ]
+}

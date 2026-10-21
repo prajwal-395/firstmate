@@ -1300,23 +1300,25 @@ def frame_index(project_3, tmp_path, stub_clip, stub_m2):
 
 
 def test_adjacent_hits_merge_and_distant_ones_do_not(frame_index):
-    """t=0/10/20 on one clip are one range; t=100 and the other clip are not."""
+    """t=0/10 on one clip are one range; t=20 is the next sighting, and
+    t=100 and the other clip are not in it."""
     report = frame_index.search_ranges("a laptop on a table", top_ranges=5)
     assert report["answer_status"] == "insufficient_evidence"
     assert report["refused"] is None
     ranges = report["ranges"]
     assert [(r["clip_id"], r["start"], r["end"]) for r in ranges] == [
-        ("clip_001", 0.0, 20.0),
+        ("clip_001", 0.0, 10.0),
         ("other_002", 5.0, 5.0),
     ], ("adjacent pool hits merge per clip; anything else stays split, and "
         "a clip contributes ONE range, so clip_001's second sighting at "
         "t=100 does not take a second slot")
     head = ranges[0]
-    assert head["n_frames"] == 3
-    assert head["timecode"] == "00:00.000-00:20.000"
+    assert head["n_frames"] == 2, (
+        "a range holds at most two sampled frames of its source")
+    assert head["timecode"] == "00:00.000-00:10.000"
     assert head["best_score"] == pytest.approx(max(
         h["score"] for h in report["results"] if h["clip_id"] == "clip_001"
-        and h["t"] <= 20.0))
+        and h["t"] <= 10.0))
 
     # A gap wider than the merge gap splits.
     report = frame_index.search_ranges("a laptop on a table", top_ranges=5,
@@ -1418,7 +1420,7 @@ def test_the_pool_reaches_a_frame_ranked_below_the_old_forty(
     index = _crowded_index(tmp_path, monkeypatch)
 
     short_pool = index.search_ranges("the wanted thing", top_ranges=5,
-                                      pool=40)
+                                      pool=40, per_source_pool=0)
     assert "clip_b" not in {r["clip_id"] for r in short_pool["ranges"]}, (
         "a pool of 40 cannot reach a frame ranked 151st")
 
@@ -1426,6 +1428,90 @@ def test_the_pool_reaches_a_frame_ranked_below_the_old_forty(
     assert "clip_b" in {r["clip_id"] for r in report["ranges"]}, (
         "the shipped pool must reach the frames the editor wants")
     assert report["search_policy"]["candidate_pool_size"] == 200
+
+
+def test_the_pool_never_starves_a_short_camera(tmp_path, monkeypatch):
+    """A global cut is a cut BY SOURCE SIZE, and the wanted moment of a
+    short camera was out of the pool before anything ranked it.
+
+    Measured on the editorial retrieval corpus (2026-10-21): 99 of the
+    167 uncredited wanted items of the held-out set - 59 % - were never
+    IN the candidate pool, because the two close-up cameras the editor
+    wanted hold 23 and 22 of the corpus's 1092 sampled frames and a
+    global pool of 200 was mostly the long cameras'.  So every source
+    contributes its own best candidates to the pool, whatever its length.
+    """
+    index = _crowded_index(tmp_path, monkeypatch)
+
+    report = index.search_ranges("the wanted thing", top_ranges=5, pool=40)
+    policy = report["search_policy"]
+    assert policy["per_source_pool_size"] == footage_frames.PER_SOURCE_POOL
+    assert policy["sources_considered"] == 2, (
+        "a source with ONE frame must still be in the pool: the global cut "
+        "is what starved it")
+    assert policy["candidates_considered"] > 40, (
+        "the quota adds candidates on top of the global cut")
+    assert "clip_b" in {r["clip_id"] for r in report["ranges"]}, (
+        "the wanted frame of the quiet camera must reach the answer")
+
+    # With the quota off, the lane is the one that shipped: a global cut
+    # and one source's frames.
+    narrow = index.search_ranges("the wanted thing", top_ranges=5, pool=40,
+                                 per_source_pool=0)
+    assert narrow["search_policy"]["sources_considered"] == 1
+    assert narrow["search_policy"]["per_source_pool_size"] == 0
+
+
+def test_a_query_asking_for_repeated_events_gets_two_windows(
+        tmp_path, monkeypatch):
+    """One window per source is the rule, and it is the RIGHT rule for a
+    query that asks for one shot.
+
+    "Every time the laptop is on the desk" asks for the OCCURRENCES: a
+    rule that gives one window per source answers it with a single
+    sighting and calls it the whole thing.  So the query decides - not
+    the score - and the second window must be a different event.
+    """
+    frames = [{"clip_id": "clip_a", "filename": "A.MOV", "t": float(t)}
+              for t in (0.0, 60.0, 120.0)]
+    matrix = np.zeros((3, 4), dtype="float32")
+    matrix[:, 0] = 0.5
+    index = _hand_written_index(
+        tmp_path, monkeypatch, frames, matrix,
+        np.array([1.0, 0.0, 0.0, 0.0], dtype="float32"))
+
+    once = index.search_ranges("a shot of the laptop on the desk",
+                               top_ranges=5)
+    assert len(once["ranges"]) == 1, (
+        "one occurrence asked for: one window per source")
+    assert once["search_policy"]["windows_per_source"] == 1
+
+    repeated = index.search_ranges(
+        "every time the laptop is on the desk", top_ranges=5)
+    policy = repeated["search_policy"]
+    assert policy["windows_per_source"] == 2, (
+        "the query asks for more than one occurrence, so a source may "
+        "contribute a second window")
+    spans = [(r["start"], r["end"]) for r in repeated["ranges"]]
+    assert len(spans) == 2, f"two occurrences, two windows: {spans}"
+    gap = abs(spans[1][0] - spans[0][1])
+    assert gap > footage_frames.MERGE_GAP_S, (
+        f"the second window must be a different event: {spans}")
+
+
+def test_a_candidate_window_is_not_a_verified_moment(tmp_path, monkeypatch):
+    """A deeper pool is more CANDIDATES, not more finds: every window
+    stays unverified and the answer says how much was considered."""
+    index = _crowded_index(tmp_path, monkeypatch)
+    report = index.search_ranges("the wanted thing", top_ranges=5)
+
+    assert "cannot be concluded" in report["notice"]
+    for span in report["ranges"]:
+        assert span["verified"] is False
+    policy = report["search_policy"]
+    assert policy["candidates_considered"] >= policy["top_interval_limit"], (
+        "the report says how many candidates the ranking read")
+    assert policy["sources_considered"] >= 1
 
 
 def test_five_windows_do_not_all_come_from_one_camera(tmp_path, monkeypatch):
@@ -1525,11 +1611,17 @@ def test_the_window_floor_drops_a_weak_window_and_keeps_the_query(
 
 
 def test_a_chain_of_sightings_is_not_one_moment(tmp_path, monkeypatch):
-    """The merge gap is the tolerance for ONE missed extraction, not a
-    licence to chain sightings across the recording: a run of hits 10 s
-    apart walked the whole clip and became one range of minutes, and a
-    range that claims more time than the evidence carries is charged for
-    it."""
+    """A range is ONE sighting, and a sighting is what the samples of a
+    source show: two samples ten seconds apart bracket ten seconds of
+    footage.
+
+    The chain used to be bounded by the merge gap alone, and at the
+    shipped thirty-second cap a run of hits 10 s apart became one range
+    of thirty seconds - and, before that, a range of minutes.  A range
+    now holds at most TWO sampled frames of its source, so the run is
+    three sightings and not one, and a range that claims more time than
+    the evidence carries is not offered at all.
+    """
     frames = [{"clip_id": "clip_a", "filename": "A.MOV", "t": float(t)}
               for t in (0.0, 10.0, 20.0, 30.0, 40.0, 50.0)]
     matrix = np.zeros((6, 4), dtype="float32")
@@ -1541,14 +1633,15 @@ def test_a_chain_of_sightings_is_not_one_moment(tmp_path, monkeypatch):
 
     report = index.search_ranges("a thing", top_ranges=5)
     spans = [(r["start"], r["end"]) for r in report["ranges"]]
-    assert spans == [(0.0, 30.0)], (
-        f"a run may not span more than the merge gap: {spans}")
+    assert spans == [(0.0, 10.0)], (
+        f"a run may not hold more than two samples of one source: {spans}")
 
-    # The cap is the caller's to lift.
-    report = index.search_ranges("a thing", top_ranges=5, max_range_s=None)
+    # The caps are the caller's to lift.
+    report = index.search_ranges("a thing", top_ranges=5, max_range_s=None,
+                                 max_range_frames=None)
     spans = [(r["start"], r["end"]) for r in report["ranges"]]
     assert spans == [(0.0, 50.0)], (
-        f"with the cap off the run is one range again: {spans}")
+        f"with the caps off the run is one range again: {spans}")
 
 
 def test_the_visual_floor_reaches_the_lane_from_the_cli(
