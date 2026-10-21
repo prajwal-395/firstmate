@@ -240,9 +240,14 @@ pub fn all_schemas() -> Vec<NamedSchema> {
             schema_for!(TypedConfidence),
         ),
         named(
-            "project-evidence-reference",
-            "EvidenceReference",
-            schema_for!(EvidenceReference),
+            "project-source-reference",
+            "SourceReference",
+            schema_for!(SourceReference),
+        ),
+        named(
+            "project-source-element",
+            "SourceElement",
+            schema_for!(SourceElement),
         ),
         named(
             "project-analysis-level",

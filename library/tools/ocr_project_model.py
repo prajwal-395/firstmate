@@ -13,7 +13,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from library.tools import evidence_contract, project_model_masks
+from library.tools import evidence_contract, project_model_masks, source_reference
 from library.tools.project_layout import Area, ProjectLayout
 
 PRODUCER = "library.steps.step_1_07_ocr_extraction"
@@ -134,10 +134,12 @@ def _add_track(builder, *, digest: str, asset_id: str, clock_id: str,
             / sum(row["confidence"] is not None for row in scoped_samples)
             if any(row["confidence"] is not None for row in scoped_samples)
             else None)
-        references = tuple({
-            "kind": "source_frame", "stream_id": f"stream-{digest}",
-            "frame_index": int(row["frame_index"]),
-        } for row in scoped_samples if row["frame_index"] is not None)
+        # The universal source reference: the frame the reading was
+        # taken from, on the clock that counts it.
+        references = tuple(
+            source_reference.element(f"stream-{digest}", clock_id,
+                                     frame_index=int(row["frame_index"]))
+            for row in scoped_samples if row["frame_index"] is not None)
         native = evidence_contract.new_inference(
             asset_id=asset_id, clock_id=clock_id,
             start_tick=scope_start, end_tick=scope_end,

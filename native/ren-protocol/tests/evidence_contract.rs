@@ -46,6 +46,12 @@ fn measurement_evidence() -> Value {
         "policy_id": null,
         "basis_measurement_ids": [],
         "contract_version": EVIDENCE_CONTRACT_VERSION,
+        "references": [{
+            "kind": "element",
+            "stream_id": "stream-d",
+            "clock_id": "clock-d",
+            "element": {"kind": "frame", "frame_index": 0},
+        }],
     })
 }
 

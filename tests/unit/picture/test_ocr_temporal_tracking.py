@@ -204,8 +204,9 @@ def test_ocr_tracks_and_masks_migrate_with_content_checked_artifact_refs(tmp_pat
     assert evidence["measurement_type"] == "image.ocr_text_track"
     assert evidence["coverage"] == "sampled"
     assert evidence["references"] == [{
-        "kind": "source_frame", "stream_id": f"stream-{DIGEST}",
-        "frame_index": 0,
+        "kind": "element", "stream_id": f"stream-{DIGEST}",
+        "clock_id": f"clock-{DIGEST}",
+        "element": {"kind": "frame", "frame_index": 0},
     }]
 
     reference = builder.model["masks"][0]["representation"]

@@ -3,6 +3,13 @@
   "title": "CoordinateSpace",
   "type": "object",
   "properties": {
+    "asset_id": {
+      "description": "The source whose grid this space is, when it belongs to one. A\nspace with no owner is a grid in the air: a place in it cannot\nbe located in any file.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "axes": {
       "type": "string"
     },

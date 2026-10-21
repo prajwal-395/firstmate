@@ -144,7 +144,9 @@ def test_animated_mask_unbound_mask_and_bad_target_are_refused():
         ec.project_to_request(unbound, _comp(), _renders())
 
     rle = _fixture("model-masked.json")
-    rle["masks"][0]["representation"] = {"uri": "masks/person-1.rle"}
+    rle["masks"][0]["representation"] = {
+        "kind": "rle", "width": 4, "height": 4,
+        "frames": [{"tick": 0, "rle": "0 1"}]}
     with pytest.raises(ec.UnprojectableMask, match="not a static box"):
         ec.project_to_request(rle, _comp(), _renders())
 
@@ -458,9 +460,11 @@ def test_matte_sequence_refuses_what_it_cannot_cover(tmp_path):
     with pytest.raises(ec.UnprojectableMask, match="not normalized"):
         ec.write_matte_sequence(pixels["masks"][0], pixels, comp, tmp_path)
 
+    # A representation kind the mask registry does not list is refused
+    # where the model is written, before anything tries to rasterize it.
     unknown = _fixture("model-masked.json")
     unknown["masks"][0]["representation"] = {"uri": "masks/person-1.rle"}
-    with pytest.raises(ec.UnprojectableMask, match="no matte rasterization"):
+    with pytest.raises(ValueError, match="mask registry"):
         ec.write_matte_sequence(unknown["masks"][0], unknown, comp, tmp_path)
 
 

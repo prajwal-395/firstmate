@@ -57,9 +57,12 @@ fn typed_events_queries_and_transforms_round_trip_without_implied_sync() {
         "unit":"ticks", "method":"demux", "sample_resolution":null,
         "coverage":"complete", "coverage_samples":1, "coverage_sample_rate_hz":0.0,
         "target_entity_id":null, "target_region":null, "uncertainty":null,
-        "policy_id":null, "basis_measurement_ids":[], "contract_version":1,
+        "policy_id":null, "basis_measurement_ids":[], "contract_version":2,
         "certainty":"observed", "source_reference":"frame:12",
-        "spatial_frame_id":"frame-12", "coordinate_space_id":"space-pixels"
+        "spatial_frame_id":"frame-12", "coordinate_space_id":"space-pixels",
+        "references":[{"kind":"element","stream_id":"stream-video",
+            "clock_id":"clock-source",
+            "element":{"kind":"frame","frame_index":12}}]
     });
     model["events"] = serde_json::json!([{
         "id":"event-1", "interval":{"clock_id":"clock-source","start":1,"end":10},
@@ -296,4 +299,58 @@ fn audio_and_video_stream_clocks_remain_independent_without_a_sync_transform() {
             && t.to_clock == parsed.streams[1].clock_id)
             || (t.from_clock == parsed.streams[1].clock_id
                 && t.to_clock == parsed.streams[0].clock_id)));
+}
+
+/// Lane A-04: the spatial tables are joined, calibrated and invertible.
+#[test]
+fn a_singular_space_transform_is_refused() {
+    let mut model: serde_json::Value =
+        serde_json::from_str(include_str!("../fixtures/project-model.json")).unwrap();
+    // A matrix of ones is singular: every point asked about lands on
+    // the same place, so the transform would answer with a number that
+    // is not where the thing is.
+    model["space_transforms"][0]["matrix"] = serde_json::json!([
+        1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0
+    ]);
+    assert!(decode_project_model(&model.to_string()).is_err());
+}
+
+#[test]
+fn a_dangling_space_join_is_refused() {
+    let mut model: serde_json::Value =
+        serde_json::from_str(include_str!("../fixtures/project-model.json")).unwrap();
+    model["space_transforms"][0]["to_space"] = serde_json::json!("space-nobody");
+    assert!(decode_project_model(&model.to_string()).is_err());
+}
+
+#[test]
+fn a_space_with_no_calibration_is_refused() {
+    let mut model: serde_json::Value =
+        serde_json::from_str(include_str!("../fixtures/project-model.json")).unwrap();
+    // The source's own pixel grid describes itself; every other space
+    // is derived and must say how it was established.
+    model["coordinate_spaces"][1]["calibration"] = serde_json::Value::Null;
+    assert!(decode_project_model(&model.to_string()).is_err());
+}
+
+/// Lane A-04: a measurement must say which bytes it was measured from.
+#[test]
+fn a_measurement_with_no_source_reference_is_refused() {
+    let mut model: serde_json::Value =
+        serde_json::from_str(include_str!("../fixtures/project-model.json")).unwrap();
+    model["observations"][0]["evidence"]["references"] = serde_json::json!([]);
+    assert!(decode_project_model(&model.to_string()).is_err());
+}
+
+/// Lane A-04: a reference that joins to nothing is refused.
+#[test]
+fn a_reference_to_an_unknown_stream_is_refused() {
+    let mut model: serde_json::Value =
+        serde_json::from_str(include_str!("../fixtures/project-model.json")).unwrap();
+    model["observations"][0]["evidence"]["references"] = serde_json::json!([{
+        "kind": "element", "stream_id": "stream-nobody",
+        "clock_id": "clock-source",
+        "element": {"kind": "frame", "frame_index": 0}
+    }]);
+    assert!(decode_project_model(&model.to_string()).is_err());
 }

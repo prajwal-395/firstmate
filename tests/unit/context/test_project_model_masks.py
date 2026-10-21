@@ -364,12 +364,18 @@ def test_same_object_id_in_two_clips_resolves_per_file(tmp_path):
 def test_unknown_mask_kind_still_refuses_with_the_registry_listed(tmp_path):
     """Fail-closed is kept: a kind no producer writes refuses, and the
     refusal lists the registry so the next producer/consumer drift
-    reads as a name, not a mystery."""
+    reads as a name, not a mystery.
+
+    The refusal now happens where the model is written: a mask nobody
+    can read is refused at model validation, before anything tries to
+    project it."""
     model, mask, _project, _memory = _migrated_sam2_mask(tmp_path)
     mask["representation"] = {"kind": "magic_mask"}
     comp = ec.CompSpec(name="Main", width=WIDTH, height=HEIGHT,
                        frame_rate=10.0, duration_seconds=2.0)
-    with pytest.raises(ec.UnprojectableMask) as caught:
-        ec.write_matte_sequence(mask, model, comp, tmp_path / "mattes")
+    with pytest.raises(ValueError) as caught:
+        validate_project_model(model)
     for kind in masks.MASK_KINDS:
         assert kind in str(caught.value)
+    with pytest.raises(ValueError):
+        ec.write_matte_sequence(mask, model, comp, tmp_path / "mattes")

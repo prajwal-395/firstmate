@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SourceElement",
+  "description": "One native element of a source: a video frame or an audio sample.\n\nThe element is counted in the source's OWN indexing, never in a\nre-indexed or re-timed one, so a reference to \"frame 12\" means the\nsame frame of the same file wherever it is read.",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "frame_index": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "kind": {
+          "type": "string",
+          "const": "frame"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "frame_index"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "sample"
+        },
+        "sample_index": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "sample_index"
+      ]
+    }
+  ]
+}

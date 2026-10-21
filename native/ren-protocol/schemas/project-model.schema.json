@@ -405,6 +405,13 @@
     "CoordinateSpace": {
       "type": "object",
       "properties": {
+        "asset_id": {
+          "description": "The source whose grid this space is, when it belongs to one. A\nspace with no owner is a grid in the air: a place in it cannot\nbe located in any file.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "axes": {
           "type": "string"
         },
@@ -983,7 +990,7 @@
         "references": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/EvidenceReference"
+            "$ref": "#/$defs/SourceReference"
           }
         },
         "sample_resolution": {
@@ -1071,73 +1078,6 @@
         "coverage_sample_rate_hz",
         "basis_measurement_ids",
         "contract_version"
-      ]
-    },
-    "EvidenceReference": {
-      "oneOf": [
-        {
-          "type": "object",
-          "properties": {
-            "kind": {
-              "type": "string",
-              "const": "source_sample"
-            },
-            "sample_index": {
-              "type": "integer",
-              "format": "uint64",
-              "minimum": 0
-            },
-            "stream_id": {
-              "type": "string"
-            }
-          },
-          "additionalProperties": false,
-          "required": [
-            "kind",
-            "stream_id",
-            "sample_index"
-          ]
-        },
-        {
-          "type": "object",
-          "properties": {
-            "frame_index": {
-              "type": "integer",
-              "format": "uint64",
-              "minimum": 0
-            },
-            "kind": {
-              "type": "string",
-              "const": "source_frame"
-            },
-            "stream_id": {
-              "type": "string"
-            }
-          },
-          "additionalProperties": false,
-          "required": [
-            "kind",
-            "stream_id",
-            "frame_index"
-          ]
-        },
-        {
-          "type": "object",
-          "properties": {
-            "kind": {
-              "type": "string",
-              "const": "observation"
-            },
-            "observation_id": {
-              "type": "string"
-            }
-          },
-          "additionalProperties": false,
-          "required": [
-            "kind",
-            "observation_id"
-          ]
-        }
       ]
     },
     "EvidenceType": {
@@ -2091,6 +2031,184 @@
         "sample_clock_id",
         "provenance_id",
         "processing_status"
+      ]
+    },
+    "SourceElement": {
+      "description": "One native element of a source: a video frame or an audio sample.\n\nThe element is counted in the source's OWN indexing, never in a\nre-indexed or re-timed one, so a reference to \"frame 12\" means the\nsame frame of the same file wherever it is read.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "frame_index": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "kind": {
+              "type": "string",
+              "const": "frame"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "frame_index"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "sample"
+            },
+            "sample_index": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "sample_index"
+          ]
+        }
+      ]
+    },
+    "SourceReference": {
+      "description": "The universal source reference: the one way to point at the original\ninformation a claim was read from.\n\nIt composes what the model already has - an asset, a stream, an\nelement, an interval, a region - and adds one optional level of\ndetail (a sub-element of another reference). Every variant names\nthe SOURCE, never a derived record: a claim about a picture is\ngrounded in the picture, not in the observation that described it.\n\nThe vocabulary names no application and no model provider. A\nreference stays meaningful when the analysis that made it came from\none tool and the edit that uses it is executed by another.",
+      "oneOf": [
+        {
+          "description": "The original file, whole.",
+          "type": "object",
+          "properties": {
+            "asset_id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "asset"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "asset_id"
+          ]
+        },
+        {
+          "description": "One stream inside an asset.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "stream"
+            },
+            "stream_id": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "stream_id"
+          ]
+        },
+        {
+          "description": "One native element of a stream, on the clock that counts it.",
+          "type": "object",
+          "properties": {
+            "clock_id": {
+              "type": "string"
+            },
+            "element": {
+              "$ref": "#/$defs/SourceElement"
+            },
+            "kind": {
+              "type": "string",
+              "const": "element"
+            },
+            "stream_id": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "stream_id",
+            "clock_id",
+            "element"
+          ]
+        },
+        {
+          "description": "A run of a stream's elements, on the clock that counts them.",
+          "type": "object",
+          "properties": {
+            "interval": {
+              "$ref": "#/$defs/Interval"
+            },
+            "kind": {
+              "type": "string",
+              "const": "interval"
+            },
+            "stream_id": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "stream_id",
+            "interval"
+          ]
+        },
+        {
+          "description": "A place in a named coordinate space.",
+          "type": "object",
+          "properties": {
+            "geometry": true,
+            "kind": {
+              "type": "string",
+              "const": "region"
+            },
+            "space_id": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "space_id",
+            "geometry"
+          ]
+        },
+        {
+          "description": "A named part of another reference - a mask, a track, a layer.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "sub_element"
+            },
+            "parent": {
+              "$ref": "#/$defs/SourceReference"
+            },
+            "sub_id": {
+              "type": "string"
+            },
+            "sub_kind": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "parent",
+            "sub_kind",
+            "sub_id"
+          ]
+        }
       ]
     },
     "SourceStream": {

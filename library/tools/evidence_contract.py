@@ -75,7 +75,9 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
-EVIDENCE_CONTRACT_VERSION = 1
+from library.tools import source_reference
+
+EVIDENCE_CONTRACT_VERSION = 2
 """Version of this contract. Readers refuse records stamped newer."""
 
 TICKS_PER_SECOND = 1000
@@ -121,7 +123,17 @@ COVERAGE_FRESHNESS = ("fresh", "stale", "unknown")
 
 #: Typed evidence-link kinds: a record cites the source samples/frames or
 #: input observations it was read from, never a bare description.
-EVIDENCE_REFERENCE_KINDS = ("source_sample", "source_frame", "observation")
+#:
+#: The vocabulary is the universal source reference
+#: (:mod:`library.tools.source_reference`): an asset, a stream, an
+#: element, an interval, a region, or a sub-element of one of them.
+EVIDENCE_REFERENCE_KINDS = source_reference.REFERENCE_KINDS
+
+#: The contract version that introduced the universal source reference.
+#: A record stamped at or above it carries references that name the
+#: source; a record stamped below it predates the contract and keeps
+#: reading as it was written.
+SOURCE_REFERENCE_CONTRACT_VERSION = 2
 
 #: Who produced the value behind a registry type. The epistemic
 #: vocabulary is only honest if it says this: a detector's 0.98 box and
@@ -998,17 +1010,29 @@ class EvidenceRecord:
             if not isinstance(reference, dict):
                 raise EvidenceContractError("evidence references are mappings")
             kind = reference.get("kind")
-            if kind not in EVIDENCE_REFERENCE_KINDS:
-                raise EvidenceContractError(
-                    f"evidence reference kind {kind!r} is not one of {EVIDENCE_REFERENCE_KINDS}")
-            if kind in ("source_sample", "source_frame"):
-                key = "sample_index" if kind == "source_sample" else "frame_index"
-                if not reference.get("stream_id") or not isinstance(reference.get(key), int):
+            if self.contract_version >= SOURCE_REFERENCE_CONTRACT_VERSION:
+                try:
+                    source_reference.parse(reference)
+                except source_reference.SourceReferenceError as exc:
                     raise EvidenceContractError(
-                        f"{kind} references carry a stream id and an integer {key}")
-            elif not reference.get("observation_id"):
+                        f"evidence reference is not a source reference: {exc}"
+                    ) from exc
+            elif kind not in EVIDENCE_REFERENCE_KINDS \
+                    and kind not in source_reference.LEGACY_REFERENCE_KINDS:
                 raise EvidenceContractError(
-                    "observation references carry an observation id")
+                    f"evidence reference kind {kind!r} is not one of "
+                    f"{EVIDENCE_REFERENCE_KINDS}")
+        # A measurement with nothing to point at is a number about
+        # nothing: the record says a value was measured but not which
+        # bytes it was measured from. Records written before the
+        # reference contract existed keep reading.
+        if (self.evidence_type is EvidenceType.MEASUREMENT
+                and self.contract_version >= SOURCE_REFERENCE_CONTRACT_VERSION
+                and not any(source_reference.names_source(reference)
+                            for reference in self.references)):
+            raise EvidenceContractError(
+                "a measurement must carry at least one reference that "
+                "names the source")
         if self.coverage_scope is not None:
             if not isinstance(self.coverage_scope, dict):
                 raise EvidenceContractError("coverage scope is a mapping")
@@ -1036,12 +1060,18 @@ def new_measurement(asset_id: str, clock_id: str, start_tick: int,
                     target_region: str | None = None,
                     coverage: CoverageKind = CoverageKind.COMPLETE,
                     coverage_samples: int = 1,
-                    coverage_sample_rate_hz: float = 0.0) -> EvidenceRecord:
+                    coverage_sample_rate_hz: float = 0.0,
+                    references: tuple[dict[str, Any], ...] = ()) -> EvidenceRecord:
     """Build a measurement record; raises on any contract violation.
 
     A model-produced type is refused here: its value is an inference
     about the world, so it is built with :func:`new_inference` and
     carries the uncertainty its producer earned.
+
+    ``references`` are the universal source references the value was
+    measured from. A measurement without one is refused: the record
+    would say a number was measured without saying which bytes it came
+    from.
     """
     entry = registry_entry(measurement_type)
     if entry["producer_kind"] == "model":
@@ -1058,7 +1088,7 @@ def new_measurement(asset_id: str, clock_id: str, start_tick: int,
         sample_resolution=sample_resolution, coverage=coverage,
         coverage_samples=coverage_samples,
         coverage_sample_rate_hz=coverage_sample_rate_hz,
-        provenance_id=provenance_id)
+        provenance_id=provenance_id, references=references)
 
 
 def new_inference(asset_id: str, clock_id: str, start_tick: int,
@@ -1069,8 +1099,15 @@ def new_inference(asset_id: str, clock_id: str, start_tick: int,
                   target_region: str | None = None,
                   coverage: CoverageKind = CoverageKind.SAMPLED,
                   coverage_samples: int = 1,
-                  coverage_sample_rate_hz: float = 0.0) -> EvidenceRecord:
-    """Build an inference record; uncertainty is required."""
+                  coverage_sample_rate_hz: float = 0.0,
+                  references: tuple[dict[str, Any], ...] = ()) -> EvidenceRecord:
+    """Build an inference record; uncertainty is required.
+
+    ``references`` are the universal source references the inference
+    was read from. An inference is not required to carry one - a
+    judgement about a picture may be about the picture as a whole - but
+    one that measured something says which bytes it measured.
+    """
     entry = registry_entry(measurement_type)
     return EvidenceRecord(
         asset_id=asset_id, clock_id=clock_id,
@@ -1082,7 +1119,8 @@ def new_inference(asset_id: str, clock_id: str, start_tick: int,
         sample_resolution=sample_resolution, coverage=coverage,
         coverage_samples=coverage_samples,
         coverage_sample_rate_hz=coverage_sample_rate_hz,
-        provenance_id=provenance_id, uncertainty=uncertainty)
+        provenance_id=provenance_id, uncertainty=uncertainty,
+        references=references)
 
 
 def new_evaluation(asset_id: str, clock_id: str, start_tick: int,

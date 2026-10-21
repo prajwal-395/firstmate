@@ -90,6 +90,9 @@ MODEL_COLLECTIONS = (
     "identity_links", "masks", "object_classes", "tracks", "relations",
     "intents", "clip_uses", "edits", "effects", "renders", "frame_maps",
     "nle_bindings", "receipts", "provenance",
+    # The spatial tables travel with the evidence they describe: a track
+    # sample that names a coordinate space needs that space to exist.
+    "coordinate_spaces", "space_transforms",
 )
 
 REEL_COMMIT_KEYS = (

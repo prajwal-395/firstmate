@@ -16,7 +16,8 @@ def _measurement(value=0.7):
         measurement_type="image.sharpness.laplacian_variance", value=value,
         method="picture-quality-deterministic_v1@180px", provenance_id="prov-a",
         sample_resolution=[320, 180], coverage=evidence.CoverageKind.COMPLETE,
-        coverage_samples=1, coverage_sample_rate_hz=1)
+        coverage_samples=1, coverage_sample_rate_hz=1,
+        references=({"kind": "stream", "stream_id": "stream-a"},))
 
 
 def _policy():

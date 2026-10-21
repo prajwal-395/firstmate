@@ -186,6 +186,11 @@ pub struct CoordinateSpace {
     pub origin: String,
     pub axes: String,
     pub calibration: Option<String>,
+    /// The source whose grid this space is, when it belongs to one. A
+    /// space with no owner is a grid in the air: a place in it cannot
+    /// be located in any file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asset_id: Option<AssetId>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -555,7 +560,7 @@ pub struct EvidenceContract {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub coordinate_space_id: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub references: Vec<EvidenceReference>,
+    pub references: Vec<SourceReference>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub coverage_scope: Option<CoverageScope>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -578,20 +583,73 @@ pub struct EvidenceContract {
     pub producer: Option<String>,
 }
 
+/// One native element of a source: a video frame or an audio sample.
+///
+/// The element is counted in the source's OWN indexing, never in a
+/// re-indexed or re-timed one, so a reference to "frame 12" means the
+/// same frame of the same file wherever it is read.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum EvidenceReference {
-    SourceSample {
+pub enum SourceElement {
+    Frame { frame_index: u64 },
+    Sample { sample_index: u64 },
+}
+
+/// The universal source reference: the one way to point at the original
+/// information a claim was read from.
+///
+/// It composes what the model already has - an asset, a stream, an
+/// element, an interval, a region - and adds one optional level of
+/// detail (a sub-element of another reference). Every variant names
+/// the SOURCE, never a derived record: a claim about a picture is
+/// grounded in the picture, not in the observation that described it.
+///
+/// The vocabulary names no application and no model provider. A
+/// reference stays meaningful when the analysis that made it came from
+/// one tool and the edit that uses it is executed by another.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum SourceReference {
+    /// The original file, whole.
+    Asset { asset_id: AssetId },
+    /// One stream inside an asset.
+    Stream { stream_id: StreamId },
+    /// One native element of a stream, on the clock that counts it.
+    Element {
         stream_id: StreamId,
-        sample_index: u64,
+        clock_id: ClockId,
+        element: SourceElement,
     },
-    SourceFrame {
+    /// A run of a stream's elements, on the clock that counts them.
+    Interval {
         stream_id: StreamId,
-        frame_index: u64,
+        interval: Interval,
     },
-    Observation {
-        observation_id: ObservationId,
+    /// A place in a named coordinate space.
+    Region { space_id: String, geometry: Value },
+    /// A named part of another reference - a mask, a track, a layer.
+    SubElement {
+        parent: Box<SourceReference>,
+        sub_kind: String,
+        sub_id: String,
     },
+}
+
+impl SourceReference {
+    /// Whether this reference names the SOURCE itself.
+    ///
+    /// A measurement is complete only when at least one of its
+    /// references reaches the source: a stream, an element, an interval
+    /// or a region. An asset reference names the file, and a sub-element
+    /// is only as good as the parent it hangs from.
+    pub fn names_source(&self) -> bool {
+        match self {
+            Self::Stream { .. } | Self::Element { .. } | Self::Interval { .. } => true,
+            Self::Region { .. } => true,
+            Self::Asset { .. } => false,
+            Self::SubElement { parent, .. } => parent.names_source(),
+        }
+    }
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -926,7 +984,19 @@ pub const PROJECT_MODEL_SCHEMA_VERSION: u32 = 1;
 /// FI-03 evidence contract version. Observation documents keep schema
 /// version 1: the contract rides the additive `evidence` field, and a
 /// record stamped newer than this is refused by validation.
-pub const EVIDENCE_CONTRACT_VERSION: u32 = 1;
+pub const EVIDENCE_CONTRACT_VERSION: u32 = 2;
+/// The evidence-contract version that introduced the universal source
+/// reference. A record stamped at or above it carries references that
+/// name the source; a record stamped below it predates the contract
+/// and keeps reading as it was written.
+pub const SOURCE_REFERENCE_CONTRACT_VERSION: u32 = 2;
+/// The one coordinate-space kind that describes itself.
+///
+/// The source's own pixel grid needs no calibration: it IS the source's
+/// own grid. Every other space is derived from something, and a derived
+/// space that does not say how it was established is a number with
+/// nothing behind it.
+pub const SELF_DESCRIBING_SPACE_KIND: &str = "source_pixels";
 #[derive(Debug, PartialEq, Eq)]
 pub enum ProjectModelDecodeError {
     InvalidJson(String),
@@ -1084,22 +1154,20 @@ pub fn validate_project_model(model: &ProjectModel) -> Result<(), String> {
                     ));
                 }
             }
-            for reference in &evidence.references {
-                match reference {
-                    EvidenceReference::SourceSample { stream_id, .. }
-                    | EvidenceReference::SourceFrame { stream_id, .. } => {
-                        if !model.streams.is_empty()
-                            && !model.streams.iter().any(|s| &s.id == stream_id)
-                        {
-                            return Err("evidence references unknown source stream".into());
-                        }
-                    }
-                    EvidenceReference::Observation { observation_id } => {
-                        if !obs_ids.is_empty() && !obs_ids.contains(observation_id) {
-                            return Err("evidence references unknown input observation".into());
-                        }
-                    }
-                }
+            validate_source_references(model, &evidence.references)?;
+            // A measurement with nothing to point at is a number about
+            // nothing: the record says a value was measured but not
+            // which bytes it was measured from. Records written before
+            // the reference contract existed keep reading; every record
+            // the engine writes now carries the reference.
+            if evidence.evidence_type == EvidenceType::Measurement
+                && evidence.contract_version >= SOURCE_REFERENCE_CONTRACT_VERSION
+                && !evidence.references.iter().any(SourceReference::names_source)
+            {
+                return Err(
+                    "a measurement must carry at least one reference that names the source"
+                        .into(),
+                );
             }
         }
     }
@@ -1491,6 +1559,79 @@ pub fn validate_project_model(model: &ProjectModel) -> Result<(), String> {
                 }
             }
             EvidenceType::Measurement => {}
+        }
+    }
+    Ok(())
+}
+
+/// Every source reference must join to something the model declares.
+///
+/// A reference that names a stream the model does not carry, a clock it
+/// does not know, or a coordinate space it never declared is a pointer
+/// into nothing: the reader that follows it lands on no file, no frame
+/// and no grid. The join is checked here so the hole is found when the
+/// model is written, not when somebody follows the pointer.
+fn validate_source_references(
+    model: &ProjectModel,
+    references: &[SourceReference],
+) -> Result<(), String> {
+    let asset_ids: std::collections::BTreeSet<_> =
+        model.assets.iter().map(|a| &a.id).collect();
+    let stream_ids: std::collections::BTreeSet<_> =
+        model.streams.iter().map(|s| &s.id).collect();
+    let clock_ids: std::collections::BTreeSet<_> =
+        model.clocks.iter().map(|c| &c.id).collect();
+    let space_ids: std::collections::BTreeSet<_> = model
+        .coordinate_spaces
+        .iter()
+        .map(|s| s.id.as_str())
+        .collect();
+    for reference in references {
+        match reference {
+            SourceReference::Asset { asset_id } => {
+                if !asset_ids.is_empty() && !asset_ids.contains(asset_id) {
+                    return Err("source reference names an unknown asset".into());
+                }
+            }
+            SourceReference::Stream { stream_id } => {
+                if !stream_ids.is_empty() && !stream_ids.contains(stream_id) {
+                    return Err("source reference names an unknown source stream".into());
+                }
+            }
+            SourceReference::Element {
+                stream_id,
+                clock_id,
+                ..
+            } => {
+                if !stream_ids.is_empty() && !stream_ids.contains(stream_id) {
+                    return Err("source reference names an unknown source stream".into());
+                }
+                if !clock_ids.is_empty() && !clock_ids.contains(clock_id) {
+                    return Err("source reference names an unknown clock".into());
+                }
+            }
+            SourceReference::Interval {
+                stream_id,
+                interval,
+            } => {
+                if !stream_ids.is_empty() && !stream_ids.contains(stream_id) {
+                    return Err("source reference names an unknown source stream".into());
+                }
+                if !clock_ids.is_empty() && !clock_ids.contains(&interval.clock_id) {
+                    return Err("source reference names an unknown clock".into());
+                }
+                if interval.start >= interval.end {
+                    return Err("source reference interval must be non-empty and half-open".into());
+                }
+            }
+            SourceReference::Region { space_id, .. } => {
+                if !space_ids.is_empty() && !space_ids.contains(space_id.as_str()) {
+                    return Err("source reference names an unknown coordinate space".into());
+                }
+            }
+            SourceReference::SubElement { parent, .. } => {
+                validate_source_references(model, std::slice::from_ref(parent))?;
+            }
         }
     }
     Ok(())

@@ -492,7 +492,7 @@ def test_migration_validates_and_covers_the_catalog(fixture_project):
                "media.source_metadata" for o in source_metadata)
     assert all(o["payload"]["evidence_contract"]["coverage"] == "complete"
                for o in source_metadata)
-    assert all(o["payload"]["evidence_contract"]["contract_version"] == 1
+    assert all(o["payload"]["evidence_contract"]["contract_version"] == 2
                for o in model["observations"]
                if o["modality"] in ("face", "voice_turn"))
     assert report["counts"]["identity_links"] > 0
@@ -607,7 +607,7 @@ def test_vi03_migrates_sampled_defects_as_measurements(fixture_project):
     evidence_rows = [row["payload"]["evidence_contract"]
                      for row in observations]
     assert all(row["coverage"] == "sampled" for row in evidence_rows)
-    assert all(row["references"][0]["kind"] == "source_sample"
+    assert all(row["references"][0]["kind"] == "element"
                for row in evidence_rows)
     assert report["counts"]["observations"] >= len(observations)
 

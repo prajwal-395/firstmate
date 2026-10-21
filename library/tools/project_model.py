@@ -12,6 +12,8 @@ from typing import Any
 from jsonschema import Draft202012Validator
 
 from library.tools import evidence_contract, protocol_conformance
+from library.tools import source_reference
+from library.tools import spatial_tables
 
 SCHEMA_VERSION = 1
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -103,6 +105,8 @@ def validate_project_model(model: dict[str, Any]) -> None:
     track_ids = {item["id"] for item in model.get("tracks", [])}
     clock_ids = {clock["id"] for clock in model["clocks"]}
     stream_ids = {stream["id"] for stream in model.get("streams", [])}
+    asset_ids = {asset["id"] for asset in model.get("assets", [])}
+    coordinate_ids = {space["id"] for space in model.get("coordinate_spaces", [])}
     policy_rules: dict[str, dict[str, str]] = {}
     for policy in model.get("evaluation_policies", []):
         if (policy.get("format") != "evaluation_policy/1"
@@ -181,14 +185,27 @@ def validate_project_model(model: dict[str, Any]) -> None:
                 raise ValueError("evidence references unknown basis observations")
             for reference in evidence.get("references", []):
                 kind = reference.get("kind")
-                if kind in ("source_sample", "source_frame"):
-                    if stream_ids and reference.get("stream_id") not in stream_ids:
-                        raise ValueError("evidence references unknown source stream")
-                elif kind == "observation":
-                    if observation_ids and reference.get("observation_id") not in observation_ids:
+                if kind in source_reference.LEGACY_REFERENCE_KINDS and \
+                        evidence.get("contract_version", 1) < evidence_contract.SOURCE_REFERENCE_CONTRACT_VERSION:
+                    # A pre-contract reference names a stream and an
+                    # index. It is read, never written, and the thing it
+                    # names must still be one the model carries.
+                    if kind in ("source_sample", "source_frame"):
+                        if stream_ids and reference.get("stream_id") not in stream_ids:
+                            raise ValueError("evidence references unknown source stream")
+                    elif observation_ids and reference.get("observation_id") not in observation_ids:
                         raise ValueError("evidence references unknown input observation")
-                else:
-                    raise ValueError(f"evidence reference has unknown kind {kind!r}")
+                    continue
+                try:
+                    source_reference.parse(reference)
+                except source_reference.SourceReferenceError as exc:
+                    raise ValueError(
+                        f"evidence reference is not a source reference: {exc}"
+                    ) from exc
+                _check_reference_joins(
+                    reference, model, asset_ids=asset_ids,
+                    stream_ids=stream_ids, clock_ids=clock_ids,
+                    space_ids=coordinate_ids)
     for item in model.get("identity_links", []):
         detail = item.get("confidence_detail")
         if detail is not None:
@@ -468,11 +485,139 @@ def validate_project_model(model: dict[str, Any]) -> None:
                     or segment["to"]["clock_id"] != transform["to_clock"]:
                 raise ValueError("time transform segment clock mismatch")
     for transform in model.get("space_transforms", []):
-        if coordinate_ids and not {transform["from_space"], transform["to_space"]} <= coordinate_ids:
+        # A transform whose endpoints are not declared is a pointer into
+        # nothing. The join is the transform, so it is checked even when
+        # the model declares no space at all.
+        if not coordinate_ids or not {transform["from_space"], transform["to_space"]} <= coordinate_ids:
             raise ValueError("space transform references unknown coordinate space")
         matrix = transform.get("matrix", [])
         if len(matrix) not in (9, 16) or not all(isinstance(v, (int, float)) and math.isfinite(v) for v in matrix):
             raise ValueError("space transform matrix must be a finite 3x3 or 4x4")
+        # A singular matrix maps a whole plane onto a line: every point
+        # asked about lands on the same place, so the transform would
+        # answer with a number that is not where the thing is.
+        if not _matrix_is_invertible(matrix):
+            raise ValueError("space transform matrix must be invertible")
+    for space in model.get("coordinate_spaces", []):
+        space_id = space.get("id")
+        if not space_id or not space.get("kind"):
+            raise ValueError("coordinate space needs a stable id and a kind")
+        if space.get("asset_id") and asset_ids and space["asset_id"] not in asset_ids:
+            raise ValueError("coordinate space references unknown asset")
+        # The source's own pixel grid describes itself. Every other
+        # space is derived, and a derived space that does not say how it
+        # was established is a number with nothing behind it.
+        if spatial_tables.needs_calibration(space["kind"]) \
+                and not str(space.get("calibration") or "").strip():
+            raise ValueError(
+                f"coordinate space {space_id!r} requires a calibration")
+    for mask in model.get("masks", []):
+        # A mask nobody can read is not a mask: the representation kind
+        # is typed against the registry that resolves the bytes.
+        from library.tools import project_model_masks
+        representation = mask.get("representation")
+        if not isinstance(representation, dict):
+            raise ValueError("mask representation must be a mapping")
+        kind = representation.get("kind")
+        if kind not in project_model_masks.MASK_KINDS:
+            raise ValueError(
+                f"mask representation kind {kind!r} is not in the mask "
+                f"registry {project_model_masks.MASK_KINDS}")
+    for observation in model.get("observations", []):
+        _validate_measurement_references(observation)
+
+
+def _validate_measurement_references(observation: dict[str, Any]) -> None:
+    """A measurement must say which bytes it was measured from.
+
+    The contract rides in the typed field or in the payload, depending
+    on which producer wrote it, so both are read. A record written
+    before the reference contract existed keeps reading as it was
+    written; a record the engine writes now carries the reference.
+    """
+    contract = observation.get("evidence")
+    if not isinstance(contract, dict):
+        payload = observation.get("payload")
+        contract = (payload.get("evidence_contract")
+                    if isinstance(payload, dict) else None)
+    if not isinstance(contract, dict):
+        return
+    version = contract.get("contract_version")
+    if not isinstance(version, int) or version < evidence_contract.SOURCE_REFERENCE_CONTRACT_VERSION:
+        return
+    references = contract.get("references") or []
+    for reference in references:
+        try:
+            source_reference.parse(reference)
+        except source_reference.SourceReferenceError as exc:
+            raise ValueError(
+                f"observation {observation.get('id')!r} carries a reference "
+                f"that is not a source reference: {exc}") from exc
+    if contract.get("evidence_type") != "measurement":
+        return
+    if not any(source_reference.names_source(reference)
+               for reference in references):
+        raise ValueError(
+            f"observation {observation.get('id')!r} measures a value but "
+            "carries no reference that names the source")
+
+
+def _check_reference_joins(reference: dict[str, Any], model: dict[str, Any], *,
+                            asset_ids: set[str], stream_ids: set[str],
+                            clock_ids: set[str], space_ids: set[str]) -> None:
+    """Every reference must join to something the model declares."""
+    kind = reference["kind"]
+    if kind == source_reference.ASSET:
+        if asset_ids and reference["asset_id"] not in asset_ids:
+            raise ValueError("source reference names an unknown asset")
+    elif kind == source_reference.STREAM:
+        if stream_ids and reference["stream_id"] not in stream_ids:
+            raise ValueError("source reference names an unknown source stream")
+    elif kind == source_reference.ELEMENT:
+        if stream_ids and reference["stream_id"] not in stream_ids:
+            raise ValueError("source reference names an unknown source stream")
+        if clock_ids and reference["clock_id"] not in clock_ids:
+            raise ValueError("source reference names an unknown clock")
+    elif kind == source_reference.INTERVAL:
+        if stream_ids and reference["stream_id"] not in stream_ids:
+            raise ValueError("source reference names an unknown source stream")
+        if clock_ids and reference["interval"]["clock_id"] not in clock_ids:
+            raise ValueError("source reference names an unknown clock")
+    elif kind == source_reference.REGION:
+        if space_ids and reference["space_id"] not in space_ids:
+            raise ValueError("source reference names an unknown coordinate space")
+    elif kind == source_reference.SUB_ELEMENT:
+        _check_reference_joins(reference["parent"], model, asset_ids=asset_ids,
+                               stream_ids=stream_ids, clock_ids=clock_ids,
+                               space_ids=space_ids)
+
+
+def _matrix_is_invertible(matrix: list[float]) -> bool:
+    """Whether a row-major homogeneous matrix can be inverted.
+
+    Gauss-Jordan with partial pivoting: the determinant vanishes
+    exactly when a pivot cannot be found.
+    """
+    dimension = 3 if len(matrix) == 9 else 4
+    work = [list(matrix[row * dimension:(row + 1) * dimension])
+            for row in range(dimension)]
+    for column in range(dimension):
+        pivot = max(range(column, dimension),
+                    key=lambda row: abs(work[row][column]))
+        if abs(work[pivot][column]) < 1e-12:
+            return False
+        work[column], work[pivot] = work[pivot], work[column]
+        divisor = work[column][column]
+        work[column] = [value / divisor for value in work[column]]
+        for row in range(dimension):
+            if row == column:
+                continue
+            factor = work[row][column]
+            if factor == 0.0:
+                continue
+            work[row] = [value - factor * work[column][index]
+                         for index, value in enumerate(work[row])]
+    return True
 
 
 def _validate_occurrences(model: dict[str, Any], entity_ids: set[str]) -> None:

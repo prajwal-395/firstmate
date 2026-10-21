@@ -40,7 +40,8 @@ def _native(measurement_type, value, *, lane, start_tick=0, end_tick=20000,
             provenance_id=f"prov-{DIGEST}-{lane}", uncertainty=0.2,
             coverage=evidence_contract.CoverageKind(coverage),
             coverage_samples=samples, coverage_sample_rate_hz=0.0,
-            sample_resolution=sample_resolution)
+            sample_resolution=sample_resolution,
+            references=({"kind": "stream", "stream_id": f"stream-{DIGEST}"},))
     else:
         record = evidence_contract.new_measurement(
             asset_id=ASSET, clock_id=CLOCK,
@@ -49,7 +50,8 @@ def _native(measurement_type, value, *, lane, start_tick=0, end_tick=20000,
             provenance_id=f"prov-{DIGEST}-{lane}",
             coverage=evidence_contract.CoverageKind(coverage),
             coverage_samples=samples, coverage_sample_rate_hz=0.0,
-            sample_resolution=sample_resolution)
+            sample_resolution=sample_resolution,
+            references=({"kind": "stream", "stream_id": f"stream-{DIGEST}"},))
     native = evidence_contract.to_rust_evidence(
         replace(record, freshness=freshness))
     native.update({
@@ -293,8 +295,9 @@ def test_d5_the_answer_carries_the_derivation_and_the_references():
     answer 'what produced this'."""
     model = _face_model()
     native = model["observations"][0]["payload"]["evidence_contract"]
-    native["references"] = [{"kind": "source_frame", "stream_id": "stream-x",
-                              "frame_index": 12}]
+    native["references"] = [{"kind": "element", "stream_id": "stream-x",
+                              "clock_id": "clock-x",
+                              "element": {"kind": "frame", "frame_index": 12}}]
     plan = _graph_plan({"predicate": "measurement",
                         "measurement_type": "person.region_frame"})
     answer = evidence_query.evidence_for(model, plan)
@@ -308,7 +311,8 @@ def test_d5_the_answer_carries_the_derivation_and_the_references():
     assert derivation[0]["sampling_policy"] == {"fps": 5}
     assert derivation[0]["derivation_digest"] == "sha256:b16"
     assert derivation[0]["references"] == [
-        {"kind": "source_frame", "stream_id": "stream-x", "frame_index": 12}]
+        {"kind": "element", "stream_id": "stream-x", "clock_id": "clock-x",
+         "element": {"kind": "frame", "frame_index": 12}}]
 
 
 def test_d5_a_row_with_no_derivation_recorded_says_so():

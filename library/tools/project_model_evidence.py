@@ -110,6 +110,8 @@ try:
         region_query,
         region_stats,
         source_memory,
+        source_reference,
+        spatial_tables,
         span_verification,
         speech_take,
     )
@@ -134,6 +136,8 @@ except ImportError:  # imported as `tools.*` from inside library/
         region_query,
         region_stats,
         source_memory,
+        source_reference,
+        spatial_tables,
         span_verification,
         speech_take,
     )
@@ -251,6 +255,47 @@ def _stream_id(digest: str, stream_index: int = 0) -> str:
     return f"stream-{digest}" if stream_index == 0 else f"stream-{digest}-{stream_index}"
 
 
+def _element_reference(digest: str, clock_id: str, *,
+                       frame_index: int | None = None,
+                       sample_index: int | None = None) -> dict[str, Any]:
+    """A reference to one native element of a source, with its clock.
+
+    The universal source reference names the element AND the clock that
+    counts it, so the reference means the same thing wherever it is
+    read - which the pre-contract spelling, an index with no clock,
+    never did.
+    """
+    return source_reference.element(
+        _stream_id(digest), clock_id, frame_index=frame_index,
+        sample_index=sample_index)
+
+
+def _interval_reference(digest: str, clock_id: str, start: int,
+                        end: int) -> dict[str, Any]:
+    """A reference to a span of a source, on the clock that counts it."""
+    return source_reference.interval(_stream_id(digest), clock_id, start, end)
+
+
+def _frame_reference(builder: "_Builder", digest: str, clock_id: str,
+                     tick: int) -> dict[str, Any]:
+    """The frame a tick lands on, or the tick's own span.
+
+    A source with a measured frame grid answers the frame exactly; a
+    source without one answers the span of the source clock it does
+    have, because a frame number would be a guess.
+    """
+    clock = builder.clock_row(clock_id)
+    if isinstance((clock or {}).get("frame_rate"), dict):
+        try:
+            native = source_clocks.from_model_clock(digest, clock)
+            return _element_reference(
+                digest, clock_id,
+                frame_index=source_clocks.tick_to_frame(native, tick))
+        except ValueError:
+            pass
+    return _interval_reference(digest, clock_id, tick, tick + 1)
+
+
 def _memory_freshness(doc: dict, digest: str) -> str:
     """Freshness of M4/M5 records, whose producers have no input ledger."""
     if doc.get("content_digest") != digest:
@@ -320,6 +365,8 @@ class _Builder:
             "tracks": [],
             "relations": [],
             "intents": [],
+            "coordinate_spaces": [],
+            "space_transforms": [],
             "clip_uses": [],
             "edits": [],
             "effects": [],
@@ -338,6 +385,64 @@ class _Builder:
         self._indexed_observations = None
         self._observation_count = 0
         self._observation_by_id = {}
+
+    def declared_space(self, space_id: str) -> str | None:
+        """The space id, when the model declares that space.
+
+        A track sample joins to a space that exists. When the frame grid
+        was never measured there is no space to join to, and the sample
+        says so by carrying no space id rather than one that points at
+        nothing.
+        """
+        for space in self.model["coordinate_spaces"]:
+            if space.get("id") == space_id:
+                return space_id
+        return None
+
+    def clock_row(self, clock_id: str) -> dict[str, Any] | None:
+        """The clock row with this id, when the model carries one."""
+        for clock in self.model["clocks"]:
+            if clock.get("id") == clock_id:
+                return clock
+        return None
+
+    def add_spatial_tables(self, digest: str, width: int, height: int,
+                           *, lane: str, measured_by: str) -> bool:
+        """The spaces and the join this measured source contributes.
+
+        The producer is the lane that measured the source's frame grid,
+        and the first measurement wins: two lanes that measured the
+        same grid say so, and two that measured different grids are a
+        question about the footage, not something to settle by
+        overwriting a number.
+        """
+        if width <= 0 or height <= 0:
+            return False
+        existing = next((space for space in self.model["coordinate_spaces"]
+                         if space.get("id")
+                         == spatial_tables.pixel_space_id(digest)), None)
+        if existing is not None:
+            other = spatial_tables.normalized_space(digest, width, height)
+            known = next((space for space in self.model["coordinate_spaces"]
+                          if space.get("id") == other["id"]), None)
+            if known is not None and known.get("calibration") != other["calibration"]:
+                self.notes.append(
+                    f"{digest[:12]}: {measured_by} measured "
+                    f"{width}x{height} where the source grid was "
+                    f"{known.get('calibration')}; the first measurement is "
+                    "kept")
+            return False
+        spaces, transforms = spatial_tables.spatial_tables(
+            digest, width, height)
+        provenance_id = self.provenance(digest, lane,
+                                        "library.tools.spatial_tables")
+        for space in spaces:
+            space = {**space, "asset_id": _asset_id(digest)}
+            self.model["coordinate_spaces"].append(space)
+        for transform in transforms:
+            self.model["space_transforms"].append(
+                {**transform, "provenance_id": provenance_id})
+        return True
 
     def memory_envelope(self, digest: str, lane: str) -> dict | None:
         key = (digest, lane)
@@ -746,6 +851,18 @@ def _migrate_digest(builder: _Builder, digest: str, asset_uri: str,
             stream_record["provenance_id"] = builder.provenance(
                 digest, "m0", capture_provenance.get("producer", "ffprobe"))
         builder.model["streams"].append(stream_record)
+    # The frame grid the source's own metadata measured. It is the grid
+    # every other lane's geometry lives in, so the spatial tables are
+    # produced from it here: the source's own pixels, the normalized
+    # grid derived from them, and the measured join between the two.
+    video_stream = next((row for row in source_streams
+                         if (row.get("codec_type") or "video") == "video"),
+                        None)
+    if isinstance(video_stream, dict):
+        builder.add_spatial_tables(
+            digest, int(video_stream.get("width") or 0),
+            int(video_stream.get("height") or 0), lane="m0",
+            measured_by="the source metadata lane")
     m2 = source_memory.read_m2(digest, root)
     builder.model["assets"].append({
         "id": asset_id,
@@ -807,7 +924,8 @@ def _migrate_source_metadata(builder: _Builder, digest: str, asset_id: str,
         method="library.tools.source_primitives",
         provenance_id=_prov_id(digest, "m0"),
         coverage=evidence_contract.CoverageKind.COMPLETE,
-        coverage_samples=len(streams), coverage_sample_rate_hz=0.0)
+        coverage_samples=len(streams), coverage_sample_rate_hz=0.0,
+        references=(_interval_reference(digest, clock_id, ticks[0], ticks[1]),))
     native = replace(native, freshness=freshness)
     builder.observation(
         digest, "m0", asset_id, clock_id, 0.0, duration,
@@ -882,9 +1000,7 @@ def _migrate_expressions(builder: _Builder, digest: str, asset_id: str,
                 processing_status=evidence_contract.ProcessingStatus.INCONCLUSIVE)
         record = replace(
             record, freshness="fresh",
-            references=({"kind": "source_frame",
-                         "stream_id": _stream_id(digest),
-                         "frame_index": index},))
+            references=(_element_reference(digest, clock_id, frame_index=index),))
         builder.observation(
             digest, "m3c", asset_id, clock_id,
             bounds[0] / TICKS_PER_SECOND,
@@ -942,9 +1058,8 @@ def _migrate_saliency(builder: _Builder, digest: str, asset_id: str,
                 provenance_id=_prov_id(digest, "m3e"),
                 uncertainty=evidence_contract.UNCERTAINTY_UNSTATED,
                 processing_status=evidence_contract.ProcessingStatus.UNAVAILABLE,
-                references=({"kind": "source_frame",
-                             "stream_id": _stream_id(digest),
-                             "frame_index": index},),
+                references=(_element_reference(digest, clock_id,
+                                              frame_index=index),),
                 freshness="fresh")
             payload_boxes = None
         else:
@@ -959,9 +1074,7 @@ def _migrate_saliency(builder: _Builder, digest: str, asset_id: str,
                 coverage_samples=1, coverage_sample_rate_hz=0.0)
             record = replace(
                 record, freshness="fresh",
-                references=({"kind": "source_frame",
-                             "stream_id": _stream_id(digest),
-                             "frame_index": index},))
+                references=(_element_reference(digest, clock_id, frame_index=index),))
             payload_boxes = boxes
         builder.observation(
             digest, "m3e", asset_id, clock_id,
@@ -1090,7 +1203,9 @@ def _speech_take_native(builder: _Builder, digest: str, asset_id: str,
             measurement_type=measurement_type, value=value,
             method=SPEECH_TAKE_METHOD, provenance_id=_prov_id(digest, "m1"),
             coverage=evidence_contract.CoverageKind.COMPLETE,
-            coverage_samples=samples, coverage_sample_rate_hz=0.0))
+            coverage_samples=samples, coverage_sample_rate_hz=0.0,
+            references=(_interval_reference(digest, clock_id,
+                                            ticks[0], ticks[1]),)))
     return replace(record, freshness="fresh")
 
 
@@ -2102,7 +2217,9 @@ def _migrate_scenes(builder: _Builder, digest: str, asset_id: str,
                     method=str(boundary_method),
                     provenance_id=_prov_id(digest, "m4"),
                     coverage=evidence_contract.CoverageKind.COMPLETE,
-                    coverage_samples=0, coverage_sample_rate_hz=0.0)
+                    coverage_samples=0, coverage_sample_rate_hz=0.0,
+                    references=(_interval_reference(
+                        digest, clock_id, ticks[0], ticks[1]),))
                 native = replace(native, freshness=freshness)
                 builder.observation(
                     digest, "m4", asset_id, clock_id, 0.0, duration,
@@ -2126,7 +2243,9 @@ def _migrate_scenes(builder: _Builder, digest: str, asset_id: str,
                 value=copy.deepcopy(boundary), method=str(boundary_method),
                 provenance_id=_prov_id(digest, "m4"),
                 coverage=evidence_contract.CoverageKind.SAMPLED,
-                coverage_samples=1, coverage_sample_rate_hz=0.0)
+                coverage_samples=1, coverage_sample_rate_hz=0.0,
+                references=(_frame_reference(
+                    builder, digest, clock_id, start_tick),))
             native = replace(native, freshness=freshness)
             builder.observation(
                 digest, "m4", asset_id, clock_id, at,
@@ -3166,7 +3285,9 @@ def _migrate_multicam(builder: _Builder, digest: str, asset_id: str,
                    "direct_measurement": copy.deepcopy(direct)},
             method=method, provenance_id=_prov_id(digest, "m6"),
             coverage=evidence_contract.CoverageKind.COMPLETE,
-            coverage_samples=1, coverage_sample_rate_hz=0.0)
+            coverage_samples=1, coverage_sample_rate_hz=0.0,
+            references=(_interval_reference(
+                digest, clock_id, ticks[0], ticks[1]),))
         native = replace(native, freshness=freshness)
     builder.observation(
         digest, "m6", asset_id, clock_id, 0.0, duration,
@@ -3308,9 +3429,7 @@ def _migrate_m3_frames(builder: _Builder, digest: str, asset_id: str,
                 coverage_samples=1, coverage_sample_rate_hz=0.0)
             native = replace(
                 native, freshness="fresh",
-                references=({"kind": "source_frame",
-                             "stream_id": _stream_id(digest),
-                             "frame_index": index},))
+                references=(_element_reference(digest, clock_id, frame_index=index),))
             observation_id = builder.observation(
                 digest, "m3", asset_id, clock_id,
                 bounds[0] / TICKS_PER_SECOND,
@@ -3654,6 +3773,13 @@ def _migrate_segmentation(builder: _Builder, project_folder: str,
         seg_ref = f"{clip_id}_segmentation.json"
     resolution = seg.get("resolution") or [0, 0]
     height, width = (list(resolution) + [0, 0])[:2]
+    # The segmentation lane measured the frame it segmented, so it is
+    # the lane that knows this source's space: the pixel grid and the
+    # normalized grid derived from it are produced from that
+    # measurement.
+    builder.add_spatial_tables(digest, int(width or 0), int(height or 0),
+                               lane="segmentation",
+                               measured_by="the segmentation lane")
     period = 1.0 / sample_fps
     for obj in seg.get("objects") or []:
         if not isinstance(obj, dict):
@@ -3709,11 +3835,18 @@ def _migrate_segmentation(builder: _Builder, project_folder: str,
                 continue
             sample_time = frame_idx / sample_fps
             tick = evidence_contract.point_to_tick(sample_time, TICKS_PER_SECOND)
-            samples.append({"tick": tick,
-                            "geometry": {"bbox_pixels": list(box)},
-                            "confidence": None,
-                            "coordinate_space":
-                                f"source_pixels_{width}x{height}"})
+            sample = {"tick": tick,
+                      "geometry": {"bbox_pixels": list(box)},
+                      "confidence": None,
+                      "coordinate_space":
+                          f"source_pixels_{width}x{height}"}
+            # The declared space the box was measured in: the source's
+            # own pixel grid, which the spatial tables carry.
+            pixel_space = builder.declared_space(
+                spatial_tables.pixel_space_id(digest))
+            if pixel_space:
+                sample["coordinate_space_id"] = pixel_space
+            samples.append(sample)
             evidence = None
             if measured_dims:
                 sample_ticks = _object_sample_ticks(sample_time, period)
@@ -3986,9 +4119,7 @@ def _migrate_regions(builder: _Builder, digest: str, asset_id: str,
         if native is not None:
             native = replace(
                 native, freshness="fresh",
-                references=({"kind": "source_frame",
-                             "stream_id": _stream_id(digest),
-                             "frame_index": index},))
+                references=(_element_reference(digest, clock_id, frame_index=index),))
         builder.observation(
             digest, "m3d", asset_id, clock_id,
             bounds[0] / TICKS_PER_SECOND,
@@ -4058,6 +4189,12 @@ def _migrate_regions(builder: _Builder, digest: str, asset_id: str,
                 "confidence": _confidence(inst.get("containment")),
                 "coordinate_space": "source-normalised-tl",
             })
+            # The declared space the box was measured in: the normalized
+            # grid derived from the source's own pixels.
+            normalized_space = builder.declared_space(
+                spatial_tables.normalized_space_id(digest))
+            if normalized_space:
+                samples[-1]["coordinate_space_id"] = normalized_space
         if not valid:
             builder.dropped.append({"digest": digest, "lane": "m3d",
                                     "track": track_id,
@@ -4195,7 +4332,11 @@ def _migrate_region_measurements(builder: _Builder, digest: str,
                 method, _prov_id(digest, "m3f"), sample_resolution=grid,
                 target_entity_id=entity_id, target_region=target,
                 coverage=evidence_contract.CoverageKind.SAMPLED,
-                coverage_samples=1, coverage_sample_rate_hz=0.0)
+                coverage_samples=1, coverage_sample_rate_hz=0.0,
+                # The reading was taken off one frame of the source, so
+                # the frame is what the record points at.
+                references=(_frame_reference(
+                    builder, digest, clock_id, (ticks[0] + ticks[1]) // 2),))
             record = replace(
                 record,
                 source_reference=(f"m2-sample:{sample['t']};"
@@ -4269,9 +4410,7 @@ def _migrate_region_stats(builder: _Builder, digest: str, asset_id: str,
                     provenance_id=_prov_id(digest, "m3f"),
                     processing_status=evidence_contract.ProcessingStatus.UNAVAILABLE,
                     freshness="fresh",
-                    references=({"kind": "source_sample",
-                                 "stream_id": _stream_id(digest),
-                                 "sample_index": index},))
+                    references=(_element_reference(digest, clock_id, sample_index=index),))
             builder.observation(
                 digest, "m3f", asset_id, clock_id, start, end,
                 "region_stats_frame",
@@ -4289,11 +4428,10 @@ def _migrate_region_stats(builder: _Builder, digest: str, asset_id: str,
                     method=str(method), provenance_id=_prov_id(digest, "m3f"),
                     sample_resolution=list(grid),
                     coverage=evidence_contract.CoverageKind.COMPLETE,
-                    coverage_samples=0, coverage_sample_rate_hz=0.0)
-                native = replace(native, freshness="fresh",
-                                 references=({"kind": "source_sample",
-                                              "stream_id": _stream_id(digest),
-                                              "sample_index": index},))
+                    coverage_samples=0, coverage_sample_rate_hz=0.0,
+                    references=(_element_reference(digest, clock_id,
+                                                  sample_index=index),))
+                native = replace(native, freshness="fresh")
             builder.observation(
                 digest, "m3f", asset_id, clock_id, start, end,
                 "region_stats_frame", {"sample_index": index, "regions": []},
@@ -4316,11 +4454,10 @@ def _migrate_region_stats(builder: _Builder, digest: str, asset_id: str,
                     sample_resolution=list(grid),
                     target_region=str(region["track"]),
                     coverage=evidence_contract.CoverageKind.SAMPLED,
-                    coverage_samples=1, coverage_sample_rate_hz=0.0)
-                native = replace(native, freshness="fresh",
-                                 references=({"kind": "source_sample",
-                                              "stream_id": _stream_id(digest),
-                                              "sample_index": index},))
+                    coverage_samples=1, coverage_sample_rate_hz=0.0,
+                    references=(_element_reference(digest, clock_id,
+                                                  sample_index=index),))
+                native = replace(native, freshness="fresh")
             builder.observation(
                 digest, "m3f", asset_id, clock_id,
                 start, end,
@@ -4364,12 +4501,12 @@ def _migrate_image_defects(builder: _Builder, digest: str, asset_id: str,
             asset_id, clock_id, ticks[0], ticks[1], measurement_type, value,
             doc["method"], provenance_id, sample_resolution=size,
             coverage=evidence_contract.CoverageKind.SAMPLED,
-            coverage_samples=1, coverage_sample_rate_hz=rate)
-        evidence = replace(evidence, freshness="fresh",
-                           references=({"kind": "source_sample",
-                                        "stream_id": _stream_id(digest),
-                                        "sample_index": (index if reference_index is None
-                                                         else reference_index)},))
+            coverage_samples=1, coverage_sample_rate_hz=rate,
+            references=(_element_reference(
+                digest, clock_id,
+                sample_index=(index if reference_index is None
+                              else reference_index)),))
+        evidence = replace(evidence, freshness="fresh")
         builder.observation(
             digest, "vi03", asset_id, clock_id, start, end,
             IMAGE_MEASUREMENT_MODALITY,
@@ -4463,9 +4600,7 @@ def _migrate_depth(builder: _Builder, digest: str, asset_id: str,
                     uncertainty=evidence_contract.UNCERTAINTY_UNSTATED,
                     processing_status=evidence_contract.ProcessingStatus.UNAVAILABLE,
                     freshness="fresh",
-                    references=({"kind": "source_sample",
-                                 "stream_id": _stream_id(digest),
-                                 "sample_index": index},))
+                    references=(_element_reference(digest, clock_id, sample_index=index),))
             builder.observation(
                 digest, "m3g", asset_id, clock_id, start, end, "depth_frame",
                 {"sample_index": index,
@@ -4485,9 +4620,7 @@ def _migrate_depth(builder: _Builder, digest: str, asset_id: str,
                     coverage=evidence_contract.CoverageKind.COMPLETE,
                     coverage_samples=0, coverage_sample_rate_hz=0.0)
                 native = replace(native, freshness="fresh",
-                                 references=({"kind": "source_sample",
-                                              "stream_id": _stream_id(digest),
-                                              "sample_index": index},))
+                                 references=(_element_reference(digest, clock_id, sample_index=index),))
             builder.observation(
                 digest, "m3g", asset_id, clock_id, start, end,
                 "depth_frame", {"sample_index": index, "regions": []},
@@ -4515,9 +4648,7 @@ def _migrate_depth(builder: _Builder, digest: str, asset_id: str,
                         uncertainty=evidence_contract.UNCERTAINTY_UNSTATED,
                         processing_status=evidence_contract.ProcessingStatus.UNAVAILABLE,
                         freshness="fresh",
-                        references=({"kind": "source_sample",
-                                     "stream_id": _stream_id(digest),
-                                     "sample_index": index},))
+                        references=(_element_reference(digest, clock_id, sample_index=index),))
                 else:
                     native = evidence_contract.new_inference(
                         asset_id=asset_id, clock_id=clock_id,
@@ -4531,9 +4662,7 @@ def _migrate_depth(builder: _Builder, digest: str, asset_id: str,
                         coverage=evidence_contract.CoverageKind.SAMPLED,
                         coverage_samples=1, coverage_sample_rate_hz=0.0)
                 native = replace(native, freshness="fresh",
-                                 references=({"kind": "source_sample",
-                                              "stream_id": _stream_id(digest),
-                                              "sample_index": index},))
+                                 references=(_element_reference(digest, clock_id, sample_index=index),))
             builder.observation(
                 digest, "m3g", asset_id, clock_id,
                 start, end,

@@ -120,6 +120,7 @@ def test_project_model_keeps_measurements_typed_and_round_trippable():
         measurement_type="image.sharpness.laplacian_variance", value=142.6,
         method="laplacian-variance-180px-v1", provenance_id=observation["provenance_id"],
         sample_resolution=[320, 180],
+        references=({"kind": "stream", "stream_id": model["streams"][0]["id"]},),
     )
     observation["evidence"] = evidence_contract.to_rust_evidence(measurement)
     observation["certainty"] = "measured"
@@ -335,12 +336,13 @@ def test_track_discontinuity_and_unknown_spaces_are_refused():
     clock = model["clocks"][0]["id"]
     obs = model["observations"][0]["id"]
     model["coordinate_spaces"] = [{
-        "id": "space-pixels", "kind": "pixel", "units": "px",
+        "id": "space-pixels", "kind": "source_pixels", "units": "px",
         "origin": "top_left", "axes": "x_right_y_down", "calibration": None,
     }]
     model["space_transforms"] = [{
         "id": "pixel-to-canvas", "from_space": "space-pixels",
-        "to_space": "space-pixels", "matrix": [1.0] * 9,
+        "to_space": "space-pixels",
+        "matrix": [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
         "uncertainty": 0.0, "provenance_id": "prov-synthetic",
     }]
     model["tracks"] = [{

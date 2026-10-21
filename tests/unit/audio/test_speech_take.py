@@ -272,7 +272,8 @@ def _native(measurement_type, value, *, digest, lane="m1",
         measurement_type=measurement_type, value=value, method="fixture",
         provenance_id=f"prov-{digest}-{lane}",
         coverage=evidence_contract.CoverageKind.COMPLETE,
-        coverage_samples=samples, coverage_sample_rate_hz=0.0)
+        coverage_samples=samples, coverage_sample_rate_hz=0.0,
+        references=({"kind": "stream", "stream_id": f"stream-{digest}"},))
     return evidence_contract.to_rust_evidence(
         replace(record, freshness=freshness))
 

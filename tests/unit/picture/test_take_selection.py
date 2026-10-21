@@ -234,7 +234,9 @@ def test_rank_uses_explicit_policy_and_preserves_duplicate_instances():
             start_tick=(index * 2 + 1) * 1000,
             end_tick=(index * 2 + 2) * 1000,
             measurement_type="speech.completeness", value=complete,
-            method="fi13-transcript-v1", provenance_id=f"m1-{index}")}
+            method="fi13-transcript-v1", provenance_id=f"m1-{index}",
+            references=({"kind": "stream",
+                         "stream_id": f"stream-{index}"},))}
 
     ranked = rank_take_instances(
         [comparison], policy=policy, project_id="project-a",

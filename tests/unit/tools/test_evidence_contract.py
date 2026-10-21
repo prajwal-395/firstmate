@@ -17,6 +17,11 @@ from library.tools import project_model_evidence as evidence
 
 ASSET = "asset-digest-001"
 CLOCK = "clock-digest-001"
+STREAM = "stream-digest-001"
+#: The universal source reference every measurement here carries: the
+#: stream and the clock the value was measured on. A measurement that
+#: cannot say which bytes it was measured from is refused.
+SOURCE = ({"kind": "stream", "stream_id": STREAM},)
 PROV_M1 = "prov-digest-001-m1"
 PROV_M3 = "prov-digest-001-m3b"
 
@@ -28,7 +33,7 @@ def _sharpness(resolution, method):
         method=method, provenance_id="prov-digest-001-picture",
         sample_resolution=resolution,
         coverage=contract.CoverageKind.SAMPLED, coverage_samples=25,
-        coverage_sample_rate_hz=5.0)
+        coverage_sample_rate_hz=5.0, references=SOURCE)
 
 
 #: The real picture-quality stamp at its real geometry
@@ -150,7 +155,8 @@ def test_focus_distance_honesty():
     recorded = contract.new_measurement(
         asset_id=ASSET, clock_id=CLOCK, start_tick=0, end_tick=1000,
         measurement_type="lens.focus_distance_m", value=2.5,
-        method="recorded:fixture-lens", provenance_id="prov-m0")
+        method="recorded:fixture-lens", provenance_id="prov-m0",
+        references=SOURCE)
     assert recorded.unit == "m"
     with pytest.raises(contract.EvidenceTypeError):
         contract.new_measurement(
@@ -210,7 +216,7 @@ def test_unavailable_carries_nothing():
         measurement_type="speech.rate", value={},
         method="whisper-mfa-v1", provenance_id="prov-x",
         coverage=contract.CoverageKind.COMPLETE, coverage_samples=0,
-        coverage_sample_rate_hz=0.0)
+        coverage_sample_rate_hz=0.0, references=SOURCE)
     assert absent.coverage_samples == 0
     with pytest.raises(contract.EvidenceContractError):
         contract.new_measurement(
@@ -310,9 +316,10 @@ def test_evidence_links_to_source_samples_and_frames():
         spatial_frame_id="frame-12",
         coordinate_space_id="space-pixels",
         references=(
-            {"kind": "source_frame", "stream_id": "stream-video",
-             "frame_index": 12},
-            {"kind": "observation", "observation_id": "obs-1"},
+            {"kind": "element", "stream_id": "stream-video",
+             "clock_id": CLOCK,
+             "element": {"kind": "frame", "frame_index": 12}},
+            {"kind": "stream", "stream_id": "stream-video"},
         ),
         coverage_scope={"interval": {"clock_id": CLOCK, "start": 0,
                                      "end": 1000},
@@ -323,7 +330,7 @@ def test_evidence_links_to_source_samples_and_frames():
         freshness="fresh")
     emitted = contract.to_rust_evidence(record)
     assert set(emitted) == set(contract.RUST_EVIDENCE_KEYS)
-    assert emitted["references"][0]["frame_index"] == 12
+    assert emitted["references"][0]["element"]["frame_index"] == 12
     assert emitted["coverage_scope"]["coordinate_space_id"] == "space-pixels"
     assert emitted["coverage_level"] == "l1"
     assert emitted["freshness"] == "fresh"
@@ -337,7 +344,12 @@ def test_evidence_links_refuse_unknown_kinds_and_ranges():
                 references=({"kind": "vibes", "stream_id": "s"},))
     with pytest.raises(contract.EvidenceContractError):
         replace(_sharpness([320, 180], SHARP_180),
-                references=({"kind": "source_frame", "stream_id": "s"},))
+                references=({"kind": "element", "stream_id": "s"},))
+    with pytest.raises(contract.EvidenceContractError):
+        # A pre-contract spelling is read, never written.
+        replace(_sharpness([320, 180], SHARP_180),
+                references=({"kind": "source_frame", "stream_id": "s",
+                             "frame_index": 3},))
     with pytest.raises(contract.EvidenceContractError):
         replace(_sharpness([320, 180], SHARP_180), freshness="mouldy")
     with pytest.raises(contract.EvidenceContractError):

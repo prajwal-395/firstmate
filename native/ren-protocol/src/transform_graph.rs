@@ -234,6 +234,9 @@ pub fn map_point(
                 "point dimension does not match matrix".into(),
             ));
         }
+        if !crate::transform_graph::matrix_is_invertible(&transform.matrix) {
+            return Err(TransformError::NonInvertible);
+        }
         let mut homogeneous = coordinates.clone();
         homogeneous.push(1.0);
         let mut result = vec![0.0; dimension];
@@ -330,10 +333,10 @@ pub fn validate_graph(model: &ProjectModel) -> Result<(), String> {
             return Err("transform ids must be unique".into());
         }
         // Self-joins are well-formed per the evidence contract (see above);
-        // only dangling endpoints are refused here.
-        if !spaces.is_empty()
-            && (!spaces.contains(t.from_space.as_str()) || !spaces.contains(t.to_space.as_str()))
-        {
+        // only dangling endpoints are refused here. A transform whose
+        // endpoints are not declared is refused even when the model
+        // declares no space at all: the join is the transform.
+        if !spaces.contains(t.from_space.as_str()) || !spaces.contains(t.to_space.as_str()) {
             return Err("space transform has an invalid join".into());
         }
         if t.matrix.iter().any(|v| !v.is_finite())
@@ -344,8 +347,84 @@ pub fn validate_graph(model: &ProjectModel) -> Result<(), String> {
                     .into(),
             );
         }
+        if !matrix_is_invertible(&t.matrix) {
+            return Err("space transform matrix must be invertible".into());
+        }
+    }
+    // A space is either the source's own pixel grid - which describes
+    // itself - or a space derived from something, and a derived space
+    // that does not say how it was established is a number with no
+    // meaning behind it.
+    for space in &model.coordinate_spaces {
+        if space.id.is_empty() || space.kind.is_empty() {
+            return Err("coordinate space needs a stable id and a kind".into());
+        }
+        if space.kind != crate::project_model::SELF_DESCRIBING_SPACE_KIND
+            && space
+                .calibration
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .is_none()
+        {
+            return Err(format!(
+                "coordinate space {} requires a calibration",
+                space.id
+            ));
+        }
     }
     Ok(())
+}
+
+/// Whether a row-major homogeneous matrix can be inverted.
+///
+/// A singular matrix maps a whole plane onto a line, so every point it
+/// is asked about lands on the same place: the transform would answer
+/// with a number that is not where the thing is. It is refused when it
+/// is declared, not when it is applied.
+pub fn matrix_is_invertible(matrix: &[f64]) -> bool {
+    let dimension = match matrix.len() {
+        9 => 3usize,
+        16 => 4usize,
+        _ => return false,
+    };
+    if matrix.iter().any(|v| !v.is_finite()) {
+        return false;
+    }
+    let mut work: Vec<Vec<f64>> = (0..dimension)
+        .map(|row| matrix[row * dimension..(row + 1) * dimension].to_vec())
+        .collect();
+    // Gauss-Jordan with partial pivoting: the determinant vanishes
+    // exactly when a pivot cannot be found.
+    for column in 0..dimension {
+        let mut pivot = column;
+        for row in (column + 1)..dimension {
+            if work[row][column].abs() > work[pivot][column].abs() {
+                pivot = row;
+            }
+        }
+        if work[pivot][column].abs() < 1e-12 {
+            return false;
+        }
+        work.swap(column, pivot);
+        let divisor = work[column][column];
+        for value in work[column].iter_mut() {
+            *value /= divisor;
+        }
+        for row in 0..dimension {
+            if row == column {
+                continue;
+            }
+            let factor = work[row][column];
+            if factor == 0.0 {
+                continue;
+            }
+            for index in 0..dimension {
+                work[row][index] -= factor * work[column][index];
+            }
+        }
+    }
+    true
 }
 
 fn overlaps(a0: i64, a1: i64, b0: i64, b1: i64) -> bool {

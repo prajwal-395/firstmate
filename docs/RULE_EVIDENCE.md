@@ -10208,6 +10208,7 @@ protection - the rule that keeps a near name off somebody else's project -
 is untouched. Defect-naming test:
 `tests/unit/resolve/test_project_lookup_reaches_the_open_project.py`.
 
+
 ## the-stored-pass-that-answered-a-different-question
 
 **The rule.** A cached analysis is served only under the key it was
@@ -10543,4 +10544,55 @@ One enumeration, `library/tools/instruction_loop.py`; the gate is
 `assignment_edit_workflow.plan`, and the measurement is
 `evaluation/tools/plan011_instruction_loop.py` (the report:
 `docs/benchmarks/2026-10-23-plan011-instruction-loop.md`).
+
+=======
+## the-measurement-that-could-not-say-where-it-was-measured
+
+**The rule.** A measurement carries at least one reference that reaches
+the SOURCE - a stream, an element, an interval or a region - and every
+source reference resolves to an artefact and a byte range or is refused
+with a named reason. The vocabulary is one type, in the Rust protocol,
+the generated schema and the Python enumeration, and it names no
+application and no model provider.
+
+**What happened.** The workstream A audit measured the canonical Project
+Model with 15 one-mutation probes on 2026-10-21 and found four gaps
+that a model with no producer for its spatial tables could not close:
+
+- a measurement evidence row with **no** reference at all was ACCEPTED,
+  so a record could say a value was measured without saying which bytes
+  it was measured from;
+- a mask whose `representation.kind` was not in the mask registry was
+  ACCEPTED, so the model could carry a mask no consumer can read;
+- a **singular** space-transform matrix was ACCEPTED: it maps a whole
+  plane onto a line, so every point asked about lands on the same place;
+- a **dangling** space join was ACCEPTED whenever the model declared no
+  coordinate space at all - the check was skipped rather than failed.
+
+The same audit measured the resolution problem: there were four
+per-domain resolvers, each with its own refusal vocabulary, and **no
+ambiguity case at all** outside one policy loader.
+
+**The fix.** `library/tools/source_reference.py` is the one vocabulary;
+`library/tools/reference_resolver.py` is the one resolver, and it refuses
+with `missing`, `stale`, `ambiguous` or `incompatible` - never a guess.
+`library/tools/spatial_tables.py` is the one producer of the spatial
+tables, and it produces them from the measured frame resolution, so a
+space that means nothing without its calibration has to say so.
+The mask representation is typed against the registry that resolves the
+bytes.
+
+The rule is versioned by the evidence contract: a record stamped
+`contract_version` 2 or later carries the reference, a record stamped 1
+predates the contract and keeps reading as it was written. **Nothing in
+a project store is rewritten**, and the pre-contract spellings are read,
+never written.
+
+**Measured.** Measurement rows with no source reference: 10/10 -> 0/10
+in the migrated fixture model. Spatial collections: 0 rows -> 2 spaces
+and 1 join per source. Refusals now firing: unknown mask kind, singular
+matrix, dangling join, null calibration, measurement with no reference.
+Defect-naming tests: `tests/unit/context/test_source_reference.py` and
+the five Rust tests beside it. Detail: `docs/UNIVERSAL_SOURCE_REFERENCE.md`.
+
 
