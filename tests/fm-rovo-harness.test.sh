@@ -198,7 +198,7 @@ test_rovo_launch_then_send_is_verified() {
   expect_code 0 "$rc" "verified rovo launch-then-send should succeed"
   assert_contains "$out" "spawned $id harness=rovo" "rovo spawn did not report success"
 
-  launch=$(cat "$CASE_DIR/launch.log")
+  launch=$(fm_test_launch_script "$(cat "$CASE_DIR/launch.log")")
   assert_contains "$launch" "$FAKEBIN_DIR/rovo' run --yolo" \
     "rovo launch did not use the resolved binary with the bare launch-then-send shape"
   assert_not_contains "$launch" "--startup-receipt" "rovo launch used the incompatible --startup-receipt flag"
@@ -247,7 +247,7 @@ test_rovo_effort_xhigh_is_omitted_from_launch_and_meta() {
   out=$(run_spawn "$CASE_DIR" "$HOME_DIR" "$PROJ_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" --effort xhigh)
   rc=$?
   expect_code 0 "$rc" "rovo spawn with an unsupported effort should still succeed"
-  launch=$(cat "$CASE_DIR/launch.log")
+  launch=$(fm_test_launch_script "$(cat "$CASE_DIR/launch.log")")
   assert_not_contains "$launch" "efficiencyLevel" "rovo launch set agent.efficiencyLevel for an unsupported effort value"
   # --config-override still carries the mandatory allowedExternalPaths grant
   # even when the requested effort is unsupported and omitted: the two ride
@@ -268,7 +268,7 @@ test_rovo_effort_high_sets_config_override() {
   out=$(run_spawn "$CASE_DIR" "$HOME_DIR" "$PROJ_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" --effort high)
   rc=$?
   expect_code 0 "$rc" "rovo spawn with a supported effort should succeed"
-  launch=$(cat "$CASE_DIR/launch.log")
+  launch=$(fm_test_launch_script "$(cat "$CASE_DIR/launch.log")")
   assert_contains "$launch" 'efficiencyLevel' "rovo launch did not set agent.efficiencyLevel via --config-override"
   assert_contains "$launch" '"high"' "rovo launch did not carry the requested efficiency level"
   # Exactly one --config-override: rovo silently discards a second occurrence

@@ -4699,7 +4699,11 @@ JS
   boat_water_changed=0
   boat_water_first=$(grep -F '╲▁▁▁╱' "$boat_frame_one" | head -1)
   active_screen_wait=0
-  while [ "$active_screen_wait" -lt 60 ]; do
+  # The water animates on its own cadence, so the window waits for a changed
+  # frame rather than for a fixed delay. A loaded host can spend seconds
+  # between two frames, and the property under test is that the water moves at
+  # all while the boat holds its column, not how fast a quiet host moves it.
+  while [ "$active_screen_wait" -lt 600 ]; do
     tmux -L "$TMUX_SOCKET" capture-pane -p -t "$TMUX_SESSION" >"$boat_water_snapshot"
     boat_water_line=$(grep -F '╲▁▁▁╱' "$boat_water_snapshot" | head -1)
     boat_column_two=$(awk 'index($0,"╲▁▁▁╱"){print index($0,"╲▁▁▁╱"); exit}' "$boat_water_snapshot")

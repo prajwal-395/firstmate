@@ -16,6 +16,13 @@ BEARINGS="$ROOT/bin/fm-bearings-snapshot.sh"
 TMP_ROOT=$(fm_test_tmproot fm-captain-hold)
 TASKS_AXI_BIN=$(command -v tasks-axi || true)
 
+# Every script this suite runs addresses this scratch home, never the home the
+# checkout happens to sit in. A checkout that is itself a live firstmate home
+# would otherwise hand this suite that home's session lock and its backlog,
+# and the hold would wait on a live session instead of on its own fixture.
+FM_HOME=$(fm_test_scratch_home fm-captain-hold)
+export FM_HOME
+
 command -v jq >/dev/null 2>&1 || { echo "skip: jq not found"; exit 0; }
 command -v tasks-axi >/dev/null 2>&1 || { echo "skip: tasks-axi not found"; exit 0; }
 

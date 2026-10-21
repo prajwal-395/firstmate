@@ -12,6 +12,13 @@ set -u
 
 RUNNER="$ROOT/bin/fm-test-run.sh"
 
+# Every script this suite runs addresses this scratch home, never the home the
+# checkout happens to sit in. A checkout that is itself a live firstmate home
+# would otherwise hand this suite that home's session lock and its backlog,
+# and the runner would wait on a live session instead of on its own fixture.
+FM_HOME=$(fm_test_scratch_home fm-test-run)
+export FM_HOME
+
 assert_present "$RUNNER" "bin/fm-test-run.sh is missing"
 [ -x "$RUNNER" ] || fail "bin/fm-test-run.sh must be executable"
 

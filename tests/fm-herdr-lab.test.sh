@@ -47,7 +47,17 @@ case "$1 ${2:-}" in
     ;;
   "server --session")
     if [ "${FM_FAKE_HERDR_SERVER_DELAY:-0}" != 0 ]; then
-      "$FM_FAKE_HERDR_REAL_SLEEP" "$FM_FAKE_HERDR_SERVER_DELAY"
+      # The delayed server waits for the test to release it instead of racing a
+      # fixed wall-clock delay: the provision's own timeout is attempt-bounded,
+      # so on a loaded host a slow poll can outlive any fixed delay and the
+      # server would come up mid-provision. The release marker makes "the
+      # server never comes up before the test says so" a property of the
+      # fixture rather than of the machine's speed.
+      limit=${FM_TEST_STUB_MAX_BLOCK_SECONDS:-120}
+      while [ ! -e "$state/$session.server-release" ]; do
+        [ "$SECONDS" -lt "$limit" ] || exit 0
+        "$FM_FAKE_HERDR_REAL_SLEEP" 0.05
+      done
     fi
     printf '%s\n' running > "$state/$session"
     ;;
@@ -273,6 +283,10 @@ SH
   run_with_fake fm_herdr_lab_teardown "$name" || fail "teardown after timed-out provision failed"
   assert_absent "$TRIPWIRES/$name.fleet-state.json" \
     "teardown after timed-out provision did not remove its tripwire"
+  # Release the server the provision abandoned. A live one would now report
+  # the session running; a cancelled one stays silent, which is the property
+  # this case proves.
+  : > "$FAKE_STATE/$name.server-release"
   "$REAL_SLEEP" 1.1
   if [ -f "$FAKE_STATE/$name" ] && [ "$(cat "$FAKE_STATE/$name")" = running ]; then
     fail "timed-out provision left a late-starting lab session after teardown"

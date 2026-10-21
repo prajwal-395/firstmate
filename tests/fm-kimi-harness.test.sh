@@ -119,7 +119,11 @@ case "${1:-}" in
         ". '"*"'") staged=${literal#". '"}; staged=${staged%"'"}; [ ! -f "$staged" ] || literal=$(cat "$staged") ;;
       esac
       case "$literal" in
-        *' --auto')
+        # The staged launch carries the whole command, wrapped in the launch
+        # shell's own quoting, so the --auto flag is no longer the last token
+        # of the recorded text. The flag anywhere in the command still names a
+        # launch; the brief pointer never carries it.
+        *' --auto'*)
           printf '%s\n' "$literal" >> "$FM_FAKE_LAUNCH_LOG"
           printf 'launched\n' > "$FM_FAKE_KIMI_STATE"
           ;;
@@ -305,7 +309,7 @@ test_kimi_launch_then_send_is_verified() {
   expect_code 0 "$rc" "verified kimi launch-then-send should succeed"
   assert_contains "$out" "spawned $id harness=kimi" "kimi spawn did not report success"
 
-  launch=$(cat "$CASE_DIR/launch.log")
+  launch=$(fm_test_launch_script "$(cat "$CASE_DIR/launch.log")")
   [ "$launch" = "export COMPACT_ADVISER_DISABLE=1; $(task_inbox_export "$HOME_DIR" "$id")$(ai_trailer_hooks_prefix "$HOME_DIR" "$id")env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI '$FAKEBIN_DIR/kimi' --model 'kimi-code/k3' --auto" ] \
     || fail "kimi launch did not use the absolute binary, model, and --auto only: $launch"
   assert_not_contains "$launch" "--effort" "kimi launch emitted a nonexistent effort flag"
@@ -679,7 +683,7 @@ test_kimi_falls_back_to_expanded_home_binary() {
   out=$(run_spawn "$CASE_DIR" "$HOME_DIR" "$PROJ_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id")
   rc=$?
   expect_code 0 "$rc" "Kimi HOME fallback spawn should succeed"
-  launch=$(cat "$CASE_DIR/launch.log")
+  launch=$(fm_test_launch_script "$(cat "$CASE_DIR/launch.log")")
   [ "$launch" = "export COMPACT_ADVISER_DISABLE=1; $(task_inbox_export "$HOME_DIR" "$id")$(ai_trailer_hooks_prefix "$HOME_DIR" "$id")env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI '$fallback' --auto" ] \
     || fail "Kimi fallback did not expand HOME into an absolute executable: $launch"
   pass "fm-spawn: Kimi fallback expands the active HOME"

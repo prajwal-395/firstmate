@@ -3923,6 +3923,30 @@ if [ -n "$TASK_TMP" ]; then
     exit 1
   }
 fi
+# Retire only this Firstmate home's launch namespace. Its never-reused per-spawn
+# files leave the equal task-id namespace of every other home untouched.
+teardown_launch_home_token() {
+  local home=$1 root hash
+  root=$(cd "$home" 2>/dev/null && pwd -P) || root=$home
+  if command -v shasum >/dev/null 2>&1; then
+    hash=$(printf '%s' "$root" | shasum -a 256 | awk '{print $1}')
+  elif command -v sha256sum >/dev/null 2>&1; then
+    hash=$(printf '%s' "$root" | sha256sum | awk '{print $1}')
+  else
+    return 1
+  fi
+  case "$hash" in
+    *[!0-9a-fA-F]*|'') return 1 ;;
+  esac
+  printf '%s' "$hash"
+}
+LAUNCH_HOME_TOKEN=$(teardown_launch_home_token "$FM_HOME") || LAUNCH_HOME_TOKEN=
+if [ -n "$LAUNCH_HOME_TOKEN" ]; then
+  rm -rf "/tmp/fm-$ID+$LAUNCH_HOME_TOKEN" || {
+    echo "error: staged launch directory removal failed for $ID; retaining every durable task record" >&2
+    exit 1
+  }
+fi
 remove_pr_poll_artifacts "$STATE" "$ID" || {
   echo "error: task PR-check artifact cleanup failed for $ID; retaining every durable task record" >&2
   exit 1
