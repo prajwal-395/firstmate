@@ -40,6 +40,7 @@ import math
 import os
 import socket
 import subprocess
+import sys
 import time
 import uuid
 from datetime import UTC, datetime
@@ -1185,6 +1186,14 @@ def import_project(resolve, manager, source: str | Path, name: str, *,
 SLOT_TIMEOUT_ENV = "PIPELINE_RESOLVE_SCRATCH_SLOT_TIMEOUT"
 SLOT_POLL_SECONDS = 1.0
 
+#: How often a waiter waiting for the scratch origin says so aloud.
+#: Silence would read as a hang, and the wait is bounded by the
+#: instance lease's own budget - 900 s by default - so a lane that
+#: waited silently for a quarter of an hour learned nothing from it.
+#: The instance lease's captain notice is the same shape and the same
+#: interval (`library/tools/resolve_lock.py`).
+SLOT_NOTICE_SECONDS = 30.0
+
 
 def slot_timeout() -> float:
     """How long a writer waits for the scratch-origin slot.
@@ -1233,6 +1242,7 @@ def wait_for_origin_slot(timeout: float | None = None,
     limit = slot_timeout() if timeout is None else float(timeout)
     started = time.time()
     deadline = started + limit
+    last_notice = 0.0
     while True:
         records = _read_ledger()
         record = _slot_holder(records)
@@ -1246,8 +1256,20 @@ def wait_for_origin_slot(timeout: float | None = None,
         if not _owner_alive(record):
             return {"waited": time.time() - started, "holder": holder,
                     "released": False, "stale": True, "timed_out": False}
-        if time.time() >= deadline:
-            return {"waited": time.time() - started, "holder": holder,
+        now = time.time()
+        if now - last_notice >= SLOT_NOTICE_SECONDS:
+            # The contention is SAID, not waited through in silence: who
+            # holds the origin, and how long this waiter has been
+            # waiting for it. Said BEFORE the deadline is checked, so a
+            # wait that ends at once still says what it was waiting
+            # for.
+            print(f"waiting: the scratch origin is held by {holder} "
+                  f"(pid {record.get('owner_pid')}); waited "
+                  f"{now - started:.0f}s of {limit:.0f}s for it to be "
+                  f"released.", file=sys.stderr, flush=True)
+            last_notice = now
+        if now >= deadline:
+            return {"waited": now - started, "holder": holder,
                     "released": False, "stale": False, "timed_out": True}
         time.sleep(poll)
 

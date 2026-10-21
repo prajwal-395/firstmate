@@ -240,6 +240,10 @@ FAMILY_BLOCKERS = {
     "library.tools.reel_state.UnknownReel": "missing_media",
     "library.tools.reel_touchup.TouchupRefused": "unsafe_state",
     "library.tools.region_stats.UnsourcedSubjectGrade": "insufficient_evidence",
+    # PERF-011: a refusal the engine already decided on this exact state.
+    # The block is the state: the cause has not changed, so acting on it
+    # again would decide the same thing.
+    "library.tools.retry_guard.RepeatedRefusal": "unsafe_state",
     "library.tools.render_watch.NoPictureChanged": "insufficient_evidence",
     "library.tools.render_watch.NotDelivered": "missing_media",
     "library.tools.render_watch.NothingWasWatched": "missing_media",

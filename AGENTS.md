@@ -189,7 +189,7 @@ AXI is the only production boundary for Resolve inspection and mutation. Discove
 
 One Resolve instance and its broker/lease coordinate every writer. Never mutate through a direct API, MCP or UI path, overlap writers, or promote an unverified result. Use the [resolve-axi skill](.agents/skills/resolve-axi/SKILL.md) for discovery, execution and recovery; its generated references derive from `library/tools/edit_algebra.py`. Custom scripts follow [the AXI script safeguards](docs/RESOLVE_AXI_CUSTOM_SCRIPTS.md). Pipeline-owned composition and render details belong to [davinci_resolve_pipeline](.agents/skills/davinci_resolve_pipeline/SKILL.md) and their owning modules.
 
-**A WAIT for a machine resource runs OUTSIDE the broker's turn; a STOP names who asked, and a linked worktree never stops the machine's broker.** `library/tools/resolved/client.py`. [why](docs/RULE_EVIDENCE.md#the-wait-in-the-turn)
+**A WAIT for a machine resource runs OUTSIDE the broker's turn; the scratch-origin wait SAYS who holds it; a STOP names who asked, and a linked worktree never stops the machine's broker.** `library/tools/resolved/client.py`. [why](docs/RULE_EVIDENCE.md#the-wait-in-the-turn)
 
 **A COMPOUND request is a TRANSACTION: its write order and dependencies are declared, a preservation constraint that cannot hold refuses BEFORE the first write, a partial mutation is recovered and only claimed when a fresh read-back matches the validated generation, and a possibly committed mutation is never retried silently.** `library/tools/compound_transaction.py`.
 
@@ -322,7 +322,7 @@ Join semantic documents to the catalog with `library/tools/semantic_index.py`.
 
 **A declared output has a READER.** `library/tools/output_contract.py`. [why](docs/RULE_EVIDENCE.md#the-outputs-nobody-read)
 
-**A step reads the vision document through a SUMMARY its own handoff names, not through the raw document.** `library/tools/vision_schema_adapter.py`. [why](docs/RULE_EVIDENCE.md#the-transition-planner-read-the-raw-document)
+**A step reads the vision document through a SUMMARY its own handoff names, and never sends the structure it was rendered from.** `library/tools/vision_schema_adapter.py`. [why](docs/RULE_EVIDENCE.md#the-transition-planner-read-the-raw-document) [why](docs/RULE_EVIDENCE.md#the-summary-and-its-own-source)
 
 **`compile_manifest` reads `pipeline_data.json`, not just files.** `library/steps/step_5_04_compile_manifest/step.py`. [why](docs/RULE_EVIDENCE.md#compile-manifest-read-an-empty-catalog)
 
@@ -332,12 +332,11 @@ Join semantic documents to the catalog with `library/tools/semantic_index.py`.
 
 **A project's brand template reaches the run through `state["brand_template"]`.** `library/tools/brand_registry.py`. [why](docs/RULE_EVIDENCE.md#brand-template-never-reached-the-run)
 
-**A project that names no brand template gets NOTHING, and every slot's reading of that absence is written down.**
-**A project's own declarations reach every step through `state["project_config"]`.** `library/tools/brand_registry.py`. [why](docs/RULE_EVIDENCE.md#a-template-nobody-chose)
+**A project that names no brand template gets NOTHING, and every slot's reading of that absence is written down; its own declarations reach every step through `state["project_config"]`.** `library/tools/brand_registry.py`. [why](docs/RULE_EVIDENCE.md#a-template-nobody-chose)
 
 **A brand's CONSTRAINTS reach three planning steps, and a step has two names.** `library/tools/brand_registry.py`. [why](docs/RULE_EVIDENCE.md#the-brand-reached-no-planning-step)
 
-**The captain's creative brief is one per-project declaration that reaches NINE steps, BY REFERENCE, WHEN THE PROJECT ATTACHES IT.** **A run that attaches none INTERVIEWS rather than going quiet.** `library/tools/brief_reference.py`. [why](docs/RULE_EVIDENCE.md#the-brief-is-paid-seven-times)
+**The captain's creative brief is one per-project declaration that reaches NINE steps, BY REFERENCE, WHEN THE PROJECT ATTACHES IT; a run that attaches none INTERVIEWS rather than going quiet.** `library/tools/brief_reference.py`. [why](docs/RULE_EVIDENCE.md#the-brief-is-paid-seven-times)
 
 **A reference is an ABSOLUTE PATH plus a MAP.** `library/tools/brief_reference.py`. [why](docs/RULE_EVIDENCE.md#the-brief-was-copied-seven-times)
 
@@ -351,8 +350,6 @@ Join semantic documents to the catalog with `library/tools/semantic_index.py`.
 
 **Word timings do not reach a prompt, and what a step cannot select by NAME it selects with a named VIEW.** `library/tools/context_views.py`. [why](docs/RULE_EVIDENCE.md#the-transcript-arrived-with-every-word)
 
-**Never send a summary and the structure it was rendered from.** `library/tools/vision_schema_adapter.py`. [why](docs/RULE_EVIDENCE.md#the-summary-and-its-own-source)
-
 **No raw value list reaches a prompt.** `library/tools/beat_grid.py`. [why](docs/RULE_EVIDENCE.md#the-beat-grid-in-the-prompt)
 
 **A step that chooses a picture is SHOWN one, and so is one that judges a RENDER.** **What a render SAYS is HEARD against the plan.** `library/tools/window_frames.py`, `library/tools/render_watch.py`, `library/tools/reel_hearing.py` - the last two REPORT, never gate. [why](docs/RULE_EVIDENCE.md#no-step-that-chose-a-picture-had-seen-one) [why](docs/RULE_EVIDENCE.md#caption-shipped-late)
@@ -360,6 +357,8 @@ Join semantic documents to the catalog with `library/tools/semantic_index.py`.
 **A TOON table cell is quoted with a BACKTICK, and a multi-line value under a KEY is a `|` block.** `library/tools/toon_serializer.py`. [why](docs/RULE_EVIDENCE.md#the-apostrophe-was-doubled-in-every-prompt)
 
 **A step reads only the keys the PRODUCING step is asked for, and `creative_direction` is the enumeration that proves it.** `library/tools/creative_direction.py`. [why](docs/RULE_EVIDENCE.md#seven-reads-of-a-key-that-cannot-exist)
+
+**A REFUSAL the engine already decided is REMEMBERED, and the same one again costs nothing.** `library/tools/retry_guard.py`. [why](docs/RULE_EVIDENCE.md#refusal-decided-twice)
 
 **A call with nothing to ask is not made.** `library/processes/edit_video/run_pipeline.py`. [why](docs/RULE_EVIDENCE.md#thirty-three-thousand-tokens-for-three-bytes)
 
@@ -422,7 +421,7 @@ Detail: `library/tools/subject_framing.py`. [why](docs/RULE_EVIDENCE.md#the-crop
 **Face frames are sampled at the CLIP'S OWN aspect, never a fixed shape.**
 Detail: `library/steps/step_1_04_temporal_index/step.py`. [why](docs/RULE_EVIDENCE.md#the-squashed-face-frame)
 
-**The frame FILLS by default, and there is no heuristic.** **A framing DECLARATION is not a framing DELIVERED, and the manifest records both.**
+**The frame FILLS by default, and there is no heuristic; a framing DECLARATION is not a framing DELIVERED, and the manifest records both.**
 Detail: `library/tools/framing_intent.py`. [why](docs/RULE_EVIDENCE.md#the-letterbox-default)
 
 **A project may DECLARE where its footage lives, and a bad declaration is refused.** `library/tools/footage_identity.py`.
@@ -485,13 +484,12 @@ A CREATIVE fallback substitutes taste (a mood, a theme, a transition, an effect,
 A stated preference, then the declared direction, then the model reasoning over MEASURED signal, then a fallback naming WHOSE preference it is.
 Detail: `library/tools/decided_value.py`. [why](docs/CREATIVE_VALUE_DECISION.md)
 
-- Two things are NOT taste: "nothing is drawn" (`transition_vocabulary.CUT_TYPES`, `series_look.NEUTRAL_CDL`), and a rule acting on a value the direction really DECLARED (`creative_cohesion`). Detail: `library/tools/creative_floors.py`.
 - A plan entry that names no effect, no sound or no level is DROPPED with the reason. Never completed from a constant, in a bridge or in `compile_manifest`.
 - **How strong an effect is is the PLAN's number, not a scale the engine offers.** Step 4.03's `INTENSITY_MAP` is REMOVED (captain, 2026-09-02) and `plan_vfx.TOOLKIT_PARAMETERS` replaces it, carrying NO value, default or bound. An entry whose `params` name none of them is dropped as `no_readable_parameters`. Detail: `library/steps/step_4_03_plan_vfx/post_bridge.py`.
 - An alias may RENAME a capability and may not CHOOSE one (`library/steps/step_4_03_plan_vfx/post_bridge.py`).
 - Dead code that states taste is removed, not left.
 
-**There are NO creative floors, and there must not be again.**
+**There are NO creative floors, and there must not be again.** Two things are NOT taste: "nothing is drawn" (`transition_vocabulary.CUT_TYPES`, `series_look.NEUTRAL_CDL`), and a rule acting on a value the direction really DECLARED (`creative_cohesion`).
 Detail: `library/tools/creative_floors.py`. [why](docs/RULE_EVIDENCE.md#no-creative-floors)
 
 **Sound-effect selection is one enumeration, `library/tools/sfx_library.py`, and the model names a FILE.**

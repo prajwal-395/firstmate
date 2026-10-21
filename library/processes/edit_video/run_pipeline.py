@@ -86,6 +86,7 @@ from library.tools import frame_rate as frame_rate_record
 from library.tools.ren_refusal import RenRefusal
 from library.tools.versions import runs
 from library.tools import requirements
+from library.tools import retry_guard
 from library.tools import breakpoints as run_breakpoints
 from library.tools import run_profile
 
@@ -93,6 +94,23 @@ logger = logging.getLogger(__name__)
 _sleep = time.sleep
 
 MAX_PARALLEL_STEPS = 4
+
+#: Whether the step being executed ASKED the model.
+#:
+#: A refusal the engine's own contract decided is a function of the
+#: state, and it is remembered (see `library/tools/retry_guard.py`). A
+#: failure that depends on what the MODEL answered is a sample of a
+#: resampled thing, and remembering it would refuse a step that would
+#: now answer differently. This flag is how the runner tells the two
+#: apart, and it is set where the model is asked - not inferred from
+#: the failure afterwards.
+_MODEL_ASKED = False
+
+
+def _note_model_asked() -> None:
+    """Record that this attempt asked the model for an answer."""
+    global _MODEL_ASKED
+    _MODEL_ASKED = True
 
 
 def _next_completed_node(in_flight: dict, step_order: list) -> str | None:
@@ -778,6 +796,124 @@ def _clear_step_failure(state: dict, node_id: str) -> None:
     if failed and node_id in failed:
         state["failed_steps"] = [s for s in failed if s != node_id]
     state.get("step_errors", {}).pop(node_id, None)
+    # The refusal this step refused with is over: the step worked, so a
+    # memo that refused it would refuse a step that now runs. See
+    # library/tools/retry_guard.py.
+    retry_guard.forget(state, node_id)
+
+
+def _step_identity_key(node_id: str, dag: dict, inputs: dict, step_dir,
+                       project_dir: str, source_fingerprints: dict,
+                       full_auto: str | None, auto_mode: bool) -> str | None:
+    """The relevant-state key of a step: the planner cache's own identity.
+
+    PERF-011: a refusal is remembered against THIS key, so the question
+    it answers is the punchlist's own - would this attempt see the same
+    assumption, the same state and the same dependency? The identity
+    the planner cache already computes is exactly that set (the gathered
+    inputs, the files they point at, the source identity, the step's
+    code, its incoming edges and the run mode), so there is one
+    fingerprint function here and not two.
+
+    None when the identity cannot be computed: a refusal without a
+    witness cannot be matched, and it is not remembered.
+    """
+    from library.tools import planning_reuse
+    try:
+        identity = planning_reuse.cache_identity(
+            node_id, dag, inputs,
+            {"full_auto": normalize_full_auto(full_auto),
+             "auto_mode": bool(auto_mode)},
+            step_dir, project_dir, LIBRARY_ROOT.parent,
+            source_fingerprints or {})
+        return identity.get("key")
+    except Exception:  # noqa: BLE001 - an unwitnessed step is not memoized
+        return None
+
+
+def _identity_key_for(node_id: str, dag: dict, inputs: dict, step_dir,
+                      project_dir: str, state: dict, planning_identity,
+                      full_auto: str | None, auto_mode: bool) -> str | None:
+    """The step's identity key, from the identity the runner already has.
+
+    A planning node's identity is computed by the runner before the
+    step runs, so it is used as it stands. A step outside the planner
+    cache computes it on demand, because a refusal is worth
+    remembering whatever the step is.
+    """
+    if isinstance(planning_identity, dict) and planning_identity.get("key"):
+        return planning_identity["key"]
+    return _step_identity_key(
+        node_id, dag, inputs, step_dir, project_dir,
+        state.get(step_ledger.SOURCE_FINGERPRINTS_KEY, {}),
+        full_auto, auto_mode)
+
+
+def _repeated_refusal(state: dict, node_id: str, dag: dict, inputs: dict,
+                      step_dir, project_dir: str, full_auto: str | None,
+                      auto_mode: bool, force: set,
+                      planning_identity=None) -> RenRefusal | None:
+    """The refusal already decided for this step on this state, if any.
+
+    None means the step may run. A refusal means it must not: the
+    decision was made on this exact identity, so running it again would
+    decide the same thing and pay for the preparation again.
+
+    `--rerun <step>` is the way past it: the operator's word beats the
+    memo.
+    """
+    if node_id in (force or ()):
+        return None
+    if not retry_guard.entry(state, node_id):
+        return None
+    key = _identity_key_for(node_id, dag, inputs, step_dir, project_dir,
+                            state, planning_identity, full_auto, auto_mode)
+    if not key:
+        return None
+    memo = retry_guard.repeated(state, node_id, key)
+    if not memo:
+        return None
+    rerun = f"ren edit {_project_ref(project_dir)} --rerun {node_id}"
+    return retry_guard.refusal_for(node_id, memo, rerun=rerun)
+
+
+def _remember_refusal(state: dict, node_id: str, refusal, elapsed: float | None,
+                      model_asked: bool, dag: dict, inputs: dict, step_dir,
+                      project_dir: str, planning_identity,
+                      full_auto: str | None, auto_mode: bool) -> None:
+    """Remember a refusal the engine decided, against the state it was decided on.
+
+    A failure that depends on what the MODEL answered is not recorded.
+    The model is resampled, so the same inputs can produce a different
+    answer and a different outcome, and a memo that refused the next
+    attempt would refuse a step that would now answer differently. See
+    library/tools/retry_guard.py.
+
+    The identity is computed only when there is something to remember:
+    it is not a cheap thing to compute.
+    """
+    if model_asked or not refusal:
+        return
+    identity = _identity_key_for(node_id, dag, inputs, step_dir, project_dir,
+                                 state, planning_identity, full_auto,
+                                 auto_mode)
+    if not identity:
+        return
+    retry_guard.record(state, node_id, identity, refusal, seconds=elapsed)
+
+
+def _refuse_repeated_step(project_dir: str, state: dict, node_id: str,
+                          refusal: RenRefusal) -> None:
+    """Record a step that was refused without being run, and say so."""
+    print(f"     ✗ REFUSED ({refusal.code}): {node_id} was not run - "
+          f"the same refusal was already decided on these inputs.",
+          file=sys.stderr)
+    print(f"       {refusal.what}", file=sys.stderr)
+    print(f"       fix: {refusal.fix}", file=sys.stderr)
+    _record_step_failure(state, node_id, refusal.render(),
+                         project_dir=project_dir)
+    save_pipeline_state(project_dir, state)
+    progress.record_progress_event(project_dir, node_id, "failed")
 
 
 def _stamp_step_input_digest(project_dir: str, node_id: str, impl: dict,
@@ -1919,6 +2055,10 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
     and `model_task.run_model_task` does the rest - the handshake, the
     prompt, the schema, the QA retries.  See library/tools/model_task.py.
     """
+    # From here on the outcome depends on what the model answers, so
+    # this attempt is a SAMPLE and not a decision. See the module
+    # comment on `_MODEL_ASKED`.
+    _note_model_asked()
     return model_task.run_model_task(
         model_task_for_step(prompt_path, node_id, manifest), inputs,
         full_auto=full_auto, llm_timeout=llm_timeout,
@@ -2261,6 +2401,10 @@ def _execute_step_once(impl: dict, inputs: dict, node_id: str,
                        auto_mode: bool, full_auto: str | None,
                        llm_timeout: int) -> tuple[dict, bool]:
     """Execute one step body without committing runner-owned state."""
+    # Each attempt starts from "the model has not been asked", so the
+    # flag says something about THIS attempt. See `_MODEL_ASKED`.
+    global _MODEL_ASKED
+    _MODEL_ASKED = False
     if impl["type"] == "deterministic":
         return run_deterministic_step(impl["entry"], inputs), False
     if impl["type"] == "deterministic_with_llm":
@@ -2330,7 +2474,7 @@ def _run_step_work(project_dir: str, node_id: str, impl: dict, inputs: dict,
         max_retries = node.get("error_policy", {}).get("max_retries", 3)
         result = {
             "success": False, "output": None, "awaiting": False,
-            "error": None, "error_type": None,
+            "error": None, "error_type": None, "refusal": None,
         }
         for attempt in range(1, max_retries + 2):
             try:
@@ -2342,6 +2486,12 @@ def _run_step_work(project_dir: str, node_id: str, impl: dict, inputs: dict,
                 transient = _is_transient_error(step_error)
                 result["error"] = str(step_error)
                 result["error_type"] = step_error.__class__.__name__
+                # A REFUSAL carries its cause and its fix, and it is the
+                # only failure worth remembering: an exception is a
+                # sample of the world, and a refusal is a decision.
+                # See library/tools/retry_guard.py.
+                if isinstance(step_error, RenRefusal):
+                    result["refusal"] = step_error.to_dict()
                 if attempt <= max_retries and transient:
                     if _is_transient_error(step_error):
                         print(f"     ✗ FAILED ({result['error_type']}): "
@@ -2357,6 +2507,10 @@ def _run_step_work(project_dir: str, node_id: str, impl: dict, inputs: dict,
                 break
 
         result["elapsed"] = time.time() - start_time
+        # Whether this attempt asked the model: the coordinator decides
+        # what may be remembered from it, and it cannot see the flag
+        # from here.
+        result["model_asked"] = _MODEL_ASKED
         if perf:
             if not result["success"]:
                 perf.row["status"] = "failed"
@@ -3571,6 +3725,20 @@ def run_pipeline(
                             continue
                         print(f"     ↻  {candidate}: planning cache miss - "
                               f"{why}", file=sys.stderr)
+                    repeated = _repeated_refusal(
+                        state, candidate, dag, candidate_inputs,
+                        candidate_dir, project_dir, full_auto, auto_mode,
+                        force_planning_recompute, candidate_identity)
+                    if repeated is not None:
+                        # The refusal was already decided on this
+                        # identity. Running the step again would decide
+                        # the same thing and pay for the preparation
+                        # again. See library/tools/retry_guard.py.
+                        pending.remove(candidate)
+                        _refuse_repeated_step(
+                            project_dir, state, candidate, repeated)
+                        failed.append(candidate)
+                        continue
                     future = executor.submit(
                         _run_step_work, project_dir, candidate, worker_impl,
                         copy.deepcopy(candidate_inputs), auto_mode,
@@ -3908,6 +4076,11 @@ def run_pipeline(
                         run_logger.log(step_id=node_id,
                                        event_type="step_failed",
                                        error=message)
+                    _remember_refusal(
+                        state, node_id, worker_result.get("refusal"),
+                        elapsed, bool(worker_result.get("model_asked")),
+                        dag, inputs, step_dir, project_dir,
+                        planning_identity, full_auto, auto_mode)
                     _record_step_failure(state, node_id, message,
                                          project_dir=project_dir)
                     save_pipeline_state(project_dir, state)
@@ -3919,6 +4092,17 @@ def run_pipeline(
                           "independent siblings.", file=sys.stderr)
                     continue
             else:
+                repeated = _repeated_refusal(
+                    state, node_id, dag, inputs, step_dir, project_dir,
+                    full_auto, auto_mode, force_planning_recompute,
+                    planning_identity)
+                if repeated is not None:
+                    # The refusal was already decided on this identity.
+                    # See library/tools/retry_guard.py.
+                    _refuse_repeated_step(
+                        project_dir, state, node_id, repeated)
+                    failed.append(node_id)
+                    continue
                 start_time = time.time()
                 # This serial path keeps the established manual-handoff
                 # behavior. Its ledgers are still written by this process.
@@ -3957,6 +4141,12 @@ def run_pipeline(
                         run_logger.log(step_id=node_id,
                                        event_type="step_failed",
                                        error=message)
+                    _remember_refusal(
+                        state, node_id,
+                        (step_error.to_dict()
+                         if isinstance(step_error, RenRefusal) else None),
+                        elapsed, _MODEL_ASKED, dag, inputs, step_dir,
+                        project_dir, planning_identity, full_auto, auto_mode)
                     _record_step_failure(state, node_id, message,
                                          project_dir=project_dir)
                     save_pipeline_state(project_dir, state)

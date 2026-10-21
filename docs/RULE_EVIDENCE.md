@@ -417,6 +417,14 @@ Launches use `sys.executable` rather than a bare `python3`: the dashboard runs f
 
 ## Section 5 - DaVinci Resolve
 
+### the-wait-in-the-turn
+
+A WAIT for a machine resource must not run INSIDE the broker's turn, and a wait that runs must SAY what it is waiting for.
+
+**The placement.** The scratch origin is ONE machine resource, so an AXI `project scratch open` that finds it held by a LIVE writer has to wait for it - the way the instance lease queues, with the lease's own budget, **900 s** by default. Measured 2026-10-21: three `project scratch open` jobs held the machine's turn for the whole 900 s lease timeout each, and every other lane waited behind them, because the wait ran INSIDE the turn - the very turn the holder needs to restore the origin and release the slot. The wait now belongs to the caller, before the turn is taken; the command itself refuses fast with its own exit code (`library/tools/resolve_axi_core_commands.py`, `_run_with_the_scratch_slot`).
+
+**The silence.** The wait itself said nothing while it ran. `wait_for_origin_slot` polled the ledger in silence, so a lane that waited a quarter of an hour learned nothing about who held the machine, and a reader could not tell a queue that ran from a refusal on the first sight. The wait now SAYS: who holds the origin, and how long this waiter has been waiting for it (`library/tools/resolve_scratch_projects.py`, `SLOT_NOTICE_SECONDS`).
+
 ### fcpxml-and-drp-are-closed
 
 Captain's ruling: the Python timeline builder plus Fusion IS the architecture, not a workaround.
@@ -1131,6 +1139,20 @@ workflow and fails if either hole reopens.
 ---
 
 ## Section 10 - cross-cutting rules
+
+### refusal-decided-twice
+
+A lane that refuses a step and is re-run re-derives the same decision from the same inputs, and pays for the derivation again.
+
+Measured on the PERF-011 lane, 2026-10-21: a planning step that refused was reconstructed for **3,220 s** on the next attempt, and four build attempts each refused the same way - each one redoing the work the refusal had already decided was pointless. The engine kept no memory of the refusal: `pipeline_data.json` carried `failed_steps` and a message, and the next run read neither as a decision.
+
+The fix is a MEMO (`library/tools/retry_guard.py`): a refusal is recorded against the identity of the state it was decided on, and the next attempt on that identity is refused immediately, with the cause named and the fix repeated. The identity is the one the planner cache already computes (`library/tools/planning_reuse.py`) - the gathered inputs, the files they point at, the source identity, the step's code, its incoming edges and the run mode - so "would this attempt see the same world?" has one answer in the engine, not two.
+
+**What is remembered is a DECISION, not a sample.** A refusal the engine's own contract decided is a function of the state, and the state is what the identity covers. A failure that depends on what the MODEL answered is not: the model is resampled, so the same inputs can produce a different answer and a different outcome. The runner knows which it is - `present_llm_step` marks the attempt as one that asked the model - and a refusal raised after the model answered is never recorded. `library/tools/post_bridge_retry.py` already owns that case: it files the exhaustion so the next run READS why its answer was refused, and a memo that refused the next attempt would refuse a step that would now answer differently.
+
+The way past the memo is `--rerun <step>`, which is the operator's word and beats it.
+
+Measured on the reproduced case (`tests/scenarios/test_perf011_repeated_failure_costs_nothing.py`): two runs of a step that refuses paid the preparation twice before and once after - **4.03 s against 1.85 s**, with the preparation of 1.0 s not paid again. The figure is the same shape as the 3,220 s it stands for.
 
 ### key-name-mismatches
 

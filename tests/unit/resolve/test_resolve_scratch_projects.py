@@ -5,6 +5,7 @@ from pathlib import Path
 import socket
 import subprocess
 import sys
+import time as _time
 from types import SimpleNamespace
 
 import pytest
@@ -1176,6 +1177,60 @@ def test_the_cli_refuses_when_the_holder_never_releases(monkeypatch, capsys):
                            name="Ren Scratch - cli-refuse")
     assert resolve_axi.cmd_project_scratch(args) == scratch.SLOT_HELD_EXIT_CODE
     assert "held by" in capsys.readouterr().out
+
+
+def test_the_wait_says_who_holds_the_origin_while_it_waits(
+        monkeypatch, tmp_path, capsys):
+    """Catches: a 900 s wait that says nothing while it waits.
+
+    The scratch origin is queued the way the instance lease is queued,
+    with the lease's own budget - 900 s by default. A wait that says
+    nothing for a quarter of an hour reads as a hang, and the person
+    watching the lane learns nothing about who holds the machine.
+    """
+    resolve, manager = prepare(monkeypatch, captain())
+    monkeypatch.setattr(scratch, "_origin_path",
+                        lambda: tmp_path / "scratch-origin.json")
+    holder = {"name": "lane-a"}
+    monkeypatch.setattr(scratch, "_owner_name", lambda: holder["name"])
+    scratch_project = Project("Ren Scratch - lane-a", [Timeline("T", "t1")])
+    manager.projects[scratch_project.name] = scratch_project
+    scratch.open_project(resolve, manager, scratch_project.name)
+
+    holder["name"] = "lane-b"
+    monkeypatch.setattr(scratch, "SLOT_NOTICE_SECONDS", 0.0)
+    scratch.wait_for_origin_slot(timeout=0.05, poll=0.01)
+
+    said = capsys.readouterr().err
+    assert "lane-a" in said
+    assert "waiting" in said
+    assert "released" in said
+
+
+def test_the_caller_that_waited_for_the_slot_names_the_holder(
+        monkeypatch, capsys):
+    """Catches: a queue that ran and ended without saying who held it.
+
+    The wait belongs to the caller, outside the broker's turn. When it
+    ends with the slot still held, the refusal says WHO still holds it:
+    a reader that is told only "the scratch origin is held" cannot tell
+    which writer to wait for.
+    """
+    monkeypatch.setattr(
+        scratch, "wait_for_origin_slot",
+        lambda timeout=None, poll=1.0: {"released": False,
+                                         "timed_out": True,
+                                         "waited": 30.0,
+                                         "holder": "lane-a"})
+    ran = []
+    code = resolve_axi._run_with_the_scratch_slot(
+        lambda: ran.append("run") or 0, deadline=_time.time() + 30.0)
+
+    assert code == scratch.SLOT_HELD_EXIT_CODE
+    assert ran == [], "the command ran while the slot was still held"
+    said = capsys.readouterr().out
+    assert "held by lane-a" in said
+    assert "nothing was moved" in said
 
 
 def test_a_verb_that_moves_the_machine_refuses_while_another_writer_holds(

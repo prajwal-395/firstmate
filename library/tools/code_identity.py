@@ -733,6 +733,13 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/plan_feasibility.py",
         "library/tools/project_ref.py",
         "library/tools/retrieval/requirements.py",
+        # The refusal memo the runner keeps: the runner reaches it, and a
+        # fix to what it remembers changes what a cached row resolves to.
+        "library/tools/retry_guard.py",
+        # The replaced-generation record the runner reads a reel's
+        # derivation from: reached by the closure above, so a fix to it
+        # changes what the cached rows resolve to.
+        "library/tools/versions/replaced_generation.py",
         # The capability registry the catalog reads its operations from,
         # the write settle the executor waits on, the broker's own path
         # helper and the source clocks the measurements are read through:
@@ -1419,6 +1426,13 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/plan_feasibility.py",
         "library/tools/project_ref.py",
         "library/tools/retrieval/requirements.py",
+        # The refusal memo the runner keeps: the runner reaches it, and a
+        # fix to what it remembers changes what a cached row resolves to.
+        "library/tools/retry_guard.py",
+        # The replaced-generation record the runner reads a reel's
+        # derivation from: reached by the closure above, so a fix to it
+        # changes what the cached rows resolve to.
+        "library/tools/versions/replaced_generation.py",
         # The capability registry the catalog reads its operations from,
         # the write settle the executor waits on, the broker's own path
         # helper and the source clocks the measurements are read through:
@@ -1513,6 +1527,13 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/plan_feasibility.py",
         "library/tools/project_ref.py",
         "library/tools/retrieval/requirements.py",
+        # The refusal memo the runner keeps: the runner reaches it, and a
+        # fix to what it remembers changes what a cached row resolves to.
+        "library/tools/retry_guard.py",
+        # The replaced-generation record the runner reads a reel's
+        # derivation from: reached by the closure above, so a fix to it
+        # changes what the cached rows resolve to.
+        "library/tools/versions/replaced_generation.py",
         # The capability registry the catalog reads its operations from,
         # the write settle the executor waits on, the broker's own path
         # helper and the source clocks the measurements are read through:
@@ -2862,6 +2883,13 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/plan_feasibility.py",
         "library/tools/project_ref.py",
         "library/tools/retrieval/requirements.py",
+        # The refusal memo the runner keeps: the runner reaches it, and a
+        # fix to what it remembers changes what a cached row resolves to.
+        "library/tools/retry_guard.py",
+        # The replaced-generation record the runner reads a reel's
+        # derivation from: reached by the closure above, so a fix to it
+        # changes what the cached rows resolve to.
+        "library/tools/versions/replaced_generation.py",
         # The capability registry the catalog reads its operations from,
         # the write settle the executor waits on, the broker's own path
         # helper and the source clocks the measurements are read through:
@@ -3604,6 +3632,13 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/plan_feasibility.py",
         "library/tools/project_ref.py",
         "library/tools/retrieval/requirements.py",
+        # The refusal memo the runner keeps: the runner reaches it, and a
+        # fix to what it remembers changes what a cached row resolves to.
+        "library/tools/retry_guard.py",
+        # The replaced-generation record the runner reads a reel's
+        # derivation from: reached by the closure above, so a fix to it
+        # changes what the cached rows resolve to.
+        "library/tools/versions/replaced_generation.py",
         # The capability registry the catalog reads its operations from,
         # the write settle the executor waits on, the broker's own path
         # helper and the source clocks the measurements are read through:
