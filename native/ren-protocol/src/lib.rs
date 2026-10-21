@@ -41,7 +41,8 @@ pub use project_model::{
     EVIDENCE_CONTRACT_VERSION, PROJECT_MODEL_SCHEMA_VERSION,
 };
 pub use receipt::{
-    GenerationRecord, JudgedOperation, Receipt, ReceiptStatus, Refusal, StoppedOperation,
+    AskReason, Blocker, GenerationRecord, JudgedOperation, NextAction, Receipt, ReceiptStatus,
+    RecoveryClass, Refusal, StoppedOperation,
 };
 pub use resource::{ResourceDemand, ResourceName};
 pub use scope::{Region, Scope, ScopeError};

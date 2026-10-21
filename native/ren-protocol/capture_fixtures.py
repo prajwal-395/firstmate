@@ -322,8 +322,21 @@ def job_submissions() -> list:
 
 
 def refusals() -> list:
-    """Real refusals, through `RenRefusal.to_dict`."""
-    from library.tools import edit_patch
+    """Real refusals, through `RenRefusal.to_dict`.
+
+    One refusal per BLOCKER (`refusal_taxonomy.BLOCKERS`), so the Rust
+    mirror's enum is exercised by the round-trip in every variant, plus
+    a family that ASKS the person (a `needs_question` with an ask
+    reason) and the base refusal shape.
+
+    The base `RenRefusal` names its own blocker, the way every raise
+    site does: a refusal that does not say what kind of block it was
+    cannot be constructed at all.
+    """
+    from library.tools import (
+        decision_implication, edit_patch, operations, requirements, resolve_lock,
+    )
+    from library.tools.reel_state import UnknownReel
     from library.tools.ren_refusal import RenRefusal
 
     patch_refused = edit_patch.PatchRefused(
@@ -337,8 +350,35 @@ def refusals() -> list:
             conflict_domains=(), operations=()),
         7, observed=True, rebase_possible=False,
         reason="it composes with every generation since")
-    base = RenRefusal(what="what happened", why="why", fix="the fix")
-    return [patch_refused.to_dict(), stale.to_dict(), base.to_dict()]
+    base = RenRefusal(what="what happened", why="why", fix="the fix",
+                      blocker="unsupported_operation")
+    # One per blocker kind, so every variant of the Rust enum is
+    # round-tripped against a real refusal.
+    kinds = [
+        UnknownReel(
+            what="reel 21 is not recorded for this project",
+            why="the builds recorded reels 4 and 9",
+            fix="list the recorded reels, then name one of them"),
+        operations.OperationError(
+            what="no operation named 'reel.regrade'",
+            why="the registry serves the operations it declares",
+            fix="ask for one of `operations.ids()`"),
+        patch_refused,
+        requirements.OverrideError(
+            what="override '--nope' names no requirement",
+            why="an override names a requirement this run declares",
+            fix="name one of the run's requirement keys"),
+        decision_implication.ImplicationRefused(
+            what="the verdict names a decision the candidates never supplied",
+            why="a verdict cannot imply a decision that was not asked",
+            fix="supply the decision the verdict names"),
+        resolve_lock.ResolveBusy(
+            what="another writer holds the Resolve instance",
+            why="the instance lease is exclusive",
+            fix="wait for the holder to finish, then retry"),
+    ]
+    return ([refusal.to_dict() for refusal in kinds]
+            + [stale.to_dict(), base.to_dict()])
 
 
 def main() -> int:

@@ -35,9 +35,49 @@ pub struct Submission {
 }
 
 /// Why a submission was refused (`jobs.JobRefused`).
+///
+/// PROD-003: a refusal says what KIND of block it was and what the
+/// caller can do about it, not only that it happened. The vocabulary is
+/// the Python taxonomy's (`refusal_taxonomy.BLOCKERS` and
+/// `NEXT_ACTIONS`), and the Python worker names the pair for every
+/// refusal it raises - the daemon carries it to the client unchanged.
 pub struct Refusal {
     pub message: String,
+    /// The kind of block, as `refusal_taxonomy.BLOCKERS` words it.
+    pub blocker: String,
+    /// The move the caller can take, as `refusal_taxonomy.NEXT_ACTIONS`
+    /// words it.
+    pub next_action: String,
 }
+
+impl Refusal {
+    /// A refusal with the Python `JobRefused` defaults: the broker has no
+    /// job kind, or no route for this one.
+    pub fn new(message: String) -> Self {
+        Refusal {
+            message,
+            blocker: DEFAULT_BLOCKER.to_string(),
+            next_action: DEFAULT_NEXT_ACTION.to_string(),
+        }
+    }
+
+    /// A refusal that names its own kind of block and next action.
+    pub fn with_action(message: String, blocker: &str, next_action: &str) -> Self {
+        Refusal {
+            message,
+            blocker: blocker.to_string(),
+            next_action: next_action.to_string(),
+        }
+    }
+}
+
+/// The blocker `jobs.JobRefused` defaults to: the broker has no job kind,
+/// or no route for this one.
+pub const DEFAULT_BLOCKER: &str = "unsupported_operation";
+
+/// The next action that blocker demands
+/// (`refusal_taxonomy.BLOCKER_NEXT_ACTION`).
+pub const DEFAULT_NEXT_ACTION: &str = "use_a_supported_operation";
 
 /// The broker's shared state, behind one lock and one condition variable -
 /// the Rust shape of the Python daemon's `threading.Condition`.
@@ -122,23 +162,21 @@ impl Broker {
         if let Some(handle) = self.watchdog.lock().unwrap().as_ref() {
             if handle.is_degraded() {
                 let status = handle.status();
-                return Err(Refusal {
-                    message: format!(
-                        "Resolve is unresponsive: {} (holder: {}, job: {}). \
+                return Err(Refusal::new(format!(
+                    "Resolve is unresponsive: {} (holder: {}, job: {}). \
                          Restart Resolve, then retry.",
-                        status.degraded_reason,
-                        if status.holder.is_empty() {
-                            "none"
-                        } else {
-                            &status.holder
-                        },
-                        if status.job_id.is_empty() {
-                            "none"
-                        } else {
-                            &status.job_id
-                        }
-                    ),
-                });
+                    status.degraded_reason,
+                    if status.holder.is_empty() {
+                        "none"
+                    } else {
+                        &status.holder
+                    },
+                    if status.job_id.is_empty() {
+                        "none"
+                    } else {
+                        &status.job_id
+                    }
+                )));
             }
         }
         // The submission gate: `jobs.prepare`, run in the worker. It
@@ -199,15 +237,13 @@ impl Broker {
                 }
                 Ok(None) => {}
                 Err(exc) => {
-                    return Err(Refusal {
-                        message: exc.to_string(),
-                    });
+                    return Err(Refusal::new(exc.to_string()));
                 }
             }
         } else {
-            self.store.insert(&record).map_err(|exc| Refusal {
-                message: exc.to_string(),
-            })?;
+            self.store
+                .insert(&record)
+                .map_err(|exc| Refusal::new(exc.to_string()))?;
         }
         state.queued.insert(
             job_id.clone(),
@@ -250,11 +286,20 @@ impl Broker {
             .lock()
             .unwrap()
             .run(&request)
-            .map_err(|exc| Refusal { message: exc })?;
+            .map_err(Refusal::new)?;
         if !response.ok {
-            return Err(Refusal {
-                message: response.error,
-            });
+            // The Python worker names the kind of block and the next
+            // action for every refusal it raises (`jobs.JobRefused`).
+            // The daemon carries them to the client unchanged; a refusal
+            // that names none keeps the `JobRefused` defaults.
+            return Err(Refusal::with_action(
+                response.error,
+                response.blocker.as_deref().unwrap_or(DEFAULT_BLOCKER),
+                response
+                    .next_action
+                    .as_deref()
+                    .unwrap_or(DEFAULT_NEXT_ACTION),
+            ));
         }
         let result = response.result.unwrap_or(Value::Null);
         Ok(PreparedShape {

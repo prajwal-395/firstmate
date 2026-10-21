@@ -1,20 +1,106 @@
 [
   {
+    "code": "REN_UNKNOWN_REEL",
+    "what": "reel 21 is not recorded for this project",
+    "why": "the builds recorded reels 4 and 9",
+    "fix": "list the recorded reels, then name one of them",
+    "user_message": "That reel is not recorded for this project, so nothing was shown. List the recorded reels, then ask me to look again.",
+    "recovery_class": "blocked",
+    "conflict_class": "",
+    "ask_reason": "",
+    "blocker": "missing_media",
+    "next_action": "supply_the_missing_media",
+    "blocking_reason": "the media this change needs is not there"
+  },
+  {
+    "code": "REN_OPERATION_ERROR",
+    "what": "no operation named 'reel.regrade'",
+    "why": "the registry serves the operations it declares",
+    "fix": "ask for one of `operations.ids()`",
+    "user_message": "I can't serve this request as asked, so nothing ran. Check the issue below and ask again with an operation I support.",
+    "recovery_class": "blocked",
+    "conflict_class": "",
+    "ask_reason": "",
+    "blocker": "unsupported_operation",
+    "next_action": "use_a_supported_operation",
+    "blocking_reason": "the engine has no proven way to do this"
+  },
+  {
     "code": "REN_PATCH_REFUSED",
     "what": "patch 'ren-x' names capability 'nope', which is not registered",
     "why": "a capability's id is its identity (AGENTS.md 3)",
-    "fix": "name one of `capabilities.ids()`"
+    "fix": "name one of `capabilities.ids()`",
+    "user_message": "I couldn't apply this edit as prepared, so nothing on the timeline changed. Resolve the issue below, then ask me to try again.",
+    "recovery_class": "blocked",
+    "conflict_class": "",
+    "ask_reason": "",
+    "blocker": "unsafe_state",
+    "next_action": "settle_the_state_first",
+    "blocking_reason": "the state on the timeline is not safe to change yet"
+  },
+  {
+    "code": "REN_OVERRIDE_REFUSED",
+    "what": "override '--nope' names no requirement",
+    "why": "an override names a requirement this run declares",
+    "fix": "name one of the run's requirement keys",
+    "user_message": "I couldn't safely finish this step. The requested change has not been confirmed; resolve the issue below before continuing.",
+    "recovery_class": "blocked",
+    "conflict_class": "",
+    "ask_reason": "",
+    "blocker": "ambiguous_intent",
+    "next_action": "state_the_intent",
+    "blocking_reason": "the request means more than one thing"
+  },
+  {
+    "code": "REN_IMPLICATION_REFUSED",
+    "what": "the verdict names a decision the candidates never supplied",
+    "why": "a verdict cannot imply a decision that was not asked",
+    "fix": "supply the decision the verdict names",
+    "user_message": "I couldn't safely finish this step. The requested change has not been confirmed; resolve the issue below before continuing.",
+    "recovery_class": "blocked",
+    "conflict_class": "",
+    "ask_reason": "",
+    "blocker": "insufficient_evidence",
+    "next_action": "collect_the_evidence",
+    "blocking_reason": "what is on the record does not settle it"
+  },
+  {
+    "code": "REN_RESOLVE_BUSY",
+    "what": "another writer holds the Resolve instance",
+    "why": "the instance lease is exclusive",
+    "fix": "wait for the holder to finish, then retry",
+    "user_message": "Resolve is busy with another edit right now, so this change is waiting. Nothing changed. Try again once the other edit finishes.",
+    "recovery_class": "blocked",
+    "conflict_class": "",
+    "ask_reason": "",
+    "blocker": "resource_contention",
+    "next_action": "wait_for_the_resource",
+    "blocking_reason": "something else is holding the resource"
   },
   {
     "code": "REN_STALE_PATCH",
     "what": "patch 'ren-x' was planned on generation 3 of 't', and the head is 7",
     "why": "it composes with every generation since",
-    "fix": "re-plan the patch against generation 7 (`python3 -m library.tools.timeline_shadow show --project 'p' --timeline 't'`)"
+    "fix": "re-plan the patch against generation 7 (`python3 -m library.tools.timeline_shadow show --project 'p' --timeline 't'`)",
+    "user_message": "The timeline changed since I prepared this edit. Your recent work is preserved, and I refreshed my read. Should I apply this change to the updated cut?",
+    "recovery_class": "needs_question",
+    "conflict_class": "concurrent_modification",
+    "ask_reason": "ambiguous_intent",
+    "blocker": "unsafe_state",
+    "next_action": "settle_the_state_first",
+    "blocking_reason": "the state on the timeline is not safe to change yet"
   },
   {
     "code": "REN_REFUSAL",
     "what": "what happened",
     "why": "why",
-    "fix": "the fix"
+    "fix": "the fix",
+    "user_message": "I couldn't safely finish this step. The requested change has not been confirmed; resolve the issue below before continuing.",
+    "recovery_class": "blocked",
+    "conflict_class": "",
+    "ask_reason": "",
+    "blocker": "unsupported_operation",
+    "next_action": "use_a_supported_operation",
+    "blocking_reason": "the engine has no proven way to do this"
   }
 ]

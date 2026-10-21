@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RecoveryClass",
+  "description": "Whether the host acts, asks or waits\n(`library/tools/ren_refusal.py`'s `RECOVERY_CLASS`).",
+  "oneOf": [
+    {
+      "description": "The host may perform only the named safe recovery.",
+      "type": "string",
+      "const": "auto_recoverable"
+    },
+    {
+      "description": "Ask the smallest question that unblocks.",
+      "type": "string",
+      "const": "needs_question"
+    },
+    {
+      "description": "State what must be resolved first.",
+      "type": "string",
+      "const": "blocked"
+    }
+  ]
+}

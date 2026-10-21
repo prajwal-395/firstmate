@@ -30,6 +30,11 @@ pub struct WorkerResponse {
     pub error: String,
     pub refused: bool,
     pub cancelled: bool,
+    /// PROD-003: the KIND of block this refusal is
+    /// (`refusal_taxonomy.BLOCKERS`), as the Python worker words it.
+    pub blocker: Option<String>,
+    /// The move the caller can take (`refusal_taxonomy.NEXT_ACTIONS`).
+    pub next_action: Option<String>,
 }
 
 /// How many lines the daemon will skip before it gives up on finding the
@@ -375,6 +380,14 @@ fn decode_response(line: &str) -> Result<WorkerResponse, String> {
             .get("cancelled")
             .and_then(|v| v.as_bool())
             .unwrap_or(false),
+        blocker: response
+            .get("blocker")
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        next_action: response
+            .get("next_action")
+            .and_then(|v| v.as_str())
+            .map(String::from),
     })
 }
 
@@ -467,6 +480,43 @@ mod tests {
         match classify_line(line, "") {
             Line::Answer(response) => assert!(response.ok),
             _ => panic!("an answer with no id was not taken"),
+        }
+    }
+
+    /// PROD-003: the Python worker names the kind of block and the next
+    /// action for every refusal it raises. The daemon that drops them
+    /// answers a refusal the caller cannot act on, so the answer's pair
+    /// must be read.
+    #[test]
+    fn a_refusal_answer_carries_its_kind_of_block() {
+        let line = "{\"id\": \"\", \"ok\": false, \"refused\": true, \
+                    \"error\": \"unknown job kind 'bogus'\", \
+                    \"blocker\": \"unsupported_operation\", \
+                    \"next_action\": \"use_a_supported_operation\"}";
+        match classify_line(line, "") {
+            Line::Answer(response) => {
+                assert!(response.refused);
+                assert_eq!(response.blocker.as_deref(), Some("unsupported_operation"));
+                assert_eq!(
+                    response.next_action.as_deref(),
+                    Some("use_a_supported_operation")
+                );
+            }
+            _ => panic!("the refusal was not taken as an answer"),
+        }
+    }
+
+    /// A refusal that names no kind of block carries none: the field is
+    /// absent, not an empty string the caller would read as a kind.
+    #[test]
+    fn an_answer_with_no_kind_of_block_carries_none() {
+        let line = "{\"id\": \"\", \"ok\": false, \"refused\": true, \"error\": \"no\"}";
+        match classify_line(line, "") {
+            Line::Answer(response) => {
+                assert_eq!(response.blocker, None);
+                assert_eq!(response.next_action, None);
+            }
+            _ => panic!("the refusal was not taken as an answer"),
         }
     }
 }

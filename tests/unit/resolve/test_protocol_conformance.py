@@ -523,3 +523,79 @@ def test_dereferenced_project_model_validator_agrees_with_the_original(monkeypat
         f"{error.message}"
         for error in original_errors)
     assert str(fast_exc.value).endswith(original_detail)
+
+
+# ── The refusal mirror ──────────────────────────────────────────────
+#
+# PROD-003: the Rust mirror of a refusal (`native/ren-protocol`'s
+# `Refusal`) and `RenRefusal.to_dict()` are ONE contract. Python grew
+# the refusal's kind of block and its next action; the Rust side did
+# not, and the mirror quietly dropped seven of the eleven fields. These
+# tests read the GENERATED schema - the mirror's own words - and hold
+# it to the Python taxonomy, so the next field cannot be added on one
+# side only.
+
+
+def _schema(name: str) -> dict:
+    return json.loads(
+        (SCHEMAS_DIR / f"{name}.schema.json").read_text(encoding="utf-8"))
+
+
+def _constants(schema: dict) -> set:
+    """The values a generated enum schema allows."""
+    return {option["const"] for option in schema["oneOf"]}
+
+
+def test_the_blocker_vocabulary_is_the_taxonomys():
+    """The six kinds of block are the taxonomy's, by name.
+
+    A kind Python knows and the mirror does not is a refusal the Rust
+    side cannot read: it fails to deserialize, and the worker learns
+    nothing.
+    """
+    from library.tools import refusal_taxonomy
+
+    assert _constants(_schema("blocker")) == set(refusal_taxonomy.BLOCKERS)
+
+
+def test_the_next_action_vocabulary_is_the_taxonomys():
+    from library.tools import refusal_taxonomy
+
+    assert _constants(_schema("next-action")) == set(
+        refusal_taxonomy.NEXT_ACTIONS)
+
+
+def test_the_recovery_class_and_ask_reason_vocabularies_are_ren_refusals():
+    """`needs_question` says THAT a question is needed; the ask reason
+    says WHY. Both are closed vocabularies, and the mirror carries the
+    empty reason as a value - a refusal that does not ask is not a
+    refusal with the field missing."""
+    from library.tools import ren_refusal
+
+    assert _constants(_schema("recovery-class")) == {
+        "auto_recoverable", "needs_question", "blocked"}
+    assert _constants(_schema("ask-reason")) == set(
+        ren_refusal.ASK_REASONS) | {""}
+
+
+def test_the_refusal_schema_carries_every_field_a_refusal_emits():
+    """Every field `RenRefusal.to_dict()` emits is in the schema.
+
+    A field Python adds and the mirror does not is a refusal the mirror
+    drops on the floor, which is the defect this section exists for.
+    """
+    from library.tools.ren_refusal import RenRefusal
+
+    refusal = RenRefusal(what="what happened", why="why", fix="the fix",
+                          blocker="unsupported_operation")
+    assert set(_schema("refusal")["properties"]) == set(refusal.to_dict())
+
+
+def test_the_captured_fixture_covers_every_kind_of_block():
+    """One refusal per kind of block, so the round-trip exercises every
+    variant of the mirror's enum. A kind the fixture never carries is
+    a kind the round-trip cannot catch drifting."""
+    from library.tools import refusal_taxonomy
+
+    rows = json.loads((FIXTURES / "refusal.json").read_text(encoding="utf-8"))
+    assert {row["blocker"] for row in rows} == set(refusal_taxonomy.BLOCKERS)

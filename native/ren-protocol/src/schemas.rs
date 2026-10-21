@@ -24,7 +24,8 @@ use crate::ml_worker::{
 };
 use crate::project_model::*;
 use crate::receipt::{
-    GenerationRecord, JudgedOperation, Receipt, ReceiptStatus, Refusal, StoppedOperation,
+    AskReason, Blocker, GenerationRecord, JudgedOperation, NextAction, Receipt, ReceiptStatus,
+    RecoveryClass, Refusal, StoppedOperation,
 };
 use crate::resource::{ResourceDemand, ResourceName};
 use crate::scope::{Region, Scope};
@@ -107,6 +108,14 @@ pub fn all_schemas() -> Vec<NamedSchema> {
             schema_for!(StoppedOperation),
         ),
         named("refusal", "Refusal", schema_for!(Refusal)),
+        named("blocker", "Blocker", schema_for!(Blocker)),
+        named("next-action", "NextAction", schema_for!(NextAction)),
+        named(
+            "recovery-class",
+            "RecoveryClass",
+            schema_for!(RecoveryClass),
+        ),
+        named("ask-reason", "AskReason", schema_for!(AskReason)),
         named(
             "generation-record",
             "GenerationRecord",

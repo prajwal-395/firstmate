@@ -382,10 +382,11 @@ impl Daemon {
                         id: submission.id,
                         coalesced: submission.coalesced,
                     }),
-                    Err(refusal) => protocol::wire(&RefusedReply {
-                        error: refusal.message,
-                        refused: true,
-                    }),
+                    Err(refusal) => protocol::wire(&RefusedReply::with_action(
+                        refusal.message,
+                        &refusal.blocker,
+                        &refusal.next_action,
+                    )),
                 }
             }
             Request::Status { id } => {
@@ -548,10 +549,11 @@ impl Daemon {
         {
             Ok(submission) => submission,
             Err(refusal) => {
-                return protocol::wire(&RefusedReply {
-                    error: refusal.message,
-                    refused: true,
-                });
+                return protocol::wire(&RefusedReply::with_action(
+                    refusal.message,
+                    &refusal.blocker,
+                    &refusal.next_action,
+                ));
             }
         };
         let job_id = submission.id;
@@ -585,10 +587,9 @@ impl Daemon {
             });
         }
         if job.state == "rejected" {
-            return protocol::wire(&RefusedReply {
-                error: job.error,
-                refused: true,
-            });
+            // A rejected job names no kind of block: the Python broker
+            // answers a rejected job with the error alone.
+            return protocol::wire(&RefusedReply::plain(job.error));
         }
         self.broker
             .release(&job_id, "done", "the client's wait ran out");

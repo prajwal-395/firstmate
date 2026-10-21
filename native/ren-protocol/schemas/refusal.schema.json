@@ -1,15 +1,43 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Refusal",
-  "description": "One refusal's outcome. A refusal is not a failure: nothing ran,\nnothing is half-written, and the next step is known.",
+  "description": "One refusal's outcome. A refusal is not a failure: nothing ran,\nnothing is half-written, and the next step is known.\n\nPROD-003: the shape is `RenRefusal.to_dict()` - what happened, why,\nthe fix, and the three things a host acts on: the KIND of block, the\nnext action, and whether it may recover, ask or wait. Every field is\nrequired, because a refusal missing one of them is the defect this\ntype exists to remove.",
   "type": "object",
   "properties": {
+    "ask_reason": {
+      "description": "Why a person is needed, or the empty reason.",
+      "$ref": "#/$defs/AskReason"
+    },
+    "blocker": {
+      "description": "What kind of thing blocked this.",
+      "$ref": "#/$defs/Blocker"
+    },
+    "blocking_reason": {
+      "description": "The blocker's plain-language sentence\n(`refusal_taxonomy.plain_reason`), carried as Python sends it.",
+      "type": "string"
+    },
     "code": {
       "description": "Stable machine-readable code (`RenRefusal.code`), keyed off by\nthe support bundle and structured logs instead of parsing prose.",
       "type": "string"
     },
+    "conflict_class": {
+      "description": "The kind of badness the refusal is about, or the empty string\nwhen it is not about a conflict (`RenRefusal.conflict_class`).",
+      "type": "string"
+    },
     "fix": {
       "description": "The exact next command or edit.",
+      "type": "string"
+    },
+    "next_action": {
+      "description": "The move the caller can take.",
+      "$ref": "#/$defs/NextAction"
+    },
+    "recovery_class": {
+      "description": "Whether the host acts, asks or waits.",
+      "$ref": "#/$defs/RecoveryClass"
+    },
+    "user_message": {
+      "description": "The consequence and the next step, in plain language\n(`RenRefusal.user_message`).",
       "type": "string"
     },
     "what": {
@@ -25,6 +53,140 @@
     "code",
     "what",
     "why",
-    "fix"
-  ]
+    "fix",
+    "user_message",
+    "recovery_class",
+    "conflict_class",
+    "ask_reason",
+    "blocker",
+    "next_action",
+    "blocking_reason"
+  ],
+  "$defs": {
+    "AskReason": {
+      "description": "Why a PERSON is needed (`library/tools/ren_refusal.py`'s\n`ASK_REASONS`).\n\n`needs_question` says THAT a question is needed; the ask reason says\nWHY, and the difference is between asking the person and the host\nimprovising a question for them. A refusal that does not ask carries\nthe empty reason, which is why the empty string is a value here and\nnot a missing field.",
+      "oneOf": [
+        {
+          "description": "No person is needed.",
+          "type": "string",
+          "const": ""
+        },
+        {
+          "description": "The request means more than one thing.",
+          "type": "string",
+          "const": "ambiguous_intent"
+        },
+        {
+          "description": "The change is the person's to approve, and nobody has said yes.",
+          "type": "string",
+          "const": "missing_authorization"
+        },
+        {
+          "description": "What is on the record does not settle it.",
+          "type": "string",
+          "const": "insufficient_evidence"
+        }
+      ]
+    },
+    "Blocker": {
+      "description": "What KIND of thing blocked a refusal\n(`library/tools/refusal_taxonomy.py`'s `BLOCKERS`).\n\nPROD-003: a refusal that says what happened and what to do about it\nbut never says what kind of block it was leaves a host to read prose:\nmissing media, an unsupported operation and a busy resource all read\nas \"it refused\". These six are the whole vocabulary, and the Python\ntaxonomy owns it - the schema generated from this enum is what both\nsides are checked against.",
+      "oneOf": [
+        {
+          "description": "The media (or the rendered file, the index, the sign-off) the\nrequest needs is not there.",
+          "type": "string",
+          "const": "missing_media"
+        },
+        {
+          "description": "The engine has no proven route for what was asked.",
+          "type": "string",
+          "const": "unsupported_operation"
+        },
+        {
+          "description": "The state is not safe to act on yet.",
+          "type": "string",
+          "const": "unsafe_state"
+        },
+        {
+          "description": "The request means more than one thing, and the choice changes\nthe result.",
+          "type": "string",
+          "const": "ambiguous_intent"
+        },
+        {
+          "description": "What is on the record does not settle it.",
+          "type": "string",
+          "const": "insufficient_evidence"
+        },
+        {
+          "description": "Something else holds the resource.",
+          "type": "string",
+          "const": "resource_contention"
+        }
+      ]
+    },
+    "NextAction": {
+      "description": "The move the caller can take next\n(`library/tools/refusal_taxonomy.py`'s `NEXT_ACTIONS`).\n\nA refusal without a next action is a dead end: the caller is told\nwhat happened and nothing else. The vocabulary is the taxonomy's,\nand each blocker's own next action is the default\n(`refusal_taxonomy.BLOCKER_NEXT_ACTION`).",
+      "oneOf": [
+        {
+          "description": "Put the file, the index or the record where the engine reads it.",
+          "type": "string",
+          "const": "supply_the_missing_media"
+        },
+        {
+          "description": "Carry the argument the engine named.",
+          "type": "string",
+          "const": "supply_the_missing_parameter"
+        },
+        {
+          "description": "Ask for something the engine has a proven route for.",
+          "type": "string",
+          "const": "use_a_supported_operation"
+        },
+        {
+          "description": "Resolve what is unsafe, then re-run.",
+          "type": "string",
+          "const": "settle_the_state_first"
+        },
+        {
+          "description": "A person answers the smallest question that unblocks this.",
+          "type": "string",
+          "const": "answer_the_question"
+        },
+        {
+          "description": "Record or measure what is missing, then re-run.",
+          "type": "string",
+          "const": "collect_the_evidence"
+        },
+        {
+          "description": "The holder finishes; the same call may be repeated afterwards.",
+          "type": "string",
+          "const": "wait_for_the_resource"
+        },
+        {
+          "description": "Say which of the several things was meant.",
+          "type": "string",
+          "const": "state_the_intent"
+        }
+      ]
+    },
+    "RecoveryClass": {
+      "description": "Whether the host acts, asks or waits\n(`library/tools/ren_refusal.py`'s `RECOVERY_CLASS`).",
+      "oneOf": [
+        {
+          "description": "The host may perform only the named safe recovery.",
+          "type": "string",
+          "const": "auto_recoverable"
+        },
+        {
+          "description": "Ask the smallest question that unblocks.",
+          "type": "string",
+          "const": "needs_question"
+        },
+        {
+          "description": "State what must be resolved first.",
+          "type": "string",
+          "const": "blocked"
+        }
+      ]
+    }
+  }
 }

@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NextAction",
+  "description": "The move the caller can take next\n(`library/tools/refusal_taxonomy.py`'s `NEXT_ACTIONS`).\n\nA refusal without a next action is a dead end: the caller is told\nwhat happened and nothing else. The vocabulary is the taxonomy's,\nand each blocker's own next action is the default\n(`refusal_taxonomy.BLOCKER_NEXT_ACTION`).",
+  "oneOf": [
+    {
+      "description": "Put the file, the index or the record where the engine reads it.",
+      "type": "string",
+      "const": "supply_the_missing_media"
+    },
+    {
+      "description": "Carry the argument the engine named.",
+      "type": "string",
+      "const": "supply_the_missing_parameter"
+    },
+    {
+      "description": "Ask for something the engine has a proven route for.",
+      "type": "string",
+      "const": "use_a_supported_operation"
+    },
+    {
+      "description": "Resolve what is unsafe, then re-run.",
+      "type": "string",
+      "const": "settle_the_state_first"
+    },
+    {
+      "description": "A person answers the smallest question that unblocks this.",
+      "type": "string",
+      "const": "answer_the_question"
+    },
+    {
+      "description": "Record or measure what is missing, then re-run.",
+      "type": "string",
+      "const": "collect_the_evidence"
+    },
+    {
+      "description": "The holder finishes; the same call may be repeated afterwards.",
+      "type": "string",
+      "const": "wait_for_the_resource"
+    },
+    {
+      "description": "Say which of the several things was meant.",
+      "type": "string",
+      "const": "state_the_intent"
+    }
+  ]
+}

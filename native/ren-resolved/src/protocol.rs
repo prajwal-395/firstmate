@@ -215,10 +215,45 @@ pub struct ErrorReply {
 }
 
 /// `{"error": "...", "refused": true}`
+///
+/// PROD-003: a refusal names the KIND of block it was and the move the
+/// caller can take, exactly as the Python broker's reply does
+/// (`server.py`'s dispatch catches `jobs.JobRefused` and answers
+/// `{"error", "refused", "blocker", "next_action"}`). A reply that
+/// names neither is a refusal the caller cannot act on.
 #[derive(serde::Serialize)]
 pub struct RefusedReply {
     pub error: String,
     pub refused: bool,
+    /// The kind of block (`refusal_taxonomy.BLOCKERS`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blocker: Option<String>,
+    /// The move the caller can take (`refusal_taxonomy.NEXT_ACTIONS`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_action: Option<String>,
+}
+
+impl RefusedReply {
+    /// A refusal that names its kind of block and its next action.
+    pub fn with_action(error: String, blocker: &str, next_action: &str) -> Self {
+        RefusedReply {
+            error,
+            refused: true,
+            blocker: Some(blocker.to_string()),
+            next_action: Some(next_action.to_string()),
+        }
+    }
+
+    /// A refusal that names no kind of block - the shape the Python
+    /// broker answers a REJECTED job with.
+    pub fn plain(error: String) -> Self {
+        RefusedReply {
+            error,
+            refused: true,
+            blocker: None,
+            next_action: None,
+        }
+    }
 }
 
 /// `{"error": "timed out waiting for Resolve", "busy": true, "running": [...]}`
@@ -250,4 +285,41 @@ pub fn wire<T: serde::Serialize>(reply: &T) -> String {
     let mut line = serde_json::to_string(reply).unwrap_or_else(|_| "{}".to_string());
     line.push('\n');
     line
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::Value;
+
+    /// PROD-003: the Python broker answers a refused submission with
+    /// `{"error", "refused", "blocker", "next_action"}` - the same four
+    /// keys, so a client reads one refusal shape whichever daemon
+    /// served it.
+    #[test]
+    fn a_refused_reply_names_the_kind_of_block_and_the_next_action() {
+        let reply = RefusedReply::with_action(
+            "unknown job kind 'bogus'".to_string(),
+            "unsupported_operation",
+            "use_a_supported_operation",
+        );
+        let value: Value = serde_json::from_str(&wire(&reply)).unwrap();
+        let mut keys: Vec<&String> = value.as_object().unwrap().keys().collect();
+        keys.sort();
+        assert_eq!(keys, vec!["blocker", "error", "next_action", "refused"]);
+        assert_eq!(value["blocker"], "unsupported_operation");
+        assert_eq!(value["next_action"], "use_a_supported_operation");
+    }
+
+    /// A rejected job names no kind of block, and the reply says so by
+    /// leaving the keys out: the Python broker answers that one with the
+    /// error alone.
+    #[test]
+    fn a_refused_reply_with_no_kind_of_block_names_no_key() {
+        let reply = RefusedReply::plain("the job was rejected".to_string());
+        let value: Value = serde_json::from_str(&wire(&reply)).unwrap();
+        let mut keys: Vec<&String> = value.as_object().unwrap().keys().collect();
+        keys.sort();
+        assert_eq!(keys, vec!["error", "refused"]);
+    }
 }

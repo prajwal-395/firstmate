@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AskReason",
+  "description": "Why a PERSON is needed (`library/tools/ren_refusal.py`'s\n`ASK_REASONS`).\n\n`needs_question` says THAT a question is needed; the ask reason says\nWHY, and the difference is between asking the person and the host\nimprovising a question for them. A refusal that does not ask carries\nthe empty reason, which is why the empty string is a value here and\nnot a missing field.",
+  "oneOf": [
+    {
+      "description": "No person is needed.",
+      "type": "string",
+      "const": ""
+    },
+    {
+      "description": "The request means more than one thing.",
+      "type": "string",
+      "const": "ambiguous_intent"
+    },
+    {
+      "description": "The change is the person's to approve, and nobody has said yes.",
+      "type": "string",
+      "const": "missing_authorization"
+    },
+    {
+      "description": "What is on the record does not settle it.",
+      "type": "string",
+      "const": "insufficient_evidence"
+    }
+  ]
+}

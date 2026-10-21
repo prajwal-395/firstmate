@@ -48,6 +48,22 @@ conforms through `library/tools/protocol_conformance.py`, which validates
 at the boundaries (EditPatch serialization, broker job submission,
 capability registry export) against these schemas.
 
+## The refusal mirror
+
+`Refusal` is `RenRefusal.to_dict()` and carries every field a Python
+refusal emits: what, why, the fix, the consequence, the recovery class, the
+conflict class, the ask reason, the KIND of block, the next action and the
+blocker's plain reason. The four closed vocabularies - `Blocker`,
+`NextAction`, `RecoveryClass` and `AskReason` - are the Python taxonomy's
+(`library/tools/refusal_taxonomy.py`, `library/tools/ren_refusal.py`), and
+the generated schemas are the contract both sides are checked against:
+`tests/unit/resolve/test_protocol_conformance.py` reads them and holds the
+mirror to the taxonomy, so a field added on the Python side with no Rust
+counterpart fails there.
+
+The fixture corpus carries one refusal per kind of block, so the round-trip
+exercises every variant of the enums.
+
 ## The fixture corpus
 
 `fixtures/` holds real serialized payloads captured from the Python code

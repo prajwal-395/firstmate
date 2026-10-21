@@ -41,6 +41,17 @@ as the Python broker's execute loop does: `resolve_axi.main` asks
 not mark itself would route every `resolve_axi` job back through the
 broker - a loop.
 
+## A refusal says what kind of block it was
+
+A refused submission is answered `{"error", "refused", "blocker",
+"next_action"}` - the same four keys the Python broker answers with
+(`server.py` catches `jobs.JobRefused`, whose kind of block and next action
+come from `library/tools/refusal_taxonomy.py`). The Python worker names the
+pair for every refusal it raises and the daemon carries it to the client
+unchanged, so a caller reads one refusal shape whichever daemon served it.
+A REJECTED job names no kind of block, and the reply says so by leaving the
+keys out, because the Python broker answers that one with the error alone.
+
 ## The lease
 
 The worker holds the instance lease for the whole job, connection
