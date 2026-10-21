@@ -90,6 +90,8 @@ import sys
 import cv2
 import numpy as np
 
+from library.tools import shared_decode
+
 # ── Sampling ────────────────────────────────────────────────────────
 #
 # 5 Hz matches the rate step 1.04 already samples face presence at, so
@@ -267,33 +269,27 @@ def sample_picture_quality(video_path, rate_hz=SAMPLE_RATE_HZ,
     aspect-preserving scale. Spatial positions elsewhere in the pipeline use
     normalized display-frame coordinates (origin top-left); this sampler
     emits frame-wide values and does not invent a subject or occlusion box.
+
+    The frames come from the shared decode (`library/tools/shared_decode`):
+    the VI-03 source sampler measures the same frames of the same source,
+    and one decode of them serves both lanes.  The bytes are the bytes
+    this sampler produced before, and they are read from disk rather than
+    held in memory - a whole-source sample is gigabytes.
     """
     if start_s < 0 or (end_s is not None and end_s <= start_s):
         raise ValueError("picture-quality interval must satisfy 0 <= start < end")
     width, height = _display_dimensions(video_path)
     out_w, out_h = _sample_dimensions(width, height, short_side)
-    command = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
-    if start_s:
-        command.extend(["-ss", str(start_s)])
-    command.extend(["-i", str(video_path)])
-    if end_s is not None:
-        command.extend(["-t", str(end_s - start_s)])
-    command.extend([
-        "-vf", f"fps={rate_hz},scale={out_w}:{out_h}",
-        "-pix_fmt", "gray", "-f", "rawvideo", "-",
-    ])
-    result = subprocess.run(
-        command,
-        capture_output=True, timeout=FFMPEG_TIMEOUT_S, check=False,
-    )
-    if result.returncode != 0:
-        raise PictureQualityUnavailable(f"ffmpeg could not decode {video_path}")
-    frame_bytes = out_w * out_h
-    n_frames = len(result.stdout) // frame_bytes if frame_bytes else 0
+    recipe = shared_decode.Recipe(rate_hz=rate_hz, width=out_w, height=out_h,
+                                  start_s=start_s, end_s=end_s)
+    try:
+        decoded = shared_decode.sampled_frames(video_path, recipe)
+    except shared_decode.SharedDecodeUnavailable as exc:
+        raise PictureQualityUnavailable(str(exc)) from exc
+    n_frames = decoded.frame_count
     if n_frames == 0:
         raise PictureQualityUnavailable(f"ffmpeg decoded no frames from {video_path}")
-    frames = np.frombuffer(result.stdout[:n_frames * frame_bytes], dtype=np.uint8)
-    frames = frames.reshape(n_frames, out_h, out_w)
+    frames = decoded.open()
     samples = []
     for index, frame in enumerate(frames):
         row = {"time_s": round(start_s + index / rate_hz, 3)}
@@ -338,27 +334,27 @@ def sample_sharpness(video_path, rate_hz=SAMPLE_RATE_HZ,
     Returns ``{"sample_rate_hz", "sample_short_side_px", "values"}``.
     Raises :class:`PictureQualityUnavailable` when the clip cannot be
     decoded at all.
+
+    The frames come from the shared decode, one frame at a time: the
+    whole sample used to be one in-memory float32 buffer, which for an
+    82-minute source was gigabytes.
     """
     width, height = _display_dimensions(video_path)
     out_w, out_h = _sample_dimensions(width, height, short_side)
-    result = subprocess.run(
-        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(video_path),
-         "-vf", f"fps={rate_hz},scale={out_w}:{out_h}",
-         "-pix_fmt", "gray", "-f", "rawvideo", "-"],
-        capture_output=True, timeout=FFMPEG_TIMEOUT_S, check=False,
-    )
-    frame_bytes = out_w * out_h
-    n_frames = len(result.stdout) // frame_bytes if frame_bytes else 0
-    if result.returncode != 0 or n_frames == 0:
+    recipe = shared_decode.Recipe(rate_hz=rate_hz, width=out_w, height=out_h)
+    try:
+        decoded = shared_decode.sampled_frames(video_path, recipe)
+    except shared_decode.SharedDecodeUnavailable as exc:
+        raise PictureQualityUnavailable(str(exc)) from exc
+    if decoded.frame_count == 0:
         raise PictureQualityUnavailable(
             f"ffmpeg decoded no frames from {video_path}")
-    frames = np.frombuffer(
-        result.stdout[:n_frames * frame_bytes], dtype=np.uint8
-    ).reshape(n_frames, out_h, out_w).astype(np.float32)
+    frames = decoded.open()
     return {
         "sample_rate_hz": rate_hz,
         "sample_short_side_px": min(out_w, out_h),
-        "values": [_laplacian_variance(frame) for frame in frames],
+        "values": [_laplacian_variance(frame.astype(np.float32))
+                   for frame in frames],
     }
 
 

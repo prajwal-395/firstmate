@@ -21,6 +21,8 @@ import sys
 
 import numpy as np
 
+from library.tools import shared_decode
+
 SAMPLE_RATE_HZ = 5.0
 SAMPLE_SHORT_SIDE_PX = 180
 BLACK_LUMA_MAX = 0.02
@@ -90,39 +92,33 @@ def _sample_size(width: int, height: int) -> tuple[int, int]:
 
 
 def _decode(path: str, rate_hz: float):
-    """Yield decoded frames without retaining the source-sized frame list."""
+    """Yield decoded frames without retaining the source-sized frame list.
+
+    The frames come from the shared decode
+    (`library/tools/shared_decode`): the picture sampler measures the
+    same frames of the same source, so one decode of them serves both
+    lanes.  The bytes are the bytes this lane produced before - the two
+    commands differed only in scale's range flags, which do not change
+    the decoded greyscale - and a partial trailing frame still refuses,
+    as it did.
+    """
     if rate_hz <= 0:
         raise ValueError("rate_hz must be positive")
     width, height, duration = _dimensions(path)
     out_w, out_h = _sample_size(width, height)
-    command = ["ffmpeg", "-v", "error", "-i", path, "-vf",
-               f"fps={rate_hz},scale={out_w}:{out_h}:in_range=auto:out_range=full",
-               "-pix_fmt", "gray",
-               "-f", "rawvideo", "-"]
+    recipe = shared_decode.Recipe(rate_hz=rate_hz, width=out_w, height=out_h)
     try:
-        proc = subprocess.Popen(command, stdout=subprocess.PIPE,
-                                stderr=subprocess.DEVNULL)
-        assert proc.stdout is not None
-        frame_bytes = out_w * out_h
-        count = 0
-        while True:
-            raw = proc.stdout.read(frame_bytes)
-            if not raw:
-                break
-            if len(raw) != frame_bytes:
-                proc.kill()
-                proc.wait()
-                raise ImageDefectsUnavailable("decoder returned a partial frame")
-            count += 1
-            yield (np.frombuffer(raw, dtype=np.uint8).reshape(out_h, out_w),
-                   out_w, out_h, count, duration)
-        proc.communicate(timeout=600)
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        if "proc" in locals() and proc.poll() is None:
-            proc.kill()
-            proc.wait()
+        decoded = shared_decode.sampled_frames(path, recipe)
+    except shared_decode.SharedDecodeUnavailable as exc:
         raise ImageDefectsUnavailable(f"frame decode failed: {exc}") from exc
-    if proc.returncode or not count:
+    if decoded.tail_bytes:
+        raise ImageDefectsUnavailable("decoder returned a partial frame")
+    frames = decoded.open()
+    count = 0
+    for frame in frames:
+        count += 1
+        yield (frame, out_w, out_h, count, duration)
+    if not count:
         raise ImageDefectsUnavailable("ffmpeg decoded no frames or failed")
 
 
