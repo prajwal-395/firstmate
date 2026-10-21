@@ -93,6 +93,31 @@ not the same unit, and an average over them hides WHICH one broke.
 A stage with no evidence is `not_measured`, never a zero. A zero is a
 claim that something was measured and came out badly.
 
+### The planning stage is gated on the brief's acceptance criteria
+
+A plan has to CARRY the brief's acceptance criteria - the statements the
+result will be judged against, most of which are about preservation
+("the others are untouched", "the grade did not change"). The harness
+computes the criteria a plan did not declare covered and now FAILS the
+planning stage on them; it used to publish the gap in the detail and
+leave it out of the pass condition, so a plan that named one criterion
+and was silent about the rest read as a valid answer.
+
+The gate applies to the briefs that EXPECT AN EDIT. A brief whose
+correct outcome is to report back has no criteria for a plan to cover -
+"says so" and "nothing was changed" are established by the refusal, not
+by an operation - so those briefs are measured on whether they planned
+nothing.
+
+Measured on the eight-brief acceptance set, this moves the headline
+planning number from **8/8 = 1.00** to **4/8 = 0.50**: the three
+refusal briefs, plus the one edit brief that declares all ten of its
+criteria. The number was never earned for the other four. Alongside it
+the report publishes `criteria_coverage` - a SUPPLEMENTARY view saying
+how much of each brief's criteria the plan declared it covers (15 of 22
+across the five briefs that expect an edit). It never replaces the
+headline.
+
 The Level-2 and Level-3 request rows are readable in the same
 vocabulary (`stages.from_request_row`), so the old reports and the new
 one can be read together.

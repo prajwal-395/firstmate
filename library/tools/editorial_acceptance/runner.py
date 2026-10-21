@@ -16,6 +16,9 @@ What the report carries:
   never replaces the score - the headline stays the engine's headline.
 - the FAILURE CAUSES, with the bottleneck named, so the next engineering
   change has a target.
+- the CRITERIA COVERAGE, published ALONGSIDE the headline: how much of
+  each brief's acceptance criteria the plan declared it covers, which is
+  the gap the planning gate exposes.
 - one row per brief, with the record it was measured against.
 
 A brief that was not run is reported as not run. A stage with no
@@ -266,6 +269,7 @@ def run_acceptance(records: Sequence[Mapping[str, Any]], *,
         "failed": len(measured_rows) - passed,
         "stage_metrics": stages.summarize(stage_rows),
         "premise": premise,
+        "criteria_coverage": _criteria_coverage(scored_rows),
         "failure_causes": failures.bottleneck_summary(classifications),
         "results": rows,
     }
@@ -319,6 +323,60 @@ def _premise_view(scored_rows: Sequence[Mapping[str, Any]],
         "stage_metrics": stages.summarize(
             [row["stages"] for row in carried_rows if row.get("stages")],
             excluded=excluded),
+    }
+
+
+def _criteria_coverage(scored_rows: Sequence[Mapping[str, Any]]
+                       ) -> dict[str, Any]:
+    """How much of each brief's acceptance criteria the plan declared.
+
+    This is a SUPPLEMENTARY view, published ALONGSIDE the headline and
+    never instead of it. The headline's planning number says how many
+    briefs' plans were valid answers; this says how much of each
+    brief's criteria that plan declared it covers, which is the gap the
+    planning gate exposes and the number the next round of work has to
+    move.
+
+    It is measured over the briefs that EXPECT AN EDIT. A brief whose
+    correct outcome is to report back has no criteria for a plan to
+    cover, so counting them here would measure nothing about coverage.
+    """
+    total = 0
+    covered = 0
+    per_brief: dict[str, Any] = {}
+    for row in scored_rows:
+        measurement = (row.get("stages") or {}).get("planning")
+        measurement = measurement if isinstance(measurement, Mapping) else {}
+        detail = measurement.get("detail")
+        detail = detail if isinstance(detail, Mapping) else {}
+        if not detail.get("acceptance_criteria_coverage_required"):
+            continue
+        criteria = [str(item) for item in (detail.get("acceptance_criteria")
+                                           or [])]
+        uncovered = [str(item) for item in (
+            detail.get("acceptance_criteria_not_declared_covered") or [])]
+        total += len(criteria)
+        covered += len(criteria) - len(uncovered)
+        per_brief[str(row.get("brief_id"))] = {
+            "acceptance_criteria": len(criteria),
+            "declared_covered": len(criteria) - len(uncovered),
+            "not_declared_covered": uncovered,
+        }
+    return {
+        "note": (
+            "A supplementary view, published alongside the headline: how "
+            "much of each brief's acceptance criteria the plan DECLARED "
+            "it covers. The headline's planning number says how many "
+            "plans were valid answers; this says how much of the brief "
+            "each one carried. Measured over the briefs that expect an "
+            "edit - a brief whose correct outcome is to report back has "
+            "no criteria for a plan to cover."),
+        "briefs_expected_to_edit": len(per_brief),
+        "acceptance_criteria": total,
+        "declared_covered": covered,
+        "not_declared_covered": total - covered,
+        "value": (covered / total) if total else None,
+        "briefs": per_brief,
     }
 
 

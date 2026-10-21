@@ -208,6 +208,21 @@ def test_a_material_that_was_never_available_is_named():
     assert result["cause"] == "retrieval.unavailable_asset"
 
 
+def test_a_plan_that_left_the_briefs_criteria_uncovered_is_named():
+    """The defect: the plan answered the operation and stayed silent about
+    the brief's acceptance criteria, and the report named no cause - so
+    the next engineer had nothing to build."""
+    measured = _all_pass()
+    measured["planning"] = _measurement(
+        False, planned_operations=["reel.opening"], missing_operations=[],
+        unauthorised_operations=[],
+        acceptance_criteria_not_declared_covered=["others-untouched"])
+    result = failures.classify(measured, task_id="b")
+    assert result["stage"] == "planning"
+    assert result["cause"] == "planning.criteria_not_covered"
+    assert result["severity"] == "wrong"
+
+
 def test_the_older_layer_vocabulary_maps_onto_this_one():
     """The connection: the standing corpus has its own seven layers, and
     they answer the same question. They are mapped here, in one place,

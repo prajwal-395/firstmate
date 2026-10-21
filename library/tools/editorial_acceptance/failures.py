@@ -77,6 +77,11 @@ CAUSES: dict[str, dict[str, str]] = {
         "stage": "planning",
         "summary": "the plan asked for a change the request did not ask for",
     },
+    "planning.criteria_not_covered": {
+        "stage": "planning",
+        "summary": ("the plan did not declare the brief's acceptance "
+                    "criteria covered"),
+    },
     "execution.unsupported_route": {
         "stage": "execution",
         "summary": "no qualified route could carry the operation",
@@ -222,6 +227,8 @@ def _cause_for(stage: str, detail: Mapping[str, Any],
             return "planning.unauthorised_change"
         if detail.get("missing_operations"):
             return "planning.incomplete_plan"
+        if detail.get("acceptance_criteria_not_declared_covered"):
+            return "planning.criteria_not_covered"
         return "unknown.cause"
     if stage == "execution":
         if detail.get("collateral_changes"):

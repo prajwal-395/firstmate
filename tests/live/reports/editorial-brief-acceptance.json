@@ -93,8 +93,54 @@
       ]
     },
     "demonstration_brief": "the-whole-job",
-    "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/62/video-editing-pilot/library/tools/editorial_acceptance/brief_set.json",
+    "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/66/video-editing-pilot/library/tools/editorial_acceptance/brief_set.json",
     "sha256": "a177f273b939250314872ea08fb7d42d739609d823a34be85401a9f2bcea609d"
+  },
+  "criteria_coverage": {
+    "acceptance_criteria": 22,
+    "briefs": {
+      "name-bar-fights-the-captions": {
+        "acceptance_criteria": 3,
+        "declared_covered": 2,
+        "not_declared_covered": [
+          "others-untouched"
+        ]
+      },
+      "open-with-the-cost": {
+        "acceptance_criteria": 3,
+        "declared_covered": 1,
+        "not_declared_covered": [
+          "nothing-lost",
+          "grade-untouched"
+        ]
+      },
+      "the-whole-job": {
+        "acceptance_criteria": 10,
+        "declared_covered": 10,
+        "not_declared_covered": []
+      },
+      "the-wrong-caption": {
+        "acceptance_criteria": 3,
+        "declared_covered": 1,
+        "not_declared_covered": [
+          "timing-kept",
+          "others-untouched"
+        ]
+      },
+      "two-voices-at-once": {
+        "acceptance_criteria": 3,
+        "declared_covered": 1,
+        "not_declared_covered": [
+          "both-voices-kept",
+          "sync-held"
+        ]
+      }
+    },
+    "briefs_expected_to_edit": 5,
+    "declared_covered": 15,
+    "not_declared_covered": 7,
+    "note": "A supplementary view, published alongside the headline: how much of each brief's acceptance criteria the plan DECLARED it covers. The headline's planning number says how many plans were valid answers; this says how much of the brief each one carried. Measured over the briefs that expect an edit - a brief whose correct outcome is to report back has no criteria for a plan to cover.",
+    "value": 0.6818181818181818
   },
   "demonstration": {
     "assessment": {
@@ -288,13 +334,13 @@
   "failure_causes": {
     "bottleneck": "interpretation",
     "by_cause": {
-      "execution.backend_refused": 1,
       "interpretation.target_unresolved": 3,
+      "planning.criteria_not_covered": 1,
       "retrieval.unavailable_asset": 1
     },
     "by_stage": {
-      "execution": 1,
       "interpretation": 3,
+      "planning": 1,
       "retrieval": 1
     },
     "dominant_cause": "interpretation.target_unresolved",
@@ -867,7 +913,7 @@
           "unconfirmed_premises": []
         }
       },
-      "catalogue_path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/62/video-editing-pilot/library/tools/editorial_acceptance/substrates.json",
+      "catalogue_path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/66/video-editing-pilot/library/tools/editorial_acceptance/substrates.json",
       "catalogue_sha256": "a1669b0afe10fac7360ceaa30adddfa1a817c06b28f4abdca8487bc08dbd5152",
       "substrate_count": 1
     },
@@ -915,14 +961,14 @@
           "value": 1.0
         },
         "planning": {
-          "failed": 0,
+          "failed": 1,
           "measured": 4,
           "not_measured": 4,
-          "passed": 4,
+          "passed": 3,
           "question": "Is the plan a valid answer to the request - covering what was asked, and nothing the user did not ask for?",
           "status": "measured",
           "total": 8,
-          "value": 1.0
+          "value": 0.75
         },
         "retrieval": {
           "failed": 0,
@@ -940,7 +986,7 @@
     },
     "substrates": {
       "count": 1,
-      "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/62/video-editing-pilot/library/tools/editorial_acceptance/substrates.json",
+      "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/66/video-editing-pilot/library/tools/editorial_acceptance/substrates.json",
       "sha256": "a1669b0afe10fac7360ceaa30adddfa1a817c06b28f4abdca8487bc08dbd5152"
     }
   },
@@ -1069,6 +1115,8 @@
               "conflict-surfaced",
               "nothing-changed"
             ],
+            "acceptance_criteria_coverage_required": false,
+            "acceptance_criteria_declared_covered": [],
             "acceptance_criteria_not_declared_covered": [
               "conflict-surfaced",
               "nothing-changed"
@@ -1241,6 +1289,8 @@
               "says-so",
               "end-card-intact"
             ],
+            "acceptance_criteria_coverage_required": false,
+            "acceptance_criteria_declared_covered": [],
             "acceptance_criteria_not_declared_covered": [
               "named-asset-only",
               "says-so",
@@ -1295,18 +1345,18 @@
       "edge_case": null,
       "expected_refusal": false,
       "failure": {
-        "cause": "execution.backend_refused",
+        "cause": "planning.criteria_not_covered",
         "failed": true,
         "severity": "wrong",
-        "stage": "execution",
+        "stage": "planning",
         "stage_outcomes": {
           "execution": "fail",
           "final_quality": "not_measured",
           "interpretation": "pass",
-          "planning": "pass",
+          "planning": "fail",
           "retrieval": "not_measured"
         },
-        "summary": "the backend refused an operation the plan needed",
+        "summary": "the plan did not declare the brief's acceptance criteria covered",
         "task_id": "name-bar-fights-the-captions"
       },
       "footage": {
@@ -1420,6 +1470,11 @@
               "inside-safe-area",
               "others-untouched"
             ],
+            "acceptance_criteria_coverage_required": true,
+            "acceptance_criteria_declared_covered": [
+              "collision-gone",
+              "inside-safe-area"
+            ],
             "acceptance_criteria_not_declared_covered": [
               "others-untouched"
             ],
@@ -1427,6 +1482,7 @@
               "collision-gone",
               "inside-safe-area"
             ],
+            "expected": "every acceptance criterion the brief states is declared covered by the plan",
             "expected_operations": [
               "overlay.position"
             ],
@@ -1436,7 +1492,7 @@
             ],
             "unauthorised_operations": []
           },
-          "passed": true,
+          "passed": false,
           "reason": null,
           "status": "measured"
         },
@@ -1596,6 +1652,8 @@
               "says-so",
               "speech-intact"
             ],
+            "acceptance_criteria_coverage_required": false,
+            "acceptance_criteria_declared_covered": [],
             "acceptance_criteria_not_declared_covered": [
               "no-invented-footage",
               "says-so",
@@ -1658,7 +1716,7 @@
           "execution": "fail",
           "final_quality": "not_measured",
           "interpretation": "pass",
-          "planning": "pass",
+          "planning": "fail",
           "retrieval": "fail"
         },
         "summary": "the material was not available to the run",
@@ -1783,6 +1841,10 @@
               "nothing-lost",
               "grade-untouched"
             ],
+            "acceptance_criteria_coverage_required": true,
+            "acceptance_criteria_declared_covered": [
+              "hook-first"
+            ],
             "acceptance_criteria_not_declared_covered": [
               "nothing-lost",
               "grade-untouched"
@@ -1790,6 +1852,7 @@
             "declared_requirements_covered": [
               "hook-first"
             ],
+            "expected": "every acceptance criterion the brief states is declared covered by the plan",
             "expected_operations": [
               "reel.opening"
             ],
@@ -1799,7 +1862,7 @@
             ],
             "unauthorised_operations": []
           },
-          "passed": true,
+          "passed": false,
           "reason": null,
           "status": "measured"
         },
@@ -2092,6 +2155,19 @@
               "exported",
               "export-verified"
             ],
+            "acceptance_criteria_coverage_required": true,
+            "acceptance_criteria_declared_covered": [
+              "hook-chosen",
+              "pauses-removed",
+              "angle-replaced",
+              "broll-chosen",
+              "caption-corrected",
+              "lower-third-adjusted",
+              "levels-balanced",
+              "human-work-preserved",
+              "exported",
+              "export-verified"
+            ],
             "acceptance_criteria_not_declared_covered": [],
             "declared_requirements_covered": [
               "hook-chosen",
@@ -2187,7 +2263,7 @@
           "execution": "fail",
           "final_quality": "not_measured",
           "interpretation": "fail",
-          "planning": "pass",
+          "planning": "fail",
           "retrieval": "fail"
         },
         "summary": "the run could not say which item the request meant",
@@ -2313,6 +2389,10 @@
               "timing-kept",
               "others-untouched"
             ],
+            "acceptance_criteria_coverage_required": true,
+            "acceptance_criteria_declared_covered": [
+              "caption-text-right"
+            ],
             "acceptance_criteria_not_declared_covered": [
               "timing-kept",
               "others-untouched"
@@ -2320,6 +2400,7 @@
             "declared_requirements_covered": [
               "caption-text-right"
             ],
+            "expected": "every acceptance criterion the brief states is declared covered by the plan",
             "expected_operations": [
               "caption_fix"
             ],
@@ -2329,7 +2410,7 @@
             ],
             "unauthorised_operations": []
           },
-          "passed": true,
+          "passed": false,
           "reason": null,
           "status": "measured"
         },
@@ -2383,7 +2464,7 @@
           "execution": "fail",
           "final_quality": "not_measured",
           "interpretation": "fail",
-          "planning": "pass",
+          "planning": "fail",
           "retrieval": "fail"
         },
         "summary": "the run could not say which item the request meant",
@@ -2527,6 +2608,10 @@
               "both-voices-kept",
               "sync-held"
             ],
+            "acceptance_criteria_coverage_required": true,
+            "acceptance_criteria_declared_covered": [
+              "claim-followable"
+            ],
             "acceptance_criteria_not_declared_covered": [
               "both-voices-kept",
               "sync-held"
@@ -2534,6 +2619,7 @@
             "declared_requirements_covered": [
               "claim-followable"
             ],
+            "expected": "every acceptance criterion the brief states is declared covered by the plan",
             "expected_operations": [
               "multicam.select_angle"
             ],
@@ -2543,7 +2629,7 @@
             ],
             "unauthorised_operations": []
           },
-          "passed": true,
+          "passed": false,
           "reason": null,
           "status": "measured"
         },
@@ -2612,14 +2698,14 @@
         "value": 0.625
       },
       "planning": {
-        "failed": 0,
+        "failed": 4,
         "measured": 8,
         "not_measured": 0,
-        "passed": 8,
+        "passed": 4,
         "question": "Is the plan a valid answer to the request - covering what was asked, and nothing the user did not ask for?",
         "status": "measured",
         "total": 8,
-        "value": 1.0
+        "value": 0.5
       },
       "retrieval": {
         "failed": 4,
@@ -2880,7 +2966,7 @@
         "unconfirmed_premises": []
       }
     },
-    "catalogue_path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/62/video-editing-pilot/library/tools/editorial_acceptance/substrates.json",
+    "catalogue_path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/66/video-editing-pilot/library/tools/editorial_acceptance/substrates.json",
     "catalogue_sha256": "a1669b0afe10fac7360ceaa30adddfa1a817c06b28f4abdca8487bc08dbd5152",
     "substrate_count": 1
   },

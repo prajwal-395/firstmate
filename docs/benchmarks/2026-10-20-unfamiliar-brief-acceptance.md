@@ -44,6 +44,20 @@ numbers the shipped report still carries: the premise measurement
 described under cause 1 below is reported ALONGSIDE them and does not
 move them.
 
+> **Amendment, 2026-10-21 - the planning number is now GATED on the
+> brief's acceptance criteria.** The harness used to compute the
+> acceptance criteria a plan did not declare covered, publish the gap in
+> the detail, and leave it out of the pass condition, so a plan that
+> named one criterion and was silent about the preservation of the rest
+> read as a valid answer. `planning` now FAILS on that gap, and the
+> planning number moves from **8/8 = 1.00** to **4/8 = 0.50** - the
+> three refusal briefs (whose correct outcome is to plan nothing, and
+> which the gate does not touch) plus the one edit brief that declares
+> all ten of its criteria. Alongside the headline the report publishes
+> `criteria_coverage`: **15 of 22** acceptance criteria declared covered
+> across the five briefs that expect an edit. Every other number here is
+> unchanged, and the bottleneck is still `interpretation`.
+
 `ren accept --records tests/live/reports/editorial-bench-records`
 (eight briefs, eight scored, none not-run):
 
@@ -51,7 +65,7 @@ move them.
 |---|---|---|---|---|
 | interpretation | 8 | 5 | 0.625 | 0 |
 | retrieval | 4 | 0 | 0.0 | 4 |
-| planning | 8 | 8 | 1.0 | 0 |
+| planning | 8 | 4 | 0.5 | 0 |
 | execution | 8 | 3 | 0.375 | 0 |
 | final quality | 0 | - | not measured | 8 |
 
@@ -77,7 +91,7 @@ what is missing is an edit to render.
 | `logo-not-in-the-project` | - | - | **pass**: the named logo is not in the project; said so, changed nothing |
 | `keep-it-but-tighten-it` | - | - | **pass**: keeping every word and tightening the cut are two requests; asked which, changed nothing |
 | `open-with-the-cost` | retrieval | `retrieval.unavailable_asset` | the reel's 45 caption cards name no cost; the only cost statement in the project (Craig, "eat into their budget", 00:13.9 of the master) is a **different recording** and is not in this reel |
-| `name-bar-fights-the-captions` | execution | `execution.backend_refused` | the name bar was found and measured (the lower third `b-soft-focus-craig.mov`, V6, frames 0-84), and **the engine has no route to move it** - see below |
+| `name-bar-fights-the-captions` | planning | `planning.criteria_not_covered` | the name bar was found and measured (the lower third `b-soft-focus-craig.mov`, V6, frames 0-84), and **the engine has no route to move it** - see below. Its plan also declared two of the brief's three criteria covered and stayed silent about `others-untouched`, which is the gap the planning gate now names; the execution refusal below is still true, and is still the reason the edit could not happen |
 | `two-voices-at-once` | interpretation | `interpretation.target_unresolved` | there is no overlapping speech to make followable: the two dialogue tracks are disjoint, and the reel's two camera rows are two **speakers**, not two angles of one moment |
 | `the-wrong-caption` | interpretation | `interpretation.target_unresolved` | no caption names a word the speech does not - all 45 cards match their speech; and `caption_fix` could not have rewritten a rendered card anyway |
 | `the-whole-job` | interpretation | `interpretation.target_unresolved` | four of its seven targets are absent from the footage (no repeated passage, no second angle, no wrong-number caption, **no music bed**); the rest had no eligible route |

@@ -33,7 +33,9 @@ def _key(**overrides):
 
 def _brief():
     return {"id": "b", "acceptance_criteria": [
-        {"id": "hook-first", "statement": "it opens on the hook"}]}
+        {"id": "hook-first", "statement": "it opens on the hook"},
+        {"id": "others-untouched", "statement": "nothing else moved"},
+        {"id": "grade-untouched", "statement": "the grade did not change"}]}
 
 
 def _record(**overrides):
@@ -56,7 +58,8 @@ def _record(**overrides):
             "operations": [{"op": "reel.opening",
                             "target_role": "opening_section",
                             "reason": "the hook"}],
-            "requirements_covered": ["hook-first"],
+            "requirements_covered": ["hook-first", "others-untouched",
+                                     "grade-untouched"],
         },
         "execution": {
             "receipt": {"status": "verified"},
@@ -138,6 +141,53 @@ def test_a_run_that_could_not_name_its_target_fails_interpretation():
     assert measured["interpretation"]["passed"] is False
     assert measured["interpretation"]["detail"]["unresolved_roles"] == [
         "opening_section"]
+
+
+def test_a_plan_that_declares_no_coverage_of_the_briefs_criteria_fails_planning():
+    """The defect: the harness computed the acceptance criteria the plan
+    did NOT declare covered, published them in the detail, and left them
+    out of the pass condition - so a plan that carried one criterion and
+    was silent about the preservation of everything else read as a valid
+    answer to the request."""
+    record = _record()
+    record["planning"]["requirements_covered"] = ["hook-first"]
+    measured = stages.measure(record, _brief(), _key())
+    assert measured["planning"]["passed"] is False
+    assert measured["planning"]["detail"][
+        "acceptance_criteria_not_declared_covered"] == ["others-untouched",
+                                                        "grade-untouched"]
+
+
+def test_a_plan_that_declares_every_criterion_passes_planning():
+    """The connection: the gate is about DECLARATION, so a plan that says
+    which criteria it covers is a valid plan even when the run behind it
+    was poor."""
+    record = _record()
+    measured = stages.measure(record, _brief(), _key())
+    assert measured["planning"]["passed"] is True
+    assert measured["planning"]["detail"][
+        "acceptance_criteria_declared_covered"] == ["hook-first",
+                                                     "others-untouched",
+                                                     "grade-untouched"]
+
+
+def test_a_refusal_brief_is_not_gated_on_criteria_coverage():
+    """The defect: a brief whose correct outcome is to report back has no
+    criteria for a PLAN to cover - "says so" and "nothing was changed"
+    are established by the refusal - so gating it on coverage would fail
+    every correct refusal."""
+    key = _key(expected_refusal=True, expected_operations=[],
+               expected_target_roles=[], expected_moment_ids=[],
+               allowed_operations=[])
+    record = _record()
+    record["interpretation"] = {"restated_outcome": "the bench was never filmed",
+                                "selected_operations": [],
+                                "resolved_targets": []}
+    record["planning"] = {"operations": [], "requirements_covered": []}
+    measured = stages.measure(record, _brief(), key)
+    assert measured["planning"]["passed"] is True
+    assert measured["planning"]["detail"][
+        "acceptance_criteria_coverage_required"] is False
 
 
 def test_a_moment_with_no_evidence_behind_it_fails_retrieval():

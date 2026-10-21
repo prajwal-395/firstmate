@@ -29,6 +29,22 @@ def _assessment() -> dict:
     }
 
 
+def _criteria(brief_id: str = "open-with-the-cost") -> list[str]:
+    """Every acceptance criterion of the brief this fixture runs.
+
+    A plan that declares none of them covered is NOT a valid plan, and
+    the planning stage says so - so a fixture that means to test a
+    LATER stage has to hand it a valid plan.
+    """
+    the_set = briefs.load_brief_set()
+    try:
+        brief = briefs.brief(the_set, brief_id)
+    except KeyError:
+        return []
+    return [str(criterion["id"])
+            for criterion in brief["acceptance_criteria"]]
+
+
 def _record(brief_id: str = "open-with-the-cost", **overrides) -> dict:
     record = record_module.new_record(
         task_id=brief_id,
@@ -51,7 +67,7 @@ def _record(brief_id: str = "open-with-the-cost", **overrides) -> dict:
             "operations": [{"op": "reel.opening",
                             "target_role": "opening_section",
                             "reason": "the hook"}],
-            "requirements_covered": ["hook-first"],
+            "requirements_covered": _criteria(brief_id),
         },
         execution={
             "receipt": {"status": "verified"},
@@ -136,6 +152,23 @@ def test_a_run_that_changed_unrelated_work_is_reported_as_unsafe():
     assert failure["severity"] == "unsafe"
     assert report["failure_causes"]["unsafe_failures"] == 1
     assert report["failure_causes"]["bottleneck"] == "execution"
+
+
+def test_the_report_publishes_the_criteria_coverage_beside_the_headline():
+    """The defect: the headline's planning number says how many plans
+    were valid answers and nothing says how much of the brief each plan
+    carried - so a plan that covers one criterion and is silent about the
+    preservation of the rest reads as a full answer."""
+    record = _record()
+    record["planning"]["requirements_covered"] = ["hook-first"]
+    report = runner.run_acceptance([record])
+    coverage = report["criteria_coverage"]
+    assert coverage["briefs_expected_to_edit"] == 1
+    assert coverage["acceptance_criteria"] == 3
+    assert coverage["declared_covered"] == 1
+    assert coverage["not_declared_covered"] == 2
+    assert coverage["value"] == pytest.approx(1 / 3)
+    assert report["stage_metrics"]["stages"]["planning"]["passed"] == 0
 
 
 def test_the_report_names_the_bottleneck_the_next_change_targets():
