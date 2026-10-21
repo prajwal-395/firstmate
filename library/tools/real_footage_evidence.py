@@ -84,10 +84,11 @@ def probe_source(path: str, run: RunFn | None = None) -> dict[str, Any]:
             "codec": video.get("codec_name", "unknown")}
 
 
-def _scene_argv(path: str, start: float, end: float) -> list[str]:
+def _scene_argv(path: str, start: float, end: float,
+                threshold: float = SCENE_SCORE_THRESHOLD) -> list[str]:
     return ["ffmpeg", "-hide_banner", "-ss", str(start), "-t",
             str(round(end - start, 3)), "-i", path, "-vf",
-            f"select='gt(scene,{SCENE_SCORE_THRESHOLD})',showinfo",
+            f"select='gt(scene,{threshold})',showinfo",
             "-fps_mode", "passthrough", "-f", "null", "-"]
 
 
@@ -96,7 +97,9 @@ _SHOWINFO_RE = re.compile(
 
 
 def detect_scenes(path: str, start: float, end: float,
-                  run: RunFn | None = None) -> list[dict[str, Any]]:
+                  run: RunFn | None = None,
+                  threshold: float = SCENE_SCORE_THRESHOLD
+                  ) -> list[dict[str, Any]]:
     """Detect scene boundaries inside one source window.
 
     Returns ``[{tick_s, score}]`` in source seconds. ``ffmpeg`` exit
@@ -104,10 +107,16 @@ def detect_scenes(path: str, start: float, end: float,
     and the null muxer always "fails" harmlessly - but output that
     parses to nothing is returned as an empty list, never as a boundary
     at the window edge.
+
+    `threshold` is the scene score a frame has to beat to be called a
+    boundary. It defaults to the shared threshold, so a caller that
+    does not name one gets the same measurement the picture analysis
+    reads; a caller that names a different one is measuring a
+    different thing, and the score it reports says which.
     """
     if end <= start:
         raise ValueError("scene detection needs a non-empty window")
-    completed = _run(_scene_argv(path, start, end), run)
+    completed = _run(_scene_argv(path, start, end, threshold), run)
     stderr = completed.stderr or ""
     if "Unrecognized option" in stderr or "Error " in stderr:
         raise RuntimeError(f"ffmpeg scene detection failed for {path}: "
@@ -124,7 +133,7 @@ def detect_scenes(path: str, start: float, end: float,
             boundaries.append({
                 "tick_s": tick_s,
                 "score": float(score_match.group(1))
-                if score_match else SCENE_SCORE_THRESHOLD})
+                if score_match else threshold})
     return sorted(boundaries, key=lambda row: row["tick_s"])
 
 

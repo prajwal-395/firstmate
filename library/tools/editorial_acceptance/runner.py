@@ -82,7 +82,8 @@ def _load_brief_set(brief_set: Mapping[str, Any] | None,
 
 
 def _delivery_for(record: Mapping[str, Any], brief: Mapping[str, Any],
-                  judge: Callable | None) -> tuple[dict, dict]:
+                  judge: Callable | None,
+                  align_transcript: bool = True) -> tuple[dict, dict]:
     """The delivered file's evidence, and the judge's reading of it.
 
     Without a judge the record's own measurement is taken as it stands:
@@ -107,7 +108,8 @@ def _delivery_for(record: Mapping[str, Any], brief: Mapping[str, Any],
         path = str(section.get("path") or "").strip()
         if path:
             try:
-                measured = delivery.build_render_evidence(path)
+                measured = delivery.build_render_evidence(
+                    path, align_transcript=align_transcript)
             except delivery.DeliveryError as exc:
                 section = {"path": path, "evidence_error": str(exc)}
             else:
@@ -132,7 +134,8 @@ def _catalogue(catalogue: Mapping[str, Any] | None,
 def score_task(record: Mapping[str, Any], brief: Mapping[str, Any],
                *, judge: Callable | None = None,
                catalogue: Mapping[str, Any] | None = None,
-               timelines: dict | None = None) -> dict[str, Any]:
+               timelines: dict | None = None,
+               align_transcript: bool = True) -> dict[str, Any]:
     """One brief, one record, one row of the report.
 
     The brief is SCORED, whatever the footage carries: the engine still
@@ -147,7 +150,8 @@ def score_task(record: Mapping[str, Any], brief: Mapping[str, Any],
     substrate, _ = footage.resolve_substrate(
         _catalogue(catalogue, None), record)
     premise = footage.applicability(brief, substrate)
-    rendered, assessment = _delivery_for(record, public, judge)
+    rendered, assessment = _delivery_for(record, public, judge,
+                                         align_transcript=align_transcript)
     measured_record = dict(record)
     measured_record["delivery"] = rendered
     measured_record["assessment"] = assessment
@@ -191,6 +195,9 @@ def score_task(record: Mapping[str, Any], brief: Mapping[str, Any],
                 "technical_verification", {}),
             "technical_not_checked": rendered.get(
                 "technical_not_checked", []),
+            "transcript": rendered.get("transcript", {}),
+            "shots": rendered.get("shots", {}),
+            "frame_count": rendered.get("frame_count"),
         },
         "assessment": {
             "judge": assessment.get("judge"),
@@ -209,7 +216,8 @@ def run_acceptance(records: Sequence[Mapping[str, Any]], *,
                    brief_set_path: str | Path | None = None,
                    judge: Callable | None = None,
                    catalogue: Mapping[str, Any] | None = None,
-                   catalogue_path: str | Path | None = None) -> dict[str, Any]:
+                   catalogue_path: str | Path | None = None,
+                   align_transcript: bool = True) -> dict[str, Any]:
     """Measure every record against its brief, and report.
 
     The HEADLINE is the engine's score and nothing else: a brief the
@@ -240,7 +248,8 @@ def run_acceptance(records: Sequence[Mapping[str, Any]], *,
             })
             continue
         row = score_task(record, brief, judge=judge, catalogue=the_catalogue,
-                         timelines=timelines)
+                         timelines=timelines,
+                         align_transcript=align_transcript)
         row["status"] = "scored"
         rows.append(row)
     scored_rows = [row for row in rows if row.get("status") == "scored"]

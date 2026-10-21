@@ -96,6 +96,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--select", action="store_true",
                         help="print the substrate each brief would run "
                              "against, and why")
+    parser.add_argument("--no-align-transcript", action="store_true",
+                        help="time the delivered file's words with the "
+                             "transcriber's own boundaries instead of the "
+                             "forced aligner's. The aligner places a word "
+                             "boundary 26ms from the truth where the "
+                             "transcriber's own is 94ms, and it costs "
+                             "minutes per file; the words are the same "
+                             "either way.")
     parser.add_argument("--list", action="store_true",
                         help="print the briefs and their coverage, and stop")
     parser.add_argument("--json", action="store_true",
@@ -113,7 +121,8 @@ def main(argv: list[str] | None = None) -> int:
     judge = _load_factory(args.judge)() if args.judge else None
     records = runner.read_records(args.records)
     report = runner.run_acceptance(records, brief_set=brief_set, judge=judge,
-                                   catalogue=catalogue)
+                                   catalogue=catalogue,
+                                   align_transcript=not args.no_align_transcript)
     out = runner.write_report(report, args.report)
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))

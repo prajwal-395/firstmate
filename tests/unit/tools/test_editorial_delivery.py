@@ -16,10 +16,14 @@ from pathlib import Path
 
 import pytest
 
+from library.tools import heard_speech
 from library.tools.editorial_acceptance import delivery
 
 FFMPEG = shutil.which("ffmpeg")
 FFPROBE = shutil.which("ffprobe")
+
+#: The aligner as it is, before the fixture below replaces it.
+REAL_MFA_TRANSCRIPT = delivery._mfa_transcript
 
 
 def _skip_without_ffmpeg() -> None:
@@ -264,3 +268,161 @@ def test_a_delivery_section_refuses_a_file_that_is_not_there(tmp_path):
     """The defect: an absent render is scored as a delivered one."""
     with pytest.raises(delivery.DeliveryError):
         delivery.build_delivery_section(tmp_path / "nothing.mp4")
+# ── The packet a judge is shown ──────────────────────────────────────
+#
+# The defect this file's second half is about: the packet was three
+# stills, a digest and a loudness observation, and four of the brief's
+# ten criteria came back `not_measured` because of it. Three stills
+# cannot show a pause, cannot show which camera a turn was shot on, and
+# cannot show an inserted cutaway - and a criterion nobody could
+# measure is a milestone nobody can reach.
+
+
+def _spoken(words: list[tuple[str, float, float]]) -> heard_speech.HeardSpeech:
+    """A hearing, built by hand: the tests never need a real voice."""
+    return heard_speech.HeardSpeech(
+        words=[heard_speech.HeardWord(word=word, start=start, end=end)
+               for word, start, end in words],
+        text=" ".join(word for word, _start, _end in words),
+        engine={"backend": "test"})
+
+
+@pytest.fixture(autouse=True)
+def _no_vendor_transcriber(monkeypatch):
+    """The unit tests never reach the on-device transcriber.
+
+    It is a vendor boundary with a model behind it, and the packet's
+    SHAPE is what is under test here. The tests that care about which
+    half placed the words override this.
+    """
+    monkeypatch.setattr(
+        delivery, "_mfa_transcript",
+        lambda _path: (_ for _ in ()).throw(
+            RuntimeError("no aligner in a unit test")))
+    monkeypatch.setattr(
+        heard_speech, "transcribe",
+        lambda _path, timeout=600: _spoken(
+            [("hello", 0.0, 0.4), ("there", 0.4, 0.8)]))
+
+
+def test_the_packet_carries_what_the_delivered_file_says(tmp_path, video):
+    """The defect: the judge is handed a picture of the file and no
+    words, so a criterion about what the file says cannot be measured."""
+    render = delivery.build_render_evidence(video, workdir=tmp_path / "ev")
+    kinds = {item["kind"] for item in render["evidence"]}
+    assert "transcript" in kinds
+    transcript = next(item for item in render["evidence"]
+                      if item["kind"] == "transcript")
+    assert "hello" in transcript["observation"]
+    assert Path(transcript["artifact"]).exists()
+    assert "hello" in Path(transcript["artifact"]).read_text(encoding="utf-8")
+    assert render["transcript"]["measured"] is True
+    assert render["transcript"]["word_count"] == 2
+
+
+def test_the_packet_says_so_when_the_file_cannot_be_heard(tmp_path, video,
+                                                           monkeypatch):
+    """The defect: nobody listened, the packet says nothing about it,
+    and a judge reads the silence as an absence of speech."""
+    def _absent(_path, timeout=600):
+        raise heard_speech.TranscriberUnavailable("the transcriber is not "
+                                                   "installed")
+    monkeypatch.setattr(heard_speech, "transcribe", _absent)
+    render = delivery.build_render_evidence(video, workdir=tmp_path / "ev")
+    kinds = {item["kind"] for item in render["evidence"]}
+    assert "transcript_unavailable" in kinds
+    assert render["transcript"]["measured"] is False
+    assert "not installed" in render["transcript"]["reason"]
+
+
+def test_the_words_are_placed_by_the_aligner_when_it_can(tmp_path, video,
+                                                          monkeypatch):
+    """The defect: the packet's word timings are the transcriber's own
+    coarse ones, and a pause is measured against a boundary nobody
+    placed."""
+    called = {}
+
+    def _aligned(_path):
+        called["yes"] = True
+        return {"measured": True, "reason": None, "aligner": "mfa",
+                "engine": {}, "words": [{"word": "hello", "start": 0.0,
+                                         "end": 0.4}],
+                "lines": [{"start": 0.0, "end": 0.4, "text": "hello"}],
+                "anomalies": []}
+    monkeypatch.setattr(delivery, "_mfa_transcript", _aligned)
+    monkeypatch.setattr(
+        heard_speech, "transcribe",
+        lambda _path, timeout=600: (_ for _ in ()).throw(
+            AssertionError("the transcriber's own timings were used")))
+    render = delivery.build_render_evidence(video, workdir=tmp_path / "ev")
+    assert called.get("yes") is True
+    assert render["transcript"]["aligner"] == "mfa"
+
+
+def test_a_file_longer_than_the_alignment_budget_is_timed_by_the_transcriber(
+        tmp_path, video, monkeypatch):
+    """The defect: a judge waits half an hour for a word boundary that
+    is 26ms instead of 94ms, and the wait is invisible."""
+    monkeypatch.setattr(delivery, "duration_seconds",
+                        lambda _path: delivery.MAX_ALIGNED_SECONDS + 1.0)
+    monkeypatch.setattr(delivery, "_mfa_transcript", REAL_MFA_TRANSCRIPT)
+    transcript = delivery.transcribe_delivered_file(video)
+    assert transcript["measured"] is True
+    assert transcript["aligner"] == "transcriber"
+    assert "budget" in str(transcript["aligner_reason"])
+
+
+def test_the_stills_are_dense_enough_to_show_a_change(tmp_path):
+    """The defect: three stills of a reel cannot show a pause, a camera
+    turn or an inserted cutaway, and a criterion that cannot be shown
+    is not measured."""
+    if FFMPEG is None or FFPROBE is None:
+        pytest.skip("ffmpeg/ffprobe not on PATH")
+    long_video = _make_video(tmp_path / "long.mp4", seconds=12)
+    render = delivery.build_render_evidence(long_video,
+                                             workdir=tmp_path / "ev")
+    assert render["frame_count"] >= 5
+    times = sorted(item["at_seconds"] for item in render["evidence"]
+                   if item["kind"] == "frame")
+    assert times[1] - times[0] <= delivery.FRAME_CADENCE_SECONDS + 0.01
+
+
+def test_a_dissolve_is_reported_even_though_the_shared_threshold_misses_it():
+    """The defect: the file's one camera change is a dissolve, the scene
+    metric at the shared threshold does not see it, and the packet says
+    the file never changes camera."""
+    measured = {"measured": True, "reason": None,
+                "shots": [{"at_seconds": 76.5, "score": 0.3}],
+                "soft_shots": [{"at_seconds": 3.13, "score": 0.2},
+                               {"at_seconds": 37.33, "score": 0.15},
+                               {"at_seconds": 76.5, "score": 0.4}]}
+    item = delivery.shot_evidence("/tmp/delivered.mp4", measured)
+    assert "37.33s" in item["observation"]
+    assert "3.13s" in item["observation"]
+    assert "76.50s" in item["observation"]
+
+
+def test_a_still_is_drawn_at_every_measured_cut():
+    """The defect: the packet's stills are spread evenly, so the places
+    where the picture changes are the places with no still."""
+    times = delivery.evidence_frame_times(
+        20.0, [{"at_seconds": 7.5, "score": 0.4}])
+    assert 7.5 in times
+
+
+def test_a_gap_between_the_words_is_a_measured_pause():
+    """The defect: 'the pauses were removed' is a judgement about a
+    silence, and the packet measures no silence at all."""
+    words = [{"word": "one", "start": 0.0, "end": 0.5},
+             {"word": "two", "start": 2.0, "end": 2.4},
+             {"word": "three", "start": 2.5, "end": 2.9}]
+    spans = delivery.pause_spans(words)
+    assert len(spans) == 1
+    assert spans[0]["seconds"] == pytest.approx(1.5, abs=0.01)
+    assert spans[0]["at_seconds"] == pytest.approx(2.0, abs=0.01)
+
+
+def test_a_file_with_no_speech_leaves_no_pause_to_measure():
+    """The defect: a packet that reports a pause where there was no
+    word, and a judge that reads it as a gap in the edit."""
+    assert delivery.pause_spans([]) == []

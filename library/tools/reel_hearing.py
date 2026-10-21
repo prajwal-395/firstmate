@@ -72,6 +72,22 @@ folded, because those are spellings of the same word; `gonna` against
 transcriber caught are all REPORTED. A normaliser that silently forgives
 a real divergence is worse than a noisy one, because the noise is
 readable and the silence is not.
+
+The judge is not this
+--------------------
+This module compares a render against a PLAN, so it needs both: the
+timeline's own words and the render's. The judge that grades a
+DELIVERED file needs only the file - a judge shown what the file was
+supposed to say is reading the evaluator's plan back, not reading the
+film. So the two never share a packet:
+
+  * the hearing's plan side stays here, for the run and its own
+    verification;
+  * the judge's packet is built by
+    `library/tools/editorial_acceptance/delivery.py`, which transcribes
+    the delivered file with the SAME engine half this module starts
+    with (`heard_speech`, and the forced aligner behind it) and puts
+    nothing of the plan in it.
 """
 
 from __future__ import annotations

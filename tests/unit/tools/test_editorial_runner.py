@@ -338,3 +338,44 @@ def test_the_demonstration_is_scored_when_its_brief_runs():
     assert report["demonstration"]["brief_id"] == "the-whole-job"
     assert report["demonstration"]["obligations_total"] == 10
     assert report["brief_set"]["demonstration_brief"] == "the-whole-job"
+
+
+def test_the_report_says_what_the_judge_was_handed():
+    """The defect: the report says a file was delivered and nothing
+    about the evidence the judge was given, so a reader cannot tell a
+    three-still packet from a full one - and cannot tell that the four
+    criteria which were unmeasurable are measurable now."""
+    record = _record()
+    record["delivery"] = dict(record["delivery"],
+                              transcript={"measured": True, "word_count": 249,
+                                          "aligner": "mfa"},
+                              shots={"measured": True, "count": 1,
+                                     "soft_count": 5},
+                              frame_count=45)
+    report = runner.run_acceptance([record])
+    delivery = report["results"][0]["delivery"]
+    assert delivery["frame_count"] == 45
+    assert delivery["transcript"]["word_count"] == 249
+    assert delivery["shots"]["soft_count"] == 5
+
+
+def test_the_aligner_is_the_harness_s_to_ask_for(monkeypatch):
+    """The defect: the aligner costs minutes per delivered file and
+    every run pays it, with nothing to say that the run wanted the
+    cheaper timing."""
+    from library.tools.editorial_acceptance import delivery
+
+    asked: list[bool] = []
+
+    def _fake_build(path, **kwargs):
+        asked.append(bool(kwargs.get("align_transcript", True)))
+        return {"sha256": "d" * 64, "path": str(path),
+                "duration_seconds": 12.0, "evidence": [{"kind": "frame"}],
+                "technical_verification": {"audio_streams": True}}
+
+    monkeypatch.setattr(delivery, "build_render_evidence", _fake_build)
+    record = _record()
+    record["delivery"] = {"path": "/tmp/out.mp4"}
+    record.pop("assessment")
+    runner.run_acceptance([record], align_transcript=False)
+    assert asked == [False]
