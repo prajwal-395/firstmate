@@ -2050,14 +2050,71 @@ def test_a_brand_that_forbids_a_native_type_gets_a_hard_cut():
 # instruction flattened to one op, a program recorded as partial rows, a
 # re-recording that double-applies, and a plan-level request silently
 # flattened instead of labeled a planner run.
+#
+# The reel is OBSERVED before the request is prepared: an executable
+# operation may only name a target the reel lists, and one that names an
+# id the reel does not hold becomes a question for the editor
+# (`edit_spec`'s missing-target question, with its own tests). So the
+# fixture observes "Reel 09 - hook" with the clips these programs aim
+# at, and these tests measure what they are about - the program's shape,
+# its atomic recording, its routing to the algebra - instead of the
+# missing-target question.
+
+_REEL = "Reel 09 - hook"
+
+
+@pytest.fixture(autouse=True)
+def _shadow_store(tmp_path, monkeypatch):
+    """This test's own shadow store, never the machine's shared one."""
+    monkeypatch.setenv("REN_SHADOW_DB", str(tmp_path / "shadow.sqlite3"))
+
+
+def _program_clip(unique_id, name, record_in, record_out):
+    return {"unique_id": unique_id, "name": name, "record_in": record_in,
+            "record_out": record_out, "duration": record_out - record_in,
+            "enabled": True, "transform": {"ZoomX": 1.0, "ZoomY": 1.0},
+            "markers": []}
+
+
+_PROGRAM_SNAPSHOT = {
+    "timeline": _REEL, "fps": 30.0,
+    "start_frame": 108000, "end_frame": 108900,
+    "tracks": [
+        {"type": "video", "index": 1, "name": "A-roll", "clips": [
+            _program_clip("clip_017", "host.mov", 108000, 108300),
+            _program_clip("clip_018", "guest.mov", 108300, 108600),
+            _program_clip("clip_019", "broll.mov", 108600, 108750),
+            _program_clip("clip_020", "broll_02.mov", 108750, 108900),
+        ]},
+    ],
+    "markers": {"timeline": [], "notes": []},
+}
 
 
 def _program_project(tmp_path):
-    """A project under tmp_path, never a real one (AGENTS.md 8)."""
+    """A project under tmp_path, never a real one (AGENTS.md 8).
+
+    The reel it names is observed, so the items an executable operation
+    names are the items the reel lists.
+    """
+    from library.tools import timeline_shadow
     from library.tools.project_layout import ProjectLayout
     project = tmp_path / "project"
     project.mkdir(parents=True)
+    resolve_project = f"Ren Qualification {tmp_path.name}"
+    (project / "project.yaml").write_text(
+        'name: "Program Project"\nslug: program-project\n'
+        "project_format_version: 1\nresolve:\n"
+        f'  project_name: "{resolve_project}"\n', encoding="utf-8")
     ProjectLayout(str(project)).ensure()
+    store = timeline_shadow.ShadowStore()
+    timeline_id = f"tl-{tmp_path.name}"
+    head = store.head(resolve_project, timeline_id)
+    store.record(
+        project=resolve_project, timeline_id=timeline_id,
+        timeline_name=_REEL, snapshot=_PROGRAM_SNAPSHOT,
+        source=timeline_shadow.OBSERVED,
+        expected_head=head.generation if head else 0)
     return project
 
 
@@ -2065,7 +2122,7 @@ def _prepare_and_load(project, request, program):
     """Prepare a spec request, answer it with a mock host, load the spec."""
     from library.tools import edit_spec, llm_handshake
     request_id, _path, note_id = edit_spec.prepare_request(
-        str(project), request)
+        str(project), request, reel=_REEL)
     spec = {
         "format": edit_spec.FORMAT,
         "request": request,
@@ -2264,6 +2321,37 @@ def test_a_program_with_missing_required_params_is_refused(tmp_path):
     with pytest.raises(edit_spec.EditSpecError,
                        match="missing required params"):
         _prepare_and_load(project, request, program)
+
+
+def test_a_program_aimed_at_an_item_the_reel_does_not_hold_asks(tmp_path):
+    """An executable op naming an id the reel does not list asks.
+
+    Defect: an op aimed at an item the reel does not hold is a guess at
+    WHICH item the editor meant; recording it would land an edit on the
+    wrong clip, or on nothing at all. The reel the fixture observes
+    lists the ids these programs name, so this is the question an
+    off-reel target gets.
+    """
+    from library.tools import edit_spec
+    project = _program_project(tmp_path)
+    program = {
+        "kind": "edit_program",
+        "base_generation": "42",
+        "idempotency_key": "req-missing-clip",
+        "anchor": {"kind": "reel"},
+        "reel": _REEL,
+        "ops": [
+            {"op": "clip.trim",
+             "params": {"unique_id": "clip_999", "in_frame": 10,
+                        "out_frame": 50},
+             "text": "trim the clip"},
+        ],
+    }
+    spec = _prepare_and_load(project, "trim the clip", program)
+    questions = edit_spec.questions_for_spec(spec)
+    assert [question["missing_referent"] for question in questions] == [
+        "timeline item clip_999"]
+    assert "clip_999" in questions[0]["question"]
 
 
 def test_a_split_instruction_routes_through_the_program_to_the_algebra(
