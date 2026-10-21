@@ -42,7 +42,13 @@ the COMPARISON was the writer's, and the engine's whole-request
 comparison only ran for a request of MORE THAN ONE OPERATION - so the
 common case, one operation, had no engine-owned comparison at all.
 
-The gate closes that: 8 of 8 now.  What is still open is named in
+The gate closes that: 8 of 8 now.  The qualified set has grown since
+- the live qualifications of 2026-10-21 (PR 3064, PR 3067 and PR 3042)
+made seven more pairs production-enabled - so the coverage report
+counts 15 qualified operations today, because `ROUTES` learned every one
+of them.  Twelve of the fifteen carry the engine's own comparison; the
+three `reel_touchup` overlay routes carry the WRITER's read-back, and
+the report names them.  What is still open is named in
 `coverage_report` - the unqualified operations, and the two batch
 routes on the `resolve_axi` backend (the multi-delete batch and the
 protected compound touch-up), which still carry their own receipts.
@@ -300,6 +306,33 @@ ROUTES: tuple[Route, ...] = (
     Route("reel.opening", "resolve_axi",
           "library/tools/resolve_axi_core.py:_execute_registered_backend",
           PRE_POST_STATE),
+    # AXI-005 (PR 3067) qualified three more pairs on live evidence -
+    # the local delete on `resolve_axi`, the retime and the matte on
+    # `edit_patch` - and the table had not learned them either, so the
+    # coverage report was naming twelve qualified operations and
+    # counting nine routes.  A qualified operation the table forgets is
+    # a gap nobody can count, which is the whole reason the table and
+    # the algebra are compared.
+    Route("clip.delete", "resolve_axi",
+          "library/tools/edit_execution_adapters.py:_delete", PRE_POST_STATE),
+    Route("retime.segments", "edit_patch",
+          "library/tools/edit_patch.py:apply_patch", PRE_POST_STATE),
+    Route("mask.create", "edit_patch",
+          "library/tools/edit_patch.py:apply_patch", PRE_POST_STATE),
+    # AXI-008 (PR 3042) qualified the overlay family on `reel_touchup`.
+    # The touch-up path stages a duplicate, edits it and re-reads its
+    # own track, so these three carry the WRITER's read-back and not
+    # the engine's own comparison: `coverage_report` names them as the
+    # uncovered ones, which is the gap this table exists to count.
+    Route("overlay.add", "reel_touchup",
+          "library/tools/reel_touchup.py:_place_still_insertions",
+          ADAPTER_READBACK),
+    Route("overlay.position", "reel_touchup",
+          "library/tools/reel_touchup.py:_op_position_overlay",
+          ADAPTER_READBACK),
+    Route("overlay.resize", "reel_touchup",
+          "library/tools/reel_touchup.py:_op_resize_overlay",
+          ADAPTER_READBACK),
 )
 
 

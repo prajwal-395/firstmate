@@ -39,17 +39,17 @@ def _findings(verdict, check: str) -> list:
 
 
 def test_an_operation_with_no_eligible_route_is_refused_before_staging():
-    # Defect: the benchmark's name-bar brief planned overlay.position,
+    # Defect: the benchmark's wrong-caption brief planned caption_fix,
     # which has an executor and NO production-enabled backend.  The
     # engine staged a candidate and refused there.
-    verdict = assess([_operation("overlay.position", unique_id="item-1",
-                                 dx=4, dy=-8)])
+    verdict = assess([_operation("caption_fix", unique_id="item-1",
+                                 text="x")])
 
     assert verdict.infeasible
     route = _findings(verdict, plan_feasibility.CHECK_ROUTE_ELIGIBLE)[0]
     assert route.status == plan_feasibility.INFEASIBLE
     assert "no production-enabled backend" in route.reason
-    assert "reel_touchup" in route.evidence["experimental_backends"]
+    assert "resolve_axi" in route.evidence["experimental_backends"]
 
 
 def test_an_operation_with_no_executor_at_all_is_refused_by_name():
@@ -63,15 +63,18 @@ def test_an_operation_with_no_executor_at_all_is_refused_by_name():
 def test_the_protected_policy_admits_the_operations_it_names():
     # The protected experimental policy is a ROUTE the front door may
     # take; a feasibility check that refused those operations would
-    # refuse the front door's own route.
+    # refuse the front door's own route.  `clip.trim` is one of them: it
+    # has an executor and no production-enabled backend, so the
+    # protected policy is the ONLY route to it.
     verdict = assess(
-        [_operation("overlay.position", unique_id="item-1", dx=4, dy=-8)],
+        [_operation("clip.trim", unique_id="item-1", in_frame=0,
+                    out_frame=10)],
         state=_state(policy=plan_feasibility.PROTECTED_EXPERIMENTAL_POLICY,
                      originator="ren touch"))
 
     route = _findings(verdict, plan_feasibility.CHECK_ROUTE_ELIGIBLE)[0]
     assert route.status == plan_feasibility.FEASIBLE
-    assert "reel_touchup" in route.evidence["backends"]
+    assert "resolve_axi" in route.evidence["backends"]
 
 
 def test_a_runtime_that_was_not_read_is_undetermined_and_never_a_refusal():
@@ -226,8 +229,8 @@ def test_a_structural_change_with_no_reconstruction_strategy_is_refused():
 def test_a_refused_plan_is_revised_when_one_operation_survives():
     # The revision names what it drops and what it no longer covers; it
     # is a proposal, and the caller decides.
-    verdict = assess([_operation("overlay.position", unique_id="item-1",
-                                 dx=4, dy=-8),
+    verdict = assess([_operation("caption_fix", unique_id="item-1",
+                                 text="x"),
                       _operation("broll.insert", unique_id="new-item",
                                  track_type="video", track_index=2,
                                  record_in=0, record_out=48, source_in=0,
@@ -237,15 +240,15 @@ def test_a_refused_plan_is_revised_when_one_operation_survives():
     revision = verdict.revision
     assert revision is not None
     assert revision["status"] == "proposed"
-    assert revision["dropped"] == ["overlay.position"]
+    assert revision["dropped"] == ["caption_fix"]
     assert [op["op"] for op in revision["operations"]] == ["broll.insert"]
 
 
 def test_a_plan_whose_every_operation_is_refused_has_no_revision():
-    verdict = assess([_operation("overlay.position", unique_id="item-1",
-                                 dx=4, dy=-8),
-                      _operation("caption_fix", unique_id="item-2",
-                                 text="x")])
+    verdict = assess([_operation("caption_fix", unique_id="item-1",
+                                 text="x"),
+                      _operation("clip.trim", unique_id="item-2",
+                                 in_frame=0, out_frame=10)])
 
     assert verdict.infeasible
     assert verdict.revision["status"] == "rejected"
@@ -253,8 +256,8 @@ def test_a_plan_whose_every_operation_is_refused_has_no_revision():
 
 
 def test_the_refusal_carries_the_next_action_and_the_reasons():
-    verdict = assess([_operation("overlay.position", unique_id="item-1",
-                                 dx=4, dy=-8)])
+    verdict = assess([_operation("caption_fix", unique_id="item-1",
+                                 text="x")])
     payload = refusal(verdict)
 
     assert payload["category"] == "unsupported"
@@ -347,11 +350,11 @@ def test_the_router_answers_what_it_knows_about_one_operation():
     # the feasibility check and the route cannot disagree.
     from library.tools import execution_router
 
-    facts = execution_router.eligibility("overlay.position")
+    facts = execution_router.eligibility("clip.trim")
 
     assert facts["known"] is True
     assert facts["production_enabled"] is False
-    assert facts["implemented_backends"] == ("reel_touchup",)
+    assert facts["implemented_backends"] == ("resolve_axi",)
     assert facts["media_types"]
     assert execution_router.eligibility("not.an.operation")["known"] is False
 
@@ -375,14 +378,18 @@ def test_an_uninspected_runtime_reports_no_mismatch():
         "broll.insert", {"inspected": False, "reason": "not read"}) == ()
 
 
-@pytest.mark.parametrize("op_id", ["overlay.position", "clip.trim",
-                                   "caption_fix", "reel.opening",
+@pytest.mark.parametrize("op_id", ["clip.trim", "caption_fix",
                                    "multicam.select_angle"])
 def test_the_benchmarks_operations_have_no_production_route(op_id):
     # The measurement's finding, asserted here so it cannot drift: the
     # operations the eight-brief benchmark planned are implemented and
     # not production-enabled, which is why the plans were refused only
     # at the end of the write path.
+    #
+    # Two of them are no longer on this list, because a live
+    # qualification gave each one a production route: `reel.opening`
+    # (PR 3064) and the overlay family (PR 3042).  A plan that names
+    # one of those is routed, not refused.
     from library.tools import execution_router
 
     facts = execution_router.eligibility(op_id)
@@ -467,11 +474,15 @@ def test_the_gate_admits_the_operation_the_protected_policy_names(
         tmp_path, monkeypatch):
     # The protected experimental policy is a route the front door owns;
     # a gate that refused it would refuse the front door's own route.
+    # `clip.trim` is one of them: it has an executor and NO
+    # production-enabled backend, so the protected policy is the only
+    # route to it.
     from library.tools import resolve_axi_core
 
     _recorded_base(tmp_path, monkeypatch)
-    request = _request("overlay.position",
-                       {"unique_id": "clip-1", "dx": 4, "dy": -8},
+    request = _request("clip.trim",
+                       {"unique_id": "clip-1", "in_frame": 0,
+                        "out_frame": 24},
                        originator="ren touch")
 
     plan, *_rest = resolve_axi_core._prepare_request_plan(request)

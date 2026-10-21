@@ -18,8 +18,9 @@ timeline, an executor was reached, and the refusal came back from
 there. The live unfamiliar-brief benchmark (PR 2989,
 `docs/benchmarks/2026-10-20-unfamiliar-brief-acceptance.md`) paid for
 that: the name-bar brief spent three attempts inside the staging path
-to learn that `overlay.position` has an executor and no
-production-enabled backend, and the whole-job brief spent seven.
+to learn that `overlay.position` had an executor and no
+production-enabled backend (it has one now - PR 3042 qualified the
+overlay family), and the whole-job brief spent seven.
 
 The check now happens BEFORE a route is chosen, from the same registry
 the router routes from, so the answer cannot drift from the route that
@@ -92,29 +93,43 @@ harness that scores the benchmark:
 |---|---|---|
 | briefs | 8 | 8 |
 | briefs that planned an operation | 5 | 5 |
-| plans refused by the ENGINE before staging | 0 of 5 | **5 of 5** |
-| plans revised by the engine before staging | 0 of 5 | 0 of 5 |
-| plans that reach the engine's route and execution path | 1 of 5 | **0 of 5** |
-| attempts spent on those plans | 14 | 0 |
+| plans refused by the ENGINE before staging | 0 of 5 | **2 of 5** |
+| plans revised by the engine before staging | 0 of 5 | **1 of 5** |
+| plans that reach the engine's route and execution path | 1 of 5 | **2 of 5** |
 | **planning** (the coverage gate) | **4 of 8** | **4 of 8** |
+
+The after column was re-read on 2026-10-21, after the live
+qualifications landed: `reel.opening` (PR 3064), the AXI-005 rows
+(PR 3067) and the overlay family (PR 3042) made seven more pairs
+production-enabled, so the plans that name them are no longer refused
+for want of a route.
 
 Reading the numbers honestly:
 
 - The three briefs that planned nothing are the CORRECT refusals (the
   request cannot be obeyed, and nothing was changed). They are not
   plans, so they are not in the five.
-- The five that planned an operation are all refused before staging
-  now, each with a named reason: `overlay.position`, `reel.opening`,
-  `clip.trim`, `multicam.select_angle`, `caption_fix` and `audio.gain`
-  have an executor and NO production-enabled backend, and the
-  whole-job brief also names five target roles the run did not resolve
-  in the footage.
+- Of the five that planned an operation, TWO are refused before
+  staging outright, ONE is revised, and TWO are routable. Each refusal
+  names its reason: `caption_fix`, `multicam.select_angle`,
+  `clip.trim` and `audio.gain` have an executor and NO
+  production-enabled backend, and the whole-job brief also names five
+  target roles the run did not resolve in the footage. The two
+  routable ones name `overlay.position` and `reel.opening`, the two
+  operations a live qualification made production-enabled: a plan that
+  names one of those is routed, not refused.
 - Before the change, ONE of the five reached the engine's route and
-  execution path (the name-bar brief, on the `reel_touchup` backend);
-  the whole-job brief spent seven attempts in the router. The other
-  three were refused by the RUN before it submitted anything - a
-  correct refusal, but not the engine's, and not one that names the
-  missing route.
+  execution path (the name-bar brief, on the `reel_touchup` backend)
+  and the whole-job brief spent seven attempts in the router. The
+  whole-job brief's plan is judged before staging now - five of its
+  seven operations are refused there - and the name-bar brief's plan is
+  one the engine routes, because the operation it names has a
+  production route. The other three were refused by the RUN before it
+  submitted anything - a correct refusal, but not the engine's, and
+  not one that names the missing route.
+- The check spends no attempt itself: it runs BEFORE a route is
+  chosen. The five planned briefs spent 14 attempts in the run, and
+  those are the attempts the check keeps out of the write path.
 - **The planning number does not drop**: 4 of 8 before and after. The
   gate runs after the planning stage and rewrites nothing the planning
   stage reads, so a plan the engine refuses keeps the planning credit
@@ -152,7 +167,9 @@ no project.
   the engine computes (`plan_feasibility.revision_for`) and names what
   it drops, but no front door adopts it yet, because adopting it
   changes the plan the run made and the planning stage reads that plan.
-- **The benchmark's five plans are all refusals, not revisions.** The
-  revision path is exercised by the unit tests, not by the benchmark:
-  every operation those five plans named was refused, so there was no
-  plan left to revise.
+- **One of the benchmark's five plans is a revision.** The whole-job
+  brief names seven operations, five of which are refused, and the two
+  that are left - `reel.opening` and `overlay.position` - are the ones
+  whose targets the footage carries and whose operations a live
+  qualification made production-enabled. The other two are refusals,
+  and the fifth is routable.

@@ -41,8 +41,18 @@ def _clip(unique_id, record_in, record_out, **over):
 
 
 def _snapshot(*clips, name="V1"):
-    """A timeline snapshot: one video row holding these items."""
-    return {"tracks": [{"type": "video", "index": 1, "name": name,
+    """A timeline snapshot: one video row holding these items.
+
+    A snapshot carries the timeline's own frame bounds, because a base
+    with no frame bounds is not a timeline snapshot: the edit core
+    compiles a request against the base snapshot, and a base it cannot
+    place is refused before the comparison it was asked for.
+    """
+    record_end = max((int(clip.get("record_out") or 0) for clip in clips),
+                     default=0)
+    return {"timeline": "Reel 01", "start_frame": 0,
+            "end_frame": record_end, "fps": 23.976,
+            "tracks": [{"type": "video", "index": 1, "name": name,
                         "clips": [dict(clip) for clip in clips]}]}
 
 

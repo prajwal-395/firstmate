@@ -283,15 +283,24 @@ def test_caption_style_target_must_resolve_exactly_once():
         adapters._caption_style(context)
 
 
-def test_capability_discovery_reports_staged_resize_without_qualification():
+def test_capability_discovery_reports_the_staged_resize_after_its_qualification():
     from library.tools import edit_algebra
 
     resize = edit_algebra.capability("overlay.resize")
     assert [backend["id"] for backend in resize["backends"]] == [
         "reel_touchup"]
     assert resize["implemented"] is True
-    assert resize["production_enabled"] is False
-    assert any("live Resolve qualification remains deferred" in gap
+    # AXI-008 earned the live qualification, so the pair is
+    # production-enabled inside the state the run measured, and the
+    # acceptance evidence is the RENDERED frames rather than a read-back.
+    assert resize["live_qualified"] is True
+    assert resize["production_enabled"] is True
+    assert "production-enabled" in resize["route_evaluation"]["next"]
+    # What the qualification does NOT cover is still named: a target
+    # that carries a drawing Fusion composition, and a size whose
+    # aspect differs from the source's.
+    assert "Fusion composition" in resize["route_evaluation"]["next"]
+    assert any("a native PNG still" in gap
                for gap in resize["route_evaluation"]["gaps"])
     assert edit_algebra.capability("clip.slip")["backends"][0]["id"] == (
         "reel_touchup")
