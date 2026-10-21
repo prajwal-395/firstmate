@@ -9181,3 +9181,93 @@ is caught by the words leg instead, because the caption it covers no longer read
 as intended. And the intent comes from the built timeline's own snapshot, so a
 timeline with no snapshot on disk has no caption intent and its captions are not
 judged.
+
+## the-whole-timeline-was-judged-by-its-writer
+
+**The rule:** A whole-timeline outcome is judged by the engine's own
+STRUCTURAL read-back, and never by the receipt of the writer that produced it.
+A mutation is judged by a DELTA - what moved against what the request was
+allowed to move. A whole-timeline outcome is a STRUCTURE - the rows, the items,
+their source intervals, their links and their coverage - and a delta cannot see
+a hole in a picture row, an item placed twice, a clip whose media is gone, a
+link that points at nothing, or a timeline that is not the one the request
+named.
+
+**What happened.** PR 3069 (AXI-013) closed the mutation half: every qualified
+(operation, backend) pair carried an engine-owned comparison of two fresh
+reads - 8 of 8, and its own commit named the two batch routes it left carrying
+their own receipts. A WHOLE-TIMELINE outcome is not a mutation, and it was
+still judged by its writer:
+
+- the reel build compared the plan with the items it placed
+  (`reel_append_placement.compare_inventory`) - the BUILDER's comparison;
+- the touch-up staged a duplicate, edited it and re-read the track
+  (`reel_touchup.apply_touchup`) - the WRITER's re-read;
+- the multi-operation request and the protected compound touch-up carried
+  receipts, and the multi-delete batch carried its own.
+
+Each of those can be right and still leave a timeline with a black hole in the
+picture row, the same placement twice, a caption card whose rendered file was
+never written, or a link to an item that is not on the timeline. Nothing
+compared the state the engine captured BEFORE the write with the STRUCTURE the
+timeline carried AFTER it, because the comparison that existed was a delta.
+
+**Where it is.** `library/tools/timeline_structure.py` is the structural
+read-back: eight named checks (identity, track structure, missing media,
+overlaps, gaps, duplicates, source alignment, linked audio) over a SNAPSHOT,
+pure and offline, so it can be run against a scratch timeline, a recorded
+generation or a live read. `library/tools/mutation_verification.py` owns the
+gate - `whole_timeline_gate` runs the structure beside the delta - and the
+COVERAGE, which is read out of the CODE rather than out of a table: a path
+that stops calling the gate is reported as uncovered the moment it does.
+`library/tools/resolve_axi_core.py` runs it on the three AXI request paths
+(the multi-operation revision, the protected compound touch-up, and the
+multi-delete batch), and `library/tools/reel_build.py` runs it on the build,
+against the coverage the plan authorized.
+
+A gap is a DEFECT only against an expectation: a build knows what it planned
+(`expectation_from_placements`), and a revision knows what it lost (the frames
+an authorized removal took away, named by the item's own span in the state
+before the write). Without either, a gap is reported as coverage that was lost
+and never as a hole in a row nobody authorized.
+
+**The count, with the denominator.**
+
+| measurement | before | after |
+|---|---|---|
+| whole-timeline production paths the engine can RUN that carry an engine-owned structural read-back | 0 of 4 | 3 of 4 |
+| of which: the multi-operation revision, the protected compound touch-up, the reel build | 0 of 3 | 3 of 3 |
+| whole-timeline paths left to the writer's own read-back, named | - | 1 (`reel_touchup`) |
+| whole-timeline paths the transaction planner refuses, so they never reach a write | 1 (`multi_delete_batch`) | 1 (`multi_delete_batch`) |
+
+**The gate was CALIBRATED against the recorded timelines, and three of its
+signals had to be demoted before it was quiet.**
+
+Measured on 2026-10-21 over the 463 recorded timelines in the machine's shadow
+store - the captain's built reels, the Ren scratch projects and the test
+fixtures - the first cut of the gate reported errors on 40 of them and on
+NONE of the reels the engine has actually built. What it found, and what each
+finding turned out to be:
+
+| finding | what it was | what the rule became |
+|---|---|---|
+| the media of a clip is not on disk | the engine DELETES a built reel's rendered caption cards after the build (`library/tools/asset_gc.py`), so a reel legitimately references files that are gone | REPORTED, never fatal on its own |
+| a clip's source interval is not a range | a STILL and a native zero-speed HOLD both read back with one source frame at both ends, and both are real items on a real reel | one frame is a one-frame play, not a defect |
+| a picture and its sound are not linked | a built reel places the picture and the program audio of one clip on two rows, and the shadow records no link between them | REPORTED, never fatal |
+
+After the demotions: 423 of the 463 recorded timelines are quiet, and the 40
+that are not are ONE fixture project whose synthetic media claims a thousand
+frames while its clips play to frame 48432 - a real inconsistency in that
+fixture, and the finding the check exists for. The two signals that stayed
+fatal are the ones nothing else can see: media the build MEASURED as missing,
+and a clip that carried media and now carries none.
+
+**What it does not fix.** The `reel_touchup` path - the command that stages a
+duplicate, edits it and promotes it - still re-reads its own track, and the
+coverage report names it rather than hiding it. The structural gate judges the
+STRUCTURE: it does not look at a pixel, and it does not hear the reel. A
+picture row that is covered frame for frame and carries a caption that says
+something else is not this gate's finding. And a gap is a defect only against
+an expectation: a build knows what it planned, and a revision knows what it
+lost, but a whole-timeline outcome with neither is measured for COVERAGE LOST
+and never for a hole nobody authorized.

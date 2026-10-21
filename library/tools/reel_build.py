@@ -11359,6 +11359,30 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         build_record["placement_check"] = placement_check
         if not placement_check["passed"]:
             raise ReelBuildError(f"{name}: planned placement differs: {placement_check}")
+        # QA-001: the engine's own STRUCTURAL read-back of what the build
+        # left behind.  The placement check above compares the plan with
+        # the items; this reads the timeline as a STRUCTURE - the rows,
+        # the coverage, the source intervals, the links - and judges it
+        # against the coverage the plan authorized.  A build that
+        # placed every planned item and still left a hole in a picture
+        # row, an item twice, or a clip that plays frames its media
+        # does not have is refused here, and the build says which
+        # defect it found.
+        from library.tools import mutation_verification as _mutation
+        from library.tools import timeline_structure as _structure
+        built = _structure.structure_from_inventory(
+            inventory, timeline_name=name)
+        planned = _structure.expectation_from_placements(
+            placement_expected,
+            deleted_tracks=build_record["deleted_empty_tracks"])
+        structural = _mutation.whole_timeline_gate(
+            "reel_build", structure=built, expectation=planned,
+            media_on_disk=False)
+        build_record["structure_check"] = structural
+        if structural["status"] != "verified":
+            raise ReelBuildError(
+                f"{name}: the built timeline did not read back as the "
+                f"structure the plan authorized: {structural['failures']}")
 
     if profile is not None:
         _otio.record_duration(

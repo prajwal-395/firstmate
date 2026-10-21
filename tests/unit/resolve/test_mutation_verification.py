@@ -40,9 +40,9 @@ def _clip(unique_id, record_in, record_out, **over):
     return clip
 
 
-def _snapshot(*clips):
+def _snapshot(*clips, name="V1"):
     """A timeline snapshot: one video row holding these items."""
-    return {"tracks": [{"type": "video", "index": 1, "name": "V1",
+    return {"tracks": [{"type": "video", "index": 1, "name": name,
                         "clips": [dict(clip) for clip in clips]}]}
 
 
@@ -389,3 +389,215 @@ def test_every_qualified_route_the_gate_claims_is_really_qualified():
                 for route in mutation_verification.ROUTES}
 
     assert declared == qualified
+
+
+# ── QA-001: the whole-timeline read-back ──────────────────────────────
+
+
+def test_the_whole_timeline_gate_refuses_a_structure_nobody_authorized():
+    """Defect: a whole-timeline outcome judged only by its writer.
+
+    The two clips landed where the request asked for them, and the
+    delta says so.  One of them plays frames its media does not have,
+    and only the STRUCTURE says that: the writer's receipt never
+    mentions the media.
+    """
+    from library.tools import mutation_verification
+
+    before = _snapshot()
+    after = _snapshot(
+        _clip("clip-new", 100, 120),
+        _clip("clip-second", 200, 220, source_out_frame=2000,
+              source_frames=1000))
+
+    verdict = mutation_verification.whole_timeline_gate(
+        "multi_operation_revision",
+        baseline=mutation_verification.capture_baseline(
+            project="Project", timeline="Reel 01", revision=7,
+            operations=[INSERT_OPERATION], snapshot=before),
+        after=after,
+        affected_spans=((100, 120), (200, 220)),
+        conflict_domains=("timeline_structure",),
+        media_on_disk=True)
+
+    assert verdict["status"] == "failed"
+    assert any("source_alignment" in failure
+               for failure in verdict["failures"]), verdict["failures"]
+
+
+def test_the_whole_timeline_gate_passes_a_clean_outcome(tmp_path):
+    """The control: a clean whole-timeline outcome is not refused."""
+    from library.tools import mutation_verification
+
+    media = tmp_path / "one.mov"
+    media.write_bytes(b"not really a movie")
+    before = _snapshot()
+    after = _snapshot(_clip("clip-new", 100, 120, source_file=str(media)))
+
+    verdict = mutation_verification.whole_timeline_gate(
+        "multi_operation_revision",
+        baseline=mutation_verification.capture_baseline(
+            project="Project", timeline="Reel 01", revision=7,
+            operations=[INSERT_OPERATION], snapshot=before),
+        after=after,
+        affected_spans=((100, 120),),
+        conflict_domains=("timeline_structure",),
+        media_on_disk=True)
+
+    assert verdict["status"] == "verified", verdict["failures"]
+
+
+def test_the_whole_timeline_coverage_counts_the_paths_and_names_the_gap():
+    """The coverage of the whole-timeline paths, with a denominator.
+
+    The count is read out of the CODE, so a path that stops running the
+    gate is reported as uncovered the moment it does.
+    """
+    from library.tools import mutation_verification
+
+    report = mutation_verification.whole_timeline_coverage()
+
+    assert report["denominator"] == len(
+        mutation_verification.WHOLE_TIMELINE_ROUTES) - len(
+            report["unreachable_routes"])
+    assert report["denominator"] > 0
+    assert report["covered"] + report["uncovered"] == report["denominator"]
+    covered = {row["path"] for row in report["covered_routes"]}
+    assert "multi_operation_revision" in covered
+    assert "protected_compound_touchup" in covered
+    assert "reel_build" in covered
+    # The touch-up path stages a copy and re-reads the track itself;
+    # the engine does not read that outcome back structurally yet, and
+    # the report says so by name.
+    assert {row["path"] for row in report["uncovered_routes"]} == {
+        "reel_touchup"}
+    # A path the transaction planner refuses never reaches a write, so
+    # it is reported as unreachable rather than as covered.
+    unreachable = {row["path"] for row in report["unreachable_routes"]}
+    assert "multi_delete_batch" in unreachable
+    assert "multi_delete_batch" not in covered
+
+
+def test_a_multi_operation_revision_is_judged_by_the_structural_read_back(
+        monkeypatch):
+    """The whole-timeline path runs the gate, and the gate refuses.
+
+    Two caption restyles landed exactly where they were asked to land,
+    and the delta says so: a restyle is a media replacement, and the
+    card it names may carry a new file.  The new card plays frames its
+    media does not have, and only the STRUCTURE says that - the
+    writer's receipt never mentions the media.
+    """
+    from types import SimpleNamespace
+
+    from library.tools import resolve_axi_core, timeline_shadow
+
+    before = _snapshot(
+        _clip("card-1", 0, 40, source_file="/caps/one.mov",
+              media_pool_item_id="media-one"),
+        _clip("card-2", 40, 80, source_file="/caps/three.mov",
+              media_pool_item_id="media-three"), name="Subtitles")
+    after = _snapshot(
+        _clip("card-1", 0, 40, source_file="/caps/two.mov",
+              media_pool_item_id="media-two", name="two.mov",
+              source_out_frame=2000, source_frames=1000),
+        _clip("card-2", 40, 80, source_file="/caps/four.mov",
+              media_pool_item_id="media-four", name="four.mov"),
+        name="Subtitles")
+
+    def writer(context):
+        return {
+            "status": "committed",
+            "backend": "resolve_axi",
+            "mutated": True,
+            "operation_id": context.operation["op"],
+            "request_id": context.request.id,
+            "operation_index": context.operation_index,
+            "target_identity": {"unique_id": context.operation["unique_id"]},
+            "readback": {"snapshot": after},
+            "acceptance_contracts": [{
+                "id": f"acceptance:{context.operation['op']}",
+                "operation": context.operation["op"],
+                "passed": True,
+                "results": [{"check": "target_identity", "passed": True,
+                             "status": "passed"}],
+                "missing": [],
+                "failed": [],
+            }],
+            "execution_contract": {
+                "verification": {
+                    "status": "verified",
+                    "checks": ({"operation": context.operation["op"],
+                                "passed": True},),
+                    "evidence": {"acceptance": "the writer says so"},
+                },
+                "recovery": {"status": "unavailable", "action": "none"},
+            },
+        }
+
+    resolve_axi_core.register_edit_executor(
+        "caption.style", "resolve_axi", writer, replace=True)
+    monkeypatch.setattr(resolve_axi_core, "read_live_timeline",
+                        lambda project, timeline, resolve=None: after)
+    monkeypatch.setattr(resolve_axi_core, "_revalidate_registered_targets",
+                        lambda **kwargs: [])
+
+    class _Head:
+        project = "Project"
+        timeline_name = "Reel 01"
+        model_revision = None
+
+    class _Store:
+        """The shadow store: the head before the write, the commit after."""
+
+        def __init__(self):
+            self.calls = 0
+
+        def current_snapshots(self, project):
+            self.calls += 1
+            head = _Head()
+            head.generation = 7 if self.calls == 1 else 8
+            return [(head, before)]
+
+    store = _Store()
+    monkeypatch.setattr(timeline_shadow, "ShadowStore", lambda: store)
+    monkeypatch.setattr("library.tools.resolve_lock.resolve_lease",
+                        lambda *args, **kwargs: contextlib.nullcontext())
+
+    first = {"op": "caption.style", "unique_id": "card-1", "style": "bold",
+             "record_in": 0, "record_out": 40}
+    second = {"op": "caption.style", "unique_id": "card-2", "style": "bold",
+              "record_in": 40, "record_out": 80}
+    request = SimpleNamespace(
+        id="request-2", idempotency_key="request-2", project="Project",
+        timeline="Reel 01", preconditions=(), preservation=(),
+        operations=(), expected_model_revision=None,
+        to_dict=dict)
+    compiled = SimpleNamespace(
+        operations=(first, second),
+        affected_spans=((0, 40), (40, 80)),
+        conflict_domains=("captions",),
+        order=(0, 1))
+
+    try:
+        result = resolve_axi_core._execute_registered_backend(
+            backend="resolve_axi",
+            plan={"routing": {"backend": "resolve_axi"}},
+            request=request,
+            preparation=SimpleNamespace(as_dict=dict),
+            compiled=compiled,
+            generation=SimpleNamespace(generation=7),
+            snapshot=before,
+            owner="whole-timeline-test")
+    finally:
+        from library.tools.edit_execution_adapters import _caption_style
+        resolve_axi_core.register_edit_executor("caption.style",
+                                                "resolve_axi",
+                                                _caption_style, replace=True)
+
+    assert result["status"] == "partial_failure", result
+    assert result["refusal"]["category"] == "verification_failed"
+    evidence = result["failure_evidence"]["whole_timeline_verification"]
+    assert evidence["status"] == "failed"
+    assert any("source_alignment" in failure
+               for failure in evidence["failures"]), evidence["failures"]

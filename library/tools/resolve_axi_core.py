@@ -1018,6 +1018,19 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
     batch_receipt = None
     full_request_verification = None
     single_request_verification = None
+    whole_timeline_verification = None
+    whole_timeline_path = None
+    # One fresh read per request, shared by the delta gate and the
+    # structural gate: a second read would be a second chance for the
+    # timeline to move under the request.
+    _fresh_reads: dict = {}
+
+    def _fresh_after() -> dict:
+        """The timeline as it is NOW, read once per request."""
+        if "after" not in _fresh_reads:
+            _fresh_reads["after"] = read_live_timeline(
+                request.project, request.timeline)
+        return _fresh_reads["after"]
     # Hold the broker lease across the entire batch so another Ren
     # transaction cannot interleave between its operations.
     with resolve_lease(
@@ -1054,6 +1067,7 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
                     request=request, preparation=preparation,
                     compiled=compiled, generation=generation,
                     snapshot=snapshot, owner=owner)
+                whole_timeline_path = "protected_compound_touchup"
                 refusal = None
             except Exception as exc:  # noqa: BLE001 - candidate owns cleanup
                 refusal = refused(
@@ -1071,6 +1085,7 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
                     request=request, compiled=compiled,
                     generation=generation, snapshot=snapshot,
                     decision=decision, owner=owner)
+                whole_timeline_path = "multi_delete_batch"
                 refusal = None
             except Exception as exc:  # noqa: BLE001 - patch owns recovery
                 preflight_refused = isinstance(
@@ -1099,8 +1114,7 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
         if (refusal is None and batch_receipt is None
                 and len(operations) > 1):
             try:
-                after = read_live_timeline(
-                    request.project, request.timeline)
+                after = _fresh_after()
                 full_request_verification = _verify_registered_full_request(
                     operations=operations, before=snapshot, after=after,
                     affected_spans=compiled.affected_spans,
@@ -1122,6 +1136,7 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
                     failed_index=len(operations),
                     evidence={"mutated": True,
                               "error": repr(exc)})
+            whole_timeline_path = "multi_operation_revision"
         elif (refusal is None and batch_receipt is None
               and mutation_verification.route_carries_gate(
                   backend_id, operations)):
@@ -1133,8 +1148,7 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
             # engine's, and it is what catches a mutation that
             # succeeded while changing the wrong thing.
             try:
-                after = read_live_timeline(
-                    request.project, request.timeline)
+                after = _fresh_after()
                 baseline = mutation_verification.capture_baseline(
                     project=request.project, timeline=request.timeline,
                     revision=generation.generation, operations=operations,
@@ -1158,6 +1172,47 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
                 refusal = refused(
                     "verification_failed",
                     f"the post-write read-back failed: "
+                    f"{type(exc).__name__}: {exc}",
+                    failed_index=0,
+                    evidence={"mutated": True,
+                              "error": repr(exc)})
+        if refusal is None and whole_timeline_path is not None:
+            # QA-001: a whole-timeline outcome is judged by the engine's
+            # own STRUCTURAL read-back.  The delta above says what moved;
+            # the structure says what the timeline now IS - its rows, its
+            # items, their source intervals, their links and its
+            # coverage - and it is read fresh, by the engine, after the
+            # write.  A writer that landed a request on a timeline with
+            # a hole in it, an item twice, or a clip whose media is gone
+            # is refused here, whatever its receipt said.
+            try:
+                after = _fresh_after()
+                baseline = mutation_verification.capture_baseline(
+                    project=request.project, timeline=request.timeline,
+                    revision=generation.generation, operations=operations,
+                    snapshot=snapshot,
+                    preservation_scope=tuple(compiled.conflict_domains))
+                structural = mutation_verification.whole_timeline_gate(
+                    whole_timeline_path, baseline=baseline, after=after,
+                    affected_spans=compiled.affected_spans,
+                    conflict_domains=compiled.conflict_domains)
+                if structural["status"] != "verified":
+                    refusal = refused(
+                        "verification_failed",
+                        "the whole timeline did not read back as the "
+                        "structure the request was authorized to leave",
+                        failed_index=0,
+                        evidence={"mutated": True,
+                                  "whole_timeline_verification": structural})
+                else:
+                    whole_timeline_verification = structural
+                    if isinstance(batch_receipt, dict):
+                        batch_receipt["whole_timeline_verification"] = (
+                            structural)
+            except Exception as exc:  # noqa: BLE001 - verify before success
+                refusal = refused(
+                    "verification_failed",
+                    f"the whole-timeline read-back failed: "
                     f"{type(exc).__name__}: {exc}",
                     failed_index=0,
                     evidence={"mutated": True,
@@ -1198,7 +1253,8 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
         base_generation=generation.generation,
         committed_generation=committed_generation,
         full_request_verification=full_request_verification,
-        delta_verification=single_request_verification)
+        delta_verification=single_request_verification,
+        whole_timeline_verification=whole_timeline_verification)
 
 
 def _registered_execution_receipt(*, backend: str, plan: Mapping,
@@ -1208,6 +1264,7 @@ def _registered_execution_receipt(*, backend: str, plan: Mapping,
                                   committed_generation: int,
                                   full_request_verification: Mapping | None = None,
                                   delta_verification: Mapping | None = None,
+                                  whole_timeline_verification: Mapping | None = None,
                                   ) -> dict:
     """Normalize a registered-backend batch with operation evidence."""
     from library.tools.transaction_orchestration import standardize_receipt
@@ -1263,6 +1320,8 @@ def _registered_execution_receipt(*, backend: str, plan: Mapping,
         "full_request_verification": dict(
             full_request_verification or {}),
         "delta_verification": dict(delta_verification or {}),
+        "whole_timeline_verification": dict(
+            whole_timeline_verification or {}),
         "operations": receipts,
         "requested_operation_count": len(operations),
         "acceptance_contracts": acceptance_contracts,
