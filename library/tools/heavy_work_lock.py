@@ -200,12 +200,19 @@ def take_heavy_lock(owner: str, profile: str = MACHINE,
 
 def take_heavy_memory_reservation(
         owner: str, profile: str, nested_profiles: tuple[str, ...],
-        cancelled: Callable[[], bool] | None = None) -> None:
+        cancelled: Callable[[], bool] | None = None,
+        timeout: float | None = None) -> None:
     """Track a resident model session and permit named nested profiles.
 
     Model memory is reserved by the profile's `ram_gb` demand and live OS
     headroom. The scheduler grant records the session lifetime; nested
     profile limits remain process-local.
+
+    `timeout` bounds the WAIT for that reservation. It is None by
+    default, which waits as long as the machine needs - and a machine
+    that cannot free the memory never says so. A caller that cannot
+    measure without the model passes a bound and gets a refusal instead
+    of a silent wait.
     """
     global _memory_reservation
     demand = resource_scheduler.demand_for(profile)
@@ -273,7 +280,7 @@ def take_heavy_memory_reservation(
         try:
             token = _scheduler().acquire(
                 owner, demand, announce=_announce,
-                cancelled=cancelled)
+                cancelled=cancelled, timeout=timeout)
         except BaseException:
             sampler.stop()
             raise
@@ -382,11 +389,16 @@ def heavy_work_lock(owner: str, profile: str = MACHINE,
 @contextmanager
 def heavy_work_reservation(owner: str, profile: str, *,
                            nested_profiles: tuple[str, ...],
-                           cancelled: Callable[[], bool] | None = None
+                           cancelled: Callable[[], bool] | None = None,
+                           timeout: float | None = None
                            ) -> Iterator[None]:
-    """Track a resident model and permit only its named nested profiles."""
+    """Track a resident model and permit only its named nested profiles.
+
+    `timeout` bounds the wait for the reservation; None waits as long as
+    the machine needs.
+    """
     take_heavy_memory_reservation(owner, profile, nested_profiles,
-                                  cancelled)
+                                  cancelled, timeout)
     try:
         yield
     finally:

@@ -8388,6 +8388,68 @@ refusal is the contract, and it is what caught this. The other algebra operation
 keep their own builders; nothing here generalises to them until one of them is
 caught the same way.
 
+## the-vision-pass-was-killed-for-being-quiet
+
+**The rule:** `library/capabilities/semantics/analyse.py` and
+`library/tools/vision_progress.py`, "SILENCE IS NOT A WEDGE".
+
+**What happened.** The semantic step ran the vision pass as a child
+process and watched it for signs of life. The rule was: no log line and no
+new profile for `VISION_STALL_TIMEOUT_S` (600 s) means the child is wedged, so
+kill it and publish the clip as `"status": "missing"`. On a Ren-owned
+scratch copy that cost 600 s x 2 clips of nothing (scout report
+2026-10-20, FIX 7), and the reason the record carried was
+`"Vision analysis stalled: no log or completed profile for 600s"`.
+
+**The cause, found by running the child.** The child was not wedged in the
+model. It was waiting for the model's RAM RESERVATION, which the
+scheduler grants against LIVE memory: `semantics.analyse:model_memory`
+declares 15 GB, and the grant needs that plus the memory floor free. On
+the machine that ran (24 GB physical, 30% free) the grant could not be
+made, so the child waited - silently, after one announcement - and the
+parent killed it. The wait was UNBOUNDED, so the child could wait
+forever; and because the parent started a fresh child for each remaining
+clip, the wait was paid ONCE PER CLIP. Reproduced on this machine
+(2026-10-21):
+
+```
+heavy-work: waiting for live OS memory pressure
+  ✗ the vision model could not be reserved: this machine did not free the
+    memory the weights need within 5s (resource scheduler: 'Gemma semantic
+    model memory' timed out waiting)
+```
+
+**The rule.** A parent that cannot see inside its child must not read
+SILENCE as a wedge. The child declares what it is doing and how many
+units of work it has finished, and the parent reads THAT: a child that is
+working is not killed however long it is quiet; a child that declares a
+unit and never finishes it is a wedge inside that unit, and the reason
+names the unit. A wait for a resource the machine may never grant is
+BOUNDED and is a REFUSAL with a reason - and a refusal of the model is a
+refusal of the whole batch, because every clip needs the same model. One
+bounded wait, not one wait per clip.
+
+**Where it is.** `library/tools/vision_progress.py` is the channel
+(the record, the writer, the watcher). The child declares units in
+`library/tools/analysis/vision_pipeline_v3.py` (a frame, a window cut, a
+model call, the model load) and records a refusal when the model's
+memory does not arrive. The parent reads it in
+`library/capabilities/semantics/analyse.py::_run_clip_vision` and
+`_analyse_missing`. The bounded wait is
+`heavy_work_reservation(..., timeout=...)` in
+`library/tools/heavy_work_lock.py`, whose default stays `None` for every
+other caller.
+
+**What it does not fix.** The reservation itself is unchanged: 15 GB is
+the measured peak of one Gemma 4 12B load plus an inference
+(`docs/benchmarks/2026-10-15-memory-admission.md`), and a machine that
+cannot spare it still cannot measure. What changed is what the engine
+does while it waits, and what the record says afterwards. On a machine
+that CAN grant the reservation the pass now runs to completion, because
+a working child is no longer killed for being quiet - which is the
+scout's proof (`"status": "complete"`, not `"missing"` with a 600 s
+stall reason).
+
 ## the-caption-fix-that-refused-a-rendered-card
 
 **The rule:** AGENTS.md 10.2, "A capability is only real where the renderer reads

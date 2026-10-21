@@ -127,6 +127,7 @@ from library.tools.heavy_work_lock import (
     heavy_work_reservation,
 )
 from library.tools import perf_ledger
+from library.tools import vision_progress
 from library.tools.analysis import measurement_layers, picture_quality
 from library.tools.semantic_window_planner import (
     activity_map_from_temporal_index,
@@ -173,8 +174,27 @@ def _huggingface_offline():
                 os.environ[name] = value
 
 
+class ModelUnavailable(RuntimeError):
+    """The model's memory could not be reserved on this machine.
+
+    The vision pass needs the weights resident, and the weights need a
+    RAM reservation the scheduler grants against LIVE memory.  On a busy
+    machine that grant can wait a long time, and a wait that never ends
+    is a stall: the child sits there, says nothing, and the parent
+    eventually kills it and reports the clip as unmeasured.  The wait is
+    bounded instead, and the refusal says why.
+    """
+
+
+#: How long the child waits for the model's memory reservation before it
+#: refuses.  It is a queue wait, not a measurement: a machine that cannot
+#: free the memory in this long will not free it for the analysis either.
+MODEL_MEMORY_WAIT_TIMEOUT_S = int(os.environ.get(
+    "PIPELINE_VISION_MEMORY_WAIT_TIMEOUT_S", 600))
+
+
 @contextmanager
-def _semantic_model_memory_reservation():
+def _semantic_model_memory_reservation(timeout=None):
     """Keep the loaded Gemma weights reserved across non-local waits.
 
     Lock order is RAM reservation first, then an independently admitted
@@ -183,7 +203,8 @@ def _semantic_model_memory_reservation():
     """
     with heavy_work_reservation(
             "Gemma semantic model memory", "semantics.analyse:model_memory",
-            nested_profiles=("semantics.analyse:inference",)):
+            nested_profiles=("semantics.analyse:inference",),
+            timeout=timeout):
         yield
 
 
@@ -830,7 +851,7 @@ class VisionAnalyzer:
     """Wraps Gemma4 12B (MLX) for multi-pass video analysis."""
 
     def __init__(self, model, proc, harness=None, project_folder=None,
-                 step_id="semantic_analysis"):
+                 step_id="semantic_analysis", progress=None):
         t0 = time.time()
         self.model = model
         self.proc = proc
@@ -844,6 +865,11 @@ class VisionAnalyzer:
         self.harness = harness
         self.project_folder = project_folder
         self.step_id = step_id
+        # Where the parent can see that this child is working
+        # (`library/tools/vision_progress.py`). A model call is one unit
+        # of work: the parent holds a child that is inside a call to the
+        # phase bound, and kills a child whose call never returns.
+        self.progress = progress or vision_progress.NullProgress()
         print(f"  Model loaded/bound in {self.load_time:.1f}s")
 
     @staticmethod
@@ -1014,6 +1040,8 @@ class VisionAnalyzer:
             route = {}
             started_at = time.time()
             started = time.perf_counter()
+            unit = f"{request_kind}:{request_id}:attempt:{attempt_number}"
+            token = self.progress.unit_begin(unit)
             try:
                 text, elapsed = self.analyze(
                     attempt_prompt, images=images, video=video,
@@ -1027,6 +1055,10 @@ class VisionAnalyzer:
                     route, elapsed, started_at,
                     error=f"{type(exc).__name__}: {exc}")
                 raise
+            finally:
+                # The call ended, one way or another: the unit is done,
+                # and the parent can see the child moved.
+                self.progress.unit_done(token)
             outcome = "parsed" if result else "empty"
             self._record_attempt(
                 request_kind, request_id, attempt_number, outcome,
@@ -1156,7 +1188,7 @@ def _source_cache_dir(cache_dir, clip_path):
     return Path(cache_dir).resolve() / digest / clip_path.stem
 
 def extract_frames(clip_path, duration, cache_dir, interval_s=COARSE_FRAME_INTERVAL_S,
-                   *, sample_times=None, policy_version=None):
+                   *, sample_times=None, policy_version=None, progress=None):
     """Extract fixed-interval or policy-selected frames.
 
     Returns list of {timestamp, path}. ``sample_times`` is an explicit list
@@ -1207,7 +1239,8 @@ def extract_frames(clip_path, duration, cache_dir, interval_s=COARSE_FRAME_INTER
                 calls=pending, cache_hits=n_frames - pending) as measurement:
             frames = _extract_frames(clip_path, duration, cache_dir, interval_s,
                                      sample_times=ordered_times,
-                                     cache_subdir=cache_subdir)
+                                     cache_subdir=cache_subdir,
+                                     progress=progress)
             measurement["bytes_written"] = sum(
                 Path(row["path"]).stat().st_size for row in frames)
         _record_decoded_frame_cache(
@@ -1220,7 +1253,8 @@ def extract_frames(clip_path, duration, cache_dir, interval_s=COARSE_FRAME_INTER
             calls=0, cache_hits=n_frames):
         frames = _extract_frames(clip_path, duration, cache_dir, interval_s,
                                  sample_times=ordered_times,
-                                 cache_subdir=cache_subdir)
+                                 cache_subdir=cache_subdir,
+                                 progress=progress)
     _record_decoded_frame_cache(frames, [], 0.0, clip_path)
     return frames
 
@@ -1258,7 +1292,7 @@ def _record_decoded_frame_cache(frames, regenerated_paths, elapsed,
 
 
 def _extract_frames(clip_path, duration, cache_dir, interval_s, *,
-                    sample_times=None, cache_subdir=None):
+                    sample_times=None, cache_subdir=None, progress=None):
     cache_dir = Path(cache_dir).resolve()
     frame_dir = _source_cache_dir(cache_dir, clip_path) / "frames"
     if cache_subdir:
@@ -1270,26 +1304,35 @@ def _extract_frames(clip_path, duration, cache_dir, interval_s, *,
                   [min(i * interval_s, duration - 0.1)
                    for i in range(max(1, int(math.ceil(duration / interval_s))) + 1)])
     frames = []
+    progress = progress or vision_progress.NullProgress()
 
     for i, timestamp in enumerate(timestamps):
         out_path = frame_dir / f"frame_{i:04d}.jpg"
 
-        if not _usable_frame(out_path):
-            result = subprocess.run(
-                ["ffmpeg", "-y", "-ss", str(timestamp), "-i", str(clip_path),
-                 "-vframes", "1", "-q:v", "2", str(out_path)],
-                capture_output=True,
-            )
+        # One frame is one unit of work. A long source asks for hundreds
+        # of them, and the extraction is silent while it runs: the parent
+        # needs to see that the child is inside it and moving.
+        token = progress.unit_begin(
+            f"extract_frame:{i + 1}/{len(timestamps)}")
+        try:
             if not _usable_frame(out_path):
-                # A nonzero exit OR an empty file: either way there is no
-                # frame here, and leaving the husk would poison the cache.
-                _drop_frame(out_path)
+                result = subprocess.run(
+                    ["ffmpeg", "-y", "-ss", str(timestamp), "-i", str(clip_path),
+                     "-vframes", "1", "-q:v", "2", str(out_path)],
+                    capture_output=True,
+                )
+                if not _usable_frame(out_path):
+                    # A nonzero exit OR an empty file: either way there is no
+                    # frame here, and leaving the husk would poison the cache.
+                    _drop_frame(out_path)
 
-        if _usable_frame(out_path):
-            frames.append({
-                "timestamp": round(timestamp, 3),
-                "path": str(out_path),
-            })
+            if _usable_frame(out_path):
+                frames.append({
+                    "timestamp": round(timestamp, 3),
+                    "path": str(out_path),
+                })
+        finally:
+            progress.unit_done(token)
 
     return frames
 
@@ -1717,7 +1760,7 @@ class _WindowClipPrefetch:
 
 def extract_video_clips(clip_path, duration, cache_dir, window_s=ACTION_WINDOW_S,
                         subdir="clips", prefix="clip", with_audio=True,
-                        prefetch=False, window_starts_s=None):
+                        prefetch=False, window_starts_s=None, progress=None):
     """Extract video clips for windowed native-video analysis.
 
     Uses ffmpeg to cut the source video into ~`window_s` segments. Each
@@ -1759,6 +1802,7 @@ def extract_video_clips(clip_path, duration, cache_dir, window_s=ACTION_WINDOW_S
     clip_path = Path(clip_path)
     clip_dir = cache_dir / clip_path.stem / subdir
     clip_dir.mkdir(parents=True, exist_ok=True)
+    progress = progress or vision_progress.NullProgress()
 
     if window_starts_s is None:
         n_windows = max(1, math.ceil(duration / window_s))
@@ -1785,116 +1829,126 @@ def extract_video_clips(clip_path, duration, cache_dir, window_s=ACTION_WINDOW_S
         for i, start, end in window_specs:
             if stop_event.is_set():
                 return
-            if end - start < MIN_WINDOW_S:
-                print(f"    ⚠ Window [{start:.0f}-{end:.0f}s]: "
-                      f"only {end - start:.2f}s, too short to analyze, dropped",
-                      file=sys.stderr)
-                continue
-            out_path = clip_dir / f"{prefix}_{i:03d}.mp4"
-            want_audio = with_audio and source_has_audio
-            has_audio = want_audio
-            needs_cut = not out_path.exists()
-
-            if out_path.exists():
-                cached_has_video, cached_has_audio, cached_height = (
-                    _probe_window_streams(out_path))
-                if (cached_has_audio != want_audio
-                        or cached_height > WINDOW_CLIP_HEIGHT):
-                    # Audio policy and the 720p cap are the two cache
-                    # properties that require a re-cut.
-                    out_path.unlink(missing_ok=True)
-                    needs_cut = True
-                elif not cached_has_video:
+            token = progress.unit_begin(
+                f"extract_window:{i + 1}/{len(window_specs)}")
+            try:
+                if end - start < MIN_WINDOW_S:
                     print(f"    ⚠ Window [{start:.0f}-{end:.0f}s]: "
-                          "cut carries no video stream, dropped",
+                          f"only {end - start:.2f}s, too short to analyze, dropped",
                           file=sys.stderr)
                     continue
-                else:
-                    has_audio = cached_has_audio
+                out_path = clip_dir / f"{prefix}_{i:03d}.mp4"
+                want_audio = with_audio and source_has_audio
+                has_audio = want_audio
+                needs_cut = not out_path.exists()
 
-            if needs_cut:
-                def make_temp_output(out_path=out_path):
-                    with tempfile.NamedTemporaryFile(
-                            prefix=f".{out_path.stem}.", suffix=".tmp.mp4",
-                            dir=clip_dir, delete=False) as temp:
-                        temp_path = Path(temp.name)
-                    temp_path.unlink()
-                    return temp_path
-
-                def cut_command(temp_path, fast_seek, start=start, end=end,
-                                want_audio=want_audio):
-                    if fast_seek:
-                        cmd = ["ffmpeg", "-y", "-ss", str(start),
-                               "-accurate_seek", "-i", str(clip_path)]
-                    else:
-                        cmd = ["ffmpeg", "-y", "-i", str(clip_path),
-                               "-ss", str(start)]
-                    cmd += ["-t", str(end - start), "-c:v", "libx264",
-                            "-preset", "ultrafast", "-crf", "23", "-vf",
-                            f"scale=-2:min({WINDOW_CLIP_HEIGHT}\\,ih)"]
-                    if want_audio:
-                        cmd += ["-c:a", "aac"]
-                    else:
-                        cmd += ["-an"]
-                    cmd += ["-loglevel", "error", str(temp_path)]
-                    return cmd
-
-                temp_path = make_temp_output()
-                try:
-                    fast_cut = subprocess.run(
-                        cut_command(temp_path, fast_seek=True),
-                        capture_output=True, check=False)
-                    usable = (fast_cut.returncode == 0
-                              and _clip_opens(temp_path))
-                    if not usable:
-                        # Input seeking is accurate for transcodes when
-                        # ffmpeg can seek the source. If it cannot produce
-                        # a readable window, retry the former decode-from-
-                        # start recipe before dropping the window.
-                        temp_path.unlink(missing_ok=True)
-                        temp_path = make_temp_output()
-                        accurate_cut = subprocess.run(
-                            cut_command(temp_path, fast_seek=False),
-                            capture_output=True, check=False)
-                        if accurate_cut.returncode != 0 and temp_path.exists():
-                            cut_has_video, cut_has_audio, _ = (
-                                _probe_window_streams(temp_path))
-                            if not cut_has_video:
-                                print(f"    ⚠ Window [{start:.0f}-{end:.0f}s]: "
-                                      "cut carries no video stream, dropped",
-                                      file=sys.stderr)
-                                continue
-                            has_audio = cut_has_audio
-                        usable = temp_path.exists() and _clip_opens(temp_path)
-
-                    if not usable:
+                if out_path.exists():
+                    cached_has_video, cached_has_audio, cached_height = (
+                        _probe_window_streams(out_path))
+                    if (cached_has_audio != want_audio
+                            or cached_height > WINDOW_CLIP_HEIGHT):
+                        # Audio policy and the 720p cap are the two cache
+                        # properties that require a re-cut.
+                        out_path.unlink(missing_ok=True)
+                        needs_cut = True
+                    elif not cached_has_video:
                         print(f"    ⚠ Window [{start:.0f}-{end:.0f}s]: "
                               "cut carries no video stream, dropped",
                               file=sys.stderr)
                         continue
-                    if stop_event.is_set():
-                        return
-                    temp_path.replace(out_path)
-                    temp_path = None
-                finally:
-                    if temp_path is not None:
-                        temp_path.unlink(missing_ok=True)
+                    else:
+                        has_audio = cached_has_audio
 
-            elif not _clip_opens(out_path):
-                print(f"    ⚠ Window [{start:.0f}-{end:.0f}s]: "
-                      "cut carries no video stream, dropped",
-                      file=sys.stderr)
-                continue
+                if needs_cut:
+                    def make_temp_output(out_path=out_path):
+                        with tempfile.NamedTemporaryFile(
+                                prefix=f".{out_path.stem}.", suffix=".tmp.mp4",
+                                dir=clip_dir, delete=False) as temp:
+                            temp_path = Path(temp.name)
+                        temp_path.unlink()
+                        return temp_path
 
-            if stop_event.is_set():
-                return
-            yield {
-                "index": i,
-                "start": round(start, 2),
-                "end": round(end, 2),
-                "path": str(out_path),
-                "has_audio": has_audio,
-            }
+                    def cut_command(temp_path, fast_seek, start=start, end=end,
+                                    want_audio=want_audio):
+                        if fast_seek:
+                            cmd = ["ffmpeg", "-y", "-ss", str(start),
+                                   "-accurate_seek", "-i", str(clip_path)]
+                        else:
+                            cmd = ["ffmpeg", "-y", "-i", str(clip_path),
+                                   "-ss", str(start)]
+                        cmd += ["-t", str(end - start), "-c:v", "libx264",
+                                "-preset", "ultrafast", "-crf", "23", "-vf",
+                                f"scale=-2:min({WINDOW_CLIP_HEIGHT}\\,ih)"]
+                        if want_audio:
+                            cmd += ["-c:a", "aac"]
+                        else:
+                            cmd += ["-an"]
+                        cmd += ["-loglevel", "error", str(temp_path)]
+                        return cmd
+
+                    temp_path = make_temp_output()
+                    try:
+                        fast_cut = subprocess.run(
+                            cut_command(temp_path, fast_seek=True),
+                            capture_output=True, check=False)
+                        usable = (fast_cut.returncode == 0
+                                  and _clip_opens(temp_path))
+                        if not usable:
+                            # Input seeking is accurate for transcodes when
+                            # ffmpeg can seek the source. If it cannot produce
+                            # a readable window, retry the former decode-from-
+                            # start recipe before dropping the window.
+                            temp_path.unlink(missing_ok=True)
+                            temp_path = make_temp_output()
+                            accurate_cut = subprocess.run(
+                                cut_command(temp_path, fast_seek=False),
+                                capture_output=True, check=False)
+                            if accurate_cut.returncode != 0 and temp_path.exists():
+                                cut_has_video, cut_has_audio, _ = (
+                                    _probe_window_streams(temp_path))
+                                if not cut_has_video:
+                                    print(f"    ⚠ Window [{start:.0f}-{end:.0f}s]: "
+                                          "cut carries no video stream, dropped",
+                                          file=sys.stderr)
+                                    continue
+                                has_audio = cut_has_audio
+                            usable = temp_path.exists() and _clip_opens(temp_path)
+
+                        if not usable:
+                            print(f"    ⚠ Window [{start:.0f}-{end:.0f}s]: "
+                                  "cut carries no video stream, dropped",
+                                  file=sys.stderr)
+                            continue
+                        if stop_event.is_set():
+                            return
+                        temp_path.replace(out_path)
+                        temp_path = None
+                    finally:
+                        if temp_path is not None:
+                            temp_path.unlink(missing_ok=True)
+
+                elif not _clip_opens(out_path):
+                    print(f"    ⚠ Window [{start:.0f}-{end:.0f}s]: "
+                          "cut carries no video stream, dropped",
+                          file=sys.stderr)
+                    continue
+
+                if stop_event.is_set():
+                    return
+                # The cut is done: the unit ends here, not when the
+                # consumer comes back for the next window. A unit that
+                # stayed open across the consumer's work would read as a
+                # long-running unit to the parent.
+                progress.unit_done(token)
+                yield {
+                    "index": i,
+                    "start": round(start, 2),
+                    "end": round(end, 2),
+                    "path": str(out_path),
+                    "has_audio": has_audio,
+                }
+            finally:
+                progress.unit_done(token)
 
     if prefetch:
         return _WindowClipPrefetch(
@@ -3385,6 +3439,15 @@ def _finish_assessment(deterministic, content_type, primary_subject_visible,
 #  Main Analysis Orchestrator
 # ═══════════════════════════════════════════════════════════════════════
 
+def _progress_of(analyzer):
+    """The progress channel of an analyzer, or None when it has none.
+
+    The analyzer may be the lazy wrapper (which holds the channel) or
+    the loaded model wrapper (which holds the same one).
+    """
+    return getattr(analyzer, "progress", None)
+
+
 def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
                  temporal_index, cache_dir, layer_cache=None, clock=None,
                  precomputed_layers=None, still_executor=None,
@@ -3644,8 +3707,18 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
     if cached.get("picture"):
         soft_ranges = cached["picture"]["soft_ranges"]
     else:
-        soft_ranges = picture_quality.measure_soft_picture(
-            video_path, duration)
+        # The picture pass decodes the WHOLE clip in one ffmpeg, which
+        # on a long source is minutes of silence. It is one unit of
+        # work, so the parent is told the child is inside it.
+        progress = _progress_of(analyzer)
+        picture_token = (progress.unit_begin("picture_quality")
+                         if progress is not None else None)
+        try:
+            soft_ranges = picture_quality.measure_soft_picture(
+                video_path, duration)
+        finally:
+            if progress is not None:
+                progress.unit_done(picture_token)
         # An unmeasured picture is not stored: the next compose tries
         # again rather than carrying the absence forward.
         if layer_cache and soft_ranges is not None:
@@ -3784,48 +3857,77 @@ class _LazyAnalyzer:
     `ram_gb` demand. Admission holds it against live OS
     memory plus headroom, so a second session waits once the first
     session's weights land. The load remains cache-only, and the
-    parent's stall bound (`analyse._run_clip_vision`) still reclaims a
-    wedged child.
+    parent's bounds (`analyse._run_clip_vision`) still reclaim a wedged
+    child: the load is declared as one unit of work, so a child that is
+    loading is held to the phase bound instead of being killed for being
+    quiet, and a reservation the machine never grants is a refusal with
+    a reason rather than a silent wait.
     """
 
-    def __init__(self, harness, project_folder):
+    def __init__(self, harness, project_folder, progress=None):
         self._args = (harness, project_folder)
         self._analyzer = None
         self._context = None
         self._memory_context = None
         self._load_lock = threading.RLock()
+        self.progress = progress or vision_progress.NullProgress()
 
     def _ensure_loaded(self):
         with self._load_lock:
             if self._analyzer is not None:
                 return
 
-            memory_context = _semantic_model_memory_reservation()
-            memory_context.__enter__()
-            def load_cached_model():
-                with _huggingface_offline():
-                    return _load_mlx_model(MODEL_ID)
-
-            context = managed_model(MODEL_ID, load_cached_model)
-            entered = False
+            # The load and the reservation it waits for are ONE unit of
+            # work: the parent is told the child is inside them, and it
+            # holds the child to the phase bound instead of killing it
+            # for being quiet. A load that never finishes is a wedge
+            # inside that unit, and the bound catches it.
+            token = self.progress.unit_begin("model_load")
             try:
-                with _semantic_inference_admission():
-                    model, proc = context.__enter__()
-                    entered = True
-                harness, project_folder = self._args
-                analyzer = VisionAnalyzer(
-                    model, proc, harness=harness,
-                    project_folder=project_folder)
-            except BaseException:
-                if entered:
-                    with _semantic_inference_admission():
-                        context.__exit__(None, None, None)
-                memory_context.__exit__(None, None, None)
-                raise
+                memory_context = _semantic_model_memory_reservation(
+                    timeout=MODEL_MEMORY_WAIT_TIMEOUT_S)
+                try:
+                    memory_context.__enter__()
+                except Exception as exc:
+                    # The reservation did not arrive: the machine could
+                    # not free the memory the weights need. That is a
+                    # refusal with a reason, not a stall - and it is a
+                    # refusal of the WHOLE batch, because every clip
+                    # needs the same model.
+                    reason = (
+                        "the vision model could not be reserved: this "
+                        "machine did not free the memory the weights "
+                        f"need within {MODEL_MEMORY_WAIT_TIMEOUT_S}s "
+                        f"({exc})")
+                    self.progress.refuse(reason, scope="batch")
+                    raise ModelUnavailable(reason) from exc
+                def load_cached_model():
+                    with _huggingface_offline():
+                        return _load_mlx_model(MODEL_ID)
 
-            self._memory_context = memory_context
-            self._context = context
-            self._analyzer = analyzer
+                context = managed_model(MODEL_ID, load_cached_model)
+                entered = False
+                try:
+                    with _semantic_inference_admission():
+                        model, proc = context.__enter__()
+                        entered = True
+                    harness, project_folder = self._args
+                    analyzer = VisionAnalyzer(
+                        model, proc, harness=harness,
+                        project_folder=project_folder,
+                        progress=self.progress)
+                except BaseException:
+                    if entered:
+                        with _semantic_inference_admission():
+                            context.__exit__(None, None, None)
+                    memory_context.__exit__(None, None, None)
+                    raise
+
+                self._memory_context = memory_context
+                self._context = context
+                self._analyzer = analyzer
+            finally:
+                self.progress.unit_done(token)
 
     def __getattr__(self, name):
         self._ensure_loaded()
@@ -4170,9 +4272,10 @@ def _run_host_semantic_schedule(contexts, analyzer, *,
 
 def _prepare_host_semantic_contexts(clips, cache_dir, output_dir,
                                     layer_methods, force, still_viewer,
-                                    frame_sampling="dense"):
+                                    frame_sampling="dense", progress=None):
     """Prepare inputs for the host scheduler without invoking a model."""
     frame_sampling = _resolve_frame_sampling(frame_sampling)
+    progress = progress or vision_progress.NullProgress()
     entries = []
     contexts = []
     skipped = 0
@@ -4268,12 +4371,14 @@ def _prepare_host_semantic_contexts(clips, cache_dir, output_dir,
                 frames = extract_frames(
                     clip_path, duration, cache_dir,
                     sample_times=frame_sampling_plan["selected_source_times"],
-                    policy_version=FRAME_SAMPLING_POLICY_VERSION)
+                    policy_version=FRAME_SAMPLING_POLICY_VERSION,
+                    progress=progress)
                 frame_sampling_plan["frames_actually_extracted"] = len(frames)
                 print(f"  Frames extracted: {len(frames)} "
                       f"(adaptive budget {frame_sampling_plan['budget_frames']})")
             else:
-                frames = extract_frames(clip_path, duration, cache_dir)
+                frames = extract_frames(clip_path, duration, cache_dir,
+                                        progress=progress)
                 print(f"  Frames extracted: {len(frames)} "
                       f"(every {COARSE_FRAME_INTERVAL_S}s)")
         reset_ffprobe_spawn_count()
@@ -4288,7 +4393,8 @@ def _prepare_host_semantic_contexts(clips, cache_dir, output_dir,
                     calls=0) as measurement:
                 video_clips = extract_video_clips(
                     clip_path, duration, cache_dir, prefetch=False,
-                    window_starts_s=window_plan["window_starts_s"])
+                    window_starts_s=window_plan["window_starts_s"],
+                    progress=progress)
                 after = _snapshot_window_outputs(window_dir)
                 changed = [path for path, stat in after.items()
                            if before.get(path) != stat]
@@ -4361,11 +4467,11 @@ def _prepare_host_semantic_contexts(clips, cache_dir, output_dir,
 
 def _run_host_semantic_pipeline(analyzer, clips, cache_dir, output_dir,
                                  layer_methods, force, still_viewer,
-                                 frame_sampling="dense"):
+                                 frame_sampling="dense", progress=None):
     """Analyze every host-driven clip through the global two-lane schedule."""
     entries, contexts, skipped = _prepare_host_semantic_contexts(
         clips, cache_dir, output_dir, layer_methods, force, still_viewer,
-        frame_sampling)
+        frame_sampling, progress)
     if contexts:
         has_model_work = any(
             (context["windows_cached"] is None
@@ -4482,7 +4588,8 @@ def write_scene_memory(clip_path, profile, temporal_index, root=None):
 
 
 def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
-                 harness=None, project_folder=None, frame_sampling="dense"):
+                 harness=None, project_folder=None, frame_sampling="dense",
+                 progress=None):
     """Run the v3 vision pipeline on a list of clip paths.
 
     Args:
@@ -4502,6 +4609,9 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
             incumbent fixed-interval grid, "adaptive" decodes the
             policy-selected source timestamps instead. Unknown values
             are refused.
+        progress: The channel the parent reads to see that this child
+            is working (`library/tools/vision_progress.py`). None records
+            nothing, and the parent falls back to reading silence.
     """
     # Absolute before anything joins them: the direct still call carries
     # frame paths to Codex, and it refuses a relative one. The default
@@ -4514,6 +4624,7 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
     output_dir.mkdir(parents=True, exist_ok=True)
     cache_dir.mkdir(parents=True, exist_ok=True)
     frame_sampling = _resolve_frame_sampling(frame_sampling)
+    progress = progress or vision_progress.NullProgress()
 
     all_profiles = []
     total_start = time.time()
@@ -4529,16 +4640,16 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
 
     if (HOST_SEES_IMAGES.get(still_viewer) is True
             and direct_cli_for_harness(still_viewer) is not None):
-        with _LazyAnalyzer(harness, project_folder) as analyzer:
+        with _LazyAnalyzer(harness, project_folder, progress) as analyzer:
             all_profiles, skipped = _run_host_semantic_pipeline(
                 analyzer, clips, cache_dir, output_dir, layer_methods,
-                force, still_viewer, frame_sampling)
+                force, still_viewer, frame_sampling, progress)
         return _write_vision_index(
             all_profiles, skipped, total_start, output_dir)
 
     # The model loads on the first pass that needs it: a clip whose
     # windows are all cached never pays for it.
-    with _LazyAnalyzer(harness, project_folder) as analyzer:
+    with _LazyAnalyzer(harness, project_folder, progress) as analyzer:
         for i, clip_path in enumerate(clips, 1):
             clip_path = Path(clip_path)
             if not clip_path.exists():
@@ -4630,12 +4741,14 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
                     frames = extract_frames(
                         clip_path, duration, cache_dir,
                         sample_times=frame_sampling_plan["selected_source_times"],
-                        policy_version=FRAME_SAMPLING_POLICY_VERSION)
+                        policy_version=FRAME_SAMPLING_POLICY_VERSION,
+                        progress=progress)
                     frame_sampling_plan["frames_actually_extracted"] = len(frames)
                     print(f"  Frames extracted: {len(frames)} "
                           f"(adaptive budget {frame_sampling_plan['budget_frames']})")
                 else:
-                    frames = extract_frames(clip_path, duration, cache_dir)
+                    frames = extract_frames(clip_path, duration, cache_dir,
+                                            progress=progress)
                     print(f"  Frames extracted: {len(frames)} "
                           f"(every {COARSE_FRAME_INTERVAL_S}s)")
 
@@ -4648,7 +4761,8 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
             if "windows" not in cached_layers:
                 video_clips = extract_video_clips(
                     clip_path, duration, cache_dir, prefetch=True,
-                    window_starts_s=window_plan["window_starts_s"])
+                    window_starts_s=window_plan["window_starts_s"],
+                    progress=progress)
                 print(f"  Video window cuts queued: {len(video_clips)} × "
                       f"{ACTION_WINDOW_S}s; extraction overlaps inference")
 
@@ -4740,6 +4854,11 @@ def main():
                          help="Coarse-still schedule: dense keeps the "
                               "incumbent fixed-interval grid; adaptive "
                               "decodes policy-selected source timestamps")
+    parser.add_argument("--progress-file", type=str, default=None,
+                         help="Where this run records what it is doing, so "
+                              "the parent can tell a working child from a "
+                              "wedged one instead of reading silence "
+                              "(`library/tools/vision_progress.py`)")
     args = parser.parse_args()
 
     if args.clip:
@@ -4755,15 +4874,28 @@ def main():
             sys.exit(1)
         print(f"Found {len(clips)} clips in {raw_dir}")
 
-    run_pipeline(
-        clips,
-        cache_dir=Path(args.cache_dir),
-        output_dir=Path(args.output_dir),
-        force=args.force,
-        harness=args.harness,
-        project_folder=args.project_folder,
-        frame_sampling=args.frame_sampling,
-    )
+    progress = (vision_progress.VisionProgress(args.progress_file)
+                if args.progress_file else vision_progress.NullProgress())
+
+    try:
+        run_pipeline(
+            clips,
+            cache_dir=Path(args.cache_dir),
+            output_dir=Path(args.output_dir),
+            force=args.force,
+            harness=args.harness,
+            project_folder=args.project_folder,
+            frame_sampling=args.frame_sampling,
+            progress=progress,
+        )
+    except ModelUnavailable as exc:
+        # The model could not be resident, so NOTHING in this batch can
+        # be measured. The parent reads the refusal from the channel and
+        # reports it for every clip at once, instead of starting a fresh
+        # child that would refuse the same way.
+        print(f"  ✗ {exc}", file=sys.stderr)
+        sys.exit(1)
+    progress.close()
 
 
 if __name__ == "__main__":

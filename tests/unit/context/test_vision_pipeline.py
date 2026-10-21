@@ -1917,7 +1917,8 @@ def test_host_pipeline_extracts_the_fi08_plan(tmp_path, monkeypatch):
 
     monkeypatch.setattr(vp, "extract_frames", extract_stills)
 
-    def extract(_path, _duration, _cache, *, prefetch, window_starts_s):
+    def extract(_path, _duration, _cache, *, prefetch, window_starts_s,
+                progress=None):
         extracted["starts"] = window_starts_s
         return [{"index": index, "start": start, "end": min(start + 10, 100),
                  "path": f"window-{index}.mp4", "has_audio": False}
@@ -1980,8 +1981,10 @@ def test_host_pipeline_dense_default_keeps_incumbent_grid(tmp_path, monkeypatch)
         [source], tmp_path / "cache", tmp_path / "output", {}, False, "gemma")
 
     assert contexts[0]["frame_sampling_plan"] is None
-    # Incumbent call shape: fixed-interval grid, no policy keywords.
-    assert seen["kwargs"] == {}
+    # Incumbent call shape: fixed-interval grid, no policy keywords. The
+    # progress channel is not a policy: it is how the parent sees that
+    # this child is working.
+    assert set(seen["kwargs"]) == {"progress"}
     assert len(seen["args"]) == 3
 
 
@@ -2579,7 +2582,7 @@ def test_lazy_semantic_model_holds_ram_but_not_gpu_during_host_wait(
             return list(held)
 
     @contextmanager
-    def fake_reservation(_owner, profile, *, nested_profiles):
+    def fake_reservation(_owner, profile, *, nested_profiles, timeout=None):
         assert profile == memory_profile
         assert nested_profiles == (inference_profile,)
         with guard:
@@ -2688,6 +2691,62 @@ def test_semantic_model_load_is_explicitly_huggingface_offline(
         assert analyzer.model is model
     assert seen == {"model_id": vp.MODEL_ID, "hub": "1",
                     "transformers": "1"}
+
+
+def test_the_model_load_refuses_when_the_memory_never_arrives(
+        tmp_path, monkeypatch):
+    """The defect (scout report 2026-10-20, FIX 7): the child's wait for
+    the model's RAM reservation was UNBOUNDED and silent. On a machine
+    that cannot free the memory the weights need, the child sat there
+    for 600 s per clip, and the parent killed it and published the clip
+    as a missing measurement with no reason.
+
+    The wait is bounded now, and the refusal says why - and it is a
+    refusal of the WHOLE batch, because every clip needs the same model.
+    """
+    from library.tools import vision_progress
+
+    @contextmanager
+    def fake_reservation(_owner, _profile, *, nested_profiles, timeout=None):
+        assert timeout == vp.MODEL_MEMORY_WAIT_TIMEOUT_S
+        raise resource_scheduler.Cancelled(
+            "resource scheduler: 'Gemma semantic model memory' timed out "
+            "waiting")
+        yield  # pragma: no cover - the raise above is the whole test
+
+    monkeypatch.setattr(vp, "heavy_work_reservation", fake_reservation)
+
+    progress = vision_progress.VisionProgress(
+        tmp_path / "vision_progress.json")
+    with pytest.raises(vp.ModelUnavailable) as failure:
+        with vp._LazyAnalyzer(None, str(tmp_path), progress) as analyzer:
+            analyzer.analyze("prompt", video="clip.mov")
+    assert "could not be reserved" in str(failure.value)
+
+    record = vision_progress.read_progress(progress.path)
+    assert record["refusal"]["scope"] == "batch"
+    assert "could not be reserved" in record["refusal"]["reason"]
+
+
+def test_the_child_records_the_refusal_for_the_parent(tmp_path, monkeypatch):
+    """The parent must learn the reason from the channel, so it can
+    report one refusal for the whole batch instead of starting a fresh
+    child that refuses the same way."""
+    from library.tools import vision_progress
+
+    @contextmanager
+    def fake_reservation(_owner, _profile, *, nested_profiles, timeout=None):
+        raise resource_scheduler.Cancelled("timed out waiting")
+        yield  # pragma: no cover - the raise above is the whole test
+
+    monkeypatch.setattr(vp, "heavy_work_reservation", fake_reservation)
+    progress = vision_progress.VisionProgress(
+        tmp_path / "vision_progress.json")
+    with pytest.raises(vp.ModelUnavailable):
+        with vp._LazyAnalyzer(None, str(tmp_path), progress) as analyzer:
+            analyzer.analyze("prompt", video="clip.mov")
+    record = vision_progress.read_progress(progress.path)
+    assert record["refusal"]["scope"] == "batch"
 
 
 def test_semantic_model_load_resolves_lazy_module_binding(monkeypatch):

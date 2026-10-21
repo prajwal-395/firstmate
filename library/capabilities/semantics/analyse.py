@@ -2,6 +2,15 @@
 Step 1.03 Bridge: Semantic Analysis
 Runs the vision pipeline on new raw footage clips to generate semantic analysis documents.
 
+**SILENCE IS NOT A WEDGE.** The child declares what it is doing and how
+many units of work it has finished (`library/tools/vision_progress.py`),
+and this step reads THAT. A child that is working is not killed however
+long it is quiet; a child that stops moving is killed, and the reason
+names the unit it was inside. A child that cannot become resident (the
+model's memory is not available on this machine) refuses the WHOLE batch
+with a reason, and every clip is reported at once - one bounded wait,
+not one wait per clip.
+[why](docs/RULE_EVIDENCE.md#the-vision-pass-was-killed-for-being-quiet)
 
 Rules relocated from AGENTS.md 10.3
 -----------------------------------
@@ -20,6 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
 from library.tools.vision_schema_adapter import adapt_semantic_document, is_v3_profile
 from library.tools.project_layout import Area, ProjectLayout
 from library.tools import code_identity, footage_identity
+from library.tools import vision_progress
 
 # Per-clip ceiling for the vision analyser. It was 600s, which is under
 # what a long clip needs: measured on this machine, a 3.6s clip costs 86s
@@ -32,17 +42,38 @@ from library.tools import code_identity, footage_identity
 # It stays a PER-CLIP ceiling although one child now analyses the whole
 # batch: the clock restarts every time the child lands a profile, so a
 # wedge is broken after this long on ONE clip, never after N times it.
+#
+# It also restarts when the child FINISHES A UNIT of work (a frame, a
+# window cut, a model call - `library/tools/vision_progress.py`), so the
+# ceiling bounds a WEDGE and not a clip that is merely long: a 4941 s
+# source needs thousands of units, and a ceiling that counted the whole
+# clip would drop the longest - and usually the most important - footage
+# from the analysis, which is what this ceiling was raised away from.
 CLIP_ANALYSIS_TIMEOUT_S = int(os.environ.get("PIPELINE_CLIP_ANALYSIS_TIMEOUT_S", 3600))
 _PROGRESS_POLL_S = 5.0
+# Silence is not a wedge. A child that is working says so through the
+# progress channel; this bound only catches a child that has stopped
+# moving entirely (the rule that survives a child too old to write that
+# channel). Measured 2026-10-20: the vision pass is silent through its
+# long phases, and a 600 s silence bound killed a working child and
+# reported the loss as a missing measurement.
 VISION_STALL_TIMEOUT_S = int(os.environ.get(
     "PIPELINE_VISION_STALL_TIMEOUT_S", 600))
+# How long ONE declared unit of work may run before it reads as a wedge
+# inside that unit. A model call, a frame extraction, a window cut and
+# the model load are each one unit; a unit that runs this long is not
+# going to finish, and the machine should not keep holding the model's
+# memory for it.
+VISION_PHASE_TIMEOUT_S = int(os.environ.get(
+    "PIPELINE_VISION_PHASE_TIMEOUT_S", 900))
 
 
 class VisionStalled(RuntimeError):
     """The vision child stopped producing logs and profile progress."""
 
 
-def _run_clip_vision(cmd, progress=None, poll_s=_PROGRESS_POLL_S):
+def _run_clip_vision(cmd, progress=None, poll_s=_PROGRESS_POLL_S,
+                     progress_file=None):
     """Run one vision child without letting it write our stdout.
 
     The step's contract with the runner is JSON on stdout, logs on
@@ -58,13 +89,24 @@ def _run_clip_vision(cmd, progress=None, poll_s=_PROGRESS_POLL_S):
 
     `progress` is a zero-argument callable returning a count that grows
     as the child finishes clips (profiles on disk); the
-    `CLIP_ANALYSIS_TIMEOUT_S` deadline restarts whenever it grows. A
-    child that produces no log line and no new profile for
-    `VISION_STALL_TIMEOUT_S` (env `PIPELINE_VISION_STALL_TIMEOUT_S`,
-    default 600) is killed and raises `VisionStalled`, so a wedged
-    model pass releases its memory instead of sleeping forever. A
-    nonzero exit raises `CalledProcessError`; an overrun kills the child
-    and raises `TimeoutExpired`.
+    `CLIP_ANALYSIS_TIMEOUT_S` deadline restarts whenever it grows.
+
+    `progress_file` is the child's progress channel
+    (`library/tools/vision_progress.py`): the child records what it is
+    doing and how many units of work it has finished, and this parent
+    reads that instead of GUESSING from silence. A child that finishes
+    units keeps the `CLIP_ANALYSIS_TIMEOUT_S` ceiling and the
+    `VISION_STALL_TIMEOUT_S` silence bound from firing, however long it
+    is quiet; a child that declares one unit and never finishes it is a
+    wedge inside that unit and is killed after `VISION_PHASE_TIMEOUT_S`
+    (env `PIPELINE_VISION_PHASE_TIMEOUT_S`, default 900). A child that
+    reports nothing at all - too old to write the channel - is still
+    caught by the silence bound after `VISION_STALL_TIMEOUT_S` (env
+    `PIPELINE_VISION_STALL_TIMEOUT_S`, default 600) and raises
+    `VisionStalled`, so a wedged model pass still releases its memory
+    instead of sleeping forever. A nonzero exit raises
+    `CalledProcessError`; an overrun kills the child and raises
+    `TimeoutExpired`.
 
     Both of the child's streams are captured to a pipe and forwarded to
     this process's stderr, where the runner streams them as the step's
@@ -81,6 +123,13 @@ def _run_clip_vision(cmd, progress=None, poll_s=_PROGRESS_POLL_S):
     # half, so no other hub touch in the child can wait on the network.
     child_env["HF_HUB_OFFLINE"] = "1"
     child_env["TRANSFORMERS_OFFLINE"] = "1"
+    watcher = vision_progress.ProgressWatcher(progress_file)
+    if progress_file:
+        # A record left by an earlier child is not this child's progress.
+        try:
+            os.unlink(progress_file)
+        except OSError:
+            pass
     child = subprocess.Popen(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0,
         env=child_env)
@@ -90,9 +139,13 @@ def _run_clip_vision(cmd, progress=None, poll_s=_PROGRESS_POLL_S):
     returncode = None
     try:
         while True:
+            # The wait is bounded by the poll interval and the clip
+            # ceiling only. The silence bound is NOT part of it: a child
+            # that declares a unit of work is inside that unit, and the
+            # silence bound does not apply to it - a zero-length wait
+            # would spin this loop on a child that is working.
             remaining = max(0.0, min(
-                poll_s, deadline - time.monotonic(),
-                stall_deadline - time.monotonic()))
+                poll_s, deadline - time.monotonic()))
             readable, _, _ = select.select([child.stdout], [], [], remaining)
             if readable:
                 try:
@@ -112,7 +165,27 @@ def _run_clip_vision(cmd, progress=None, poll_s=_PROGRESS_POLL_S):
                     last = now
                     deadline = time.monotonic() + CLIP_ANALYSIS_TIMEOUT_S
                     stall_deadline = time.monotonic() + VISION_STALL_TIMEOUT_S
-            if time.monotonic() >= stall_deadline:
+            state = watcher.observe()
+            now = time.monotonic()
+            if state["advanced"]:
+                # The child finished a unit of work: it is working, and
+                # neither the ceiling nor the silence bound applies to it.
+                deadline = now + CLIP_ANALYSIS_TIMEOUT_S
+                stall_deadline = now + VISION_STALL_TIMEOUT_S
+            if state["inflight"]:
+                # A declared unit is running. It is held to the phase
+                # bound below, and the silence bound does not apply to
+                # it: a child that says what it is doing is not a child
+                # that has stopped.
+                if state["unit_age_s"] >= VISION_PHASE_TIMEOUT_S:
+                    raise VisionStalled(
+                        f"Vision analysis stalled inside "
+                        f"{state['unit_label']!r}: no unit of work finished "
+                        f"for {VISION_PHASE_TIMEOUT_S}s; stopped child to "
+                        "release model memory")
+            elif now >= stall_deadline:
+                # Nothing in flight and nothing said for a long time: the
+                # child is not answering at all.
                 raise VisionStalled(
                     "Vision analysis stalled: no log or completed profile "
                     f"for {VISION_STALL_TIMEOUT_S}s; stopped child to release "
@@ -150,8 +223,31 @@ def _drain_child_output(child):
         sys.stderr.buffer.flush()
 
 
+def _batch_refusal(progress_file):
+    """The reason the child refused EVERY clip, or None.
+
+    A child that cannot become resident (the model's memory is not
+    available on this machine) refuses the whole batch: every clip needs
+    the same model. The refusal is recorded in the channel the child
+    writes, so the parent reads the reason instead of inferring it from
+    an exit code.
+    """
+    if not progress_file:
+        return None
+    record = vision_progress.read_progress(progress_file)
+    if not record:
+        return None
+    refusal = record.get("refusal")
+    if not isinstance(refusal, dict):
+        return None
+    if str(refusal.get("scope") or "") != "batch":
+        return None
+    return str(refusal.get("reason") or "the vision child refused the batch")
+
+
 def _analyse_missing(missing_paths, base_cmd, analysis_dir, run=None,
-                     on_profile=None, on_clip_failure=None):
+                     on_profile=None, on_clip_failure=None,
+                     progress_file=None):
     """Analyse `missing_paths` in as few vision children as possible.
 
     One child takes the whole batch, so Gemma is loaded once per run
@@ -165,6 +261,10 @@ def _analyse_missing(missing_paths, base_cmd, analysis_dir, run=None,
     a profile. That clip is reported and skipped, and a fresh child takes
     the rest. A clip the child declines without dying (no video stream)
     gets no profile and is not retried, as before.
+
+    `progress_file` is the child's progress channel
+    (`library/tools/vision_progress.py`): it is what lets the parent tell
+    a working child from a wedged one, instead of reading silence.
     """
     run = run or _run_clip_vision
     pending = list(missing_paths)
@@ -179,7 +279,8 @@ def _analyse_missing(missing_paths, base_cmd, analysis_dir, run=None,
               + ", ".join(os.path.basename(p) for p in pending),
               file=sys.stderr)
         try:
-            run(base_cmd + ['--clip', *pending], progress=_profiles_on_disk)
+            run(base_cmd + ['--clip', *pending], progress=_profiles_on_disk,
+                progress_file=progress_file)
             return
         except VisionStalled as exc:
             failure = str(exc)
@@ -187,6 +288,17 @@ def _analyse_missing(missing_paths, base_cmd, analysis_dir, run=None,
             failure = "Timeout"
         except subprocess.CalledProcessError as e:
             failure = f"Error ({e})"
+        refusal = _batch_refusal(progress_file)
+        if refusal:
+            # The child refused for the WHOLE batch: every clip it was
+            # asked about is unmeasured for this one reason, and a fresh
+            # child would refuse the same way. Reporting it once is the
+            # difference between one bounded wait and one wait per clip.
+            for path in pending:
+                if on_clip_failure:
+                    on_clip_failure(path, refusal)
+            print(f"  ⚠ {refusal}", file=sys.stderr)
+            return
         done = _profile_stems(analysis_dir)
         remaining = [p for p in pending
                      if os.path.splitext(os.path.basename(p))[0] not in done]
@@ -504,14 +616,21 @@ def analyse_semantics(raw_footage_files: list, project_folder: str = "",
         # The harness travels via PIPELINE_HOST_HARNESS, set by the runner
         # from --full-auto. Codex answers stills through its subscription
         # CLI when available; otherwise the router uses gemma.
+        #
+        # The child reports its progress through the channel the parent
+        # reads (`library/tools/vision_progress.py`), so a long clip that
+        # is quiet while it works is not mistaken for a wedged one.
+        progress_file = str(vision_progress.progress_path(analysis_dir))
         base_cmd = [sys.executable, VISION_PIPELINE,
-                    '--output-dir', analysis_dir]
+                    '--output-dir', analysis_dir,
+                    '--progress-file', progress_file]
         if project_folder:
             base_cmd += ['--project-folder', project_folder]
         _analyse_missing([clip["path"] for clip in missing_clips],
                          base_cmd, analysis_dir,
                          on_profile=publish_completed_profiles,
-                         on_clip_failure=mark_clip_missing)
+                         on_clip_failure=mark_clip_missing,
+                         progress_file=progress_file)
         for dup_path, _dup_clip_id, dup_stem, orig_stem in duplicates:
             _alias_duplicate_profile(analysis_dir, dup_path, dup_stem, orig_stem)
         publish_completed_profiles()

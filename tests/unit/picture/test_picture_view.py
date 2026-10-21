@@ -944,7 +944,7 @@ def _fake_vision(analysis_dir, dies_on=()):
     profile per clip, and dies on any clip named in `dies_on`."""
     calls = []
 
-    def run(cmd, progress=None):
+    def run(cmd, progress=None, progress_file=None):
         clips = cmd[cmd.index("--clip") + 1:]
         calls.append(clips)
         for clip in clips:
