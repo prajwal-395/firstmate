@@ -1882,6 +1882,31 @@ def _project_context(project_folder: str, request: str, reel: str) -> dict:
     return facts
 
 
+def _current_reel_timeline_id(project_folder: str, project_name: str,
+                              reel: str) -> str:
+    """The reel's CURRENT timeline id.
+
+    THE JOURNAL FIRST: it is the record of what Ren itself made
+    current - the last promotion names the candidate that became the
+    reel's timeline. The shadow second: it holds the recorded
+    generations, and it refuses when two of them share the name, because
+    that is two LIVE timelines and the engine will not pick one
+    (AGENTS.md 5: exact names, never a substitute).
+
+    Reading the shadow's history as the project's inventory is what
+    made a touched reel unaddressable (measured 2026-10-21: "3
+    timelines are named <the reel>" for a project that holds one).
+    """
+    from library.tools import undo_journal
+
+    promoted = undo_journal.last_promoted_timeline(project_folder, reel)
+    if promoted:
+        return promoted
+    from library.tools import timeline_shadow
+
+    return timeline_shadow.ShadowStore().resolve_timeline(project_name, reel)
+
+
 def _reel_timeline(project_folder: str, reel: str) -> dict:
     """The reel's picture rows as its newest recorded generation holds them.
 
@@ -1900,7 +1925,8 @@ def _reel_timeline(project_folder: str, reel: str) -> dict:
     try:
         project_name = _resolve_project_name(project_folder)
         store = timeline_shadow.ShadowStore()
-        timeline_id = store.resolve_timeline(project_name, reel)
+        timeline_id = _current_reel_timeline_id(project_folder, project_name,
+                                                reel)
         head = store.head(project_name, timeline_id)
         if head is None:
             raise timeline_shadow.ShadowError(

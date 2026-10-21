@@ -353,6 +353,38 @@ def list_entries(project_folder) -> list:
     return entries
 
 
+def last_promoted_timeline(project_folder, reel_name: str) -> str:
+    """The timeline id Ren itself last promoted for this reel, or "".
+
+    THE JOURNAL IS THE RECORD OF WHAT REN MADE CURRENT. A promotion
+    names the candidate that became the reel's timeline, so the reel's
+    current timeline id is the last promotion's candidate id.
+
+    It is not the newest generation the shadow happens to hold under
+    that name: the shadow keeps a replaced timeline's head as
+    recoverable history (VC-002 archives, VC-008 dependencies), and
+    reading that history as INVENTORY made a touched reel unaddressable
+    - "3 timelines are named <the reel>" for a project that holds one
+    (measured 2026-10-21, two touch-ups promoted two generations under
+    one reel's name).
+    """
+    found = ""
+    if not reel_name:
+        return found
+    for entry in list_entries(project_folder):
+        receipt = entry.get("receipt") or {}
+        candidate = ((receipt.get("candidate_lifecycle") or {})
+                     .get("candidate") or {})
+        final = (entry.get("final") or receipt.get("final")
+                 or (receipt.get("promotion") or {}).get("final") or "")
+        if final != reel_name:
+            continue
+        promoted = candidate.get("id") or ""
+        if promoted:
+            found = promoted
+    return found
+
+
 # ── Creative commits: git semantics over creative state ────────────
 #
 # A commit records WHAT changed and WHY, with the identity the captain's
