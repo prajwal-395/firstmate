@@ -42,6 +42,18 @@ def _substrate(substrate_id: str = "synthetic-reel",
     }
 
 
+def _profile_of(brief_id: str) -> str:
+    """The footage profile the shipped brief declares.
+
+    A substrate is a piece of footage of ONE shape, so the substrate a
+    brief is measured against declares that brief's profile.  A
+    substrate of another shape is a different reel, and the harness
+    says the brief does not apply to it.
+    """
+    the_set = briefs.load_brief_set()
+    return footage.declared_profile(briefs.brief(the_set, brief_id))
+
+
 def _record(brief_id: str, substrate: str | None = "podcast-reel-13",
             **sections) -> dict:
     record = record_module.new_record(
@@ -153,10 +165,16 @@ def test_the_premise_view_counts_a_brief_the_footage_cannot_carry_as_unmeasured(
     as measured, so the two views look alike."""
     report = runner.run_acceptance(
         [_record("open-with-the-cost", substrate="no-cost-reel"),
-         _record("name-bar-fights-the-captions", substrate="no-cost-reel")],
-        catalogue=_catalogue(_substrate(
-            "no-cost-reel", features=("lower_third_overlay",),
-            checked=("cost_statement",))),
+         _record("name-bar-fights-the-captions",
+                 substrate="lower-third-reel")],
+        catalogue=_catalogue(
+            _substrate("no-cost-reel",
+                       profile=_profile_of("open-with-the-cost"),
+                       features=(), checked=("cost_statement",)),
+            _substrate("lower-third-reel",
+                       profile=_profile_of("name-bar-fights-the-captions"),
+                       features=("lower_third_overlay",),
+                       checked=("cost_statement",))),
     )
     view = report["premise"]["stage_metrics"]["stages"]["interpretation"]
     assert view["measured"] == 1
@@ -246,7 +264,8 @@ def test_a_premise_the_footage_must_NOT_carry_is_satisfied_by_its_absence():
     report = runner.run_acceptance(
         [_record("no-extra-footage", substrate="no-bench-reel")],
         catalogue=_catalogue(_substrate(
-            "no-bench-reel", checked=("workshop_bench_coverage",))),
+            "no-bench-reel", profile=_profile_of("no-extra-footage"),
+            checked=("workshop_bench_coverage",))),
     )
     row = _row(report, "no-extra-footage")
     assert row["premise"]["status"] == footage.PREMISE_CARRIED
@@ -258,13 +277,46 @@ def test_a_brief_whose_premise_the_footage_carries_is_refused():
     report = runner.run_acceptance(
         [_record("no-extra-footage", substrate="bench-reel")],
         catalogue=_catalogue(_substrate(
-            "bench-reel", features=("workshop_bench_coverage",))),
+            "bench-reel", profile=_profile_of("no-extra-footage"),
+            features=("workshop_bench_coverage",))),
     )
     row = _row(report, "no-extra-footage")
     assert row["premise"]["status"] == footage.PREMISE_NOT_CARRIED
     assert [item["feature"]
             for item in row["premise"]["missing_premises"]] == [
                 "workshop_bench_coverage"]
+
+
+def test_a_brief_measured_against_footage_of_another_shape_says_so():
+    """The defect: every brief was measured against reel 13 whatever its
+    premise, because the brief's declared profile was never enforced."""
+    report = runner.run_acceptance(
+        [_record("no-extra-footage", substrate="interview-reel")],
+        catalogue=_catalogue(_substrate(
+            "interview-reel", profile="two_camera_interview",
+            checked=("workshop_bench_coverage",))),
+    )
+    row = _row(report, "no-extra-footage")
+    assert row["premise"]["status"] == footage.PREMISE_PROFILE_MISMATCH
+    assert row["premise"]["profile_matches"] is False
+    assert "product_demo" in row["premise"]["reason"]
+    assert report["premise"]["premise_profile_mismatch"] == [
+        "no-extra-footage"]
+    assert report["premise"]["premise_carried_count"] == 0, (
+        "a brief the footage is the wrong shape for is not carried")
+
+
+def test_the_pairing_never_proposes_footage_of_another_shape():
+    """The defect: the pairing proposes a substrate that cannot carry the
+    brief, so the footage lane exports the wrong reel."""
+    the_set = briefs.load_brief_set()
+    brief = briefs.brief(the_set, "no-extra-footage")
+    catalogue = _catalogue(
+        _substrate("interview-reel", profile="two_camera_interview",
+                   checked=("workshop_bench_coverage",)))
+    selection = footage.select_substrate(brief, catalogue)
+    assert selection["selected"] is None
+    assert "product_demo" in selection["reason"]
 
 
 def test_a_premise_naming_a_feature_outside_the_enumeration_is_refused():

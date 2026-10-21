@@ -266,9 +266,27 @@
    "annotation": {
     "annotation_id": "LC4930:editorial-evidence-v1",
     "schema": "editorial-evidence-v1",
-    "state": "not_started",
-    "access": "not_created",
-    "tuning_access": false
+    "state": "partial",
+    "access": "sealed_custodian_only",
+    "tuning_access": false,
+    "label_store": {
+     "environment_variable": "REN_EDITORIAL_EVAL_LABELS",
+     "schema": "editorial-evidence-v1",
+     "covers": [
+      "action",
+      "object_state",
+      "identity",
+      "location",
+      "absent_event"
+     ],
+     "note": "the labels for the five categories the punch list names are SEALED: a negative or relational label anybody can read is a label a retrieval floor can be tuned on.  The harness reads them at scoring time; without the store the entries stay unlabelled and are never counted as a miss"
+    },
+    "not_annotated": [
+     "scene",
+     "camera_motion",
+     "ambience_music",
+     "speech"
+    ]
    },
    "collection": "geo-podcast"
   },
@@ -298,9 +316,27 @@
    "annotation": {
     "annotation_id": "LCATL0011:editorial-evidence-v1",
     "schema": "editorial-evidence-v1",
-    "state": "not_started",
-    "access": "not_created",
-    "tuning_access": false
+    "state": "partial",
+    "access": "sealed_custodian_only",
+    "tuning_access": false,
+    "label_store": {
+     "environment_variable": "REN_EDITORIAL_EVAL_LABELS",
+     "schema": "editorial-evidence-v1",
+     "covers": [
+      "action",
+      "object_state",
+      "identity",
+      "location",
+      "absent_event"
+     ],
+     "note": "the labels for the five categories the punch list names are SEALED: a negative or relational label anybody can read is a label a retrieval floor can be tuned on.  The harness reads them at scoring time; without the store the entries stay unlabelled and are never counted as a miss"
+    },
+    "not_annotated": [
+     "scene",
+     "camera_motion",
+     "ambience_music",
+     "speech"
+    ]
    },
    "collection": "geo-podcast"
   },
@@ -971,5 +1007,16 @@
   "label_payloads_in_repository": false,
   "custodian": "corpus owner",
   "access_audit": "No held-out label files are included in this repository; source footage is read-only and not a label payload."
+ },
+ "annotation_policy": {
+  "sealed_labels": {
+   "environment_variable": "REN_EDITORIAL_EVAL_LABELS",
+   "why": "the held-out categories - action, object state, identity, location and absent event - are what a retrieval floor is tuned against, so their labels are sealed from tuning and read by the harness at scoring time",
+   "state_vocabulary": {
+    "not_started": "no annotation record exists for the source",
+    "partial": "some categories are annotated for the source, and the records live in the sealed store",
+    "created": "every category the corpus asks for is annotated for the source"
+   }
+  }
  }
 }

@@ -24,7 +24,7 @@ from pathlib import Path
 
 import pytest
 
-from library.tools.editorial_acceptance import briefs
+from library.tools.editorial_acceptance import briefs, footage
 
 
 def _shipped() -> dict:
@@ -144,6 +144,28 @@ def test_an_answer_key_naming_an_operation_nobody_has_is_refused():
     problems = briefs.validate_brief_set(raw)
     assert any("operations the engine does not have" in problem
                for problem in problems)
+
+
+def test_a_brief_declaring_a_footage_profile_nobody_named_is_refused():
+    """The defect: a brief declares the shape of the footage it is
+    written against, and nobody checks the shape is one the engine can
+    name - so the profile is decoration and every brief is measured
+    against whatever reel was open."""
+    raw = json.loads(briefs.brief_set_path().read_text(encoding="utf-8"))
+    raw["briefs"][0]["project_state"]["footage_profile"] = "a_reel_of_tears"
+    problems = briefs.validate_brief_set(raw)
+    assert any("footage profile" in problem for problem in problems)
+
+
+def test_every_shipped_brief_declares_a_profile_the_enumeration_names():
+    """The defect: a brief whose profile nobody can name can never be
+    paired with a substrate, and the report does not say so."""
+    the_set = briefs.load_brief_set()
+    for brief in the_set["briefs"]:
+        declared = footage.declared_profile(brief)
+        assert declared in footage.PROFILES, (
+            f"{brief['id']} declares a profile outside the enumeration")
+        assert declared, f"{brief['id']} declares no footage profile"
 
 
 def test_a_brief_repeating_a_criterion_id_is_refused():

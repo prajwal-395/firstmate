@@ -101,6 +101,11 @@ PRESENCE: tuple[str, ...] = ("present", "absent")
 PREMISE_CARRIED = "premise_carried"
 PREMISE_NOT_CARRIED = "premise_not_carried"
 PREMISE_UNCHECKED = "premise_unchecked"
+PREMISE_PROFILE_MISMATCH = "premise_profile_mismatch"
+"""The substrate is a DIFFERENT SHAPE of footage from the one the brief
+is written against.  The premise was never checked on it, and it could
+not have been: a brief written against a product demo is not answered by
+a two-camera interview, whatever that interview happens to carry."""
 
 #: The states of one requirement against one substrate.
 SATISFIED = "satisfied"
@@ -285,6 +290,13 @@ def applicability(brief: Mapping[str, Any],
     was never measured for it, or no substrate was named at all.
     Neither is a failure of the run: the run is scored either way, and
     this is reported beside the score.
+
+    **The PROFILE is enforced here.**  A brief declares the shape of
+    footage it is written against, and a substrate declares the shape it
+    is.  A brief written against a product demo and run against a
+    two-camera interview is not a brief that failed: it is a brief
+    measured against footage it does not apply to, and it says so
+    instead of carrying the substrate's profile silently.
     """
     profile = declared_profile(brief)
     required = requirements_of(brief)
@@ -306,17 +318,25 @@ def applicability(brief: Mapping[str, Any],
     unchecked = [row for row in rows
                    if row["state"] == REQUIREMENT_UNKNOWN]
     substrate_profile = str(substrate.get("profile") or "")
+    profile_matches = bool(profile) and substrate_profile == profile
     detail = {
         "brief_profile": profile,
         "substrate_id": str(substrate.get("id") or ""),
         "substrate_profile": substrate_profile,
-        "profile_matches": bool(profile) and substrate_profile == profile,
+        "profile_matches": profile_matches,
         "required": [_requirement_row(requirement) for requirement
                      in required],
         "requirements": rows,
         "missing_premises": missing,
         "unchecked_premises": unchecked,
     }
+    if profile and not profile_matches:
+        detail["status"] = PREMISE_PROFILE_MISMATCH
+        detail["reason"] = (
+            f"the substrate is a {substrate_profile} and this brief is "
+            f"written against a {profile}; the footage is the wrong shape "
+            "for the brief")
+        return detail
     if not rows:
         detail["reason"] = ("the brief states no premise about the "
                             "footage, so any substrate carries it")
@@ -376,23 +396,34 @@ def select_substrate(brief: Mapping[str, Any],
                      catalogue: Mapping[str, Any]) -> dict[str, Any]:
     """Which substrate a run should work this brief against.
 
-    A substrate that carries the brief's premise comes first; among
-    those, one whose PROFILE matches the brief the brief declares is
-    preferred, because the profile is what the brief was written
-    against. When nothing carries the premise, that is said plainly:
-    the brief needs a substrate nobody has measured yet, and no
-    measurement is invented to fill the gap.
+    **The profile is what pairs a brief with a substrate.**  A substrate
+    that carries the brief's premise comes first; among those, one whose
+    PROFILE matches the profile the brief declares is preferred, because
+    the profile is what the brief was written against. When nothing
+    carries the premise, that is said plainly: the brief needs a
+    substrate nobody has measured yet, and no measurement is invented to
+    fill the gap.
+
+    A substrate whose profile does NOT match is never proposed: a brief
+    written against a product demo is not served by a two-camera
+    interview, however well that interview carries the premise.
     """
     requirements = requirements_of(brief)
     profile = declared_profile(brief)
     entries = substrates(catalogue)
+    of_profile = [entry for entry in entries
+                  if profile and str(entry.get("profile") or "") == profile]
     settled: list[dict[str, Any]] = []
     unconfirmed: list[dict[str, Any]] = []
     carrying: list[dict[str, Any]] = []
+    carrying_any_profile: list[dict[str, Any]] = []
     for entry in entries:
         states = [requirement_state(requirement, entry)
                   for requirement in requirements]
         if any(state in (MISSING, VIOLATED) for state in states):
+            continue
+        carrying_any_profile.append(entry)
+        if entry not in of_profile:
             continue
         carrying.append(entry)
         if any(state == REQUIREMENT_UNKNOWN for state in states):
@@ -400,23 +431,22 @@ def select_substrate(brief: Mapping[str, Any],
         else:
             settled.append(entry)
     pool = settled + unconfirmed
-    matches = [entry for entry in pool
-               if profile and str(entry.get("profile") or "") == profile]
+    matches = pool
     chosen: dict[str, Any] | None = None
     reason = ""
     if matches:
         chosen = min(matches, key=lambda entry: str(entry.get("id")))
-        reason = ("its profile matches the profile the brief declares")
-    elif settled:
-        chosen = min(settled, key=lambda entry: str(entry.get("id")))
-        reason = ("no substrate declares the brief's profile; this one "
-                  "carries the brief's premise")
-    elif unconfirmed:
-        chosen = min(unconfirmed, key=lambda entry: str(entry.get("id")))
-        reason = ("no substrate settles the brief's premise; this one is "
-                  "the closest, and the premise stays unchecked")
+        reason = ("its profile matches the profile the brief declares, and "
+                  "it carries what the brief presupposes")
+    elif of_profile:
+        reason = ("a substrate of the right profile exists, but it does "
+                  "not carry what the brief presupposes")
+    elif profile:
+        reason = (f"no substrate declares the profile this brief is written "
+                  f"against ({profile}); the brief needs footage of that "
+                  "shape")
     else:
-        reason = "no substrate carries the premise the brief states"
+        reason = "the brief declares no profile, and nothing carries it"
     selection = {
         "brief_id": str(brief.get("id") or ""),
         "declared_profile": profile,
@@ -426,13 +456,15 @@ def select_substrate(brief: Mapping[str, Any],
         "selected_profile": str(chosen.get("profile")) if chosen else None,
         "reason": reason,
         "carrying_premise": [str(entry.get("id")) for entry in carrying],
+        "carrying_premise_any_profile": [
+            str(entry.get("id")) for entry in carrying_any_profile],
         "profile_matches": [str(entry.get("id")) for entry in matches],
         "settled": [str(entry.get("id")) for entry in settled],
         "unconfirmed": [str(entry.get("id")) for entry in unconfirmed],
     }
     if chosen is None and requirements:
         missing: list[dict[str, Any]] = []
-        unconfirmed: list[dict[str, Any]] = []
+        unconfirmed_rows: list[dict[str, Any]] = []
         for requirement in requirements:
             states = [requirement_state(requirement, entry)
                       for entry in entries]
@@ -446,11 +478,11 @@ def select_substrate(brief: Mapping[str, Any],
             if any(state == SATISFIED for state in states):
                 continue
             if any(state == REQUIREMENT_UNKNOWN for state in states):
-                unconfirmed.append(row)
+                unconfirmed_rows.append(row)
             else:
                 missing.append(row)
         selection["missing_premises"] = missing
-        selection["unconfirmed_premises"] = unconfirmed
+        selection["unconfirmed_premises"] = unconfirmed_rows
     return selection
 
 

@@ -91,6 +91,133 @@ def test_the_editorial_set_covers_absent_searches_as_well_as_present_ones():
 # ─── VI-003: a category with no labels is declared, not scored ─────
 
 
+def test_the_held_out_set_measures_both_lanes():
+    """The defect: the held-out set carried no text-lane present query,
+    so its recall was a frame-lane number read as a retrieval number."""
+    payload = _load(HELD_OUT_SET)
+    present = [q for q in payload["queries"] if q.get("expect") == "present"]
+    lanes = {q.get("lane") for q in present}
+    assert "text" in lanes, (
+        "the held-out set measures the frame lane alone, so it says "
+        "nothing about the lane an editor asks in most")
+    assert "visual" in lanes
+    for query in present:
+        if query.get("lane") == "text":
+            assert query["moments"], (
+                f"{query['id']} is a text-lane present query with no "
+                "ground truth")
+
+
+def test_an_entry_added_after_the_set_was_measured_says_so():
+    """The defect: a new label slipped into a set that claims to be
+    pre-registered, and the report cannot say which entries are old."""
+    payload = _load(HELD_OUT_SET)
+    amendments = payload.get("amendments") or []
+    assert amendments, (
+        "the entries added after the set was measured must say so in the "
+        "set, not only in a commit message")
+    for amendment in amendments:
+        assert amendment["registered_before_measurement"] is False
+        assert amendment["why"]
+        for identifier in amendment["entries"]:
+            query = next(q for q in payload["queries"]
+                         if q["id"] == identifier)
+            provenance = query.get("provenance") or {}
+            store = query.get("label_store")
+            assert provenance.get("derived_from") or store, (
+                f"{identifier} carries a label and does not say where it "
+                "came from")
+            assert provenance.get("basis") or store
+            if not store:
+                assert query["expect"] == "present"
+                assert query["moments"]
+
+
+def test_the_five_categories_carry_their_labels_in_a_sealed_store():
+    """The defect: the five categories the punch list names carried no
+    label, so the corpus had no negative or relational query for a
+    floor or an action refusal to be measured against."""
+    payload = _load(HELD_OUT_SET)
+    by_id = {query["id"]: query for query in payload["queries"]}
+    for identifier in ("H11", "H12", "H13", "H14", "H15"):
+        query = by_id[identifier]
+        assert query["expect"] == "unlabelled", (
+            f"{identifier} stays unlabelled in the repository; its label is "
+            "sealed, so a checkout without the store must not score it")
+        store = query.get("label_store") or {}
+        assert store.get("environment_variable"), (
+            f"{identifier} does not say where its label lives")
+        requirement = query.get("label_requirement") or {}
+        assert requirement.get("annotation_state") == "created"
+        assert requirement.get("label_payloads_in_repository") is False
+        assert requirement.get("tuning_access") is False
+
+
+def test_a_sealed_label_makes_its_entry_scorable_and_a_missing_one_does_not():
+    from library.tools import editorial_eval_labels
+    payload = _load(HELD_OUT_SET)
+    labels = editorial_eval_labels.load_store("/nonexistent/label-store.json")
+    assert labels == {}, (
+        "a store that is not there is an empty store: the harness then "
+        "scores the set exactly as it did before the labels existed")
+    applied, applied_ids = editorial_eval_labels.apply_labels(payload, labels)
+    assert applied_ids == []
+    for query in applied["queries"]:
+        if query["id"] == "H11":
+            assert query["expect"] == "unlabelled"
+
+
+def test_a_sealed_label_is_applied_when_the_store_carries_it():
+    from library.tools import editorial_eval_labels
+    payload = _load(HELD_OUT_SET)
+    label = {"entry_id": "H11", "expect": "present",
+             "moments": [{"instances": [
+                 {"asset": "LC4930", "start": 5.9, "end": 7.1}]}]}
+    applied, applied_ids = editorial_eval_labels.apply_labels(
+        payload, {"H11": label})
+    assert applied_ids == ["H11"]
+    entry = next(q for q in applied["queries"] if q["id"] == "H11")
+    assert entry["expect"] == "present"
+    assert entry["moments"] == label["moments"]
+    assert entry["labels"] == "sealed_custodian_store"
+
+
+def test_a_label_that_cannot_be_read_is_not_applied():
+    from library.tools import editorial_eval_labels
+    payload = _load(HELD_OUT_SET)
+    broken = {"entry_id": "H11", "expect": "present",
+              "moments": [{"instances": [
+                  {"asset": "NOT-A-SOURCE", "start": 5.9, "end": 7.1}]}]}
+    applied, applied_ids = editorial_eval_labels.apply_labels(
+        payload, {"H11": broken})
+    assert applied_ids == []
+    entry = next(q for q in applied["queries"] if q["id"] == "H11")
+    assert entry["expect"] == "unlabelled"
+    assert entry.get("label_problems"), (
+        "a label that names a source the set does not hold is refused, and "
+        "the refusal is said out loud")
+
+
+def test_the_summary_reports_the_lanes_on_their_own_denominators():
+    """The defect: a macro average over two lanes hides which one
+    moved, and a set that carries one lane says nothing about the
+    other."""
+    payload = _load(HELD_OUT_SET)
+    query = next(q for q in payload["queries"] if q["id"] == "H16")
+    corpus = retrieval_eval.Corpus.__new__(retrieval_eval.Corpus)
+    corpus.name_of_clip = {"LC4930": "LC4930"}
+    report = {"results": [{"clip_id": "LC4930", "start": 134.4, "end": 151.51,
+                           "score": 0.5}]}
+    scored = retrieval_eval.score_editorial(
+        query, report, corpus, payload["scoring"]["editorial"])
+    summary = retrieval_eval.summarise([scored], {})
+    block = summary["editorial"]["by_lane"]
+    assert block["text"]["queries_present"] == 1
+    assert block["text"]["macro_recall"] == pytest.approx(1.0)
+    assert "visual" not in block, (
+        "a lane the set does not query is not reported as a lane")
+
+
 def test_the_held_out_set_declares_all_five_categories():
     payload = _load(HELD_OUT_SET)
     categories = payload["categories"]

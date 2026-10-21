@@ -138,8 +138,23 @@ def _measure_interpretation(record: Mapping[str, Any],
 
 
 def _measure_retrieval(record: Mapping[str, Any],
-                        key: Mapping[str, Any]) -> dict[str, Any]:
-    """Did the run find the source moments, each with evidence behind it?"""
+                        key: Mapping[str, Any],
+                        premise: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """Did the run find the source moments, each with evidence behind it?
+
+    **A correctly reported absence is a PASS on this stage.**  The
+    harness used to know two things only: found, and missing.  A brief
+    whose premise the footage does not carry - because the brief itself
+    says the footage lacks it, or because the substrate was MEASURED and
+    does not carry it - was therefore scored as a retrieval failure when
+    the run did the right thing and said so.  The stage now reads the
+    negative assertion the run recorded, and the premise beside it.
+
+    The prose of the assertion is not checked: the run reports what it
+    could not find in its own words, and the harness checks the SHAPE -
+    that the run said something was unavailable - beside the premise
+    that says it was not there to be found.
+    """
     block = _block(record, "retrieval")
     if block is None:
         return _not_measured("the run recorded no retrieval evidence")
@@ -152,6 +167,16 @@ def _measure_retrieval(record: Mapping[str, Any],
         if not list(moment.get("evidence_ids") or [])
     ]
     missing = [moment for moment in expected if moment not in found]
+    unavailable = list(block.get("unavailable") or [])
+    abstained = bool(block.get("abstained"))
+    reported_absent = bool(unavailable) or abstained
+    absent_premise = any(
+        str(requirement.get("presence") or "") == "absent"
+        for requirement in (key.get("footage_requirements") or [])
+        if isinstance(requirement, Mapping))
+    premise_not_carried = str((premise or {}).get("status") or "") in (
+        "premise_not_carried", "premise_profile_mismatch")
+    premise_absent = absent_premise or premise_not_carried
     detail = {
         "expected_moment_ids": expected,
         "retrieved_moment_ids": found,
@@ -160,9 +185,21 @@ def _measure_retrieval(record: Mapping[str, Any],
         "retrieval_recall": (
             (len(expected) - len(missing)) / len(expected)
             if expected else None),
-        "abstained": bool(block.get("abstained")),
-        "unavailable": list(block.get("unavailable") or []),
+        "abstained": abstained,
+        "unavailable": unavailable,
+        "reported_absent": reported_absent,
+        "premise_absent": premise_absent,
+        "premise_declared_absent": absent_premise,
+        "premise_not_carried": premise_not_carried,
     }
+    if premise_absent:
+        if reported_absent:
+            detail["expected"] = ("the footage does not carry what the "
+                                   "brief asks for, and the run said so")
+            return _measured(True, **detail)
+        return _not_measured(
+            "the footage does not carry what the brief asks for, and the "
+            "run recorded no answer about it", **detail)
     if not expected:
         return _not_measured("the brief declares no retrieval expectation",
                              **detail)
@@ -322,11 +359,18 @@ def _measure_final_quality(record: Mapping[str, Any],
 
 
 def measure(record: Mapping[str, Any], brief: Mapping[str, Any],
-            key: Mapping[str, Any]) -> dict[str, Any]:
-    """Every stage of one task, measured against one brief's expectations."""
+            key: Mapping[str, Any],
+            premise: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """Every stage of one task, measured against one brief's expectations.
+
+    `premise` is what the footage was MEASURED to carry, beside the
+    brief's own expectations.  The retrieval stage reads it, because a
+    brief whose premise the footage does not carry cannot be failed for
+    not finding what was never there.
+    """
     return {
         "interpretation": _measure_interpretation(record, key),
-        "retrieval": _measure_retrieval(record, key),
+        "retrieval": _measure_retrieval(record, key, premise),
         "planning": _measure_planning(record, brief, key),
         "execution": _measure_execution(record, key),
         "final_quality": _measure_final_quality(record, key),

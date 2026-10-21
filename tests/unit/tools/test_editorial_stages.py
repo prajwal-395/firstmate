@@ -213,6 +213,63 @@ def test_a_missing_moment_fails_retrieval_and_says_which():
     assert measured["retrieval"]["detail"]["retrieval_recall"] == 0.0
 
 
+def test_a_correctly_reported_absence_passes_the_retrieval_stage():
+    """The defect: a run that searched, found nothing, and SAID so is
+    scored as a retrieval failure on a brief whose footage does not
+    carry what the brief asks for."""
+    record = _record()
+    record["retrieval"] = {"moments": [], "abstained": False,
+                           "unavailable": ["the reel's own footage carries "
+                                           "no statement of what it costs"]}
+    key = _key(expected_moment_ids=["cost-statement"])
+    premise = {"status": "premise_not_carried"}
+    measured = stages.measure(record, _brief(), key, premise=premise)
+    assert measured["retrieval"]["status"] == "measured"
+    assert measured["retrieval"]["passed"] is True, (
+        "the correct answer to \"find the moment that is not there\" is to "
+        "say it is not there")
+    detail = measured["retrieval"]["detail"]
+    assert detail["reported_absent"] is True
+    assert detail["premise_not_carried"] is True
+
+
+def test_a_brief_that_declares_the_premise_absent_passes_when_the_run_says_so():
+    record = _record()
+    record["retrieval"] = {"moments": [], "abstained": False,
+                           "unavailable": ["the project holds no "
+                                           "workshop-bench footage"]}
+    key = _key(expected_moment_ids=[],
+               expected_operations=[], expected_target_roles=[],
+               footage_requirements=[{"feature": "workshop_bench_coverage",
+                                      "presence": "absent"}])
+    measured = stages.measure(record, _brief(), key)
+    assert measured["retrieval"]["passed"] is True
+    assert measured["retrieval"]["detail"]["premise_declared_absent"] is True
+
+
+def test_a_run_that_reports_an_absent_premise_it_should_have_found_fails():
+    """The defect: the same answer is a pass whenever it suits the
+    report.  A brief whose footage DOES carry the premise, where the run
+    said it was not there, is a miss."""
+    record = _record()
+    record["retrieval"] = {"moments": [], "abstained": False,
+                           "unavailable": ["nothing here"]}
+    measured = stages.measure(record, _brief(), _key(),
+                              premise={"status": "premise_carried"})
+    assert measured["retrieval"]["passed"] is False
+    assert measured["retrieval"]["detail"]["premise_absent"] is False
+
+
+def test_a_brief_the_footage_cannot_carry_is_not_measured_when_the_run_said_nothing():
+    record = _record()
+    record["retrieval"] = {"moments": [], "abstained": False,
+                           "unavailable": []}
+    measured = stages.measure(record, _brief(), _key(),
+                              premise={"status": "premise_not_carried"})
+    assert measured["retrieval"]["status"] == "not_measured", (
+        "no evidence is not_measured, never a zero")
+
+
 def test_a_plan_asking_for_more_than_the_request_did_fails_planning():
     """The defect: the plan carries an operation the request never asked
     for, and only the covered operations are checked."""

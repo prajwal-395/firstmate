@@ -155,7 +155,8 @@ def score_task(record: Mapping[str, Any], brief: Mapping[str, Any],
     measured_record = dict(record)
     measured_record["delivery"] = rendered
     measured_record["assessment"] = assessment
-    stage_measurements = stages.measure(measured_record, public, key)
+    stage_measurements = stages.measure(measured_record, public, key,
+                                        premise=premise)
     classification = failures.classify(
         stage_measurements, task_id=str(record.get("task_id") or brief["id"]),
         expected_refusal=bool(key["expected_refusal"]))
@@ -321,6 +322,9 @@ def _premise_view(scored_rows: Sequence[Mapping[str, Any]],
     not_carried = [row["brief_id"] for row in scored_rows
                    if (row.get("premise") or {}).get("status")
                    == footage.PREMISE_NOT_CARRIED]
+    mismatched = [row["brief_id"] for row in scored_rows
+                  if (row.get("premise") or {}).get("status")
+                  == footage.PREMISE_PROFILE_MISMATCH]
     unchecked = [row["brief_id"] for row in scored_rows
                  if (row.get("premise") or {}).get("status")
                  == footage.PREMISE_UNCHECKED]
@@ -345,6 +349,8 @@ def _premise_view(scored_rows: Sequence[Mapping[str, Any]],
         },
         "premise_not_carried": not_carried,
         "premise_not_carried_count": len(not_carried),
+        "premise_profile_mismatch": mismatched,
+        "premise_profile_mismatch_count": len(mismatched),
         "premise_unchecked": unchecked,
         "premise_carried_count": len(carried_rows),
         "pairing": footage.select_for_set(the_set, catalogue),

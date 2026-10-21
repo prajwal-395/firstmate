@@ -50,9 +50,10 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from library.tools import footage_analysis
+from library.tools.retrieval import regions as regions_mod
 from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
 
 DEFAULT_SET = Path(__file__).with_name("retrieval_eval_set.json")
@@ -457,6 +458,15 @@ def score_editorial(query: dict, report: dict, corpus: Corpus,
     padded by the tolerance.  The consequence of the wrong rows is
     priced as well, because a window that holds nothing the editor asked
     for is not free.
+
+    **The credit is CAPPED.**  A wanted moment is a region - a
+    contiguous run of labelled moments - and ONE window earns at most
+    one credit for it, however many labelled samples of that region the
+    window happens to span.  Without the cap a range that spans twenty
+    ten-second samples earns twenty hits, and "return the whole
+    recording" scores better than the search does.  The uncapped number
+    is still reported, as `recall_uncredited`, so nothing is hidden by
+    the change (`library.tools.retrieval.regions`).
     """
     if query.get("expect") == "unlabelled":
         return {
@@ -506,6 +516,10 @@ def score_editorial(query: dict, report: dict, corpus: Corpus,
                         (instance["start"] - tol, instance["end"] + tol)):
                     row["hit"] = True
                     found.add(index)
+    offsets = rules.get("multicam_offsets_to_reference") or {}
+    regions = regions_mod.wanted_regions(moments, offsets)
+    credit = regions_mod.credit_windows(moments, regions, rows, tol)
+    credited = set(credit["credited"])
     out = {"id": query["id"], "family": "editorial",
            "query": query["query"],
            "editorial_need": query.get("editorial_need"),
@@ -513,11 +527,20 @@ def score_editorial(query: dict, report: dict, corpus: Corpus,
            "category": query.get("category"),
            "returned": len(rows), "rows": rows,
            "requirements": _requirement_agreement(query),
+           "refused": report.get("refused"),
            "error": report.get("error"), "degraded": report.get("degraded")}
     if moments:
         out.update(kind="present", moments=len(moments),
-                   moments_found=len(found),
-                   recall=_ratio(len(found), len(moments)),
+                   moments_found=len(credited),
+                   recall=_ratio(len(credited), len(moments)),
+                   recall_uncredited=_ratio(len(found), len(moments)),
+                   moments_overlapped=len(found),
+                   regions=len(regions),
+                   regions_found=len(credit["regions_found"]),
+                   region_recall=_ratio(len(credit["regions_found"]),
+                                        len(regions)),
+                   credit_cap="one credit per window per region",
+                   excess_seconds=credit["excess_seconds"],
                    precision=_ratio(sum(r["hit"] for r in rows), len(rows)),
                    first_hit_rank=next((i + 1 for i, r in enumerate(rows)
                                         if r["hit"]), None))
@@ -621,9 +644,15 @@ def _count(outcomes: dict) -> dict:
 
 
 def run(project: str, eval_set: dict, families: Sequence[str] = FAMILIES,
-        timing_records: Sequence[str] = ()) -> dict:
-    corpus = Corpus(project, eval_set)
+        timing_records: Sequence[str] = (),
+        labels: Optional[Mapping[str, Mapping]] = None) -> dict:
     rules = eval_set["scoring"]
+    from library.tools import editorial_eval_labels
+    if labels is None:
+        labels = editorial_eval_labels.load_store()
+    eval_set, sealed_applied = editorial_eval_labels.apply_labels(
+        eval_set, labels)
+    corpus = Corpus(project, eval_set)
     results, latency = [], {}
     text_index = frame_index = None
     person_ids: Dict[str, Tuple[Optional[str], dict]] = {}
@@ -648,7 +677,14 @@ def run(project: str, eval_set: dict, families: Sequence[str] = FAMILIES,
                                                top_ranges=rules["visual"]["top_k"])
             scored = score_visual(query, report, corpus, rules["visual"])
         elif family == "editorial":
-            editorial_rules = rules.get("editorial", EDITORIAL_RULES)
+            editorial_rules = dict(rules.get("editorial", EDITORIAL_RULES))
+            # The conversation clock's offsets are what tell two angles of
+            # ONE wanted moment apart from two wanted things; the set
+            # carries them beside the queries.
+            editorial_rules.setdefault(
+                "multicam_offsets_to_reference",
+                (eval_set.get("ground_truth_mapping") or {}).get(
+                    "multicam_offsets_to_reference") or {})
             if query.get("lane") == "visual":
                 if frame_index is None:
                     from library.tools.analysis.footage_frames import FrameIndex
@@ -705,6 +741,7 @@ def run(project: str, eval_set: dict, families: Sequence[str] = FAMILIES,
         "code_revision": footage_analysis._git_head(),
         "project": os.path.basename(os.path.abspath(project)),
         "assets_missing_from_project": corpus.missing,
+        "sealed_labels_applied": sealed_applied,
         "summary": summarise(results, latency),
         "coverage": coverage(project),
         "processing_time": processing_time([r for r in records if r]),
@@ -716,6 +753,41 @@ def run(project: str, eval_set: dict, families: Sequence[str] = FAMILIES,
                              rules=eval_set["scoring"]["visual"])
         result["summary"]["visual_benchmark"] = result["visual_benchmark"]
     return result
+
+
+def _editorial_by_lane(editorial: List[dict]) -> dict:
+    """The editorial measures per lane, each on its own denominator.
+
+    The text lane and the frame lane are different searches with
+    different ground truths, and a macro average over both hides which
+    one moved.  A set that carries queries for one lane only therefore
+    reports a number about that lane, and says so here.
+    """
+    def mean(xs):
+        xs = [x for x in xs if x is not None]
+        return round(sum(xs) / len(xs), 4) if xs else None
+
+    out: dict = {}
+    for lane in ("text", "visual"):
+        rows = [r for r in editorial if (r.get("lane") or "text") == lane]
+        present = [r for r in rows if r.get("kind") == "present"]
+        absent = [r for r in rows if r.get("kind") == "absent"]
+        if not rows:
+            continue
+        out[lane] = {
+            "queries_present": len(present),
+            "queries_absent": len(absent),
+            "queries_unlabelled": sum(1 for r in rows
+                                      if r.get("kind") == "unlabelled"),
+            "queries_refused": sum(1 for r in rows
+                                   if r.get("kind") == "refusal"),
+            "macro_recall": mean(r.get("recall") for r in present),
+            "macro_recall_uncredited": mean(
+                r.get("recall_uncredited") for r in present),
+            "macro_precision": mean(r.get("precision") for r in present),
+            "absent_abstained": sum(1 for r in absent if r.get("abstained")),
+        }
+    return out
 
 
 def summarise(results: List[dict], latency: Dict[str, list]) -> dict:
@@ -781,6 +853,20 @@ def summarise(results: List[dict], latency: Dict[str, list]) -> dict:
                                     and r.get("refused")),
             "macro_recall": mean(r["recall"] for r in present),
             "macro_precision": mean(r["precision"] for r in present),
+            # The uncapped number is reported beside the capped one, so
+            # the change of definition is visible rather than silent.
+            "macro_recall_uncredited": mean(
+                r.get("recall_uncredited") for r in present),
+            "macro_region_recall": mean(
+                r.get("region_recall") for r in present),
+            "credit_cap": "one credit per window per region",
+            "excess_seconds": round(sum(
+                (r.get("excess_seconds") or 0.0) for r in present), 3),
+            # The lane decomposition, because a set that measures one lane
+            # says nothing about the other: the held-out set carried no
+            # text-lane present query at all, so its recall was a frame
+            # lane number read as a retrieval number.
+            "by_lane": _editorial_by_lane(editorial),
             "absent_abstained": sum(1 for r in absent if r.get("abstained")),
             "requirement_recall": mean(a["requirement_recall"]
                                        for a in agreements

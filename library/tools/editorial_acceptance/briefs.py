@@ -187,6 +187,13 @@ def validate_brief_set(raw: Mapping[str, Any]) -> list[str]:
                 if key not in state:
                     problems.append(
                         f"{label} project_state is missing {key!r}")
+            profile = state.get("footage_profile")
+            if profile not in footage.PROFILES:
+                problems.append(
+                    f"{label} declares the footage profile {profile!r}, "
+                    "which is outside the enumeration; a brief whose "
+                    "footage shape nobody can name is a brief nobody can "
+                    "pair with a substrate")
         criteria = brief.get("acceptance_criteria")
         if not isinstance(criteria, list) or not criteria:
             problems.append(f"{label} declares no acceptance criteria")

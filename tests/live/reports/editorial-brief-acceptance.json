@@ -96,7 +96,7 @@
       ]
     },
     "demonstration_brief": "the-whole-job",
-    "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/66/video-editing-pilot/library/tools/editorial_acceptance/brief_set.json",
+    "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/60/video-editing-pilot/library/tools/editorial_acceptance/brief_set.json",
     "sha256": "965880c76546d20010a625fccfda1614f13d6c338b9cc10e63355c5dac95cf21"
   },
   "criteria_coverage": {
@@ -338,13 +338,11 @@
     "bottleneck": "interpretation",
     "by_cause": {
       "interpretation.target_unresolved": 3,
-      "planning.criteria_not_covered": 1,
-      "retrieval.unavailable_asset": 1
+      "planning.criteria_not_covered": 2
     },
     "by_stage": {
       "interpretation": 3,
-      "planning": 1,
-      "retrieval": 1
+      "planning": 2
     },
     "dominant_cause": "interpretation.target_unresolved",
     "dominant_cause_summary": "the run could not say which item the request meant",
@@ -659,10 +657,10 @@
         "brief_profile": "interview_with_broll",
         "missing_premises": [],
         "profile_matches": false,
-        "reason": "the brief states no premise about the footage, so any substrate carries it",
+        "reason": "the substrate is a two_camera_interview and this brief is written against a interview_with_broll; the footage is the wrong shape for the brief",
         "required": [],
         "requirements": [],
-        "status": "premise_carried",
+        "status": "premise_profile_mismatch",
         "substrate_id": "podcast-reel-13",
         "substrate_profile": "two_camera_interview",
         "unchecked_premises": []
@@ -671,7 +669,7 @@
         "brief_profile": "talking_head_with_graphics",
         "missing_premises": [],
         "profile_matches": false,
-        "reason": "the substrate carries what the brief presupposes",
+        "reason": "the substrate is a two_camera_interview and this brief is written against a talking_head_with_graphics; the footage is the wrong shape for the brief",
         "required": [
           {
             "feature": "named_logo_asset",
@@ -687,7 +685,7 @@
             "summary": "the new logo is in the project"
           }
         ],
-        "status": "premise_carried",
+        "status": "premise_profile_mismatch",
         "substrate_id": "podcast-reel-13",
         "substrate_profile": "two_camera_interview",
         "unchecked_premises": []
@@ -696,7 +694,7 @@
         "brief_profile": "talking_head_with_graphics",
         "missing_premises": [],
         "profile_matches": false,
-        "reason": "the substrate carries what the brief presupposes",
+        "reason": "the substrate is a two_camera_interview and this brief is written against a talking_head_with_graphics; the footage is the wrong shape for the brief",
         "required": [
           {
             "feature": "lower_third_overlay",
@@ -712,7 +710,7 @@
             "summary": "a lower third carries a name"
           }
         ],
-        "status": "premise_carried",
+        "status": "premise_profile_mismatch",
         "substrate_id": "podcast-reel-13",
         "substrate_profile": "two_camera_interview",
         "unchecked_premises": []
@@ -721,7 +719,7 @@
         "brief_profile": "product_demo",
         "missing_premises": [],
         "profile_matches": false,
-        "reason": "the substrate carries what the brief presupposes",
+        "reason": "the substrate is a two_camera_interview and this brief is written against a product_demo; the footage is the wrong shape for the brief",
         "required": [
           {
             "feature": "workshop_bench_coverage",
@@ -737,7 +735,7 @@
             "summary": "the workshop bench was filmed"
           }
         ],
-        "status": "premise_carried",
+        "status": "premise_profile_mismatch",
         "substrate_id": "podcast-reel-13",
         "substrate_profile": "two_camera_interview",
         "unchecked_premises": []
@@ -803,7 +801,7 @@
           }
         ],
         "profile_matches": false,
-        "reason": "the substrate does not carry what the brief presupposes: the same statement is made more than once, a second camera angle covers a moment already shot, a caption names a word or number the speech does not, a music bed runs under the dialogue",
+        "reason": "the substrate is a two_camera_interview and this brief is written against a interview_with_broll; the footage is the wrong shape for the brief",
         "required": [
           {
             "feature": "repeated_passage",
@@ -874,7 +872,7 @@
             "summary": "a lower third carries a name"
           }
         ],
-        "status": "premise_not_carried",
+        "status": "premise_profile_mismatch",
         "substrate_id": "podcast-reel-13",
         "substrate_profile": "two_camera_interview",
         "unchecked_premises": [
@@ -897,7 +895,7 @@
           }
         ],
         "profile_matches": false,
-        "reason": "the substrate does not carry what the brief presupposes: a caption names a word or number the speech does not",
+        "reason": "the substrate is a two_camera_interview and this brief is written against a talking_head_with_graphics; the footage is the wrong shape for the brief",
         "required": [
           {
             "feature": "caption_mismatch",
@@ -913,7 +911,7 @@
             "summary": "a caption names a word or number the speech does not"
           }
         ],
-        "status": "premise_not_carried",
+        "status": "premise_profile_mismatch",
         "substrate_id": "podcast-reel-13",
         "substrate_profile": "two_camera_interview",
         "unchecked_premises": []
@@ -973,28 +971,29 @@
       "briefs": {
         "keep-it-but-tighten-it": {
           "brief_id": "keep-it-but-tighten-it",
-          "carrying_premise": [
+          "carrying_premise": [],
+          "carrying_premise_any_profile": [
             "podcast-reel-13"
           ],
           "declared_profile": "interview_with_broll",
           "profile_matches": [],
-          "reason": "no substrate declares the brief's profile; this one carries the brief's premise",
+          "reason": "no substrate declares the profile this brief is written against (interview_with_broll); the brief needs footage of that shape",
           "requires": [],
-          "selected": "podcast-reel-13",
-          "selected_profile": "two_camera_interview",
-          "settled": [
-            "podcast-reel-13"
-          ],
+          "selected": null,
+          "selected_profile": null,
+          "settled": [],
           "unconfirmed": []
         },
         "logo-not-in-the-project": {
           "brief_id": "logo-not-in-the-project",
-          "carrying_premise": [
+          "carrying_premise": [],
+          "carrying_premise_any_profile": [
             "podcast-reel-13"
           ],
           "declared_profile": "talking_head_with_graphics",
+          "missing_premises": [],
           "profile_matches": [],
-          "reason": "no substrate declares the brief's profile; this one carries the brief's premise",
+          "reason": "no substrate declares the profile this brief is written against (talking_head_with_graphics); the brief needs footage of that shape",
           "requires": [
             {
               "feature": "named_logo_asset",
@@ -1002,21 +1001,22 @@
               "summary": "the new logo is in the project"
             }
           ],
-          "selected": "podcast-reel-13",
-          "selected_profile": "two_camera_interview",
-          "settled": [
-            "podcast-reel-13"
-          ],
-          "unconfirmed": []
+          "selected": null,
+          "selected_profile": null,
+          "settled": [],
+          "unconfirmed": [],
+          "unconfirmed_premises": []
         },
         "name-bar-fights-the-captions": {
           "brief_id": "name-bar-fights-the-captions",
-          "carrying_premise": [
+          "carrying_premise": [],
+          "carrying_premise_any_profile": [
             "podcast-reel-13"
           ],
           "declared_profile": "talking_head_with_graphics",
+          "missing_premises": [],
           "profile_matches": [],
-          "reason": "no substrate declares the brief's profile; this one carries the brief's premise",
+          "reason": "no substrate declares the profile this brief is written against (talking_head_with_graphics); the brief needs footage of that shape",
           "requires": [
             {
               "feature": "lower_third_overlay",
@@ -1024,21 +1024,22 @@
               "summary": "a lower third carries a name"
             }
           ],
-          "selected": "podcast-reel-13",
-          "selected_profile": "two_camera_interview",
-          "settled": [
-            "podcast-reel-13"
-          ],
-          "unconfirmed": []
+          "selected": null,
+          "selected_profile": null,
+          "settled": [],
+          "unconfirmed": [],
+          "unconfirmed_premises": []
         },
         "no-extra-footage": {
           "brief_id": "no-extra-footage",
-          "carrying_premise": [
+          "carrying_premise": [],
+          "carrying_premise_any_profile": [
             "podcast-reel-13"
           ],
           "declared_profile": "product_demo",
+          "missing_premises": [],
           "profile_matches": [],
-          "reason": "no substrate declares the brief's profile; this one carries the brief's premise",
+          "reason": "no substrate declares the profile this brief is written against (product_demo); the brief needs footage of that shape",
           "requires": [
             {
               "feature": "workshop_bench_coverage",
@@ -1046,16 +1047,16 @@
               "summary": "the workshop bench was filmed"
             }
           ],
-          "selected": "podcast-reel-13",
-          "selected_profile": "two_camera_interview",
-          "settled": [
-            "podcast-reel-13"
-          ],
-          "unconfirmed": []
+          "selected": null,
+          "selected_profile": null,
+          "settled": [],
+          "unconfirmed": [],
+          "unconfirmed_premises": []
         },
         "open-with-the-cost": {
           "brief_id": "open-with-the-cost",
           "carrying_premise": [],
+          "carrying_premise_any_profile": [],
           "declared_profile": "two_camera_interview",
           "missing_premises": [
             {
@@ -1065,7 +1066,7 @@
             }
           ],
           "profile_matches": [],
-          "reason": "no substrate carries the premise the brief states",
+          "reason": "a substrate of the right profile exists, but it does not carry what the brief presupposes",
           "requires": [
             {
               "feature": "cost_statement",
@@ -1082,6 +1083,7 @@
         "the-whole-job": {
           "brief_id": "the-whole-job",
           "carrying_premise": [],
+          "carrying_premise_any_profile": [],
           "declared_profile": "interview_with_broll",
           "missing_premises": [
             {
@@ -1106,7 +1108,7 @@
             }
           ],
           "profile_matches": [],
-          "reason": "no substrate carries the premise the brief states",
+          "reason": "no substrate declares the profile this brief is written against (interview_with_broll); the brief needs footage of that shape",
           "requires": [
             {
               "feature": "repeated_passage",
@@ -1154,6 +1156,7 @@
         "the-wrong-caption": {
           "brief_id": "the-wrong-caption",
           "carrying_premise": [],
+          "carrying_premise_any_profile": [],
           "declared_profile": "talking_head_with_graphics",
           "missing_premises": [
             {
@@ -1163,7 +1166,7 @@
             }
           ],
           "profile_matches": [],
-          "reason": "no substrate carries the premise the brief states",
+          "reason": "no substrate declares the profile this brief is written against (talking_head_with_graphics); the brief needs footage of that shape",
           "requires": [
             {
               "feature": "caption_mismatch",
@@ -1180,6 +1183,7 @@
         "two-voices-at-once": {
           "brief_id": "two-voices-at-once",
           "carrying_premise": [],
+          "carrying_premise_any_profile": [],
           "declared_profile": "two_camera_interview",
           "missing_premises": [
             {
@@ -1194,7 +1198,7 @@
             }
           ],
           "profile_matches": [],
-          "reason": "no substrate carries the premise the brief states",
+          "reason": "a substrate of the right profile exists, but it does not carry what the brief presupposes",
           "requires": [
             {
               "feature": "overlapping_speech",
@@ -1214,32 +1218,39 @@
           "unconfirmed_premises": []
         }
       },
-      "catalogue_path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/66/video-editing-pilot/library/tools/editorial_acceptance/substrates.json",
+      "catalogue_path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/60/video-editing-pilot/library/tools/editorial_acceptance/substrates.json",
       "catalogue_sha256": "a1669b0afe10fac7360ceaa30adddfa1a817c06b28f4abdca8487bc08dbd5152",
       "substrate_count": 1
     },
-    "premise_carried_count": 4,
+    "premise_carried_count": 0,
     "premise_not_carried": [
       "open-with-the-cost",
-      "the-whole-job",
-      "the-wrong-caption",
       "two-voices-at-once"
     ],
-    "premise_not_carried_count": 4,
+    "premise_not_carried_count": 2,
+    "premise_profile_mismatch": [
+      "keep-it-but-tighten-it",
+      "logo-not-in-the-project",
+      "name-bar-fights-the-captions",
+      "no-extra-footage",
+      "the-whole-job",
+      "the-wrong-caption"
+    ],
+    "premise_profile_mismatch_count": 6,
     "premise_unchecked": [],
     "stage_metrics": {
       "note": "Each stage is measured on its own denominator. A stage with no evidence is not_measured, never a zero. There is no combined score: the stages are not the same unit.",
       "schema": "ren-editorial-stage-metrics/1",
       "stages": {
         "execution": {
-          "failed": 1,
-          "measured": 4,
-          "not_measured": 4,
-          "passed": 3,
+          "failed": 0,
+          "measured": 0,
+          "not_measured": 8,
+          "passed": 0,
           "question": "Did the plan run through a qualified route, verify, and leave the rest of the project alone?",
-          "status": "measured",
+          "status": "not_measured",
           "total": 8,
-          "value": 0.75
+          "value": null
         },
         "final_quality": {
           "failed": 0,
@@ -1253,23 +1264,23 @@
         },
         "interpretation": {
           "failed": 0,
-          "measured": 4,
-          "not_measured": 4,
-          "passed": 4,
+          "measured": 0,
+          "not_measured": 8,
+          "passed": 0,
           "question": "Did Ren read the request as the user meant it, and name the work it implies?",
-          "status": "measured",
+          "status": "not_measured",
           "total": 8,
-          "value": 1.0
+          "value": null
         },
         "planning": {
-          "failed": 1,
-          "measured": 4,
-          "not_measured": 4,
-          "passed": 3,
+          "failed": 0,
+          "measured": 0,
+          "not_measured": 8,
+          "passed": 0,
           "question": "Is the plan a valid answer to the request - covering what was asked, and nothing the user did not ask for?",
-          "status": "measured",
+          "status": "not_measured",
           "total": 8,
-          "value": 0.75
+          "value": null
         },
         "retrieval": {
           "failed": 0,
@@ -1287,7 +1298,7 @@
     },
     "substrates": {
       "count": 1,
-      "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/66/video-editing-pilot/library/tools/editorial_acceptance/substrates.json",
+      "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/60/video-editing-pilot/library/tools/editorial_acceptance/substrates.json",
       "sha256": "a1669b0afe10fac7360ceaa30adddfa1a817c06b28f4abdca8487bc08dbd5152"
     }
   },
@@ -1567,10 +1578,10 @@
         "brief_profile": "interview_with_broll",
         "missing_premises": [],
         "profile_matches": false,
-        "reason": "the brief states no premise about the footage, so any substrate carries it",
+        "reason": "the substrate is a two_camera_interview and this brief is written against a interview_with_broll; the footage is the wrong shape for the brief",
         "required": [],
         "requirements": [],
-        "status": "premise_carried",
+        "status": "premise_profile_mismatch",
         "substrate_id": "podcast-reel-13",
         "substrate_profile": "two_camera_interview",
         "unchecked_premises": []
@@ -1679,12 +1690,16 @@
             "expected_moment_ids": [],
             "missing_moment_ids": [],
             "moments_without_evidence": [],
+            "premise_absent": true,
+            "premise_declared_absent": false,
+            "premise_not_carried": true,
+            "reported_absent": false,
             "retrieval_recall": null,
             "retrieved_moment_ids": [],
             "unavailable": []
           },
           "passed": null,
-          "reason": "the brief declares no retrieval expectation",
+          "reason": "the footage does not carry what the brief asks for, and the run recorded no answer about it",
           "status": "not_measured"
         }
       },
@@ -1718,7 +1733,7 @@
           "final_quality": "not_measured",
           "interpretation": "pass",
           "planning": "pass",
-          "retrieval": "not_measured"
+          "retrieval": "pass"
         },
         "summary": "no stage failed",
         "task_id": "logo-not-in-the-project"
@@ -1767,7 +1782,7 @@
         "brief_profile": "talking_head_with_graphics",
         "missing_premises": [],
         "profile_matches": false,
-        "reason": "the substrate carries what the brief presupposes",
+        "reason": "the substrate is a two_camera_interview and this brief is written against a talking_head_with_graphics; the footage is the wrong shape for the brief",
         "required": [
           {
             "feature": "named_logo_asset",
@@ -1783,7 +1798,7 @@
             "summary": "the new logo is in the project"
           }
         ],
-        "status": "premise_carried",
+        "status": "premise_profile_mismatch",
         "substrate_id": "podcast-reel-13",
         "substrate_profile": "two_camera_interview",
         "unchecked_premises": []
@@ -1891,18 +1906,23 @@
         "retrieval": {
           "detail": {
             "abstained": false,
+            "expected": "the footage does not carry what the brief asks for, and the run said so",
             "expected_moment_ids": [],
             "missing_moment_ids": [],
             "moments_without_evidence": [],
+            "premise_absent": true,
+            "premise_declared_absent": true,
+            "premise_not_carried": true,
+            "reported_absent": true,
             "retrieval_recall": null,
             "retrieved_moment_ids": [],
             "unavailable": [
               "The project does not hold the named logo. Its media pool carries the series' own marks only - the corner logo 'Lucie Social Bug 2024 (NEW) - tight.png' and the end-card motion 'logo_bulb_lines_safe_23976.mov' - and no other mark was supplied. The request names a logo ('the one I sent you this morning') that is not in the project."
             ]
           },
-          "passed": null,
-          "reason": "the brief declares no retrieval expectation",
-          "status": "not_measured"
+          "passed": true,
+          "reason": null,
+          "status": "measured"
         }
       },
       "status": "scored",
@@ -1994,7 +2014,7 @@
         "brief_profile": "talking_head_with_graphics",
         "missing_premises": [],
         "profile_matches": false,
-        "reason": "the substrate carries what the brief presupposes",
+        "reason": "the substrate is a two_camera_interview and this brief is written against a talking_head_with_graphics; the footage is the wrong shape for the brief",
         "required": [
           {
             "feature": "lower_third_overlay",
@@ -2010,7 +2030,7 @@
             "summary": "a lower third carries a name"
           }
         ],
-        "status": "premise_carried",
+        "status": "premise_profile_mismatch",
         "substrate_id": "podcast-reel-13",
         "substrate_profile": "two_camera_interview",
         "unchecked_premises": []
@@ -2146,12 +2166,16 @@
             "expected_moment_ids": [],
             "missing_moment_ids": [],
             "moments_without_evidence": [],
+            "premise_absent": true,
+            "premise_declared_absent": false,
+            "premise_not_carried": true,
+            "reported_absent": false,
             "retrieval_recall": null,
             "retrieved_moment_ids": [],
             "unavailable": []
           },
           "passed": null,
-          "reason": "the brief declares no retrieval expectation",
+          "reason": "the footage does not carry what the brief asks for, and the run recorded no answer about it",
           "status": "not_measured"
         }
       },
@@ -2185,7 +2209,7 @@
           "final_quality": "not_measured",
           "interpretation": "pass",
           "planning": "pass",
-          "retrieval": "not_measured"
+          "retrieval": "pass"
         },
         "summary": "no stage failed",
         "task_id": "no-extra-footage"
@@ -2233,7 +2257,7 @@
         "brief_profile": "product_demo",
         "missing_premises": [],
         "profile_matches": false,
-        "reason": "the substrate carries what the brief presupposes",
+        "reason": "the substrate is a two_camera_interview and this brief is written against a product_demo; the footage is the wrong shape for the brief",
         "required": [
           {
             "feature": "workshop_bench_coverage",
@@ -2249,7 +2273,7 @@
             "summary": "the workshop bench was filmed"
           }
         ],
-        "status": "premise_carried",
+        "status": "premise_profile_mismatch",
         "substrate_id": "podcast-reel-13",
         "substrate_profile": "two_camera_interview",
         "unchecked_premises": []
@@ -2357,18 +2381,23 @@
         "retrieval": {
           "detail": {
             "abstained": false,
+            "expected": "the footage does not carry what the brief asks for, and the run said so",
             "expected_moment_ids": [],
             "missing_moment_ids": [],
             "moments_without_evidence": [],
+            "premise_absent": true,
+            "premise_declared_absent": true,
+            "premise_not_carried": true,
+            "reported_absent": true,
             "retrieval_recall": null,
             "retrieved_moment_ids": [],
             "unavailable": [
               "The project holds no workshop-bench footage. The scratch copy's media pool carries 56 items and every one of them is interview picture, a caption card, a motion-graphics card, the lower third, the end card, the post header or the corner logo: two camera masters (LC4932.MXF, LCATL0013.MXF), 45 rendered caption cards, two rendered graphics cards, b-soft-focus-craig.mov, logo_bulb_lines_safe_23976.mov, ph_still.png and the Lucie corner logo."
             ]
           },
-          "passed": null,
-          "reason": "the brief declares no retrieval expectation",
-          "status": "not_measured"
+          "passed": true,
+          "reason": null,
+          "status": "measured"
         }
       },
       "status": "scored",
@@ -2392,18 +2421,18 @@
       "edge_case": null,
       "expected_refusal": false,
       "failure": {
-        "cause": "retrieval.unavailable_asset",
+        "cause": "planning.criteria_not_covered",
         "failed": true,
         "severity": "wrong",
-        "stage": "retrieval",
+        "stage": "planning",
         "stage_outcomes": {
           "execution": "fail",
           "final_quality": "not_measured",
           "interpretation": "pass",
           "planning": "fail",
-          "retrieval": "fail"
+          "retrieval": "pass"
         },
-        "summary": "the material was not available to the run",
+        "summary": "the plan did not declare the brief's acceptance criteria covered",
         "task_id": "open-with-the-cost"
       },
       "footage": {
@@ -2606,6 +2635,7 @@
         "retrieval": {
           "detail": {
             "abstained": false,
+            "expected": "the footage does not carry what the brief asks for, and the run said so",
             "expected_moment_ids": [
               "cost-statement"
             ],
@@ -2613,6 +2643,10 @@
               "cost-statement"
             ],
             "moments_without_evidence": [],
+            "premise_absent": true,
+            "premise_declared_absent": false,
+            "premise_not_carried": true,
+            "reported_absent": true,
             "retrieval_recall": 0.0,
             "retrieved_moment_ids": [],
             "unavailable": [
@@ -2620,7 +2654,7 @@
               "The only cost statement in the project's other session - Craig's 'It's something that's going to continually eat into their budget' at 00:13.9-00:16.5 of the master timeline 'GEO Podcast - Synced' - is a DIFFERENT recording (the master reads LC4930/LC4931 and LCATL0011/12; this reel is cut from LC4932/LCATL0013) and is not in this reel at all."
             ]
           },
-          "passed": false,
+          "passed": true,
           "reason": null,
           "status": "measured"
         }
@@ -2655,7 +2689,7 @@
           "final_quality": "not_measured",
           "interpretation": "fail",
           "planning": "pass",
-          "retrieval": "fail"
+          "retrieval": "pass"
         },
         "summary": "the run could not say which item the request meant",
         "task_id": "the-whole-job"
@@ -2802,7 +2836,7 @@
           }
         ],
         "profile_matches": false,
-        "reason": "the substrate does not carry what the brief presupposes: the same statement is made more than once, a second camera angle covers a moment already shot, a caption names a word or number the speech does not, a music bed runs under the dialogue",
+        "reason": "the substrate is a two_camera_interview and this brief is written against a interview_with_broll; the footage is the wrong shape for the brief",
         "required": [
           {
             "feature": "repeated_passage",
@@ -2873,7 +2907,7 @@
             "summary": "a lower third carries a name"
           }
         ],
-        "status": "premise_not_carried",
+        "status": "premise_profile_mismatch",
         "substrate_id": "podcast-reel-13",
         "substrate_profile": "two_camera_interview",
         "unchecked_premises": [
@@ -3065,6 +3099,7 @@
         "retrieval": {
           "detail": {
             "abstained": false,
+            "expected": "the footage does not carry what the brief asks for, and the run said so",
             "expected_moment_ids": [
               "hook-moment",
               "repeated-passage",
@@ -3078,6 +3113,10 @@
               "tooling-explanation"
             ],
             "moments_without_evidence": [],
+            "premise_absent": true,
+            "premise_declared_absent": false,
+            "premise_not_carried": true,
+            "reported_absent": true,
             "retrieval_recall": 0.0,
             "retrieved_moment_ids": [],
             "unavailable": [
@@ -3085,7 +3124,7 @@
               "The reel has no 'hook-moment' beyond its own opening: the strongest statement it makes is the hallucination at frames 657-744, which the reel already carries."
             ]
           },
-          "passed": false,
+          "passed": true,
           "reason": null,
           "status": "measured"
         }
@@ -3120,7 +3159,7 @@
           "final_quality": "not_measured",
           "interpretation": "fail",
           "planning": "fail",
-          "retrieval": "fail"
+          "retrieval": "pass"
         },
         "summary": "the run could not say which item the request meant",
         "task_id": "the-wrong-caption"
@@ -3186,7 +3225,7 @@
           }
         ],
         "profile_matches": false,
-        "reason": "the substrate does not carry what the brief presupposes: a caption names a word or number the speech does not",
+        "reason": "the substrate is a two_camera_interview and this brief is written against a talking_head_with_graphics; the footage is the wrong shape for the brief",
         "required": [
           {
             "feature": "caption_mismatch",
@@ -3202,7 +3241,7 @@
             "summary": "a caption names a word or number the speech does not"
           }
         ],
-        "status": "premise_not_carried",
+        "status": "premise_profile_mismatch",
         "substrate_id": "podcast-reel-13",
         "substrate_profile": "two_camera_interview",
         "unchecked_premises": []
@@ -3326,6 +3365,7 @@
         "retrieval": {
           "detail": {
             "abstained": false,
+            "expected": "the footage does not carry what the brief asks for, and the run said so",
             "expected_moment_ids": [
               "churn-caption"
             ],
@@ -3333,13 +3373,17 @@
               "churn-caption"
             ],
             "moments_without_evidence": [],
+            "premise_absent": true,
+            "premise_declared_absent": false,
+            "premise_not_carried": true,
+            "reported_absent": true,
             "retrieval_recall": 0.0,
             "retrieved_moment_ids": [],
             "unavailable": [
               "No caption names the wrong word. All 45 caption cards' rendered text was read, and every one of them matches the spoken word it covers (the cards are rendered from the transcript). The reel contains no 'revenue' card and no 'churn' speech, and the project's only 'revenue' caption card belongs to a different reel of the same session."
             ]
           },
-          "passed": false,
+          "passed": true,
           "reason": null,
           "status": "measured"
         }
@@ -3374,7 +3418,7 @@
           "final_quality": "not_measured",
           "interpretation": "fail",
           "planning": "fail",
-          "retrieval": "fail"
+          "retrieval": "pass"
         },
         "summary": "the run could not say which item the request meant",
         "task_id": "two-voices-at-once"
@@ -3598,6 +3642,7 @@
         "retrieval": {
           "detail": {
             "abstained": false,
+            "expected": "the footage does not carry what the brief asks for, and the run said so",
             "expected_moment_ids": [
               "overlap-claim"
             ],
@@ -3605,6 +3650,10 @@
               "overlap-claim"
             ],
             "moments_without_evidence": [],
+            "premise_absent": true,
+            "premise_declared_absent": false,
+            "premise_not_carried": true,
+            "reported_absent": true,
             "retrieval_recall": 0.0,
             "retrieved_moment_ids": [],
             "unavailable": [
@@ -3612,7 +3661,7 @@
               "There is no second angle of the same moment either. The reel's two camera rows are the two SPEAKERS (Akshita on V1, Craig on V2), not two angles of one person, so there is no angle that could be swapped into an overlapping turn."
             ]
           },
-          "passed": false,
+          "passed": true,
           "reason": null,
           "status": "measured"
         }
@@ -3670,14 +3719,14 @@
         "value": 0.5
       },
       "retrieval": {
-        "failed": 4,
-        "measured": 4,
-        "not_measured": 4,
-        "passed": 0,
+        "failed": 0,
+        "measured": 6,
+        "not_measured": 2,
+        "passed": 6,
         "question": "Did Ren find the source moments the work needs, each with evidence behind it?",
         "status": "measured",
         "total": 8,
-        "value": 0.0
+        "value": 1.0
       }
     },
     "stages_are_not_combined": true,
@@ -3687,28 +3736,29 @@
     "briefs": {
       "keep-it-but-tighten-it": {
         "brief_id": "keep-it-but-tighten-it",
-        "carrying_premise": [
+        "carrying_premise": [],
+        "carrying_premise_any_profile": [
           "podcast-reel-13"
         ],
         "declared_profile": "interview_with_broll",
         "profile_matches": [],
-        "reason": "no substrate declares the brief's profile; this one carries the brief's premise",
+        "reason": "no substrate declares the profile this brief is written against (interview_with_broll); the brief needs footage of that shape",
         "requires": [],
-        "selected": "podcast-reel-13",
-        "selected_profile": "two_camera_interview",
-        "settled": [
-          "podcast-reel-13"
-        ],
+        "selected": null,
+        "selected_profile": null,
+        "settled": [],
         "unconfirmed": []
       },
       "logo-not-in-the-project": {
         "brief_id": "logo-not-in-the-project",
-        "carrying_premise": [
+        "carrying_premise": [],
+        "carrying_premise_any_profile": [
           "podcast-reel-13"
         ],
         "declared_profile": "talking_head_with_graphics",
+        "missing_premises": [],
         "profile_matches": [],
-        "reason": "no substrate declares the brief's profile; this one carries the brief's premise",
+        "reason": "no substrate declares the profile this brief is written against (talking_head_with_graphics); the brief needs footage of that shape",
         "requires": [
           {
             "feature": "named_logo_asset",
@@ -3716,21 +3766,22 @@
             "summary": "the new logo is in the project"
           }
         ],
-        "selected": "podcast-reel-13",
-        "selected_profile": "two_camera_interview",
-        "settled": [
-          "podcast-reel-13"
-        ],
-        "unconfirmed": []
+        "selected": null,
+        "selected_profile": null,
+        "settled": [],
+        "unconfirmed": [],
+        "unconfirmed_premises": []
       },
       "name-bar-fights-the-captions": {
         "brief_id": "name-bar-fights-the-captions",
-        "carrying_premise": [
+        "carrying_premise": [],
+        "carrying_premise_any_profile": [
           "podcast-reel-13"
         ],
         "declared_profile": "talking_head_with_graphics",
+        "missing_premises": [],
         "profile_matches": [],
-        "reason": "no substrate declares the brief's profile; this one carries the brief's premise",
+        "reason": "no substrate declares the profile this brief is written against (talking_head_with_graphics); the brief needs footage of that shape",
         "requires": [
           {
             "feature": "lower_third_overlay",
@@ -3738,21 +3789,22 @@
             "summary": "a lower third carries a name"
           }
         ],
-        "selected": "podcast-reel-13",
-        "selected_profile": "two_camera_interview",
-        "settled": [
-          "podcast-reel-13"
-        ],
-        "unconfirmed": []
+        "selected": null,
+        "selected_profile": null,
+        "settled": [],
+        "unconfirmed": [],
+        "unconfirmed_premises": []
       },
       "no-extra-footage": {
         "brief_id": "no-extra-footage",
-        "carrying_premise": [
+        "carrying_premise": [],
+        "carrying_premise_any_profile": [
           "podcast-reel-13"
         ],
         "declared_profile": "product_demo",
+        "missing_premises": [],
         "profile_matches": [],
-        "reason": "no substrate declares the brief's profile; this one carries the brief's premise",
+        "reason": "no substrate declares the profile this brief is written against (product_demo); the brief needs footage of that shape",
         "requires": [
           {
             "feature": "workshop_bench_coverage",
@@ -3760,16 +3812,16 @@
             "summary": "the workshop bench was filmed"
           }
         ],
-        "selected": "podcast-reel-13",
-        "selected_profile": "two_camera_interview",
-        "settled": [
-          "podcast-reel-13"
-        ],
-        "unconfirmed": []
+        "selected": null,
+        "selected_profile": null,
+        "settled": [],
+        "unconfirmed": [],
+        "unconfirmed_premises": []
       },
       "open-with-the-cost": {
         "brief_id": "open-with-the-cost",
         "carrying_premise": [],
+        "carrying_premise_any_profile": [],
         "declared_profile": "two_camera_interview",
         "missing_premises": [
           {
@@ -3779,7 +3831,7 @@
           }
         ],
         "profile_matches": [],
-        "reason": "no substrate carries the premise the brief states",
+        "reason": "a substrate of the right profile exists, but it does not carry what the brief presupposes",
         "requires": [
           {
             "feature": "cost_statement",
@@ -3796,6 +3848,7 @@
       "the-whole-job": {
         "brief_id": "the-whole-job",
         "carrying_premise": [],
+        "carrying_premise_any_profile": [],
         "declared_profile": "interview_with_broll",
         "missing_premises": [
           {
@@ -3820,7 +3873,7 @@
           }
         ],
         "profile_matches": [],
-        "reason": "no substrate carries the premise the brief states",
+        "reason": "no substrate declares the profile this brief is written against (interview_with_broll); the brief needs footage of that shape",
         "requires": [
           {
             "feature": "repeated_passage",
@@ -3868,6 +3921,7 @@
       "the-wrong-caption": {
         "brief_id": "the-wrong-caption",
         "carrying_premise": [],
+        "carrying_premise_any_profile": [],
         "declared_profile": "talking_head_with_graphics",
         "missing_premises": [
           {
@@ -3877,7 +3931,7 @@
           }
         ],
         "profile_matches": [],
-        "reason": "no substrate carries the premise the brief states",
+        "reason": "no substrate declares the profile this brief is written against (talking_head_with_graphics); the brief needs footage of that shape",
         "requires": [
           {
             "feature": "caption_mismatch",
@@ -3894,6 +3948,7 @@
       "two-voices-at-once": {
         "brief_id": "two-voices-at-once",
         "carrying_premise": [],
+        "carrying_premise_any_profile": [],
         "declared_profile": "two_camera_interview",
         "missing_premises": [
           {
@@ -3908,7 +3963,7 @@
           }
         ],
         "profile_matches": [],
-        "reason": "no substrate carries the premise the brief states",
+        "reason": "a substrate of the right profile exists, but it does not carry what the brief presupposes",
         "requires": [
           {
             "feature": "overlapping_speech",
@@ -3928,7 +3983,7 @@
         "unconfirmed_premises": []
       }
     },
-    "catalogue_path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/66/video-editing-pilot/library/tools/editorial_acceptance/substrates.json",
+    "catalogue_path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/60/video-editing-pilot/library/tools/editorial_acceptance/substrates.json",
     "catalogue_sha256": "a1669b0afe10fac7360ceaa30adddfa1a817c06b28f4abdca8487bc08dbd5152",
     "substrate_count": 1
   },

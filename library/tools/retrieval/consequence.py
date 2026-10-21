@@ -1,5 +1,15 @@
 """A retrieval false positive is a wrong EDIT, and it costs something.
 
+**The extra seconds are charged here, because a wrong second is a
+consequence.**  A window that covers the wanted moment AND a hundred
+seconds of nothing else holds something the editor asked for - so it is
+not a false-positive WINDOW - and it is still a hundred seconds the
+editor would cut into the piece by mistake.  Those seconds are charged
+as false-positive seconds, and as wrong seconds when the editor takes
+that window.  Without the charge, a window may grow for free, and
+"return more footage" is a way to score better.
+
+
 Recall is the half of retrieval that gets measured, and the half that
 gets reported.  The other half - the window the search returned that
 holds nothing the editor asked for - is not free: it is a window an
@@ -83,6 +93,57 @@ def moment_seconds(moment: Mapping, tolerance_seconds: float) -> float:
     return longest
 
 
+def wanted_spans(moments: Sequence[Mapping],
+                 tolerance_seconds: float) -> dict:
+    """Per asset, the spans the editor wanted, padded by the tolerance.
+
+    The padding is the MATCHING allowance, so a window that overshoots
+    the wanted moment by less than the tolerance is not charged for the
+    overshoot.
+    """
+    spans: dict = {}
+    for moment in moments or ():
+        for instance in moment.get("instances") or ():
+            asset = instance.get("asset")
+            start = _num(instance.get("start"))
+            end = _num(instance.get("end"))
+            if asset is None or start is None or end is None:
+                continue
+            spans.setdefault(str(asset), []).append(
+                (start - tolerance_seconds, end + tolerance_seconds))
+    merged: dict = {}
+    for asset, intervals in spans.items():
+        ordered = sorted(intervals)
+        run: list = [list(ordered[0])]
+        for start, end in ordered[1:]:
+            if start <= run[-1][1]:
+                run[-1][1] = max(run[-1][1], end)
+            else:
+                run.append([start, end])
+        merged[asset] = [tuple(span) for span in run]
+    return merged
+
+
+def excess_seconds(row: Mapping, wanted: Mapping) -> float:
+    """The seconds of a window that lie outside every wanted span.
+
+    This is the footage nobody asked for, carried by a window that also
+    carries something they did ask for.
+    """
+    duration = _duration(row)
+    if not duration:
+        return 0.0
+    asset = str(row.get("asset") or "")
+    start = _num(row.get("start"))
+    end = _num(row.get("end"))
+    if start is None or end is None:
+        return 0.0
+    inside = 0.0
+    for span_start, span_end in wanted.get(asset) or ():
+        inside += max(0.0, min(end, span_end) - max(start, span_start))
+    return max(0.0, duration - min(duration, inside))
+
+
 def moment_covered(moment: Mapping, rows: Iterable[Mapping],
                    tolerance_seconds: float) -> float:
     """How much of one wanted moment the rows cover."""
@@ -122,6 +183,9 @@ def edit_consequence(moments: Sequence[Mapping], rows: Sequence[Mapping], *,
     selected = ranked[:max(0, selection_k)]
     wrong_selected = [row for row in selected if not row.get("hit")]
     right_selected = [row for row in selected if row.get("hit")]
+    wanted = wanted_spans(moments or (), tolerance_seconds)
+    excesses = {id(row): excess_seconds(row, wanted) for row in ranked
+                if row.get("hit")}
 
     total_seconds = sum(moment_seconds(moment, tolerance_seconds)
                         for moment in moments or ())
@@ -132,6 +196,8 @@ def edit_consequence(moments: Sequence[Mapping], rows: Sequence[Mapping], *,
     missing_seconds = max(0.0, total_seconds - covered_seconds)
 
     wrong_rows = [row for row in ranked if not row.get("hit")]
+    excess_all = sum(excesses.get(id(row), 0.0) for row in ranked)
+    excess_selected = sum(excesses.get(id(row), 0.0) for row in selected)
     first_right = next((index for index, row in enumerate(ranked)
                         if row.get("hit")), None)
     first_wrong = next((index for index, row in enumerate(ranked)
@@ -149,6 +215,9 @@ def edit_consequence(moments: Sequence[Mapping], rows: Sequence[Mapping], *,
         notes.append("the selection leaves part of the wanted moment out")
     if not wrong_rows:
         notes.append("every returned window holds something that was asked for")
+    if excess_all > 0:
+        notes.append("the returned windows carry footage outside the wanted "
+                     "moment, and that footage is charged")
 
     return {
         "selection_k": selection_k,
@@ -156,7 +225,8 @@ def edit_consequence(moments: Sequence[Mapping], rows: Sequence[Mapping], *,
         "selected": len(selected),
         "wrong_windows_selected": len(wrong_selected),
         "wrong_seconds_selected": round(
-            sum(_duration(row) for row in wrong_selected), 3),
+            sum(_duration(row) for row in wrong_selected) + excess_selected, 3),
+        "excess_seconds_selected": round(excess_selected, 3),
         "right_windows_selected": len(right_selected),
         "ground_truth_seconds": round(total_seconds, 3),
         "covered_seconds": round(covered_seconds, 3),
@@ -166,7 +236,14 @@ def edit_consequence(moments: Sequence[Mapping], rows: Sequence[Mapping], *,
         "shadowing": shadowing,
         "false_positive_windows": len(wrong_rows),
         "false_positive_seconds": round(
-            sum(_duration(row) for row in wrong_rows), 3),
+            sum(_duration(row) for row in wrong_rows) + excess_all, 3),
+        "excess_seconds": round(excess_all, 3),
+        "excess_seconds_note": (
+            "the seconds a window that holds something the editor asked "
+            "for covers OUTSIDE the wanted span: footage nobody asked "
+            "for, carried by a window that also holds something they "
+            "did.  A window that holds nothing wanted is charged in full "
+            "as a false-positive window, and is not charged twice"),
         "notes": notes,
     }
 

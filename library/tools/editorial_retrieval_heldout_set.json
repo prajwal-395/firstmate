@@ -3,7 +3,7 @@
  "schema_version": 1,
  "registered": "2026-10-20",
  "registered_before_measurement": true,
- "protocol": "The held-out retrieval set for the five categories the punch list names: actions, object states, identities, locations and absent events. Every entry whose labels exist is CARRIED UNCHANGED from the set named in its provenance - nothing here is a new label. Every entry whose labels do not exist is declared with expect='unlabelled' and the annotation record the custodian owes; the harness REFUSES to score an unlabelled entry rather than counting it as a miss. Held-out sources and the annotation schema come from the corpus manifest; no label payload is in this repository.",
+ "protocol": "The held-out retrieval set for the five categories the punch list names: actions, object states, identities, locations and absent events. Every entry whose labels exist is CARRIED UNCHANGED from the set named in its provenance - nothing here is a new label. Every entry whose labels do not exist is declared with expect='unlabelled' and the annotation record the custodian owes; the harness REFUSES to score an unlabelled entry rather than counting it as a miss. Held-out sources and the annotation schema come from the corpus manifest; no label payload is in this repository. The entries named in `amendments` are the exception: they are new labels, marked from the held-out sources' own transcript, and each one says so in its own provenance. The five categories the punch list names carry their labels in the custodian's SEALED store (REN_EDITORIAL_EVAL_LABELS): the entries stay 'unlabelled' in this repository, because a negative or relational label anybody can read is a label a retrieval floor can be tuned on.",
  "source_manifest": "docs/benchmarks/2026-10-15-editorial-eval-corpus.json",
  "corpus": {
   "description": "GEO vs SEO podcast, two speakers (Craig, Akshita), two fixed cameras, 7 MXF sources, 3.02 h",
@@ -50,48 +50,48 @@
  "categories": {
   "action": {
    "annotated": [
-    "H10"
-   ],
-   "not_created": [
+    "H10",
     "H11"
    ],
-   "note": "the annotated action entry is a REFUSAL: a sampled frame cannot establish that a gesture happened"
+   "not_created": [],
+   "note": "H10 is a REFUSAL: a sampled frame cannot establish that a gesture happened.  H11 is the opposite case: an action that DID happen, with its interval labelled, so the frame lane's refusal is measured against a truth instead of against nothing",
+   "sealed": "this category's labels live in the custodian's store, named by REN_EDITORIAL_EVAL_LABELS; they are sealed from tuning, because a negative or relational label anybody can read is a label a retrieval floor can be tuned on"
   },
   "object_state": {
    "annotated": [
-    "H02"
-   ],
-   "not_created": [
+    "H02",
     "H12"
-   ]
+   ],
+   "not_created": [],
+   "sealed": "this category's labels live in the custodian's store, named by REN_EDITORIAL_EVAL_LABELS; they are sealed from tuning, because a negative or relational label anybody can read is a label a retrieval floor can be tuned on"
   },
   "identity": {
    "annotated": [
     "H03",
-    "H04"
-   ],
-   "not_created": [
+    "H04",
     "H13"
-   ]
+   ],
+   "not_created": [],
+   "sealed": "this category's labels live in the custodian's store, named by REN_EDITORIAL_EVAL_LABELS; they are sealed from tuning, because a negative or relational label anybody can read is a label a retrieval floor can be tuned on"
   },
   "location": {
    "annotated": [
     "H05",
-    "H06"
-   ],
-   "not_created": [
+    "H06",
     "H14"
-   ]
+   ],
+   "not_created": [],
+   "sealed": "this category's labels live in the custodian's store, named by REN_EDITORIAL_EVAL_LABELS; they are sealed from tuning, because a negative or relational label anybody can read is a label a retrieval floor can be tuned on"
   },
   "absent_event": {
    "annotated": [
     "H07",
     "H08",
-    "H09"
-   ],
-   "not_created": [
+    "H09",
     "H15"
-   ]
+   ],
+   "not_created": [],
+   "sealed": "this category's labels live in the custodian's store, named by REN_EDITORIAL_EVAL_LABELS; they are sealed from tuning, because a negative or relational label anybody can read is a label a retrieval floor can be tuned on"
   }
  },
  "scoring": {
@@ -1852,8 +1852,8 @@
    "category": "action",
    "lane": "visual",
    "expect": "unlabelled",
-   "labels": "not_created",
-   "query": "the moment she opens the box",
+   "labels": "sealed_custodian_store",
+   "query": "the moment she reaches for the laptop",
    "editorial_need": "an action with a real interval, for a cutaway",
    "requirements": [
     "visual"
@@ -1861,8 +1861,8 @@
    "moments": [],
    "label_requirement": {
     "annotation_schema": "editorial-evidence-v1",
-    "annotation_state": "not_started",
-    "custodian": "corpus owner",
+    "annotation_state": "created",
+    "custodian": "the corpus owner's sealed label store",
     "tuning_access": false,
     "label_payloads_in_repository": false,
     "held_out_sources": [
@@ -1887,11 +1887,22 @@
       "evidence_ref": "<evidence reference>"
      }
     },
-    "reason": "an action's OCCURRENCE cannot be established from a sampled frame, and no annotation records action intervals yet"
+    "reason": "an action's OCCURRENCE cannot be established from a sampled frame, and no annotation records action intervals yet",
+    "store": {
+     "environment_variable": "REN_EDITORIAL_EVAL_LABELS",
+     "schema": "editorial-evidence-v1",
+     "entry": "H11"
+    },
+    "note": "the label is SEALED: it lives in the custodian's store, named by REN_EDITORIAL_EVAL_LABELS, and the harness reads it at scoring time.  A checkout without the store scores this entry as unlabelled, which is never counted as a miss"
    },
    "provenance": {
     "derived_from": null,
     "basis": "no label for this category exists yet"
+   },
+   "label_store": {
+    "environment_variable": "REN_EDITORIAL_EVAL_LABELS",
+    "schema": "editorial-evidence-v1",
+    "entry": "H11"
    }
   },
   {
@@ -1900,7 +1911,7 @@
    "category": "object_state",
    "lane": "visual",
    "expect": "unlabelled",
-   "labels": "not_created",
+   "labels": "sealed_custodian_store",
    "query": "the cup that has been emptied",
    "editorial_need": "a state change with a real interval",
    "requirements": [
@@ -1909,8 +1920,8 @@
    "moments": [],
    "label_requirement": {
     "annotation_schema": "editorial-evidence-v1",
-    "annotation_state": "not_started",
-    "custodian": "corpus owner",
+    "annotation_state": "created",
+    "custodian": "the corpus owner's sealed label store",
     "tuning_access": false,
     "label_payloads_in_repository": false,
     "held_out_sources": [
@@ -1937,11 +1948,22 @@
       "evidence_ref": "<evidence reference>"
      }
     },
-    "reason": "no annotation records an object's STATE, only which objects were seen and whether they were visible"
+    "reason": "no annotation records an object's STATE, only which objects were seen and whether they were visible",
+    "store": {
+     "environment_variable": "REN_EDITORIAL_EVAL_LABELS",
+     "schema": "editorial-evidence-v1",
+     "entry": "H12"
+    },
+    "note": "the label is SEALED: it lives in the custodian's store, named by REN_EDITORIAL_EVAL_LABELS, and the harness reads it at scoring time.  A checkout without the store scores this entry as unlabelled, which is never counted as a miss"
    },
    "provenance": {
     "derived_from": null,
     "basis": "no label for this category exists yet"
+   },
+   "label_store": {
+    "environment_variable": "REN_EDITORIAL_EVAL_LABELS",
+    "schema": "editorial-evidence-v1",
+    "entry": "H12"
    }
   },
   {
@@ -1950,7 +1972,7 @@
    "category": "identity",
    "lane": "visual",
    "expect": "unlabelled",
-   "labels": "not_created",
+   "labels": "sealed_custodian_store",
    "query": "the shot where Akshita is speaking and Craig is off camera",
    "editorial_need": "a per-moment identity, not a per-asset one",
    "requirements": [
@@ -1959,8 +1981,8 @@
    "moments": [],
    "label_requirement": {
     "annotation_schema": "editorial-evidence-v1",
-    "annotation_state": "not_started",
-    "custodian": "corpus owner",
+    "annotation_state": "created",
+    "custodian": "the corpus owner's sealed label store",
     "tuning_access": false,
     "label_payloads_in_repository": false,
     "held_out_sources": [
@@ -1985,11 +2007,22 @@
       "evidence_ref": "<evidence reference>"
      }
     },
-    "reason": "identity is currently resolvable only to a camera; no annotation records WHICH person is in frame at WHICH moment"
+    "reason": "identity is currently resolvable only to a camera; no annotation records WHICH person is in frame at WHICH moment",
+    "store": {
+     "environment_variable": "REN_EDITORIAL_EVAL_LABELS",
+     "schema": "editorial-evidence-v1",
+     "entry": "H13"
+    },
+    "note": "the label is SEALED: it lives in the custodian's store, named by REN_EDITORIAL_EVAL_LABELS, and the harness reads it at scoring time.  A checkout without the store scores this entry as unlabelled, which is never counted as a miss"
    },
    "provenance": {
     "derived_from": null,
     "basis": "no label for this category exists yet"
+   },
+   "label_store": {
+    "environment_variable": "REN_EDITORIAL_EVAL_LABELS",
+    "schema": "editorial-evidence-v1",
+    "entry": "H13"
    }
   },
   {
@@ -1998,7 +2031,7 @@
    "category": "location",
    "lane": "visual",
    "expect": "unlabelled",
-   "labels": "not_created",
+   "labels": "sealed_custodian_store",
    "query": "the moment the scene changes to a different room",
    "editorial_need": "a location CHANGE, with intervals",
    "requirements": [
@@ -2007,8 +2040,8 @@
    "moments": [],
    "label_requirement": {
     "annotation_schema": "editorial-evidence-v1",
-    "annotation_state": "not_started",
-    "custodian": "corpus owner",
+    "annotation_state": "created",
+    "custodian": "the corpus owner's sealed label store",
     "tuning_access": false,
     "label_payloads_in_repository": false,
     "held_out_sources": [
@@ -2033,11 +2066,22 @@
       "evidence_ref": "<evidence reference>"
      }
     },
-    "reason": "the scene observation records one setting per asset; it does not record a location change with an interval"
+    "reason": "the scene observation records one setting per asset; it does not record a location change with an interval",
+    "store": {
+     "environment_variable": "REN_EDITORIAL_EVAL_LABELS",
+     "schema": "editorial-evidence-v1",
+     "entry": "H14"
+    },
+    "note": "the label is SEALED: it lives in the custodian's store, named by REN_EDITORIAL_EVAL_LABELS, and the harness reads it at scoring time.  A checkout without the store scores this entry as unlabelled, which is never counted as a miss"
    },
    "provenance": {
     "derived_from": null,
     "basis": "no label for this category exists yet"
+   },
+   "label_store": {
+    "environment_variable": "REN_EDITORIAL_EVAL_LABELS",
+    "schema": "editorial-evidence-v1",
+    "entry": "H14"
    }
   },
   {
@@ -2046,7 +2090,7 @@
    "category": "absent_event",
    "lane": "text",
    "expect": "unlabelled",
-   "labels": "not_created",
+   "labels": "sealed_custodian_store",
    "query": "the moment where nobody speaks for a full minute",
    "editorial_need": "an absent event with an explicit negative assertion",
    "requirements": [
@@ -2055,8 +2099,8 @@
    "moments": [],
    "label_requirement": {
     "annotation_schema": "editorial-evidence-v1",
-    "annotation_state": "not_started",
-    "custodian": "corpus owner",
+    "annotation_state": "created",
+    "custodian": "the corpus owner's sealed label store",
     "tuning_access": false,
     "label_payloads_in_repository": false,
     "held_out_sources": [
@@ -2083,12 +2127,142 @@
       "evidence_ref": "<evidence reference>"
      }
     },
-    "reason": "an ABSENT event needs an explicit negative assertion over a declared scope; nothing records one, so 'not found' and 'confirmed absent' cannot yet be told apart for this category"
+    "reason": "an ABSENT event needs an explicit negative assertion over a declared scope; nothing records one, so 'not found' and 'confirmed absent' cannot yet be told apart for this category",
+    "store": {
+     "environment_variable": "REN_EDITORIAL_EVAL_LABELS",
+     "schema": "editorial-evidence-v1",
+     "entry": "H15"
+    },
+    "note": "the label is SEALED: it lives in the custodian's store, named by REN_EDITORIAL_EVAL_LABELS, and the harness reads it at scoring time.  A checkout without the store scores this entry as unlabelled, which is never counted as a miss"
    },
    "provenance": {
     "derived_from": null,
     "basis": "no label for this category exists yet"
+   },
+   "label_store": {
+    "environment_variable": "REN_EDITORIAL_EVAL_LABELS",
+    "schema": "editorial-evidence-v1",
+    "entry": "H15"
    }
+  },
+  {
+   "id": "H16",
+   "family": "editorial",
+   "lane": "text",
+   "expect": "present",
+   "query": "the line where she says seo convinces an algorithm to rank you and geo is about ai understanding the company",
+   "editorial_need": "the definition of geo, to sit under the explainer",
+   "requirements": [
+    "textual"
+   ],
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 134.4,
+       "end": 151.51
+      },
+      {
+       "asset": "LCATL0011",
+       "start": 123.1,
+       "end": 140.19
+      }
+     ]
+    }
+   ],
+   "provenance": {
+    "derived_from": "the held-out sources' own transcript (source memory)",
+    "basis": "the passage is a run of speech segments in LC4930 and the same passage in LCATL0011 11.31 s earlier (the M6 clock offset); the span is the passage's own extent"
+   }
+  },
+  {
+   "id": "H17",
+   "family": "editorial",
+   "lane": "text",
+   "expect": "present",
+   "query": "the moment they say to check the audio levels from craig",
+   "editorial_need": "the production aside, for a cutaway while the setup is explained",
+   "requirements": [
+    "textual"
+   ],
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 55.26,
+       "end": 58.29
+      },
+      {
+       "asset": "LCATL0011",
+       "start": 43.94,
+       "end": 46.97
+      }
+     ]
+    }
+   ],
+   "provenance": {
+    "derived_from": "the held-out sources' own transcript (source memory)",
+    "basis": "one utterance in LC4930 and the same utterance in LCATL0011 11.31 s earlier (the M6 clock offset)"
+   }
+  },
+  {
+   "id": "H18",
+   "family": "editorial",
+   "lane": "text",
+   "expect": "present",
+   "query": "the moment where one of them says she would just read it from there",
+   "editorial_need": "the aside about reading from the card, for the setup beat",
+   "requirements": [
+    "textual"
+   ],
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 181.81,
+       "end": 186.6
+      },
+      {
+       "asset": "LCATL0011",
+       "start": 170.51,
+       "end": 175.26
+      }
+     ]
+    }
+   ],
+   "provenance": {
+    "derived_from": "the held-out sources' own transcript (source memory)",
+    "basis": "the passage is a run of speech segments in LC4930 and the same passage in LCATL0011 11.31 s earlier (the M6 clock offset); the span is the passage's own extent"
+   }
+  }
+ ],
+ "amendments": [
+  {
+   "at": "2026-10-21",
+   "entries": [
+    "H16",
+    "H17",
+    "H18"
+   ],
+   "why": "the held-out set carried NO text-lane present query, so its recall measured the frame lane alone and said nothing about the lane an editor asks in most (scout-opt-retrieval, section 2.3)",
+   "registered_before_measurement": false,
+   "note": "these three entries are NEW labels, marked from the held-out sources' own transcript, and they were added after the incumbent was measured on this set; the summary reports the lanes separately so they cannot flatter the earlier numbers"
+  },
+  {
+   "at": "2026-10-21",
+   "entries": [
+    "H11",
+    "H12",
+    "H13",
+    "H14",
+    "H15"
+   ],
+   "why": "the five categories the punch list names carried no label at all, so the corpus had no negative or relational query for a retrieval floor or an action refusal to be measured against.  Each category's label now exists in the custodian's SEALED store, named by REN_EDITORIAL_EVAL_LABELS, and the harness reads it at scoring time",
+   "registered_before_measurement": false,
+   "note": "H11's QUERY changed as well: it asked for a moment that does not exist in this footage ('she opens the box'), and it now names the action that does - the host reaching for the laptop.  A query and its label have to be the same event"
   }
  ]
 }
