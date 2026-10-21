@@ -148,10 +148,7 @@ def main(argv=None) -> int:
             startup = storage_lifecycle.startup_reconcile()
             startup["cleanup_workers_started"] = storage_cli.start_cleanup_workers(
                 startup, changed_only=True)
-            findings = [row for row in startup["projects"]
-                        if (row["record_filesystem_drift"]
-                            or row["expired_quarantine_review"]
-                            or row["refused_jobs_retried"])]
+            findings = storage_lifecycle.unresolved_findings(startup)
             if findings:
                 print("⚠ lifecycle: reconciliation found drift, expired "
                       "quarantine, or retried cleanup jobs; run `ren storage "

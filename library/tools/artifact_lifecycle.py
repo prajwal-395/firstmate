@@ -55,6 +55,7 @@ TRANSITIONS = {
 }
 ARTIFACT_REGISTERED = "artifact_registered"
 ARTIFACT_TRANSITION = "artifact_lifecycle_transition"
+ARTIFACT_REBOUND = "artifact_identity_rebound"
 CLEANUP_JOB = "cleanup_job"
 
 
@@ -127,7 +128,8 @@ def _latest_from_events(events) -> dict[str, dict]:
             continue
         if event.get("type") == ARTIFACT_REGISTERED:
             latest[artifact_id] = fields
-        elif event.get("type") == ARTIFACT_TRANSITION and artifact_id in latest:
+        elif event.get("type") in {ARTIFACT_TRANSITION, ARTIFACT_REBOUND} \
+                and artifact_id in latest:
             latest[artifact_id] = {**latest[artifact_id], **fields}
     return latest
 
@@ -222,6 +224,57 @@ def transition_artifact(project_folder: str, artifact_id: str, target: str,
                         state=target, previous_state=old, reason=reason,
                         **updates)
     return True
+
+
+def rebind_file(project_folder: str, artifact_id: str, *,
+                identity: FileIdentity, path: str = "",
+                reason: str) -> bool:
+    """Record the file an artifact names now, after Ren replaced it.
+
+    Ren replaces files it owns: a recovery archive is re-exported at the
+    same path. When it does, the RECORD has to follow the FILE, or every
+    later read says the artifact drifted - and a drift nothing can settle
+    is a finding that names the same artifact forever. The identity the
+    record had is kept beside the new one, so the replacement is an
+    audited fact and not a silent overwrite.
+
+    A rebind changes no lifecycle state: the artifact is exactly as
+    disposable, as held or as protected as it was.
+    """
+    current = _latest_artifacts(project_folder).get(artifact_id)
+    if current is None:
+        raise LifecycleRefused(f"artifact ownership is unknown: {artifact_id}")
+    previous = current.get("identity") or {}
+    if previous == asdict(identity) and (
+            not path or path == current.get("path")):
+        return False
+    fields = {
+        "state": current.get("state", CREATED),
+        "previous_state": current.get("state", CREATED),
+        "identity": asdict(identity),
+        "previous_identity": previous,
+        "reason": reason,
+    }
+    if path:
+        fields["path"] = str(Path(path).absolute())
+    digest = hashlib.sha256(
+        f"{path}\0{identity.device}\0{identity.inode}\0"
+        f"{identity.mtime_ns}\0{identity.size_bytes}".encode()).hexdigest()
+    _, created = event_log.emit_once(
+        project_folder, ARTIFACT_REBOUND,
+        f"artifact:{artifact_id}:rebound:{digest}",
+        task=current.get("job_id", ""), artifact_id=artifact_id, **fields)
+    return created
+
+
+def artifacts_at_path(project_folder: str, path: str | os.PathLike) -> list[str]:
+    """The artifact ids whose recorded path is exactly this one."""
+    target = str(Path(os.path.abspath(str(path))))
+    return sorted(
+        artifact_id for artifact_id, fields in
+        _latest_artifacts(project_folder).items()
+        if fields.get("path")
+        and str(Path(os.path.abspath(fields["path"]))) == target)
 
 
 # ── Recovery holds: an artifact kept until its edit is settled ──────
@@ -497,6 +550,26 @@ def _latest_cleanup_jobs(project_folder: str) -> dict[str, dict]:
     return jobs
 
 
+def cleanup_job_refusals(project_folder: str) -> dict[str, int]:
+    """How many times each cleanup job has been refused.
+
+    A refusal that is retried on every start is a loop, not a retry. The
+    count is what lets the reconciliation stop at a bound and name the
+    job as needing a person instead of re-queueing it forever.
+    """
+    refusals: dict[str, int] = {}
+    for event in event_log.read_events(project_folder):
+        fields = _event_fields(event)
+        if event.get("type") != CLEANUP_JOB:
+            continue
+        event_id = fields.get("lifecycle_event_id")
+        if not event_id:
+            continue
+        if fields.get("state") == "refused":
+            refusals[event_id] = refusals.get(event_id, 0) + 1
+    return refusals
+
+
 def transition_cleanup_job(project_folder: str, job: dict, target: str,
                            *, outcome: str = "") -> None:
     """Append an idempotent job transition, retaining prior states as history."""
@@ -646,10 +719,18 @@ def restore_file(project_folder: str, artifact_id: str) -> dict:
         latest = _latest_artifacts(project_folder).get(artifact_id)
         if latest is None:
             raise LifecycleRefused(f"artifact ownership is unknown: {artifact_id}")
-        if latest.get("state") == DISPOSABLE:
+        state = latest.get("state")
+        original = latest.get("original_path")
+        # A settled quarantine is DISPOSABLE and still sits in quarantine:
+        # its grace period expired and the file was not removed. It is
+        # restorable, and restoring it is what puts the file back.
+        settled = (
+            state == DISPOSABLE and original
+            and Path(latest["path"]) != Path(original))
+        if state == DISPOSABLE and not settled:
             return {"artifact_id": artifact_id, "path": latest["path"],
                     "already_restored": True}
-        if latest.get("state") != QUARANTINED or not latest.get("original_path"):
+        if state not in {QUARANTINED, DISPOSABLE} or not original:
             raise LifecycleRefused(f"artifact is not restorable: {artifact_id}")
         source = Path(latest["path"])
         destination = Path(latest["original_path"])
@@ -667,10 +748,16 @@ def restore_file(project_folder: str, artifact_id: str) -> dict:
             if restored_identity != identity:
                 raise LifecycleRefused(
                     f"artifact identity changed during restore: {destination}")
-            transition_artifact(
-                project_folder, artifact_id, DISPOSABLE,
-                reason="restored from owned lifecycle quarantine",
-                path=str(destination), identity=restored_identity)
+            if state == QUARANTINED:
+                transition_artifact(
+                    project_folder, artifact_id, DISPOSABLE,
+                    reason="restored from owned lifecycle quarantine",
+                    path=str(destination), identity=restored_identity)
+            else:
+                rebind_file(
+                    project_folder, artifact_id, identity=restored_identity,
+                    path=str(destination),
+                    reason="restored from an expired lifecycle quarantine")
         except Exception:
             if destination.exists() and not source.exists():
                 os.replace(destination, source)

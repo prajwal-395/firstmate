@@ -49,6 +49,13 @@ LEGACY_DELETED_CLIPS_RECORD = (
     "data/vep-resolve-stale-cleanup/q-workflow-exports-deleted.txt"
 )
 LEGACY_RETENTION = timedelta(hours=24)
+MAX_CLEANUP_JOB_RETRIES = 3
+"""How many times a refused cleanup job is retried before it is named.
+
+A refusal that is re-queued on every start is a loop, not a retry: the
+job never succeeds and the machine warns about it forever. Three fresh
+attempts with fresh safety checks are a retry; after that the job is
+reported as needing a person."""
 STORAGE_QUALIFICATION_EVENT = "storage_cleanup_qualification"
 STORAGE_QUALIFICATION_VERSION = 1
 STORAGE_QUALIFICATION_SCENARIOS = frozenset(
@@ -880,13 +887,53 @@ def resolve_legacy_census(projects: list[str]) -> dict:
     }
 
 
+def _quarantine_settle_allowed(project: str, row: dict) -> bool:
+    """Whether the lifecycle rules let an expired quarantine be settled.
+
+    A quarantined artifact may be released back to DISPOSABLE only when
+    nothing protects it: it is not pinned, nothing depends on it, its
+    kind and its suffix are not the never-purged ones, and its area does
+    not protect it. The file is NOT removed here - the reviewed storage
+    plan is what removes it - so settling only ends the grace period.
+    """
+    if row.get("pinned") or row.get("dependencies"):
+        return False
+    if row.get("kind") in PROTECTED_KINDS:
+        return False
+    path = str(row.get("path") or "")
+    if not path or Path(path).suffix.lower() in PROTECTED_SUFFIXES:
+        return False
+    if _protected_project_artifact(project, path):
+        return False
+    return not artifact_policy.is_protected_path(
+        project, path, row.get("retention_class", ""))
+
+
 def reconcile(
     projects: list[str],
     *,
     now: datetime | None = None,
     resolve_maintenance_window: bool = False,
 ) -> dict:
-    """Lightweight lifecycle reconciliation; deletion remains manifest-gated."""
+    """Reconcile the ownership records with the filesystem; deletion stays gated.
+
+    Three things used to be REPORTED here forever, because nothing in the
+    lifecycle could settle them:
+
+    - a record whose file was replaced drifted for as long as the
+      artifact lived, and the report named it on every start;
+    - a quarantined artifact whose grace period had expired stayed
+      quarantined, because nothing ever released it, so it was named on
+      every start as well;
+    - a refused cleanup job was re-queued on every start, which is a
+      loop rather than a retry.
+
+    Each is settled here under the rules that own it: a record follows
+    the file Ren replaced, an expired quarantine is released to the
+    reviewed storage plan, and a refused job is retried a bounded number
+    of times before it is named as needing a person. Nothing is deleted
+    here.
+    """
     from library.tools import artifact_lifecycle as lifecycle
     from library.tools import event_log
 
@@ -903,44 +950,83 @@ def reconcile(
                 elif fields.get("state") in {lifecycle.DISPOSABLE, lifecycle.PURGED}:
                     quarantine_at.pop(fields.get("artifact_id", ""), None)
         inventory = lifecycle.inventory(project)
-        drift = [
-            row["artifact_id"]
-            for row in inventory["artifacts"]
-            if row.get("identity_matches") is False
-        ]
-        expired = []
+        drift = []
+        rebound = []
+        for row in inventory["artifacts"]:
+            if row.get("identity_matches") is not False:
+                continue
+            artifact_id = row["artifact_id"]
+            try:
+                identity = lifecycle.FileIdentity.capture(row["path"])
+            except (OSError, lifecycle.LifecycleRefused):
+                # The file is gone, or is no longer the regular file the
+                # record names. Nothing can be said about the artifact
+                # without inventing it, so it stays a finding.
+                drift.append(artifact_id)
+                continue
+            if lifecycle.rebind_file(
+                    project, artifact_id, identity=identity,
+                    reason=("the file at the recorded path was replaced; "
+                            "the record follows the file")):
+                rebound.append(artifact_id)
+        settled = []
+        protected = []
         for row in inventory["artifacts"]:
             if row.get("state") != lifecycle.QUARANTINED:
                 continue
             try:
-                quarantined = datetime.fromisoformat(quarantine_at[row["artifact_id"]])
-                if quarantined.tzinfo is None:
-                    quarantined = quarantined.replace(tzinfo=UTC)
-                if now - quarantined >= LEGACY_RETENTION:
-                    expired.append(row["artifact_id"])
-            except (KeyError, ValueError):
+                quarantined = datetime.fromisoformat(
+                    quarantine_at[row["artifact_id"]])
+            except (KeyError, TypeError, ValueError):
                 continue
+            if quarantined.tzinfo is None:
+                quarantined = quarantined.replace(tzinfo=UTC)
+            if now - quarantined < LEGACY_RETENTION:
+                continue
+            if not _quarantine_settle_allowed(project, row):
+                protected.append(row["artifact_id"])
+                continue
+            lifecycle.transition_artifact(
+                project,
+                row["artifact_id"],
+                lifecycle.DISPOSABLE,
+                reason=("the quarantine grace period expired; the artifact "
+                        "awaits the reviewed storage purge"),
+            )
+            settled.append(row["artifact_id"])
         recovered = lifecycle.recover_interrupted_cleanup_jobs(project)
+        refusals = lifecycle.cleanup_job_refusals(project)
         retried = []
+        exhausted = []
         for job in lifecycle._latest_cleanup_jobs(project).values():
-            if job.get("state") == "refused":
-                lifecycle.transition_cleanup_job(
-                    project,
-                    job,
-                    "queued",
-                    outcome="startup reconciliation retry after fresh safety checks",
-                )
-                retried.append(job["lifecycle_event_id"])
+            if job.get("state") != "refused":
+                continue
+            event_id = job["lifecycle_event_id"]
+            tries = refusals.get(event_id, 0)
+            if tries > MAX_CLEANUP_JOB_RETRIES:
+                exhausted.append(event_id)
+                continue
+            lifecycle.transition_cleanup_job(
+                project,
+                job,
+                "queued",
+                outcome=(f"startup reconciliation retry {tries} of "
+                         f"{MAX_CLEANUP_JOB_RETRIES} after fresh safety checks"),
+            )
+            retried.append(event_id)
         queued = lifecycle.pending_cleanup_jobs(project)
         results.append(
             {
                 "project": str(Path(project).resolve()),
                 "abandoned_jobs_recovered": recovered,
                 "refused_jobs_retried": retried,
+                "refused_jobs_needing_attention": exhausted,
                 "pending_job_ids": [job["lifecycle_event_id"] for job in queued],
                 "worker_required": bool(recovered or retried),
                 "record_filesystem_drift": drift,
-                "expired_quarantine_review": expired,
+                "record_identity_rebound": rebound,
+                "expired_quarantine_settled": settled,
+                "expired_quarantine_protected": protected,
             }
         )
     report = {"projects": results, "automatic_deletion": False}
@@ -949,6 +1035,25 @@ def reconcile(
     else:
         report["resolve_census"] = "deferred to maintenance window"
     return report
+
+
+def unresolved_findings(report: dict) -> list[dict]:
+    """The projects whose reconciliation still has something to say.
+
+    A settled quarantine and a rebound record are RESOLVED: the machine
+    has nothing left to act on there, and the startup check stays quiet
+    about them. A drift the reconciliation could not settle, a
+    quarantine the rules protect, and a cleanup job that needs a person
+    are findings - they are what the operator has to look at.
+    """
+    findings = []
+    for row in report.get("projects", []):
+        if (row.get("record_filesystem_drift")
+                or row.get("expired_quarantine_protected")
+                or row.get("refused_jobs_retried")
+                or row.get("refused_jobs_needing_attention")):
+            findings.append(row)
+    return findings
 
 
 def startup_reconcile() -> dict:
@@ -1469,6 +1574,27 @@ def _protected_project_artifact(project: str, path: str) -> bool:
     return any(part.casefold() in protected for part in relative.parts)
 
 
+def _in_quarantine_area(project: str, path: str) -> bool:
+    """Whether a path already sits in the project's own quarantine area.
+
+    A settled quarantine is DISPOSABLE and still sits in quarantine: its
+    grace period expired and the file was not removed. The plan, the
+    collect and the purge all have to read that as "already aside", not
+    as a file waiting to be moved there a second time.
+    """
+    from library.tools.project_layout import Area, ProjectLayout
+
+    try:
+        root = Path(ProjectLayout(project).read_dir(Area.QUARANTINE)).resolve()
+    except (OSError, ValueError):
+        return False
+    try:
+        Path(os.path.abspath(path)).relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
 def plan_document(projects: list[str]) -> dict:
     """Build an exact-identity manifest without writing it."""
     report = status(projects)
@@ -1582,6 +1708,8 @@ def purge(manifest: str) -> dict:
             continue
         if (
             latest.get("state") != lifecycle.QUARANTINED
+            and not (latest.get("state") == lifecycle.DISPOSABLE
+                     and _in_quarantine_area(project, latest["path"]))
             or latest.get("kind") in PROTECTED_KINDS
             or Path(latest["path"]).suffix.lower() in PROTECTED_SUFFIXES
         ):
@@ -1638,6 +1766,18 @@ def collect(manifest: str) -> dict:
                 project, current["path"], current.get("retention_class", "")):
             raise lifecycle.LifecycleRefused(
                 f"artifact area is protected from cleanup: {item['artifact_id']}")
+        if _in_quarantine_area(project, current["path"]):
+            # A settled quarantine is already aside: its grace period
+            # expired and it waits in the reviewed plan for the purge.
+            # Moving it again would refuse on its own destination.
+            moved.append(
+                {
+                    "artifact_id": item["artifact_id"],
+                    "path": current["path"],
+                    "already_quarantined": True,
+                }
+            )
+            continue
         fields = {
             key: current[key] for key in lifecycle.ArtifactRecord.__dataclass_fields__
         }
@@ -1695,7 +1835,13 @@ def restore(manifest: str) -> dict:
     restored = []
     for item in document.get("candidates", []):
         latest = lifecycle._latest_artifacts(item["project"]).get(item["artifact_id"])
-        if latest is not None and latest.get("state") == lifecycle.DISPOSABLE:
+        settled = (
+            latest is not None
+            and latest.get("state") == lifecycle.DISPOSABLE
+            and latest.get("original_path")
+            and _in_quarantine_area(item["project"], latest["path"]))
+        if latest is not None and latest.get("state") == lifecycle.DISPOSABLE \
+                and not settled:
             _assert_plan_binding(item, latest)
             restored.append(
                 {
@@ -1705,7 +1851,8 @@ def restore(manifest: str) -> dict:
                 }
             )
             continue
-        if latest is None or latest.get("state") != lifecycle.QUARANTINED:
+        if latest is None or (
+                latest.get("state") != lifecycle.QUARANTINED and not settled):
             raise lifecycle.LifecycleRefused(
                 f"artifact is not a known quarantined resource: {item['artifact_id']}"
             )

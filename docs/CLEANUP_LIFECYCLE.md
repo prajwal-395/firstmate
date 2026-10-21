@@ -63,6 +63,34 @@ space from approved reel durations and delivery dimensions; setup uses its
 measured model/pack sizes. Preflight refuses when the requested work would
 consume the reserve and never removes protected assets to make room.
 
+## What the reconciliation settles
+
+`ren storage reconcile` compares the ownership records with the filesystem
+and settles what it can, because a finding nothing can settle is a warning
+on every start of the machine. Three things used to be reported forever:
+
+- **A record whose file Ren had replaced.** A recovery archive is
+  re-exported at the same path, and the record that named it then named a
+  file that was no longer there. The record now follows the file: the
+  re-export rebinds it, and a reconciliation rebinds a record whose file
+  was replaced by anything else. The identity the record had is kept beside
+  the new one, so the replacement is an audited fact. A file that is GONE
+  is not a rebind - nothing can be said about an artifact whose content
+  vanished, so it stays a finding.
+- **A quarantine whose grace period had expired.** The quarantine area's
+  policy gives a moved-aside file 24 hours to be restored; after that the
+  artifact is released to `DISPOSABLE` and the next storage plan names it.
+  The reconciliation never removes it: the reviewed plan is what removes
+  it, and only after the captain read the manifest. A quarantine that
+  something protects - a pinned artifact, a dependency, a `.drt`, a
+  protected area - is never released and stays a finding.
+- **A cleanup job the worker refused.** A refusal re-queued on every start
+  is a loop, not a retry. The job is retried three times with fresh safety
+  checks, and after that it is reported as needing a person.
+
+Nothing is deleted by a reconciliation, and `automatic_deletion` in the
+report says so.
+
 This interface preserves the existing `ren gc`, `ren purge`, and
 `ren workspace-gc` commands and their manifests. Project retention and
 machine-wide caches remain subject to their owning lifecycle implementations.

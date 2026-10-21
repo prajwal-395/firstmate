@@ -423,6 +423,32 @@ def recovery_archive_import_name(timeline_name: str) -> str:
     return _recovery_archive_stem(timeline_name)
 
 
+def _rebind_registered_archive(project_folder: str, path: Path) -> list[str]:
+    """Keep the ownership record of a replaced archive true.
+
+    The recovery archive of one timeline name is ONE path, and a later
+    export replaces the file at it. The record that names that file has
+    to follow it, or every later read says the artifact drifted - and a
+    drift nothing can settle is reported on every start of the machine.
+    """
+    from library.tools import artifact_lifecycle
+
+    try:
+        identity = artifact_lifecycle.FileIdentity.capture(path)
+    except (OSError, artifact_lifecycle.LifecycleRefused):
+        return []
+    rebound = []
+    for artifact_id in artifact_lifecycle.artifacts_at_path(project_folder, path):
+        try:
+            if artifact_lifecycle.rebind_file(
+                    project_folder, artifact_id, identity=identity,
+                    reason="the recovery archive was re-exported at this path"):
+                rebound.append(artifact_id)
+        except artifact_lifecycle.LifecycleRefused:
+            continue
+    return rebound
+
+
 def export_timeline_recovery_archive(
         resolve, timeline, timeline_name: str,
         project_folder: str, label: str = "",
@@ -519,6 +545,7 @@ def export_timeline_recovery_archive(
             if staged.stat().st_size == 0:
                 raise RuntimeError("Resolve left an empty .drt file")
             os.replace(staged, destination)
+            _rebind_registered_archive(project_folder, destination)
         result.update({"archived": True, "path": str(destination),
                        "content_id": recovery_archive_content_id(destination),
                        "sha256": _sha256(destination),

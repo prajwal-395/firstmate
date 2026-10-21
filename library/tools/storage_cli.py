@@ -176,8 +176,11 @@ def _render(data: dict, as_json: bool) -> None:
         for key in (
             "abandoned_jobs_recovered",
             "refused_jobs_retried",
+            "refused_jobs_needing_attention",
             "record_filesystem_drift",
-            "expired_quarantine_review",
+            "record_identity_rebound",
+            "expired_quarantine_settled",
+            "expired_quarantine_protected",
         ):
             if project.get(key):
                 print(f"  {key}: {project[key]}")
