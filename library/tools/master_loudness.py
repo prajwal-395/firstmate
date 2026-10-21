@@ -326,4 +326,11 @@ def master_render_report(render_report: Dict[str, Any],
     report["output_path"] = result.output_path
     report["mastering"] = result_as_dict(result)
     report["size_bytes"] = os.stat(result.output_path).st_size
+    # The file is a MASTER now: the render report's own "pre_master"
+    # flag is cleared, because the report describes the file this path
+    # points at. A route that reads the report cannot mistake a
+    # mastered master for a raw render.
+    report["stage"] = "mastered"
+    report["pre_master"] = False
+    report["mastered"] = True
     return report

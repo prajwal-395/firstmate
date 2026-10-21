@@ -26,6 +26,12 @@ reference to it: the input that breaks it is any call path from
 module. The answer to "what would have to happen for a render to start
 unasked" is "the captain runs the verb" - anything else is a defect.
 
+The reel-shaped gates stay HERE - the approval, the sign-off, the stale
+overlays, the project's declared maximum length - and the render, the
+mastering, the verification and the delivery identity record are ONE
+implementation in `library/tools/deliver_and_verify.py`, shared with
+every other route that delivers a committed edit.
+
 What is declared and what is derived
 ------------------------------------
 The delivery preset (container + codec) and the file naming are
@@ -913,7 +919,6 @@ def deliver_reel(project_folder: str, reel: Optional[int],
     os.makedirs(dest_dir, exist_ok=True)
 
     from library.tools import reel_build
-    from library.tools.execution import resolve_render
 
     with open(os.path.join(project_folder, "project.yaml"),
               encoding="utf-8") as handle:
@@ -974,76 +979,36 @@ def deliver_reel(project_folder: str, reel: Optional[int],
             "pipeline.max_duration_seconds in project.yaml if this video "
             "may run longer")
 
-    raw_dir = str(layout.write_dir(Area.SCRATCH, step="deliver-reel"))
-    report = resolve_render.render_timeline(
-        timeline_name=timeline.GetName(),
+    # The render, the mastering, the verification and the record are ONE
+    # implementation, shared with every other route that delivers a
+    # committed edit (`library/tools/deliver_and_verify.py`). The reel
+    # route's own gates - the approval, the sign-off, the stale
+    # overlays, the project's declared maximum length - ran above and
+    # are unchanged.
+    from library.tools import deliver_and_verify
+
+    full = deliver_and_verify.deliver_timeline(
+        project_folder,
+        timeline_name=timeline_name,
         timeline_id=live_identity.timeline_id,
         expected_project_name=resolve_name,
-        output_dir=raw_dir,
-        output_name=os.path.splitext(out_name)[0] + "_pre_master",
-        fmt=settings["format"],
-        codec=settings["codec"],
+        expected_seconds=expected_seconds,
+        settings=settings,
+        dest_dir=dest_dir,
+        output_name=out_name,
+        reel=int(reel),
         timeout_seconds=timeout_seconds,
+        source="ren deliver",
+        fps=timeline_fps,
+        start_frame=timeline_start,
+        end_frame=timeline_end,
+        # The reel route's ledger entry is written by the caller that
+        # knows the assignment identity the signature needs
+        # (`manage_project.py deliver-reel`, or the batch). This core
+        # writes the record beside the file; the ledger is the
+        # caller's half.
+        write_ledger=False,
     )
-    extension = (os.path.splitext(report["output_path"])[1]
-                 or settings["extension"])
-    final_path = os.path.join(
-        dest_dir, os.path.splitext(os.path.basename(out_name))[0] + extension)
-    from library.tools.master_loudness import master_render_report
-    # The delivery spec the project's named platform selects: the master
-    # is normalized to THAT platform's loudness target and true-peak
-    # ceiling, not the bare default - the same resolved spec the plan
-    # (step 5.02) and the gates (step 6.02, verify_render) read, so a
-    # render mastered to the wrong target fails the gate. See
-    # library/tools/delivery_spec.py.
-    from library.tools.delivery_spec import resolve_delivery_spec_for_project
-    delivery_spec = resolve_delivery_spec_for_project(project_folder)
-    report = master_render_report(
-        report, final_path,
-        target_lufs=delivery_spec.loudness_target_lufs,
-        true_peak_ceiling=delivery_spec.true_peak_ceiling_dbtp)
-    # Positional: fakes of verify_deliverable in the suite take
-    # (*args), so a keyword here would break every one of them; the
-    # parameter stays keyword-capable for direct callers. The spec goes
-    # with it, so the verdict measures the loudness the master was
-    # normalized to.
-    verdict = verify_deliverable(
-        report["output_path"], expected_seconds,
-        settings["width"], settings["height"],
-        delivery_spec.codec, delivery_spec)
-
-    full = {
-        "timeline_name": timeline_name,
-        "reel": int(reel),
-        "timeline_fps": timeline_fps,
-        "timeline_start_frame": timeline_start,
-        "timeline_end_frame": timeline_end,
-        "timeline_seconds": expected_seconds,
-        "settings": settings,
-        "render": report,
-        "verification": verdict,
-        "delivered": bool(verdict["passed"]),
-    }
-    sidecar = os.path.join(
-        dest_dir, os.path.splitext(os.path.basename(
-            report["output_path"]))[0] + ".deliver.json")
-    with open(sidecar, "w", encoding="utf-8") as handle:
-        json.dump(full, handle, indent=2, default=str)
-    full["report_path"] = sidecar
-    if not verdict["passed"]:
-        loudness = verdict.get("loudness") or {}
-        raise DeliverRefused(
-            f"rendered {report['output_path']} but verification FAILED",
-            f"duration={verdict['duration']['passed']}, "
-            f"resolution={verdict['resolution']['passed']}, "
-            f"audio={verdict['audio']['passed']}, "
-            f"loudness={loudness.get('passed')}, "
-            f"codec={verdict['codec']['passed']}, "
-            f"content_present={verdict['content_present']}. "
-            f"Report: {sidecar}",
-            "read the sidecar report for the failing check, fix the "
-            "timeline or the render settings, then deliver again - the "
-            "file stays in exports but is not recorded as delivered")
     # The delivery is an ACT, so the retention decision belongs here and
     # not in the CLI wrapper: a programmatic delivery must obey the same
     # per-user policy a sign-off does. The job is queued, not run - the
@@ -1056,7 +1021,7 @@ def deliver_reel(project_folder: str, reel: Optional[int],
         full["retention_summary"] = retention.after_delivery(
             project_folder,
             lifecycle_event_id=retention.delivery_event_id(
-                project_folder, [report["output_path"]]),
-            outputs=[report["output_path"]],
+                project_folder, [full["render"]["output_path"]]),
+            outputs=[full["render"]["output_path"]],
             start_worker=False)
     return full

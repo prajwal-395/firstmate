@@ -370,7 +370,7 @@ VERBS = (
     Verb("revise", "Projects", "Turn an editor's note into a verified change; --preview makes a watchable preview after rebuild",
          effects=("read", "project_write", "resolve_read", "resolve_write", "render", "heavy_lock"),
          module_argv=("library.tools.revise",),
-         detail="`ren revise <project> \"<note>\"` (or `--note-id` for a pulled Resolve marker) translates the note, shows what would change, then patches the reel in place, touches it up, or rebuilds only what the note reaches - and records the outcome with a summary naming where the change landed. `--preview` asks for a watchable preview after a successful rebuild; the project's `pipeline.preview_after_build: true` does the same by default. `ren revise <project> --at 0:12 [--reel N] \"<note>\"` anchors a chat note to that delivered-file time through the reel's `.deliver.json`, without Resolve. It stops to ask exactly one question when the note is ambiguous, and `ren revise <project>` continues the newest open revision (`--answer` answers its question, `--plan` stops before changing anything). `--assignment <id>` names the request the correction updates, so a focused correction lands on the task the person means rather than on the one the reel belongs to.",
+         detail="`ren revise <project> \"<note>\"` (or `--note-id` for a pulled Resolve marker) translates the note, shows what would change, then patches the reel in place, touches it up, or rebuilds only what the note reaches - and records the outcome with a summary naming where the change landed. `--preview` asks for a watchable preview after a successful rebuild; the project's `pipeline.preview_after_build: true` does the same by default. `--deliver` delivers the timeline the edit landed on: rendered, mastered to the delivery loudness, verified and recorded. `ren revise <project> --at 0:12 [--reel N] \"<note>\"` anchors a chat note to that delivered-file time through the reel's `.deliver.json`, without Resolve. It stops to ask exactly one question when the note is ambiguous, and `ren revise <project>` continues the newest open revision (`--answer` answers its question, `--plan` stops before changing anything). `--assignment <id>` names the request the correction updates, so a focused correction lands on the task the person means rather than on the one the reel belongs to.",
          params=(MCP_PROJECT,)),
     Verb("reindex", "Projects", "Move a project's words onto Voz plus MFA (re-transcribe legacy indexes)",
          effects=("read", "project_write", "heavy_lock", "network"), subcommand="reindex",
@@ -432,6 +432,13 @@ VERBS = (
          params=(MCP_PROJECT,)),
     Verb("deliver", "Reels", "Render approved reels to files (all signed-off, or one named reel)",
          effects=("read", "project_write", "resolve_read", "resolve_write", "render", "heavy_lock"), subcommand="deliver-reel",
+         detail="`ren deliver <project> <reel>` renders one approved, signed-off reel; "
+                "`ren deliver <project>` renders every approved reel. "
+                "`ren deliver <project> --timeline '<name>'` delivers a COMMITTED "
+                "EDIT - a live timeline no reel plan names, such as the one a "
+                "revision patched - through the same path: rendered, mastered to the "
+                "delivery loudness, verified, and recorded with its delivery identity "
+                "record. Renders only when asked.",
          params=(MCP_PROJECT,)),
     Verb("preview", "Reels", "Render a watchable low-cost preview of each built reel (cached by content)",
          effects=("read", "project_write", "resolve_read", "render", "heavy_lock"), json=True,

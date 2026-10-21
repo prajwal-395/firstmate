@@ -87,6 +87,7 @@ if str(ROOT) not in sys.path:
 
 from library.tools.editorial_acceptance import briefs, demo, judgement, record
 from library.tools.editorial_acceptance import delivery as delivery_module
+from library.tools import delivery_identity
 
 
 def _declared_spans(section: dict, name: str) -> list[list[float]]:
@@ -138,6 +139,11 @@ def build_delivery_section(section: dict, project: str = "") -> dict:
     the ending it deliberately ends on - go in; the measurements come
     out of the file. A file that cannot be read is reported as one that
     was not delivered, rather than as one whose checks passed.
+
+    A run that declares no clock gets it from the DELIVERY IDENTITY
+    RECORD beside the file: the rate and the range the delivery
+    measured, so the file is graded against what the delivery declared
+    rather than against nothing.
     """
     path = str(section.get("path") or "").strip()
     if not path:
@@ -147,6 +153,10 @@ def build_delivery_section(section: dict, project: str = "") -> dict:
     clock = clock if isinstance(clock, dict) else {}
     fps = clock.get("fps")
     frames = clock.get("frames")
+    if not fps or not frames:
+        declared = delivery_identity.declarations(path)
+        fps = fps or declared.get("fps")
+        frames = frames or declared.get("frames")
     try:
         produced = delivery_module.build_delivery_section(
             path,
@@ -229,6 +239,22 @@ def build_assessment(steps: dict, produced_delivery: dict,
     return scored
 
 
+def _project_section(steps: dict) -> dict:
+    """The record's project section: an OBJECT, never a path.
+
+    The section says what the run worked on - the substrate, the
+    Resolve project, the timeline - and a steps file that names the
+    project FOLDER must not put that path in it: a path is a string,
+    the section is an object, and a record built that way breaks its
+    own contract (and cannot be read back by the harness).
+    """
+    project = steps.get("project")
+    if isinstance(project, dict):
+        return dict(project)
+    folder = str(project or "").strip()
+    return {"folder": folder} if folder else {}
+
+
 def build_record(steps: dict, public: dict | None = None) -> dict:
     """The task record for one run, from the run's own measurements."""
     brief_id = str(steps.get("brief_id") or "the-whole-job")
@@ -259,7 +285,7 @@ def build_record(steps: dict, public: dict | None = None) -> dict:
         delivery=sections["delivery"],
         run=dict(steps.get("run") or {}),
         resource=dict(steps.get("resource") or {}),
-        project=str(steps.get("project") or ""),
+        project=_project_section(steps),
         reel=str(steps.get("reel") or ""),
         steps=list(steps.get("steps") or ()),
         assessment=assessment,

@@ -463,6 +463,15 @@ def _validate_render_output(render: dict) -> dict:
         "timeline_name": render["timeline_name"],
         "format": render["format"],
         "codec": render["codec"],
+        # A render is a PRE-MASTER file until the mastering pass has run
+        # on it (`library/tools/master_loudness.py`). Saying so here is
+        # what stops a route from handing this file over as a finished
+        # deliverable: the file is 9 dB under the delivery target until
+        # it is mastered, and a file that says so in its own report
+        # cannot be shipped by accident.
+        "stage": "pre_master",
+        "pre_master": True,
+        "mastered": False,
     }
 
 

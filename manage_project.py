@@ -3367,6 +3367,61 @@ def cmd_deliver_all(project_folder: str, args) -> None:
     _start_delivery_cleanup(project_folder, report.get("retention_summary"))
 
 
+def _deliver_committed_edit(project_folder: str, args, timeline: str,
+                             timeline_id: str) -> None:
+    """Deliver a COMMITTED EDIT: a live timeline no reel plan names.
+
+    The same path every other delivery takes - render, master to the
+    delivery loudness, verify the file that is handed over, write the
+    delivery identity record - reached from `ren deliver --timeline`
+    instead of from a reel number. A revision that patched a reel, the
+    master timeline, any timeline the captain edited by hand: it has an
+    engine path to a delivered file now, instead of a hand-rolled
+    export that skipped the mastering and the records.
+
+    Nothing about the timeline is changed: it is read, rendered and
+    left alone.
+    """
+    from library.tools import deliver_and_verify
+
+    if getattr(args, "reel", None) is not None:
+        raise deliver_and_verify.DeliverRefused(
+            "a reel number and a timeline cannot both be named",
+            "a reel delivery and a committed-edit delivery are two "
+            "routes, and one call does one of them",
+            "drop the reel number, or drop --timeline")
+    try:
+        full = deliver_and_verify.deliver_committed_edit(
+            project_folder,
+            timeline_name=timeline,
+            timeline_id=timeline_id,
+            output_dir=getattr(args, "output_dir", "") or "",
+            file_name=getattr(args, "name", "") or "",
+            timeout_seconds=getattr(args, "timeout", 1800),
+            source="ren deliver --timeline")
+    except deliver_and_verify.DeliverRefused as refused:
+        print(refused.render(), file=sys.stderr)
+        emit_refusal_result(refused)
+        sys.exit(REFUSAL_EXIT_CODE)
+    verification = full["verification"]
+    print(f"Delivered {full['timeline_name']!r} -> "
+          f"{verification['output_path']}")
+    print(f"  duration:   {verification['duration']['detail']} "
+          f"({'PASS' if verification['duration']['passed'] else 'FAIL'})")
+    print(f"  resolution: {verification['resolution']['detail']} "
+          f"({'PASS' if verification['resolution']['passed'] else 'FAIL'})")
+    print(f"  audio:      {verification['audio']['detail']} "
+          f"({'PASS' if verification['audio']['passed'] else 'FAIL'})")
+    print(f"  content:    "
+          f"{'picture present' if verification['content_present'] else 'NO PICTURE - black throughout'} "
+          f"({'PASS' if verification['content_present'] else 'FAIL'})")
+    for half in full["settings"]["needs_captain_word"]:
+        print(f"  note: pipeline.{half} is UNDECLARED - rendered with "
+              f"the mechanism fallback and this needs the captain's "
+              f"word before it becomes a standard.")
+    print(f"  report: {full['report_path']}")
+
+
 def cmd_deliver_reel(args):
     """Render ONE chosen reel timeline to a video file. The explicit verb.
 
@@ -3388,6 +3443,11 @@ def cmd_deliver_reel(args):
 
     project_folder = _reel_project_folder(args.project)
     _ensure_deliver_declaration(project_folder, args)
+    timeline = (getattr(args, "timeline", "") or "").strip()
+    timeline_id = (getattr(args, "timeline_id", "") or "").strip()
+    if timeline or timeline_id:
+        _deliver_committed_edit(project_folder, args, timeline, timeline_id)
+        return
     if args.reel is None:
         if getattr(args, "name", ""):
             raise reel_deliver.DeliverRefused(
@@ -4827,6 +4887,16 @@ def main():
         "--name", default="",
         help="The output filename. Default: the project's "
              "pipeline.deliver_naming, or {timeline}.{ext}")
+    deliver_reel_parser.add_argument(
+        "--timeline", default="",
+        help="Deliver this live Resolve timeline by its exact name, for "
+             "a committed edit no reel plan names (a revision's reel, "
+             "the master timeline). It is mastered, verified and "
+             "recorded like any other delivery")
+    deliver_reel_parser.add_argument(
+        "--timeline-id", default="",
+        help="Deliver this live Resolve timeline by its Resolve id, "
+             "instead of by name")
     deliver_reel_parser.add_argument(
         "--timeout", type=int, default=1800,
         help="Seconds to wait for Resolve to finish (default: 1800)")

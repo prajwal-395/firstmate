@@ -128,3 +128,35 @@ def test_a_delivery_that_cannot_be_read_is_reported_as_one(video, tmp_path):
     assert built["delivery"]["evidence_error"]
     assert not built["delivery"].get("sha256")
     assert built["assessment"]["editorial"]["status"] == "not_measured"
+
+
+def test_a_run_that_declares_no_clock_gets_it_from_the_delivery_record(
+        video, tmp_path):
+    """The defect: a delivery through the engine leaves its record
+    beside the file - the timeline's own rate and range - and a run that
+    does not type the clock into its steps file had nothing to grade
+    the file against. The three checks that read "not checked" are the
+    frame, the rate and the length.
+
+    The record supplies the clock, so the file is graded against what
+    the delivery declared.
+    """
+    from library.tools import delivery_identity
+
+    delivered = tmp_path / "delivered.mp4"
+    delivered.write_bytes(Path(video).read_bytes())
+    delivery_identity.write_record(
+        str(delivered), timeline_name="Reel 13 - hook", reel=13, fps=24.0,
+        seconds=2.0, start_frame=0, end_frame=47,
+        settings={"width": 320, "height": 180}, delivered=True,
+        stage=delivery_identity.STAGE_MASTERED, source="ren deliver")
+
+    public = _public()
+    steps = _steps(str(delivered), public)
+    steps["delivery"].pop("timeline", None)
+    built = demo_script.build_record(steps, public)
+
+    section = built["delivery"]
+    assert section["technical_not_checked"] == []
+    assert section["technical_verification"]["framerate"] is True
+    assert section["technical_verification"]["duration"] is True

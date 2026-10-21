@@ -316,6 +316,7 @@ def start(project, note: str = "", *, note_id: str = "", reel: str = "",
         "decision_candidates": candidates,
         "decision_candidates_reason": why_none,
         "preview_requested": bool(options.get("preview", False)),
+        "deliver_requested": bool(options.get("deliver", False)),
         "clarifications": [],
         "created_at": _now(),
     }
@@ -896,6 +897,51 @@ def _patch(project: str, record: dict, spec: dict, verdict: dict,
             "scope": scope, "supersedes": supersedes}
 
 
+def _deliver_landed_edit(project: str, record: dict) -> dict:
+    """Deliver the timeline the landed edit is on, and say what happened.
+
+    The delivery is ASKED for (`--deliver`), never implied by the edit:
+    a render is the expensive thing the captain must ask for. The ask
+    is carried on the record itself (`deliver_requested`), so the gate
+    is HERE and not in the caller: a revision that nobody asked to
+    deliver does not deliver, whoever calls this.
+
+    It goes through the one delivery path
+    (`library/tools/deliver_and_verify.py`), so the file is mastered to
+    the delivery loudness, verified, and carries its delivery identity
+    record - the same file a reel delivery produces.
+
+    A delivery that fails does not un-land the edit: the edit landed,
+    the file did not arrive, and the record says both.
+    """
+    from library.tools import deliver_and_verify
+
+    if not record.get("deliver_requested"):
+        return {"delivered": False,
+                "error": "the revision was not asked to deliver, so "
+                         "nothing was rendered"}
+    reel = record.get("reel") or ""
+    if not reel:
+        return {"delivered": False,
+                "error": "the revision names no timeline, so there is "
+                         "nothing to deliver"}
+    try:
+        full = deliver_and_verify.deliver_committed_edit(
+            project, timeline_name=reel, source="ren revise --deliver")
+    except deliver_and_verify.DeliverRefused as refused:
+        return {"delivered": False, "error": refused.what, "why": refused.why,
+                "fix": refused.fix}
+    except Exception as failed:  # noqa: BLE001 - the edit still landed
+        return {"delivered": False,
+                "error": f"the delivery could not run ({failed!r})"}
+    verification = full.get("verification") or {}
+    return {"delivered": bool(full.get("delivered")),
+            "timeline_name": full.get("timeline_name"),
+            "output_path": verification.get("output_path"),
+            "record_path": full.get("report_path"),
+            "verification_passed": bool(verification.get("passed"))}
+
+
 def _addressed(project: str, note: dict, action: str, rationale: str,
                summary: str) -> dict:
     """Record a change no check in `marker_resolution.CHECKS` proves."""
@@ -1220,7 +1266,7 @@ def _result(project: str, record: dict) -> dict:
         "spec_id", "proposal", "classification", "route", "change",
         "commands", "decisions", "verification", "question", "failed_command",
         "landed_generation", "scope", "supersedes", "prior_bases",
-        "candidate_set", "candidate_decision", "ruling",
+        "candidate_set", "candidate_decision", "ruling", "delivery",
         "edit_request", "preparation", "execution_receipt")}
     out["reply"] = reply
     if status == STATUS_AWAITING:
@@ -1247,6 +1293,9 @@ def advance(project, revise_id: str, *, answer: str = "",
     preview = bool(options.get("preview") or record.get("preview_requested"))
     if preview:
         record["preview_requested"] = True
+    deliver = bool(options.get("deliver") or record.get("deliver_requested"))
+    if deliver:
+        record["deliver_requested"] = True
     if record["status"] in FINISHED and not (
             retranslate and record["status"] == STATUS_REFUSED):
         # A REFUSED revision is finished, but the editor can change their
@@ -1340,6 +1389,13 @@ def advance(project, revise_id: str, *, answer: str = "",
             recovery_class=refused.recovery_class) from refused
     record.update({key: value for key, value in outcome.items()
                    if key != "status"})
+    if deliver and outcome.get("status") in (STATUS_PATCHED,
+                                             STATUS_UNVERIFIED):
+        # The edit landed and the captain asked for the file: deliver
+        # the timeline it landed on, through the one delivery path
+        # (render, master, verify, record). The delivery is ASKED for
+        # here - never implied by the edit.
+        record["delivery"] = _deliver_landed_edit(project, record)
     revision_id = _record_candidate_decision(project, record, spec)
     _record_ruling(project, record, spec, revision_id)
     _status(record, outcome["status"])
@@ -1386,13 +1442,19 @@ def main(argv=None) -> int:
     parser.add_argument(
         "--preview", action="store_true",
         help="render a watchable preview after a successful rebuild")
+    parser.add_argument(
+        "--deliver", action="store_true",
+        help="deliver the timeline the edit landed on: rendered, "
+             "mastered to the delivery loudness, verified and recorded. "
+             "Asked for, never implied")
     args = parser.parse_args(argv)
     try:
         if args.note or args.note_id or args.at:
             result = start(args.project, args.note, note_id=args.note_id,
                            reel=args.reel, at=args.at,
                            assignment_id=args.assignment_id,
-                           plan_only=args.plan_only, preview=args.preview)
+                           plan_only=args.plan_only, preview=args.preview,
+                           deliver=args.deliver)
         else:
             revise_id = args.revise_id
             if not revise_id:
@@ -1407,7 +1469,7 @@ def main(argv=None) -> int:
             result = advance(args.project, revise_id, answer=args.answer,
                              plan_only=args.plan_only,
                              retranslate=args.retranslate,
-                             preview=args.preview)
+                             preview=args.preview, deliver=args.deliver)
     except RenRefusal as refused:
         from library.tools.ren_refusal import emit_refusal_result
         print(refused.render(), file=sys.stderr)

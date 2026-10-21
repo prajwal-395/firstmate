@@ -531,42 +531,17 @@
           "W3_delete_cover_multi": {
             "receipt_status": "committed",
             "removed_uid": "cacde8b5-86ac-4ca9-9d69-f4189212303f"
-          },
-          "delete_linked_effects": {
-            "checks": {
-              "linked_audio_preserved": true,
-              "other_items_untouched": true,
-              "video_target_absent": true
-            },
-            "measurement": {
-              "clip_composition": "linked_video_clip",
-              "existing_effects": "transforms+retiming",
-              "frame_rate": "24",
-              "linked_audio_configuration": "linked_audio_present",
-              "media_type": "video",
-              "project_settings": "landscape_1920x1080",
-              "resolve_version": "21.1.0.14",
-              "timeline_density": "moderate",
-              "timeline_structure": "multi_item_timeline",
-              "track_layout": "video+audio",
-              "track_occupancy": "mixed"
-            },
-            "scenarios": [
-              "delete_linked_effects"
-            ]
           }
         }
       },
       "audio_verification": [
-        "linked audio twin preserved in W1/W3 (twin uid unchanged on read-back); stills carry no audio",
-        "not applicable: this operation writes no audio level; the audio rows are read back unchanged by the same per-item reading"
+        "linked audio twin preserved in W1/W3 (twin uid unchanged on read-back); stills carry no audio"
       ],
       "coverage": {
         "configurations": [
           "populated_1080p24",
           "linked_av_1080p24",
-          "still_1080p24",
-          "measured_qualification_timeline"
+          "still_1080p24"
         ],
         "dimensions": {
           "clip_composition": [
@@ -575,8 +550,7 @@
             "still_clip"
           ],
           "existing_effects": [
-            "none",
-            "transforms+retiming"
+            "none"
           ],
           "frame_rate": [
             "24"
@@ -596,8 +570,7 @@
             "21.1.0.14"
           ],
           "timeline_density": [
-            "light",
-            "moderate"
+            "light"
           ],
           "timeline_structure": [
             "single_item_timeline",
@@ -635,6 +608,7 @@
             "transforms+grades+fusion",
             "transforms+grades+retiming",
             "transforms+grades+retiming+fusion",
+            "transforms+retiming",
             "transforms+retiming+fusion",
             "transitions",
             "transitions+fusion",
@@ -681,6 +655,7 @@
           ],
           "timeline_density": [
             "empty",
+            "moderate",
             "dense"
           ],
           "timeline_structure": [
@@ -703,13 +678,10 @@
         "platform": "darwin",
         "resolve_version": "21.1.0.14"
       },
-      "evidence": "clip-delete-evidence.json#payload; direct EditPatch clip.delete committed; seeded qual_b.mp4 absent on re-read; no other items or tracks changed; tests/live/reports/predicate-widening-016.json#W1+W2+W3; direct EditPatch clip.delete committed on linked video, still, and multi-item cover; target absent, others unchanged; tests/live/reports/axi-primitive-qualification.json#delete_linked_effects",
+      "evidence": "clip-delete-evidence.json#payload; direct EditPatch clip.delete committed; seeded qual_b.mp4 absent on re-read; no other items or tracks changed; tests/live/reports/predicate-widening-016.json#W1+W2+W3; direct EditPatch clip.delete committed on linked video, still, and multi-item cover; target absent, others unchanged",
       "expected_state": {
-        "linked_audio_preserved": true,
         "other_items_unchanged": true,
-        "other_items_untouched": true,
-        "target_absent": true,
-        "video_target_absent": true
+        "target_absent": true
       },
       "media_types": [
         "video",
@@ -728,54 +700,16 @@
         {
           "check": "receipt_committed",
           "result": "passed"
-        },
-        {
-          "check": "video_target_absent",
-          "result": "passed"
-        },
-        {
-          "check": "linked_audio_preserved",
-          "result": "passed"
-        },
-        {
-          "check": "other_items_untouched",
-          "result": "passed"
         }
       ],
       "preservation_limits": [
-        "one delete per scenario; link twins and covers outside the target uid are preserved",
-        "one private scratch timeline; the checks are the ones the scenarios name: linked_audio_preserved, other_items_untouched, video_target_absent"
+        "one delete per scenario; link twins and covers outside the target uid are preserved"
       ],
       "qualification_predicates": [
         {
-          "field": "clip_composition",
-          "operator": "one_of",
-          "value": [
-            "single_video_clip",
-            "linked_video_clip",
-            "still_clip"
-          ]
-        },
-        {
-          "field": "existing_effects",
-          "operator": "one_of",
-          "value": [
-            "none",
-            "transforms+retiming"
-          ]
-        },
-        {
-          "field": "frame_rate",
+          "field": "resolve_version",
           "operator": "equals",
-          "value": "24"
-        },
-        {
-          "field": "linked_audio_configuration",
-          "operator": "one_of",
-          "value": [
-            "no_linked_audio",
-            "linked_audio_present"
-          ]
+          "value": "21.1.0.14"
         },
         {
           "field": "media_type",
@@ -786,29 +720,20 @@
           ]
         },
         {
-          "field": "project_settings",
-          "operator": "equals",
-          "value": "landscape_1920x1080"
-        },
-        {
-          "field": "resolve_version",
-          "operator": "equals",
-          "value": "21.1.0.14"
-        },
-        {
-          "field": "timeline_density",
+          "field": "clip_composition",
           "operator": "one_of",
           "value": [
-            "light",
-            "moderate"
+            "single_video_clip",
+            "linked_video_clip",
+            "still_clip"
           ]
         },
         {
-          "field": "timeline_structure",
+          "field": "linked_audio_configuration",
           "operator": "one_of",
           "value": [
-            "single_item_timeline",
-            "multi_item_timeline"
+            "no_linked_audio",
+            "linked_audio_present"
           ]
         },
         {
@@ -826,6 +751,34 @@
             "mixed",
             "all_populated"
           ]
+        },
+        {
+          "field": "timeline_density",
+          "operator": "equals",
+          "value": "light"
+        },
+        {
+          "field": "timeline_structure",
+          "operator": "one_of",
+          "value": [
+            "single_item_timeline",
+            "multi_item_timeline"
+          ]
+        },
+        {
+          "field": "project_settings",
+          "operator": "equals",
+          "value": "landscape_1920x1080"
+        },
+        {
+          "field": "frame_rate",
+          "operator": "equals",
+          "value": "24"
+        },
+        {
+          "field": "existing_effects",
+          "operator": "equals",
+          "value": "none"
         }
       ],
       "recovery": "not_required",
@@ -834,25 +787,21 @@
       "semantic_boundary": {
         "applies_to": [
           "deleting one timeline item, named by its exact unique id",
-          "a video, a linked A/V video or a still, on a timeline of one or a few items",
-          "clip.delete on edit_patch in the measured qualification state"
+          "a video, a linked A/V video or a still, on a timeline of one or a few items"
         ],
         "does_not_apply_to": [
           "deleting an item that carries a grade, a Fusion composition, a transition or a retime",
           "deleting more than one item in one operation",
-          "a timeline whose frame rate, geometry or track layout is outside coverage.dimensions",
-          "states or operation/backend pairs not named by this evidence"
+          "a timeline whose frame rate, geometry or track layout is outside coverage.dimensions"
         ]
       },
       "timeline_conditions": [
         "Ren Qualification / fm-scratch qualify",
         "private target timeline only",
-        "linked A/V seed, still logo, and seed-plus-V2-cover compositions on the scratch timeline",
-        "production entry: edit_patch.apply_live_patch"
+        "linked A/V seed, still logo, and seed-plus-V2-cover compositions on the scratch timeline"
       ],
       "visual_verification": [
-        "target uid absent on fresh read-back in all three scenarios; all other item uids and tracks unchanged",
-        "the live read-back of every clip on every row, item by item (source path, source range, record span, transform, enabled state, Fusion comps) plus `resolve-axi items`"
+        "target uid absent on fresh read-back in all three scenarios; all other item uids and tracks unchanged"
       ]
     },
     "clip.delete::resolve_axi": {

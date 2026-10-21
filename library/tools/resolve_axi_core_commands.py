@@ -7535,11 +7535,36 @@ def cmd_render_inspect(args) -> int:
     # The file is checked AFTER the lease is released: the broker owns
     # Resolve, and an ffprobe is not Resolve work.
     report = resolve_render.validate_render_output(render)
+    # What this route produces is a PRE-MASTER render: the file is on
+    # disk and carries audio, and it has NOT been brought to the
+    # delivery loudness. The old wording - "verified: yes" - read as
+    # though the file were finished, and the section-12 demo shipped
+    # exactly this file: 9.18 dB under the delivery target with
+    # nothing on record that said so. The record beside the file now
+    # says what the file is, and the payload says it out loud.
+    from library.tools import delivery_identity
+    record = delivery_identity.write_record(
+        report["output_path"],
+        timeline_name=report["timeline_name"],
+        render=report,
+        delivered=False,
+        stage=delivery_identity.STAGE_PRE_MASTER,
+        source="resolve-axi render inspect")
     payload = {"project": project.GetName(),
                "timeline": report["timeline_name"],
                "output_path": report["output_path"],
                "size_bytes": report["size_bytes"],
-               "verified": "yes (the file is on disk and carries audio)"}
+               "stage": delivery_identity.STAGE_PRE_MASTER,
+               "pre_master": True,
+               "mastered": False,
+               "delivered": False,
+               "record_path": record["record_path"],
+               "written": "yes (the file is on disk and carries audio)",
+               "note": "this is a PRE-MASTER render, not a deliverable: "
+                       "it has not been brought to the delivery loudness. "
+                       "Deliver it with `ren deliver <project> --timeline "
+                       "<name>`, which masters it and writes the delivery "
+                       "record."}
     if getattr(args, "json", False):
         sys.stdout.write(json.dumps(payload, sort_keys=True) + "\n")
         return 0

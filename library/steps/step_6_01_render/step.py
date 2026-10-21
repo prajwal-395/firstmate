@@ -298,7 +298,7 @@ def _export_timeline(timeline_name: str, inputs: dict, manifest: dict) -> dict:
         master_render_report,
     )
     audio_mix = manifest.get("audio_mix", {}) or {}
-    return master_render_report(
+    report = master_render_report(
         rendered, final_path,
         target_lufs=float(audio_mix.get(
             "delivery_lufs_target", DELIVERY_LUFS_TARGET)),
@@ -306,6 +306,23 @@ def _export_timeline(timeline_name: str, inputs: dict, manifest: dict) -> dict:
             "delivery_true_peak_ceiling_dbtp",
             DEFAULT_TRUE_PEAK_CEILING_DBTP)),
     )
+    # The delivery identity record beside the export. Every route that
+    # produces a deliverable writes one, and this route is one of them:
+    # without it the export is a file that says nothing about which
+    # edit produced it, and the export gate's identity criterion
+    # (QA-008) answers "unknown" for it. See
+    # `library/tools/delivery_identity.py`.
+    from library.tools import delivery_identity
+
+    record = delivery_identity.write_record(
+        report["output_path"],
+        timeline_name=timeline_name,
+        render=report,
+        delivered=True,
+        stage=delivery_identity.STAGE_MASTERED,
+        source="step 6.01 render")
+    report["record_path"] = record["record_path"]
+    return report
 
 
 def _skip_authorized_stabilization(manifest: dict) -> int:

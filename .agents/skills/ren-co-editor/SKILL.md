@@ -296,6 +296,7 @@ it whenever the goal is about what is IN the footage.
 | Two versions of one reel | `ren variant <project> new` / `build` / `diff` / `choose` |
 | Record approval | `ren sign-off <project> "<reel timeline name>"` (built reels only; `PROPOSED` fails as `REJECTED` does) |
 | Render reels to files | `ren deliver <project>` (every signed-off reel, with a receipt and QC; the folder is revealed) or `ren deliver <project> <n>` for one |
+| Deliver a committed edit (a timeline no reel plan names) | `ren deliver <project> --timeline "<name>"` - rendered, mastered to the delivery loudness, verified, and recorded beside the file; `ren revise <project> "<note>" --deliver` delivers the timeline the edit landed on |
 | Creative QA after delivery | `ren qa <project>` (one reversible repair for a measurable defect through `ren revise`, then re-QC; editorial calls land on the review page as questions; clean passes untouched) |
 | Pause or release a run | `ren pause <project>` / `ren resume <project>`; a staged timeline held from the sweep: `ren holds release <project> <timeline>` |
 | Redo one stage, step or clip | `ren edit <project>` with `--rerun <target>`, `--only <step>`, `--step <step>` or `--target <name>` (AGENTS.md §3) |
@@ -449,7 +450,10 @@ exited 0 is not a verified edit.
   changes nothing in Resolve (no timeline, no clip, no pool item), so
   the broker may run it and the render queues with every other Resolve
   job. This is the route for a timeline Ren did not build; for a reel
-  the plan knows, `ren preview <project>` is the reel-shaped one.
+  the plan knows, `ren preview <project>` is the reel-shaped one. The
+  file it writes is a PRE-MASTER render - it has not been brought to
+  the delivery loudness, so it is for LOOKING, not for shipping;
+  `ren deliver <project> --timeline "<name>"` delivers one.
 - `verify_timeline` (a built timeline), `verify_render` (a rendered
   file; after a touch, `--dirty-receipt` re-checks only what changed), `ren hear` / `hear_the_reel` (what a delivered reel SAYS) and
   `ren watch` (a model watches it; `--dirty-receipt` draws only the

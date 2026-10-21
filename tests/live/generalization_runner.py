@@ -328,43 +328,6 @@ def teardown():
         raise RuntimeError("teardown delete refused")
     drop_v4()
 
-def ensure_graphics_media():
-    """Import the runner's deterministic PNG fixtures through AXI."""
-    from tests.live import small_edit_qualification as _q
-    _q._write_logo_fixture(_q.LOGO)
-    _q._write_caption_fixture(
-        _q.TIGHT_CAPTION, 480, 120,
-        [(70, 36, 400, 48), (40, 62, 440, 82)], (255, 255, 255, 255))
-    _q._write_caption_fixture(
-        _q.FULL_FRAME_CAPTION, 1920, 1080,
-        [(320, 800, 1600, 850), (250, 875, 1670, 945)],
-        (255, 255, 255, 255))
-    pool = manager.GetCurrentProject().GetMediaPool()
-    root = pool.GetRootFolder()
-    for _path in (_q.LOGO, _q.TIGHT_CAPTION, _q.FULL_FRAME_CAPTION):
-        _name = _path.name
-        _stack = [root]
-        _hits = []
-        while _stack:
-            _folder = _stack.pop()
-            for _item in _folder.GetClipList() or ():
-                if str(_item.GetName()) == _name:
-                    _hits.append(_item)
-            _stack.extend(_folder.GetSubFolderList() or ())
-        if len(_hits) > 1:
-            raise RuntimeError("refusing ambiguous graphics fixture "
-                               + _name)
-        if _hits:
-            continue
-        _receipt = call(["ingest", str(_path), "--apply",
-                         "--project", PROJECT])
-        if _receipt["exit_code"]:
-            raise RuntimeError("could not ingest graphics fixture "
-                               + _name + ": " + _receipt["stdout"]
-                               + _receipt["stderr"])
-
-ensure_graphics_media()
-
 def set_props(uid, props, label):
     receipt = edit_patch.apply_live_patch(
         project=manager.GetCurrentProject(),
