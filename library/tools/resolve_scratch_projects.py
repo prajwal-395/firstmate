@@ -344,6 +344,7 @@ def _write_origin(state: dict, records: list[dict] | None = None) -> None:
     remaining = _drop_record(current, state.get("scratch_project"))
     remaining.append({**state,
                       "owner_pid": os.getpid(),
+                      "owner_machine_id": _machine_id(),
                       "owner_start": _process_start(os.getpid()),
                       "owner_host": socket.gethostname(),
                       "owner": _owner_name(),
@@ -386,6 +387,60 @@ def _process_start(pid: int) -> str:
     return " ".join(out.split())
 
 
+def _machine_id() -> str:
+    """This machine's stable identity, or "" where it cannot be read.
+
+    A HOSTNAME is not an identity: it changes (the short name "Mac"
+    became "Mac.attlocal.net"), and a record that names the old one
+    reads as ANOTHER MACHINE's - which is fail-closed to "alive", so
+    the session it holds is never released (measured 2026-10-21: seven
+    abandoned sessions held the scratch-origin slot on this machine,
+    every one of them stamped with the hostname the machine had before
+    it was renamed).
+    """
+    for candidate in ("/etc/machine-id", "/var/lib/dbus/machine-id"):
+        try:
+            value = Path(candidate).read_text(encoding="utf-8").strip()
+        except (OSError, ValueError):
+            continue
+        if value:
+            return value
+    try:
+        from library.tools.shared_environment import vep_home
+
+        return (vep_home() / "machine-id").read_text(
+            encoding="utf-8").strip()
+    except (OSError, ValueError):
+        return ""
+
+
+def _same_machine(state: dict) -> bool:
+    """Whether the record names THIS machine.
+
+    The machine id answers it exactly. A record with no machine id
+    falls back to the hostname, and a hostname that is a prefix of this
+    machine's name (or the other way round) is the SAME machine: the
+    short name and the FQDN are one host.
+
+    A record from ANOTHER machine is not this machine's, and the caller
+    treats it as alive (fail-closed): "we could not prove the owner is
+    gone" must never be read as "the owner is gone", because taking
+    such a record would take the route back from a live writer's
+    scratch project.
+    """
+    recorded = str(state.get("owner_machine_id") or "")
+    if recorded:
+        mine = _machine_id()
+        return not mine or recorded == mine
+    host = str(state.get("owner_host") or "")
+    if not host:
+        return True
+    mine = socket.gethostname()
+    if host == mine:
+        return True
+    return host == mine.split(".")[0] or mine.startswith(host + ".")
+
+
 def _owner_alive(state: dict) -> bool:
     """Whether the process that recorded this origin may still be working.
 
@@ -394,6 +449,12 @@ def _owner_alive(state: dict) -> bool:
     must never be read as "the owner is gone", because taking such a
     record would take the route back from a live writer's scratch
     project.
+
+    A record from THIS machine whose owner is gone counts as GONE, even
+    when it names the machine by a hostname this machine has since
+    changed (the dead owner's slot is released - measured 2026-10-21:
+    seven abandoned sessions held the slot because every record was read
+    as another machine's).
 
     A pid whose START no longer matches the recorded one counts as
     GONE: the number was reused, and the process wearing it now is not
@@ -406,8 +467,7 @@ def _owner_alive(state: dict) -> bool:
         return True
     if pid <= 0:
         return True
-    host = str(state.get("owner_host") or "")
-    if host and host != socket.gethostname():
+    if not _same_machine(state):
         return True
     try:
         os.kill(pid, 0)
