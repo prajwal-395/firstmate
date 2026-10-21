@@ -1444,6 +1444,41 @@ def _routing_inspected(routing) -> bool:
     return bool(selection.get("qualification_state_inspected"))
 
 
+def _feasibility_of(request, compiled, snapshot, route_context):
+    """The feasibility verdict for the plan, against the state it would run on.
+
+    The state is the RECORDED generation the request is planned against -
+    its items, the rows they live on and their source handles - plus the
+    measured runtime the route context already carries, when it carries
+    one.  Nothing here reads Resolve: the route context did that, and
+    the recorded generation is the generation the request is pinned to.
+
+    A measurement nobody took stays UNDETERMINED.  The gate refuses on a
+    refusal only, so a plan the engine cannot see into is reported, not
+    forbidden (AGENTS.md 10.3, 10.4).
+    """
+    from library.tools import plan_feasibility
+
+    context = dict(route_context or {})
+    preservation = []
+    for requirement in (request.preservation or ()):
+        if isinstance(requirement, Mapping):
+            preservation.append(str(requirement.get("kind")
+                                    or requirement.get("name") or ""))
+    state = plan_feasibility.FeasibilityState(
+        items=plan_feasibility.items_from_snapshot(snapshot),
+        tracks=plan_feasibility.tracks_from_snapshot(snapshot),
+        runtime=context.get("qualification_state"),
+        preservation_requirements=tuple(preservation),
+        backend_constraints=tuple(
+            str(constraint) for constraint in
+            (request.backend_constraints or ())),
+        policy=str(context.get("qualification_policy") or "production"),
+        originator=str((request.originator or {}).get("name") or ""),
+    )
+    return plan_feasibility.assess(compiled.operations, state=state)
+
+
 def _prepare_request_plan(request, *, resolve=None):
     """Validate an edit request against its recorded base.
 
@@ -1516,6 +1551,7 @@ def _prepare_request_plan(request, *, resolve=None):
     with _perf.span("resolve_noop_check", resolve_contacted=False,
                     state_source="recorded_snapshot"):
         no_op = _router.decision_for_prepared_request(result)
+    feasibility = None
     if no_op is not None:
         routing = no_op.as_dict()
         backend: str | None = "no_op"
@@ -1527,6 +1563,17 @@ def _prepare_request_plan(request, *, resolve=None):
             str(operation.get("op", "")) for operation in compiled.operations)
         route_context = _route_context(
             request, operation_ids, compiled.operations, resolve=resolve)
+        # PLAN-005: the plan is checked against the timeline it would run
+        # on BEFORE a route is chosen, so a plan that cannot execute is
+        # refused before anything is staged.  The check refuses on a
+        # refusal only: a measurement nobody took is reported, never
+        # treated as an absence (AGENTS.md 10.3).
+        feasibility = _feasibility_of(request, compiled, snapshot,
+                                       route_context)
+        if feasibility.infeasible:
+            raise ValueError(
+                "the plan is infeasible before staging: "
+                + "; ".join(feasibility.reasons()))
         routing = route_request(compiled, context=route_context)
         backend = routing["backend"]
         backend_reason = "; ".join(routing.get("reasons", ()))
@@ -1551,6 +1598,8 @@ def _prepare_request_plan(request, *, resolve=None):
         "resolve_contacted": bool(_routing_inspected(routing)),
         "mutated": False,
     }
+    if feasibility is not None:
+        plan["feasibility"] = feasibility.as_dict()
     if routing is not None:
         plan["routing"] = routing
     return plan, request, result, compiled, generation, snapshot

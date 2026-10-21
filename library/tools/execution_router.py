@@ -427,6 +427,98 @@ def _ops(compiled_edit) -> list[dict]:
     return result
 
 
+def eligibility(op_id: str) -> dict:
+    """What the router can say about ONE operation, without routing it.
+
+    The seam a feasibility check asks (PLAN-005): the same matrix the
+    router routes from, read without a request, a snapshot, a policy or
+    a Resolve connection, so the answer a pre-staging check gives and
+    the route the router would choose cannot disagree.
+
+    Every field is a READING of the recorded matrix, and the matrix is
+    the one place the answer lives: nothing here decides, and nothing
+    here may widen what the router would admit.
+    """
+    from library.tools import edit_algebra
+
+    op = str(op_id or "")
+    entry = edit_algebra.status(op)
+    spec = edit_algebra.get(op)
+    if entry is None:
+        return {
+            "op": op,
+            "known": False,
+            "compilable": False,
+            "production_enabled": False,
+            "qualified_backends": (),
+            "production_backends": (),
+            "implemented_backends": (),
+            "experimental_backends": (),
+            "media_types": (),
+            "timeline_conditions": (),
+            "qualification_predicates": (),
+            "preservation_limits": (),
+            "limitations": ("no algebra operation is declared for it",),
+            "safety_class": "",
+            "unsupported_native_state": (),
+            "required_parameters": (),
+            "targets_an_item": False,
+        }
+    production = tuple(row.backend for row in entry.backends
+                       if row.production_enabled)
+    qualified = tuple(row.backend for row in entry.backends if row.qualified)
+    implemented = tuple(row.backend for row in entry.backends
+                        if row.implementation_evidence)
+    experimental = tuple(row.backend for row in entry.backends
+                         if row.implementation_evidence
+                         and not row.production_enabled)
+    limitations = tuple(dict.fromkeys(
+        limitation for row in entry.backends
+        for limitation in row.limitations))
+    predicates = [dict(predicate) for row in entry.backends
+                  if row.production_enabled
+                  for predicate in row.qualification_predicates]
+    limits = tuple(sorted({
+        limit for row in entry.backends
+        for limit in row.preservation_limits}))
+    return {
+        "op": op,
+        "known": bool(entry.defined),
+        "compilable": bool(entry.compilable),
+        "production_enabled": bool(entry.production_enabled),
+        "qualified_backends": qualified,
+        "production_backends": production,
+        "implemented_backends": implemented,
+        "experimental_backends": experimental,
+        "media_types": tuple(entry.media_types),
+        "timeline_conditions": tuple(entry.timeline_conditions),
+        "qualification_predicates": predicates,
+        "preservation_limits": limits,
+        "limitations": limitations,
+        "safety_class": str(entry.safety_class),
+        "unsupported_native_state": tuple(entry.unsupported_native_state),
+        "required_parameters": tuple(spec.required) if spec else (),
+        "targets_an_item": bool(spec.item) if spec else False,
+    }
+
+
+def qualification_mismatches(op_id: str, inspected) -> tuple[str, ...]:
+    """Which recorded predicates the inspected state fails, by name.
+
+    The public reading of the predicate check, so a feasibility check
+    and the router compare a runtime against the SAME predicates.  An
+    uninspected state reports no mismatch: nobody looked, and that is
+    not a failure (AXI-42).
+    """
+    from library.tools import edit_algebra
+
+    entry = edit_algebra.status(str(op_id))
+    if entry is None:
+        return ()
+    return _predicate_mismatches(
+        [row for row in entry.backends if row.production_enabled], inspected)
+
+
 def _qualification_level(entry) -> str:
     """Canonical qualification state for one OP_STATUS entry."""
     if entry is None:
