@@ -254,3 +254,89 @@ problem `vep-ren-two-routes-one-goal-no-basis-to-choose` owns, and
 `test_the_representative_stays_the_rebuild` pins that this lane does
 not pre-empt it.
 ```
+
+
+## A length-changing touch-up on a BUILT reel (AXI-006, 2026-10-21)
+
+Measured on a Ren-owned scratch copy of a built reel - `Reel 13 -
+breaktest-selected-dc7fa3f8` in the Resolve project `Ren Scratch -
+breaktest`, a copy of the captain's Podcast reel.  The captain's
+project, timelines and media were never touched, and the request was a
+pause removal: the reel's last picture block loses its silent tail.
+
+### What refused, and why
+
+Three defects stood between the request and the timeline, and each was
+found by running it:
+
+1. **The reel's own fusion manifest was filed under a name only the
+   staging container had.**  The build composes on a staging container
+   and the promotion renames that container to the reel's final name;
+   the manifest the comp pass wrote was filed under the STAGING name
+   and nothing renamed it with the timeline.  Every length-changing
+   touch-up on a built reel therefore refused with "no recorded fusion
+   manifest for <reel> is on disk" and told the caller to rebuild the
+   reel - the expensive path the touch-up exists to avoid (measured
+   2026-10-20, `docs/benchmarks/2026-10-20-live-user-visible-latency.md`,
+   finding 3).  The promotion now renames the manifest with the
+   timeline, and the lookup finds the reel's record by the rows it
+   DESCRIBES - with `check_manifest_matches` still judging the claim on
+   the live read, so a manifest from another cut is refused by name.
+
+2. **The refusal that named a colliding caption card recommended a
+   field the caller does not have.**  On the real reel, with the
+   request stated as the benchmark stated it (V1[1] from 766 to 700
+   frames), the gate said
+
+       what: the plan overlaps on V4: live:V4[21] @814..858 and edit:V4[23] @834..863
+       fix:  state the ordering explicitly in the --edits JSON, then re-run `ren touch`
+
+   and a `retime` edit has NO ordering field, so the advice named
+   something the caller could not act on (measured 2026-10-20, finding
+   7).  The refusal now says what the collision IS: the frames the
+   edit removes carry WORDS, the caption cards covering them are
+   RENDERED files whose text cannot change without a re-render, and the
+   cards after them cannot move without landing on them - so the edit
+   cuts speech rather than a pause, and it says that, with the cards
+   named.
+
+3. **A ripple dropped the link between a picture and its sound.**  A
+   ripple re-places the picture AND its sound, and a re-placed item is
+   a new object, so the link was dropped by the edit that was supposed
+   to keep the reel's sound with its picture.  The composition restores
+   a link when it is told which rows are linked; the touch-up told it
+   nothing, and now reads the row PAIR off the live read's own linked
+   ids.
+
+### What a trim claims, and how each claim is judged
+
+`library/tools/trim_qualification.py` owns the claims; the touch-up
+judges them on its own read-back and records the verdict in the
+receipt.  Unmeasured is never a pass - a claim nothing could measure
+reads `unmeasured`.  The two movement semantics are SEPARATE claims,
+because they are different edits: a trim that shifts the rest of the
+reel is not a trim that leaves a gap, and a receipt that says "trim"
+without saying which one it proved proved neither.
+
+| claim | what it proves | read on |
+|---|---|---|
+| `handle_validation` | the requested source window lies inside the measured bounds of the clip it names | the before read |
+| `source_frame_precision` | the clip reads back at the SOURCE frames the request asked for, to the frame | the after read |
+| `record_frame_precision` | the clip reads back at the RECORD frames it was asked for, and its record duration equals its source duration | the after read |
+| `ripple_semantics` | every item the plan moved reads back at its moved span, and every other item reads back where it was | both reads |
+| `non_ripple_semantics` | nothing but the target moved; the frames it vacated are a gap the caller owns | both reads |
+| `linked_audio_preserved` | the linked partners read back as the same partners, with the same source window and the same enablement | both reads |
+| `caption_timing` | every caption card reads back at its planned span, no two overlap, and the cards whose words the edit removes are NAMED | both reads |
+
+### What was not measured here
+
+The write did not land on this machine: the single Resolve was held by
+another lane's live work (the broker's queue, 20 jobs), and the open
+project was that lane's own scratch project, so the touch-up could not
+address the reel - and the broker never switches projects by design.
+The refusals above were measured on the reel's LIVE rows, and the
+before/after of the gate was read off the same rows with the code on
+main and with this branch.  A pause removal whose removed frames carry
+no words - the reel's last picture block's silent tail - has no
+caption collision and reaches the comp re-derivation; that write is the
+one measurement this lane did not close on the machine.

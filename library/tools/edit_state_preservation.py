@@ -166,8 +166,14 @@ def capture(item, *, picture: bool = True) -> dict:
             "the item's approved picture properties could not be read")
     if comp_count:
         raise StatePreservationError(
-            "the item has Fusion compositions that this replacement path "
-            "cannot carry")
+            f"the item carries Fusion compositions ({comp_count}) that "
+            "this replacement path cannot carry - a re-place gives the "
+            "item a new identity, and a comp is keyed to the item it "
+            "was written for. On a built reel, use the touch-up path "
+            "(`ren touch` with a retime), which re-derives the "
+            "compositions from the recorded manifest instead of "
+            "carrying them across; or narrow a clip that carries no "
+            "treatment.")
     metadata = capture_clip_metadata(item)
     keyframes = {}
     keyframe_reader = getattr(item, "GetKeyframes", None) if picture else None

@@ -725,6 +725,40 @@ def qualify(tracks: Sequence[Mapping], spec: Mapping) -> Qualification:
             "position one overlay per `ren touch` request")
     exclude = [(str(r), int(i)) for r, i in
                ((spec or {}).get("exclude") or ())]
+    # An edit may also name the items a ripple must NOT move.  The
+    # refusal that tells the caller to exclude a colliding item has to
+    # name a way the caller CAN exclude it, and the spec-level list was
+    # not reachable from `ren touch` (the CLI builds the spec from
+    # `--edits` alone) - so the advice named a field the caller had no
+    # way to set.  The per-edit list is the same vocabulary, one edit
+    # nearer the thing it is about.
+    for position, edit in enumerate(edits):
+        if not isinstance(edit, Mapping):
+            continue
+        named = edit.get("exclude")
+        if named is None:
+            continue
+        if (not isinstance(named, (list, tuple))
+                or not all(isinstance(pair, (list, tuple))
+                           and len(pair) == 2 for pair in named)):
+            raise TouchupRefused(
+                f"edit {position} names an `exclude` that is not a list "
+                f"of [row, item] pairs ({named!r})",
+                "an exclusion names the items a ripple must not move, so "
+                "an unreadable one cannot be honoured",
+                f"write edit {position}'s `exclude` as "
+                "[[\"V4\", 21]], then re-run `ren touch`")
+        for pair in named:
+            try:
+                exclude.append((str(pair[0]), int(pair[1])))
+            except (TypeError, ValueError) as unreadable:
+                raise TouchupRefused(
+                    f"edit {position} names an exclusion that is not a "
+                    f"row and an item index ({pair!r})",
+                    "an exclusion names the items a ripple must not "
+                    "move, so an unreadable one cannot be honoured",
+                    f"write edit {position}'s `exclude` as "
+                    "[[\"V4\", 21]], then re-run `ren touch`") from unreadable
     # A copy: `add_row` appends the row it will make, so later edits in
     # the same spec can place onto it, without touching the caller's read.
     tracks = list(tracks or ())
@@ -873,8 +907,122 @@ def _check_post_edit_overlaps(tracks: Sequence[Mapping],
                     "`AppendToTimeline` silently places nothing on "
                     "collision, so an overlapping plan never "
                     "reaches the delete",
-                    "state the ordering explicitly in the --edits JSON, "
-                    "then re-run `ren touch`")
+                    _overlap_fix(row, first, second, tracks, changes))
+
+
+def _overlap_fix(row: str, first, second,
+                 tracks: Sequence[Mapping],
+                 changes: Sequence[Mapping]) -> str:
+    """What the caller can DO about an overlap on this row.
+
+    The refusal used to recommend "state the ordering explicitly in
+    the --edits JSON" - and a `retime` edit has NO ordering field, so
+    the advice named something the caller could not act on (measured
+    2026-10-20: "a ripple that overlaps a caption row is refused with
+    a fix the caller cannot apply", `docs/benchmarks/
+    2026-10-20-live-user-visible-latency.md`, finding 7).
+
+    So the fix says what the collision ACTUALLY is, because the two
+    kinds have different answers:
+
+    - the frames the edit removes carry WORDS.  A caption card is a
+      RENDERED file, so the cards whose words were removed cannot be
+      fixed by moving them, and the cards after them cannot move
+      without landing on them.  The edit is not a pause removal: it
+      cuts speech.  The answer is a master without the cut.
+    - the frames the edit removes carry no words.  Then the caption
+      row's cards move with the picture, and the collision is
+      positional: the caller can leave the colliding card where it is
+      and own its timing.
+    """
+    caption = _is_caption_row_label(row, tracks)
+    index = _label_index(second[2])
+    removed = _removed_frames(changes)
+    stale = _cards_over_removed(tracks, removed) if removed else []
+    if caption and stale:
+        named = ", ".join(item for item, _span in stale)
+        return (
+            f"the frames this edit removes carry words: {named} cover "
+            "them. A caption card is a RENDERED file, so a card whose "
+            "words were removed cannot be fixed by moving it - and the "
+            "cards after them cannot move without landing on them. "
+            "This edit cuts speech, not a pause: rebuild the reel from "
+            "a master without those frames, or trim inside a block "
+            "where the frames you remove carry no words.")
+    if caption:
+        return (
+            f"the caption card {second[2]} is timed to the words, and "
+            f"this plan moves it onto {first[2]}. Exclude it from the "
+            f"move (\"exclude\": [[\"{row}\", {index}]] on the edit in "
+            "the --edits JSON) and own its timing, or plan a move whose "
+            "caption lands clear.")
+    return (
+        f"the plan moves {second[2]} onto {first[2]}. Exclude it from "
+        f"the move (\"exclude\": [[\"{row}\", {index}]] on the edit in "
+        "the --edits JSON) and say what covers the frames it leaves, or "
+        "plan a shorter move.")
+
+
+def _removed_frames(changes: Sequence[Mapping]) -> tuple | None:
+    """The frames the edit takes OUT of the clip it shortens.
+
+    The clip that changes its played length is the one that STRADDLES
+    the cut, so it is the change the plan marks as an extension; the
+    frames it no longer plays are the ones it used to play last.
+    """
+    for change in changes:
+        how = str(getattr(change, "how", "") or "")
+        if how != _ce.EXTEND:
+            continue
+        duration = int(getattr(change, "duration", 0))
+        previous = int(getattr(change, "previous_duration", 0))
+        if duration >= previous:
+            continue
+        record = int(getattr(change, "record_frame", 0))
+        return (record + duration, record + previous)
+    return None
+
+
+def _cards_over_removed(tracks: Sequence[Mapping],
+                         removed: tuple) -> list:
+    """The caption cards whose words fall inside the removed frames."""
+    out = []
+    for track in tracks:
+        if not _is_caption_row_label(_row_of(track["type"],
+                                              int(track["index"])),
+                                     tracks):
+            continue
+        for index, clip in enumerate(track.get("clips") or ()):
+            start = int(clip.get("record_in") or 0)
+            end = int(clip.get("record_out") or 0)
+            if start < removed[1] and removed[0] < end:
+                row = _row_of(track["type"], int(track["index"]))
+                out.append((f"{row}[{index}]", (start, end)))
+    return out
+
+
+def _label_index(label: str) -> str:
+    """The item index out of a placed label (`live:V4[21]` -> `21`)."""
+    text = str(label or "")
+    if "[" not in text or "]" not in text:
+        return "?"
+    return text.rsplit("[", 1)[-1].split("]", 1)[0]
+
+
+def _is_caption_row_label(row: str, tracks: Sequence[Mapping]) -> bool:
+    """Whether this row carries caption cards.
+
+    Judged on the row's NAME, never its index: the caption row is the
+    one the project's layout calls Subtitles, and an index says
+    nothing about what plays on it.
+    """
+    wanted = str(row).upper()
+    for track in tracks:
+        if _row_of(track["type"], int(track["index"])) != wanted:
+            continue
+        name = str(track.get("name") or "").strip().casefold()
+        return name in {"subtitles", "captions", "caption"}
+    return False
 
 
 def _prune_shadowed_rewrites(changes: list,
@@ -2449,14 +2597,34 @@ class _StillResizeRederiver(_ce.CompRederiver):
 
 
 def recorded_fusion_manifest(project_folder: str,
-                             timeline_name: str) -> dict | None:
-    """The fusion manifest the last build wrote for this timeline.
+                             timeline_name: str,
+                             tracks: Sequence[Mapping] | None = None
+                             ) -> dict | None:
+    """The fusion manifest the last build wrote for this reel.
 
     `reel_look.apply_comps` writes it beside the project under
     scratch (`<slug>_fusion_manifest.json`) before launching the
     comp pass.  When it is there it is the manifest the re-derivation
     needs; when it is not, the length-changing class has no route to
     the comp generator and refuses rather than guessing one.
+
+    WHERE THE FILE IS, and why the name alone is not enough:
+    the build composes on a STAGING container and the promotion
+    renames that container to the reel's final name - but the manifest
+    was written under the staging name and nothing renamed it with
+    the timeline.  So a BUILT reel's manifest is filed under a name
+    that STARTS with the reel's own slug and carries a staging
+    suffix, and looking it up by the reel's exact name finds nothing:
+    every length-changing touch-up on a built reel then refused with
+    "no recorded fusion manifest ... is on disk" and told the caller to
+    rebuild the reel - the expensive path the touch-up exists to
+    avoid (measured 2026-10-20, `docs/benchmarks/
+    2026-10-20-live-user-visible-latency.md`, finding 3).
+
+    So the reel's record is the newest candidate whose rows DESCRIBE
+    the timeline being edited, and `check_manifest_matches` judges
+    that claim on the live read: a manifest that describes a different
+    cut is refused by name, not used.
     """
     import json as _json
 
@@ -2464,16 +2632,66 @@ def recorded_fusion_manifest(project_folder: str,
     from library.tools.reel_look import _slug
 
     scratch = str(ProjectLayout(project_folder).read_dir(Area.SCRATCH))
-    candidate = os.path.join(scratch, "reel_look",
-                             f"{_slug(timeline_name)}_fusion_manifest.json")
-    if not os.path.isfile(candidate):
-        return None
+    directory = os.path.join(scratch, "reel_look")
+    slug = _slug(timeline_name)
+    exact = os.path.join(directory, f"{slug}_fusion_manifest.json")
+    if os.path.isfile(exact):
+        manifest = _read_manifest(exact, _json)
+        if manifest is not None:
+            return manifest
+    candidates = []
     try:
-        with open(candidate, encoding="utf-8") as handle:
-            manifest = _json.load(handle)
+        names = sorted(os.listdir(directory))
+    except OSError:
+        return None
+    for name in names:
+        if not name.endswith("_fusion_manifest.json"):
+            continue
+        if not name[: -len("_fusion_manifest.json")].startswith(slug):
+            continue
+        path = os.path.join(directory, name)
+        try:
+            candidates.append((os.path.getmtime(path), path))
+        except OSError:
+            continue
+    if not candidates:
+        return None
+    candidates.sort(reverse=True)
+    if tracks is not None:
+        for _mtime, path in candidates:
+            manifest = _read_manifest(path, _json)
+            if manifest is None:
+                continue
+            if _manifest_describes(manifest, tracks):
+                return manifest
+    manifest = _read_manifest(candidates[0][1], _json)
+    return manifest
+
+
+def _read_manifest(path: str, json_module) -> dict | None:
+    """One manifest file, or None when it cannot be read."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            manifest = json_module.load(handle)
     except (OSError, ValueError):
         return None
     return manifest if isinstance(manifest, dict) else None
+
+
+def _manifest_describes(manifest: Mapping,
+                         tracks: Sequence[Mapping]) -> bool:
+    """Whether the manifest's rows describe the timeline being edited.
+
+    The comp pass maps manifest clip specs to live items by source
+    path in order, so a manifest with a different source sequence on a
+    comp-bearing row would write comps onto the wrong clips.  This is
+    the same comparison `check_manifest_matches` makes, asked as a
+    question instead of as a refusal.
+    """
+    wanted = _manifest_source_sequence(manifest)
+    live = _live_source_sequence(tracks)
+    return all(live.get(row) == sources
+               for row, sources in wanted.items())
 
 
 def _manifest_source_sequence(manifest: Mapping) -> dict:
@@ -3699,7 +3917,7 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
         rederiver = _StillResizeRederiver()
         receipt["rederiver"] = "no-comp still resize (no Fusion pass)"
     else:
-        manifest = recorded_fusion_manifest(project_folder, final)
+        manifest = recorded_fusion_manifest(project_folder, final, tracks)
         if manifest is None:
             raise TouchupRefused(
                 f"this change alters a played length and no "
@@ -4898,7 +5116,7 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
         withheld_dir=os.path.join(comp_dir, "withheld"),
         rederiver=rederiver,
         grade_sources=grade_sources,
-        link_rows={},
+        link_rows=_link_rows_for(staged_tracks_before_edit),
         picture_rows=_picture_rows(staged_tracks_before_edit),
         still_placer=still_placer,
         write_context={"project_folder": project_folder,
@@ -4975,6 +5193,26 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
         receipt["in_place"]["overlay_position_pixels"] = position_report
     staged_tracks = _read.read_tracks(staged)
     receipt["verification_read"] = _summarise_rows(staged_tracks)
+    # The trim claims, judged on the read-back that just happened.
+    # A length-changing edit is a trim of one clip and a move of
+    # everything it moves, and the receipt says which of those it
+    # PROVED - source frames, record frames, the move, the linked
+    # audio and the caption row - rather than saying "trim" and leaving
+    # the reader to guess what that covered.
+    trim_claims = _judge_trim_claims(
+        spec, qualification, staged_tracks_before_edit, staged_tracks)
+    if trim_claims is not None:
+        receipt["trim_qualification"] = trim_claims
+        failed = [name for name, row in trim_claims["claims"].items()
+                  if row.get("status") == "failed"]
+        unmeasured = [name for name, row in trim_claims["claims"].items()
+                      if row.get("status") == "unmeasured"]
+        if failed or unmeasured:
+            raise TouchupError(
+                f"the trim's own claims did not hold on the staged "
+                f"read-back (failed: {failed or 'none'}; unmeasured: "
+                f"{unmeasured or 'none'}); the approved timeline is "
+                "unchanged")
     acceptance_operations = list(spec.get("acceptance_operations") or ())
     if acceptance_operations:
         from library.tools import edit_algebra, operation_acceptance
@@ -5017,6 +5255,43 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
              candidate_lifecycle=candidate_lifecycle)
 
 
+def _link_rows_for(tracks: Sequence[Mapping]) -> dict:
+    """`{row: partner_row}` for the rows whose clips are linked.
+
+    A re-placed item is a NEW object on the timeline, so the link
+    between a picture and its audio is gone unless the composition
+    re-establishes it.  A ripple re-places BOTH - the picture and the
+    sound - so without this the edit that was supposed to keep the
+    reel's sound with its picture DROPS the link between them, and the
+    reel ships with a picture and a sound that no longer move
+    together.
+
+    The composition restores a link to the partner items that start at
+    the same record frame on the partner row, so the mapping is the row
+    PAIR the live read says are linked - read off the clips' own linked
+    ids, never guessed from a row index.
+    """
+    row_of_id: dict = {}
+    for track in tracks:
+        row = _row_of(track["type"], int(track["index"]))
+        for clip in track.get("clips") or ():
+            unique_id = str(clip.get("unique_id") or "")
+            if unique_id:
+                row_of_id[unique_id] = row
+    partners: dict = {}
+    for track in tracks:
+        row = _row_of(track["type"], int(track["index"]))
+        rows = set()
+        for clip in track.get("clips") or ():
+            for linked in clip.get("linked_unique_ids") or ():
+                partner_row = row_of_id.get(str(linked))
+                if partner_row and partner_row != row:
+                    rows.add(partner_row)
+        if len(rows) == 1:
+            partners[row] = next(iter(rows))
+    return partners
+
+
 def _summarise_rows(tracks: Sequence[Mapping]) -> dict:
     """`{row: [{start, duration}]}` - the verification read, pasted."""
     out = {}
@@ -5026,6 +5301,46 @@ def _summarise_rows(tracks: Sequence[Mapping]) -> dict:
                      "duration": int(c["duration"])}
                     for c in (track.get("clips", []) or ())]
     return out
+
+
+def _judge_trim_claims(spec: Mapping, qualification,
+                       before_tracks: Sequence[Mapping],
+                       after_tracks: Sequence[Mapping]) -> dict | None:
+    """Judge a length-changing touch-up's own trim claims.
+
+    A retime IS a trim of one clip and a move of everything the change
+    moves, and the two are separate promises.  `library/tools/
+    trim_qualification.py` owns the claims and how each is judged; this
+    hands it the plan's own arithmetic and the read-backs that
+    surround the edit, and returns its verdict.
+
+    None when nothing's played length changed: there is no trim to
+    claim, and a receipt that claimed one anyway would be a lie.
+    """
+    from library.tools import trim_qualification as _trim
+
+    changes = list(getattr(qualification, "changes", None) or ())
+    stretched = [change for change in changes
+                 if getattr(change, "played_length_changes", False)]
+    if not stretched:
+        return None
+    target = stretched[0]
+    moves = tuple(
+        (str(change.row), int(change.item_index),
+         int(change.record_frame),
+         int(change.record_frame) + int(change.duration))
+        for change in changes)
+    request = _trim.TrimRequest(
+        row=str(target.row),
+        item_index=int(target.item_index),
+        source_delta=(int(target.duration)
+                      - int(target.previous_duration)),
+        record_in=int(target.record_frame),
+        record_duration=int(target.duration),
+        semantics=_trim.RIPPLE,
+        moves=moves)
+    verdict = _trim.judge(before_tracks, after_tracks, request)
+    return verdict.to_dict()
 
 
 @touchup_phases.measured("promote")

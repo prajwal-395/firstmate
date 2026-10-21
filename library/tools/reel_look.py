@@ -2499,6 +2499,42 @@ def apply_comps(manifest: dict, project_folder: str,
     return result.returncode == 0
 
 
+def rename_fusion_manifest(project_folder: str, staging_name: str,
+                           final_name: str) -> bool:
+    """Move the recorded manifest from the staging name onto the final one.
+
+    The build composes on a STAGING container and the promotion renames
+    that container to the reel's final name.  The manifest the comp pass
+    wrote was filed under the staging name, and nothing renamed it with
+    the timeline - so a built reel's record was filed under a name that
+    only the staging container had.  Every later reader of that record
+    (the touch-up's re-derivation, the component manifest, the editor's
+    carried edits) looked it up by the reel's name and found nothing.
+
+    So the promotion renames it, exactly as it renames the other
+    sidecars.  The file is COPIED, not moved: the staging container's
+    own record stays readable for the archive and for a re-promotion of
+    the same candidate.
+    """
+    import shutil
+
+    from library.tools.project_layout import Area, ProjectLayout
+
+    directory = (Path(ProjectLayout(str(project_folder)).read_dir(
+        Area.SCRATCH)) / "reel_look")
+    source = directory / f"{_slug(staging_name)}_fusion_manifest.json"
+    target = directory / f"{_slug(final_name)}_fusion_manifest.json"
+    if not source.is_file():
+        return False
+    if target.is_file():
+        return False
+    try:
+        shutil.copyfile(source, target)
+    except OSError:
+        return False
+    return True
+
+
 def apply_comps_batch(entries, project_folder: str,
                       resolve_project_name: str,
                       python_executable: Optional[str] = None,

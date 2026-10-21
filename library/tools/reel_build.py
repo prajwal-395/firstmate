@@ -14044,6 +14044,20 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
         staging: final for staging, final in promoted_claimed.items()
         if staging not in _unrecorded})
     _rename_overlay_records(review_dir, promoted_claimed)
+    # The recorded Fusion manifest, for the same reason and on the same
+    # mapping: the comp pass wrote it under the staging container it
+    # composited on, and the promotion renames that container to the
+    # reel's final name.  A manifest left under the staging name is a
+    # record no later reader can find by the reel's name - and the
+    # touch-up path (a length-changing edit on a built reel) refused
+    # for exactly that reason, telling the caller to rebuild the reel.
+    from library.tools import reel_look as _reel_look
+    for _staging, _final in promoted_claimed.items():
+        try:
+            _reel_look.rename_fusion_manifest(
+                project_folder, _staging, _final)
+        except Exception:  # noqa: BLE001 - a sidecar, not the promotion
+            pass
     from library.tools.explainer_plan import rename_plan_reels
     rename_plan_reels(project_folder, promoted_claimed)
     from library.tools.reel_semantic_visual import rename_record_reels
