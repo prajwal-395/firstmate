@@ -45,12 +45,12 @@ Before a write, use AXI's available typed operation path and its dry-run/guarded
 | `mask.edit` | implemented_unqualified | `unique_id`, `matte`, `geometry` | yes | yes | no | no | post-write snapshot checked by _verify_mask_edit |
 | `mask.track` | implemented_unqualified | `unique_id`, `matte`, `track` | yes | yes | no | no | post-write snapshot checked by _verify_mask_track |
 | `multicam.select_angle` | implemented_unqualified | `unique_id`, `speaker_id`, `assignment_basis`, `source_file`, `source_in_frame`, `source_out_frame`, `sync_evidence_id` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
-| `overlay.add` | implemented_unqualified | `row`, `record_frame` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `overlay.add` | implemented_qualified | `row`, `record_frame` | yes | yes | yes | yes | post-write snapshot checked by the operation-specific algebra verifier |
 | `overlay.entry_motion` | implemented_unqualified | `unique_id`, `frames` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
-| `overlay.position` | implemented_unqualified | `unique_id`, `dx`, `dy` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `overlay.position` | implemented_qualified | `unique_id`, `dx`, `dy` | yes | yes | yes | yes | post-write snapshot checked by the operation-specific algebra verifier |
 | `overlay.remove` | implemented_unqualified | `unique_id` | yes | yes | no | no | post-write snapshot checked by verify |
 | `overlay.replace` | implemented_unqualified | `unique_id`, `file` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
-| `overlay.resize` | implemented_unqualified | `unique_id`, `width`, `height` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `overlay.resize` | implemented_qualified | `unique_id`, `width`, `height` | yes | yes | yes | yes | post-write snapshot checked by the operation-specific algebra verifier |
 | `overlay.swap_pixels` | implemented_unqualified | `unique_id`, `file` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `picture.keyframe` | implemented_unqualified | `unique_id`, `param`, `keyframes` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `reel.opening` | implemented_qualified | `unique_id`, `brief`, `edits` | yes | yes | yes | yes | post-write snapshot checked by _verify_reel_opening |

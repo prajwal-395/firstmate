@@ -494,3 +494,79 @@ def test_preservation_holds_across_repeated_editing_cycles(tmp_path):
             "Podcast", timeline_id, cycle_three["generation"])),
             second.GetUniqueId())
         assert after_three["transform"]["Pan"] == 0.25
+
+
+# ── A re-placed item is a NEW object (AXI-007) ────────────────────────
+
+
+def test_a_re_placed_item_reads_as_the_change_of_the_item_it_replaced():
+    """Resolve gives a re-placed item a new id, and the delta follows it.
+
+    Without the mapping the delta reads as one clip REMOVED and another
+    INSERTED - two changes on two targets, on a request that named one
+    target.  The engine would call that collateral and refuse a
+    replacement that landed exactly as asked.
+    """
+    before = _snapshot([_clip("old", source_file="/media/a.mov")])
+    after = _snapshot([_clip("new", source_file="/media/b.mov",
+                             media_pool_item_id="pool-b")])
+    operations = [{"op": "clip.replace", "unique_id": "old",
+                   "source_file": "/media/b.mov"}]
+
+    scope = _scope(operations)
+    delta = invariant.invariant(scope=scope, before=before,
+                                operations=operations, after=after,
+                                id_map={"old": "new"})
+
+    assert delta.status == "preserved", delta.as_dict()
+    targets = {row["target"] for row in delta.changes}
+    assert targets == {"clip:old"}, targets
+
+
+def test_without_the_mapping_the_re_placed_item_cannot_be_verified():
+    """The mapping is what lets the read-back find the item it replaced.
+
+    Resolve gives a re-placed item a new id, so a verification that
+    looks the item up by the id the REQUEST named finds nothing - and a
+    replacement that landed exactly as asked reads as a failure.
+    """
+    from library.tools import transaction_orchestration
+
+    before = _snapshot([_clip("old", source_file="/media/a.mov")])
+    after = _snapshot([_clip("new", source_file="/media/b.mov",
+                             media_pool_item_id="pool-b")])
+    operations = [{"op": "clip.replace", "unique_id": "old",
+                   "source_file": "/media/b.mov"}]
+    ran = [{"index": 0, "op": "clip.replace", "returned": True}]
+
+    without = transaction_orchestration.verify_readback(
+        operations, ran, after, base=before, id_map=None,
+        affected_spans=((0, 50),), conflict_domains=("timeline_structure",))
+    with_mapping = transaction_orchestration.verify_readback(
+        operations, ran, after, base=before, id_map={"old": "new"},
+        affected_spans=((0, 50),), conflict_domains=("timeline_structure",))
+
+    assert without["operations"][0]["failure"], without["operations"]
+    assert not with_mapping["operations"][0]["failure"], with_mapping
+
+
+def test_a_client_id_of_an_insert_is_not_followed_as_a_re_placement():
+    """An insert names an id that never existed; the mapping is not a move.
+
+    The id map of an insert maps the CLIENT id to the placed item's id.
+    Following it as a re-placement would read the inserted clip as the
+    change of a clip that was never there.
+    """
+    before = _snapshot([])
+    after = _snapshot([_clip("placed", source_file="/media/a.mov")])
+    operations = [{"op": "clip.insert", "unique_id": "placed",
+                   "client_unique_id": "client-1"}]
+
+    scope = _scope(operations)
+    delta = invariant.invariant(scope=scope, before=before,
+                                operations=operations, after=after,
+                                id_map={"client-1": "placed"})
+
+    assert delta.status == "preserved", delta.as_dict()
+    targets = {row["target"] for row in delta.changes}
+    assert targets == {"clip:placed"}, targets

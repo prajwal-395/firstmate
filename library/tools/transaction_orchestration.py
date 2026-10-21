@@ -267,7 +267,8 @@ def unrelated_clip_changes(*, operations: Sequence[Mapping],
 def _preservation_verdict(*, operations: Sequence[Mapping],
                           before: Mapping, after: Mapping,
                           affected_spans: Sequence[Sequence[int]],
-                          conflict_domains: Sequence[str]) -> dict:
+                          conflict_domains: Sequence[str],
+                          id_map: Mapping | None = None) -> dict:
     """Judge the preservation invariant over the SAME two snapshots.
 
     One pass, off the snapshots the caller already read: the authorized
@@ -276,6 +277,12 @@ def _preservation_verdict(*, operations: Sequence[Mapping],
     the scope did not authorize is collateral, and a transaction that
     produced collateral is not committed - the edit landed, but it landed
     on more than it was told to touch.
+
+    `id_map` is the verified old-id to new-id mapping of an item a
+    re-place gave a new id to.  The scope is built from the operations
+    AS THE REQUEST NAMED THEM - the old id - and the delta is computed
+    through the mapping, so the change lands on the target the request
+    named instead of reading as a removal and an insertion.
     """
     from library.tools import preservation_invariant
 
@@ -283,7 +290,8 @@ def _preservation_verdict(*, operations: Sequence[Mapping],
         operations, conflict_domains=conflict_domains,
         affected_spans=affected_spans)
     verdict = preservation_invariant.invariant(
-        scope=scope, before=before, operations=operations, after=after)
+        scope=scope, before=before, operations=operations, after=after,
+        id_map=id_map)
     return verdict.as_dict()
 
 
@@ -343,8 +351,9 @@ def verify_readback(patch_operations: Sequence[Mapping],
             evidence=evidence))
     post_failures = _judge_conditions(postconditions, after, base)
     preservation = _preservation_verdict(
-        operations=judged_ops, before=base, after=after,
-        affected_spans=affected_spans, conflict_domains=conflict_domains)
+        operations=patch_operations, before=base, after=after,
+        affected_spans=affected_spans, conflict_domains=conflict_domains,
+        id_map=id_map)
     # The requester's OWN preservation requirements, judged over the
     # same two snapshots. A requirement that cannot be judged is
     # UNPROVABLE, never a pass - the rule the invariant follows.

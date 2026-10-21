@@ -9466,52 +9466,73 @@ either: this scratch project holds no compiled manifest, so no caption intent
 was supplied and the captions were judged by reading the file, not against a
 plan. Both are reported `not_measured`, with the citation, rather than passing
 on what did run.
-## the-wait-in-the-turn
+### the-replacement-that-changed-every-occurrence
 
-**The rule:** A wait for a machine resource runs OUTSIDE the broker's turn, and
-the broker's turn is for the WORK. The scratch-origin slot is one machine
-resource: the writer that holds it is inside Resolve and needs the turn to
-restore the origin and release the slot. So a verb that moves the machine
-refuses FAST when the slot is held, and the CALLER waits for the slot - where no
-turn is held - and runs it again. A broker STOP names who asked, and a linked
-worktree never stops the machine's broker.
+**The captain's punch list, 2026-10-20, AXI-007**: "A replacement changes
+exactly the intended timeline item without silently modifying another
+occurrence of the same source."
 
-**What happened.** Measured 2026-10-21 on the machine's own broker (36 h, 8238
-jobs, `ren resolved kpi`): 24.14% of every blocked second was held by
-`resolve.qualification_session` and 17.01% by `resolve_axi` "Running Resolve
-command: project" - the scratch-project lifecycle. In the job table, four of
-those jobs held the machine's turn for the whole 900 s lease timeout while
-WAITING for the slot they could not get:
+**The defect.** `clip.replace` re-points the MEDIA POOL ITEM the target
+draws from:
 
-    900.4s  project scratch open Ren Scratch - breaktest  -> the scratch origin is held by 'pid-45290'
-    900.3s  project scratch open Ren Scratch - breaktest  -> the scratch origin is held by 'pid-81999'
-    901.3s  project scratch create Ren Scratch - axi001    -> the scratch origin is held by 'pid-65086'
-   1676.9s  project scratch open Ren Scratch - breaktest  -> failed
+```python
+pool_item = item.GetMediaPoolItem()
+pool_item.ReplaceClip(op["source_file"])
+```
 
-4,378.9 s of the machine's turn - an hour and a quarter - spent waiting for a
-resource whose holder needed that same turn to let go of it. Every other lane
-was queued behind a wait that could not end.
+A media pool item is PROJECT-WIDE, and Resolve draws every timeline item
+that references it from that one item.  So the write changed every
+other occurrence of the same source - on this timeline and on every
+other - and the engine said nothing.  The engine KNEW: the `clip.replace`
+preservation envelope in `library/tools/edit_algebra.py` said a
+replacement onto a shared pool item is "the caller's decision, not the
+engine's", and the same text stood in
+`.agents/skills/resolve-axi/references/backend-limitations.md`.  A
+hazard written down and handed to the caller is not protection.
 
-**Where it is.** `library/tools/resolve_scratch_projects.py` owns the slot
-(`wait_for_origin_slot`, `ScratchOriginHeld`, `SLOT_HELD_EXIT_CODE`);
-`library/tools/resolve_axi_core_commands.py` refuses fast
-(`cmd_project_scratch`) and waits in the CALLER (`_wait_for_the_scratch_slot`,
-`_run_with_the_scratch_slot`) - before the command is queued, so no turn is
-held. A slot that is still held when the wait ends means the command is NOT run
-at all: running it would queue inside the turn again.
+**Why no other scan caught it.** The AXI-013 gate (PR 3069) compares
+the state before a write with the state after it and refuses a change
+no operation authorized.  The replacement authorized exactly what it
+did - on the pool item - and the OTHER occurrence's change was a change
+the request DID authorize, because both occurrences shared one target
+as far as the pool was concerned.  The gate was right and the write
+was wrong: the request named one item, and the write touched a pool.
 
-**Who stopped the broker.** The same log showed nineteen shutdowns in one day
-and named the requester of none. The request now carries the requester's pid
-and command line (`library/tools/resolved/client.py:requester_identity`), the
-Rust and Python daemons log it, and a linked worktree is refused the stop the
-way PR 3041 refuses the start. A rebuild no longer retires a broker that still
-has work queued: the queue is the broker's memory, so stopping it with work
-waiting takes that work with it.
+**The fix.** `library/tools/scoped_replacement.py` measures the pool
+item's uses across EVERY timeline of the project and picks the route
+by what it measured:
 
-**What it does not fix.** The qualification sessions' remaining hold is not this
-defect: their borrow and restore of the captain's project are the DISCIPLINE
-that leaves the captain's project as found, and changing that is a decision
-above this lane. What moved out of the turn here is the part that was never
-Resolve work: the media copy's digest and its frame rate, measured by the
-caller before the job is queued (0.073 s on the qualification copy, measured).
+- the target is ALONE on its pool item - the pool item is re-pointed,
+  and Resolve keeps the item's Fusion compositions and its grade
+  because it keeps them on the ITEM;
+- the pool item is SHARED - the item is RE-PLACED: the new media is
+  placed at the same record span on the same row, the old item is
+  removed, and the transform, the timing, the audio link, the Fusion
+  compositions and the grade are carried across and read back.  The
+  other occurrences never see the write.
 
+Resolve exposes no per-item media setter - `TimelineItem` has no way to
+re-point one occurrence and `MediaPoolItem.ReplaceClip` is the POOL's -
+so the scoped route is a re-place, and a re-place gives the item a NEW
+native id.  That is the second half of AXI-007: the receipt carries
+the mapping from the old id to the new one, and the preservation
+comparison follows it (`library/tools/preservation_invariant.py`
+computes the delta THROUGH the mapping, and
+`library/tools/transaction_orchestration.py` builds the scope from the
+operations as the request named them).  Without the mapping the same
+write reads as a removal and an insertion on two targets, and the
+read-back cannot find the item it replaced.
+
+**The refusal that comes first.** A grade of more than one node cannot
+be carried to a re-placed item - the Graph API has no `AddNode`, and a
+re-placed item comes back with one node - so that replacement is
+REFUSED before the original is removed, and the timeline is exactly as
+it was.  The same is true of a Fusion composition that cannot be
+exported.
+
+**The measurement.** `tests/live/axi007_scoped_replacement.py` runs
+both claims on a Ren-owned scratch project in the product format: two
+uses of ONE media pool item on ONE row, replace one, and read the
+other back.  `tests/unit/resolve/test_scoped_replacement.py` names the
+defect on doubles, and `tests/unit/resolve/test_preservation_invariant.py`
+names the id mapping.

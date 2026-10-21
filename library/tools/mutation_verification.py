@@ -215,7 +215,8 @@ def verify_delta(*, baseline: Baseline, after: Mapping,
         operations, conflict_domains=conflict_domains,
         affected_spans=affected_spans)
     delta = preservation_invariant.invariant(
-        scope=scope, before=before, operations=operations, after=after)
+        scope=scope, before=before, operations=operations, after=after,
+        id_map=id_map)
     verdict = delta.as_dict()
     collateral = unrelated_clip_changes(
         operations=operations, affected_spans=affected_spans,

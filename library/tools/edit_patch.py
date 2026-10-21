@@ -79,6 +79,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 
 from library.tools import (
@@ -1243,6 +1244,18 @@ def execute_physical_patch(patch: EditPatch, *, live: dict, timeline,
                         project_folder=project_folder,
                         old_value=old_value):
                     returned = spec.apply(op, timeline, item, project)
+            elif op["op"] in ("clip.replace", "clip.move"):
+                # A scoped replacement RE-PLACES the item, so it writes
+                # the transform of the item it carries across - and the
+                # transform write log needs the project it writes into.
+                from library.tools.transform_write_log import write_scope
+
+                with write_scope(
+                        project=project_name,
+                        timeline_name=timeline_name,
+                        timeline_id=timeline_id,
+                        project_folder=project_folder):
+                    returned = spec.apply(op, timeline, item, project)
             elif op["op"] == "clip.smart_reframe":
                 from library.tools.transform_write_log import (
                     validate_transform_write_context,
@@ -1265,6 +1278,15 @@ def execute_physical_patch(patch: EditPatch, *, live: dict, timeline,
             break
         ran.append({"index": index, "op": op["op"],
                     "returned": bool(returned)})
+        if isinstance(returned, Mapping) and returned.get("id_map"):
+            # A re-placed item is a NEW object, and the verification
+            # follows the item to its new id.  The mapping is the
+            # VERIFIED one: the executor read the new id back off the
+            # item it placed.
+            id_map.update({str(old): str(new)
+                           for old, new in returned["id_map"].items()})
+            handles = _live_handles(timeline)
+            handles_dirty = False
         try:
             applied_journaled = _emit_transaction_stage(
                 project_folder, patch, "operation_applied", index=index,

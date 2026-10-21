@@ -659,20 +659,38 @@ def _timeline_rows(before: Mapping, after: Mapping) -> list[dict]:
     return rows
 
 
-def snapshot_delta(before: Mapping, after: Mapping) -> tuple[Mapping, ...]:
+def snapshot_delta(before: Mapping, after: Mapping,
+                   id_map: Mapping | None = None) -> tuple[Mapping, ...]:
     """Every semantic difference between two timeline snapshots.
 
     The rows are ordered by target then field, so two runs over the same
     pair of snapshots produce the same list. A clip that appeared or
     disappeared is one row, not a row per field: the edit that placed
     it owns all of it.
+
+    `id_map` is the VERIFIED mapping from an item's old native id to the
+    id it carries after a re-place: `{old: new}`.  Resolve assigns a new
+    id to a re-placed item, and without the mapping the delta would read
+    as one clip REMOVED and another INSERTED - two changes on two
+    targets, when it is one change on the target the edit named.  The
+    mapped pair is therefore compared as the pair it is, and the row
+    lands on the OLD target, which is the target the operation named.
+
+    A mapping whose OLD id names no clip in the pre-edit state is not a
+    re-placement: it is the CLIENT id an insert was asked for, and the
+    item it names is genuinely new.  Such a mapping is not followed
+    here, so an insertion still reads as an insertion.
     """
     rows: list[dict] = []
     before_clips = _clips(before)
     after_clips = _clips(after)
+    replaced_by = {str(new): str(old)
+                   for old, new in (id_map or {}).items()
+                   if str(old) in before_clips}
     for unique_id in sorted(set(before_clips) | set(after_clips)):
-        target = f"clip:{unique_id}"
-        old = before_clips.get(unique_id)
+        target_uid = replaced_by.get(unique_id, unique_id)
+        target = f"clip:{target_uid}"
+        old = before_clips.get(target_uid)
         new = after_clips.get(unique_id)
         if old is None:
             rows.append(_row(target, "inserted", "timeline_structure",
@@ -847,13 +865,18 @@ def compare(scope: MutationScope, expected: Sequence[Mapping],
 
 
 def invariant(*, scope: MutationScope, before: Mapping,
-              operations: Sequence[Mapping], after: Mapping) -> SemanticDelta:
+              operations: Sequence[Mapping], after: Mapping,
+              id_map: Mapping | None = None) -> SemanticDelta:
     """The whole preservation invariant for one write.
 
     ``before`` is the pre-edit snapshot, ``after`` the state the write
     left behind. The expected delta is computed from the operations
     before the comparison, so the verdict answers "did this write change
     anything it was not authorized to change?" and nothing else.
+
+    ``id_map`` is the verified old-id to new-id mapping of a re-placed
+    item; the delta is computed through it, so a re-placed item reads as
+    the change of the item it replaced.
     """
     reason = ""
     if scope.unbounded_ops:
@@ -862,7 +885,7 @@ def invariant(*, scope: MutationScope, before: Mapping,
             f"declared: {', '.join(scope.unbounded_ops)}")
     elif not isinstance(before, Mapping) or not isinstance(after, Mapping):
         reason = "the pre-edit and post-edit states are not comparable"
-    changes = snapshot_delta(before, after) if not reason else ()
+    changes = snapshot_delta(before, after, id_map) if not reason else ()
     expected = expected_delta(scope, before, operations) if not reason else ()
     return compare(scope, expected, changes, before=before, after=after) \
         if not reason else SemanticDelta(unprovable_reason=reason)

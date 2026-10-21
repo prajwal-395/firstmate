@@ -1563,33 +1563,63 @@ def _swapback_fusion_keys(item, moves, label):
     return True
 
 
-def _apply_replace(op, _timeline, item, _project=None):
-    """Swap the item's source file, carrying its bound keys and grade.
+def _apply_replace(op, timeline, item, project=None):
+    """Swap the item's source file, SCOPED to that item.
 
-    ``MediaPoolItem.ReplaceClip`` preserves the grade and Fusion comps
-    structurally but leaves their keys where they were - the measured
-    Unit 5 failure. So the op carries the remapped keys
-    (``fusion_keys``, on the new render clock) and the grade assertion
-    (``expected_grade``) with the binding, and all three land or the op
-    raises: ReplaceClip, key moves, then one read-back over source,
-    keys and grade. The patch verify re-judges the source from the
-    snapshot; ``resolve_swapback.accept`` judges the rest live.
+    The rule (AXI-007): a replacement changes exactly the item it
+    names.  A media pool item is project-wide, so re-pointing it
+    changes every other occurrence of the same source - which is what
+    the engine used to do, and what its own preservation envelope
+    called "the caller's decision".
+
+    ``library/tools/scoped_replacement.py`` measures the pool item's
+    uses and picks the route:
+
+    * the target is alone on its pool item - the pool item is
+      re-pointed.  ``MediaPoolItem.ReplaceClip`` preserves the grade
+      and the Fusion comps structurally but leaves their keys where they
+      were - the measured Unit 5 failure - so the op carries the
+      remapped keys (``fusion_keys``, on the new render clock) and the
+      grade assertion (``expected_grade``) with the binding, and all
+      three land or the op raises: ReplaceClip, key moves, then one
+      read-back over source, keys and grade.
+    * the pool item is shared - the item is RE-PLACED: the new media is
+      placed at the same record span and the transform, the timing, the
+      audio link, the Fusion compositions and the grade are carried
+      across.  The other occurrences never see the write, and the
+      receipt carries the id mapping, because a re-placed item is a new
+      object.
+
+    The patch verify re-judges the source from the snapshot;
+    ``resolve_swapback.accept`` judges the rest live.
     """
+    import shutil
+    import tempfile
+
+    from library.tools import scoped_replacement
+
+    capture_dir = tempfile.mkdtemp(prefix="ren-scoped-replace-")
+    try:
+        receipt = scoped_replacement.replace_source(
+            timeline=timeline, project=project, item=item,
+            source_file=op["source_file"], capture_dir=capture_dir,
+            expected_grade=op.get("expected_grade"))
+    except scoped_replacement.ScopedReplacementError as exc:
+        raise RuntimeError(
+            f"clip.replace: the replacement could not be scoped to the "
+            f"item it names ({exc.reason}): {exc}") from exc
+    finally:
+        shutil.rmtree(capture_dir, ignore_errors=True)
+    if receipt.get("route") != "pool_item_replace":
+        # The scoped route carried the state onto the re-placed item and
+        # read every carried field back; the id mapping is what lets the
+        # verification follow the item to its new id.
+        return {"id_map": dict(receipt.get("id_map") or {})}
     pool_item = _call(item, "GetMediaPoolItem", None)
     if pool_item is None:
         raise RuntimeError(
             f"clip.replace: clip {op.get('unique_id')!r} exposes no media "
             f"pool item; refusing to re-point what cannot be read back")
-    try:
-        replaced = pool_item.ReplaceClip(op["source_file"])
-    except Exception as exc:
-        raise RuntimeError(
-            f"clip.replace: ReplaceClip({op['source_file']!r}) raised "
-            f"({exc})") from exc
-    if not replaced:
-        raise RuntimeError(
-            f"clip.replace: ReplaceClip({op['source_file']!r}) returned "
-            f"False; nothing was re-pointed")
     moves = op.get("fusion_keys") or []
     if moves:
         _swapback_fusion_keys(item, moves, "clip.replace")
@@ -3680,7 +3710,7 @@ _BACKEND_OPERATION_LIMITATIONS = {
     ("clip.insert", "edit_patch"):
         ("one pool item placed at one stated record span on one named row; the source range is the pool item's own; the placed item reads back under the Resolve-assigned unique id, which is NOT the id the request named",),
     ("clip.replace", "edit_patch"):
-        ("re-points the MEDIA POOL ITEM the clip draws from, so every clip on every timeline that draws from that item changes with it; the clip's own record span, transform and Fusion keys are preserved and read back; a replacement onto a shared pool item is the caller's decision, not the engine's",),
+        ("the MEDIA POOL ITEM the clip draws from is re-pointed only when the clip is ALONE on it; when that pool item is shared, the clip is re-placed at its own record span with its transform, its timing, its audio link, its Fusion compositions and its grade carried across and read back, so the other occurrences of the same source never change; the receipt carries the id mapping, because a re-placed item is a new object",),
     ("track.delete", "edit_patch"):
         ("an EMPTY row only: Resolve's DeleteTrack destroys every clip on the row with no undo of its own, so a row that still carries clips is refused before the write",),
     ("track.add", "edit_patch"):
