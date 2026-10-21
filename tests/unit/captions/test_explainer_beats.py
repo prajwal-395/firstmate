@@ -757,3 +757,37 @@ def test_a_label_leaves_with_its_beat():
     for label in labels:
         opacity = label["placement"]["opacity"]
         assert opacity[-1]["value"] == 0.0, opacity
+
+
+def test_an_upright_picture_may_not_be_turned():
+    """Motion may never flip what a picture MEANS.
+
+    The captain's frames showed a RISING arrow ending up pointing DOWN
+    ("content built from it", "and AI really likes that"), which says
+    the opposite of the words it is there to say.  The declaration is
+    the only place that knows what a picture means, so it says so -
+    `upright: true` - and the engine refuses the motion that would
+    flip it.
+    """
+    declaration = _declaration()
+    declaration["beats"] = [{
+        "quote": "customer",
+        "elements": [{"id": "arrow", "asset": "brand_assets/arrow.svg",
+                      "box": [60, 400, 980, 800],
+                      "upright": True, "spin": 8}],
+    }]
+    with pytest.raises(ex.ExplainerError) as turned:
+        ex.normalise_beats_declaration(declaration)
+    assert "upright" in str(turned.value)
+
+
+def test_a_picture_that_may_turn_still_may():
+    """The guard is the DECLARATION's, and it is narrow."""
+    declaration = _declaration()
+    declaration["beats"] = [{
+        "quote": "customer",
+        "elements": [{"id": "chip", "asset": "brand_assets/chip.svg",
+                      "box": [60, 400, 980, 800], "spin": 8}],
+    }]
+    declared = ex.normalise_beats_declaration(declaration)
+    assert declared[ex.BEATS_KEY]

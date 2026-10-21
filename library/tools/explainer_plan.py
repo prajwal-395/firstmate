@@ -668,6 +668,23 @@ def normalise_beats_declaration(raw: Any) -> dict:
                     raise ExplainerError(
                         f"{label}.spin is {element['spin']!r}, which is "
                         f"not a number of degrees per second.") from None
+                if element.get("upright"):
+                    # A picture whose MEANING depends on which way it
+                    # points may not be turned.  The captain's frames
+                    # showed a RISING arrow ending up pointing DOWN,
+                    # which says the opposite of the words it was
+                    # there to say ("content built from it", "and AI
+                    # really likes that").  The declaration is the only
+                    # place that knows what a picture means, so it says
+                    # so - and the engine refuses the motion that would
+                    # flip it.
+                    raise ExplainerError(
+                        f"{label} is upright and names a spin. A picture "
+                        f"whose meaning depends on which way it points "
+                        f"may not be turned: an arrow that ends pointing "
+                        f"down says the opposite of the words it is "
+                        f"there to say. Take the spin off it, or drop "
+                        f"the upright.")
             if element.get("pulse") is not None:
                 pulse = element.get("pulse")
                 if not isinstance(pulse, dict):
@@ -1454,6 +1471,7 @@ def plan_beats(declarations: Sequence[Any], lines: Sequence[dict],
                                                   or (0.0, 0.0))),
                 "pulse": dict(element.get("pulse") or {}),
                 "spin": element.get("spin"),
+                "upright": bool(element.get("upright")),
             })
         if raw.get("elements") and not elements:
             continue
@@ -1561,6 +1579,7 @@ def plan_beats(declarations: Sequence[Any], lines: Sequence[dict],
                                                       or (0.0, 0.0))),
                     "pulse": dict(element.get("pulse") or {}),
                     "spin": element.get("spin"),
+                    "upright": bool(element.get("upright")),
                 })
             if steps == [] and step_elements == [] and (step.get("elements")
                                                        or []):
