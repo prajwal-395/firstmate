@@ -952,6 +952,25 @@ def collect_pipeline_roots(project_folder: str,
             name="project:approved-decisions", status=UNREADABLE,
             detail=f"cannot read approved decisions: {exc}",
             kind="pipeline"))
+    # An ARCHIVED GENERATION is a liveness root. A reel version that
+    # carries a recovery archive is a generation Ren can put BACK, and
+    # the media it names are what that restore plays. A sweep that cannot
+    # hear the archive takes the file out from under a version that could
+    # still be restored - the defect the pool prune already refused
+    # (`tests/unit/reels/test_prune_version_liveness_roots.py`).
+    try:
+        from library.tools import version_dependencies
+
+        dependency_paths = version_dependencies.dependency_paths(project_folder)
+        roots.append(RootResult(
+            name="project:archived-generations", status=OK,
+            paths=dependency_paths, kind="pipeline",
+            detail=f"{len(dependency_paths)} path(s) a retained generation "
+                   f"still needs"))
+    except version_dependencies.VersionDependencyUnreadable as unreadable:
+        roots.append(RootResult(
+            name="project:archived-generations", status=UNREADABLE,
+            kind="pipeline", detail=str(unreadable)))
     return roots
 
 

@@ -9613,6 +9613,7 @@ it - the caption's own measured box grows to cover the neighbour - so the
 collision would be measured again after the move and the revision would have
 changed nothing the check can see. That was measured, not assumed: with a
 two-pixel clearance the seeded collision survived its own revision.
+
 ## the-comp-that-read-equal-while-the-picture-moved
 
 **The rule:** An approved shot's LOOK is read back before a revision and after
@@ -9679,6 +9680,7 @@ what the comp pass builds. The pixel half needs a DELIVERED file on each side,
 so it is judged where the file exists and not inside a mutation. And the
 look gate only runs where there is a before: a build has none, and its
 outcome is a STRUCTURE, not a look.
+
 ## the-refusal-that-said-nothing-about-what-blocked-it
 
 **The rule:** Every refusal says WHAT KIND of thing blocked it - missing media,
@@ -9736,6 +9738,7 @@ flag, a backticked name, a quoted key - so a fix that recommends an argument in
 prose ("state the ordering explicitly") is only caught when the argument is
 written the way the engine writes field names.
 
+
 ## the-archive-one-generation-shared-with-the-next
 
 PR 3079 put Reel 26 back from version 25's hash-verified `.drt`, and the
@@ -9787,6 +9790,7 @@ reconstruction is a reconstruction: the touch reversed in place is a
 `journal_replay`, and the plan rebuild is a `plan_rebuild`, and neither
 is ever reported as an archive restoration. `library/tools/versions/
 replaced_generation.py` is the one routine every replacing path uses.
+
 ## the-rust-mirror-that-carried-four-fields-of-eleven
 
 **The rule:** The Rust protocol's refusal mirror carries EVERY field a Python
@@ -9891,3 +9895,29 @@ refused is a rejection.
 and the one gate; `library/tools/assignment_lifecycle.py` carries the
 two states; `library/tools/assignment_contract.py` reads the verdict
 when it answers whether a task is complete.
+## the-cleanup-that-could-not-see-the-version-it-was-keeping
+
+Reel 26 was restored from version 25's archived `.drt` (PR 3079), and the
+restore worked only because that archive AND its media had survived. The
+cleanup paths did not agree that they had to: they read the live timelines,
+the current pipeline records and the approved decisions, and a caption render
+an archived generation still plays is on no live timeline and in no current
+record.
+
+**The rule.** A version that carries a verified recovery archive is a version
+Ren can put BACK, so its `.drt` and every media file that generation plays
+are DEPENDENCIES: no cleanup path may name them, and a git-tracked file is
+untouchable whatever its class. The reading is ONE reading
+(`library/tools/version_dependencies.py`), it reads the project's own review
+area and nothing else, and it FAILS CLOSED: a retained record or archive that
+exists and cannot be read is not an empty one.
+
+**What it measured.** On a scratch project with one archived generation: the
+build sweep called the generation's media ORPHAN [2/2] and the reviewed purge
+called them removable [2/3]; the machine storage plan named them as removable
+[2/2]. After the one reading, the sweep calls them LIVE [2/2], the purge keeps
+them [3/3] and reports which root kept each, and the storage plan refuses to
+name them [0/2 named, 2/2 refused]. The disposable scratch file stayed
+removable [1/1] and the git-tracked file stayed untouchable [0/1] - no
+regression. The full audit, the paths audited and found sound, and the change
+list are in `docs/VERSION_DEPENDENCY_ROOTS.md`.

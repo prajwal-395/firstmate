@@ -27,6 +27,7 @@ _VERSION_COMMENT = re.compile(
 )
 _ITEM_TAGS = {"VideoClip", "AudioClip", "Still", "FusionClip", "Generator", "Gap"}
 _BYTE_ARRAY_SUFFIXES = ("BA", "Blob")
+_MEDIA_PATH_TAGS = {"MediaFilePath", "MediaPath", "FilePath"}
 
 
 class ArchiveError(ValueError):
@@ -133,6 +134,41 @@ def _tracks(root: ET.Element) -> list[dict[str, Any]]:
         result.append({"order": len(result), "type": kind,
                        "name": _text(track, "UserDefinedName", "Name"), "items": items})
     return result
+
+
+def archive_media_paths(path: str | Path) -> list[str]:
+    """Every media path an archive names, read without the version gate.
+
+    The strict inventory above supports one observed `DbPrjVer` and
+    refuses every other. A REACHABILITY read cannot refuse on that: a
+    cleanup has to know which files an archive names even when the
+    export's own version is one this reader does not interpret, or the
+    cleanup deletes the media of a generation it cannot see.
+
+    Only the paths are read, and they are read as written. A member that
+    cannot be parsed is an error, not an empty member: an archive this
+    reader cannot read is an archive whose media cannot be proved.
+    """
+    archive_path = Path(path)
+    if not archive_path.is_file():
+        raise FileNotFoundError(archive_path)
+    paths: list[str] = []
+    try:
+        with zipfile.ZipFile(archive_path) as archive:
+            for name in sorted(archive.namelist()):
+                if not name.lower().endswith(".xml"):
+                    continue
+                root = _parse_xml(archive.read(name), name)
+                for node in root.iter():
+                    if _local(node.tag) not in _MEDIA_PATH_TAGS:
+                        continue
+                    value = (node.text or "").strip()
+                    if value:
+                        paths.append(value)
+    except zipfile.BadZipFile as exc:
+        raise ArchiveError(
+            f"{archive_path} is not a valid ZIP archive") from exc
+    return paths
 
 
 def read_archive(path: str | Path) -> dict[str, Any]:

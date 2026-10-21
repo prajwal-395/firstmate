@@ -1595,12 +1595,61 @@ def _in_quarantine_area(project: str, path: str) -> bool:
     return True
 
 
+def _version_dependencies(project: str) -> tuple[set[str], str]:
+    """The paths a retained generation still needs, and why they are unknown.
+
+    An ARCHIVED GENERATION is a liveness root: a reel version that
+    carries a recovery archive is a generation Ren can put back, and the
+    media it names are what that restore plays. A file that is a
+    dependency is not disposable, however the artifact ledger classified
+    it.
+
+    The reading FAILS CLOSED: a retained record that exists and cannot be
+    read is not an empty record, and the caller must not name a file it
+    cannot prove is unreferenced.
+    """
+    from library.tools import version_dependencies
+
+    try:
+        return version_dependencies.dependency_paths(project), ""
+    except version_dependencies.VersionDependencyUnreadable as unreadable:
+        return set(), str(unreadable)
+
+
 def plan_document(projects: list[str]) -> dict:
     """Build an exact-identity manifest without writing it."""
     report = status(projects)
     candidates = []
     refused_policy = []
+    refused_dependencies = []
+    dependencies: dict[str, set[str]] = {}
+    unreadable_projects: dict[str, str] = {}
+    for project in projects:
+        paths, problem = _version_dependencies(project)
+        dependencies[str(Path(project).resolve())] = paths
+        if problem:
+            unreadable_projects[str(Path(project).resolve())] = problem
     for row in report["artifacts"]:
+        if row["project"] in unreadable_projects:
+            refused_dependencies.append({
+                "artifact_id": row["artifact_id"],
+                "path": row["path"],
+                "kind": row["kind"],
+                "reason": (
+                    "a retained version record of this project could not be "
+                    "read, so its media cannot be proved unreferenced: "
+                    + unreadable_projects[row["project"]]),
+            })
+            continue
+        if row["path"] in dependencies.get(row["project"], set()):
+            refused_dependencies.append({
+                "artifact_id": row["artifact_id"],
+                "path": row["path"],
+                "kind": row["kind"],
+                "reason": ("a retained generation of this project still "
+                           "needs this file; it is a version dependency"),
+            })
+            continue
         if not (
             row["identity_matches"]
             and row["ownership_known"]
@@ -1666,10 +1715,30 @@ def plan_document(projects: list[str]) -> dict:
         "candidates": candidates,
         "refused_git": refused_git,
         "refused_policy": refused_policy,
+        "refused_dependencies": refused_dependencies,
         "cache_evictions": cache_evictions,
         "logical_bytes": sum(row["identity"]["size_bytes"] for row in candidates),
     }
     return document
+
+
+def _assert_not_version_dependency(project: str, path: str) -> None:
+    """Refuse to remove a file a retained generation still needs.
+
+    Re-proved at the moment of removal, not carried over from the plan:
+    the plan was a claim about an earlier moment and this is the call that
+    cannot be undone.
+    """
+    dependencies, problem = _version_dependencies(project)
+    if problem:
+        raise lifecycle.LifecycleRefused(
+            f"a retained version record of {project} could not be read, so "
+            f"the media of its generations cannot be proved unreferenced: "
+            f"{problem}")
+    if path in dependencies:
+        raise lifecycle.LifecycleRefused(
+            f"a retained generation of {project} still needs {path}; it is "
+            f"a version dependency and is not disposable")
 
 
 def plan(projects: list[str], *, output: str) -> dict:
@@ -1722,6 +1791,7 @@ def purge(manifest: str) -> dict:
                 f"artifact area is protected from permanent purge: "
                 f"{item['artifact_id']}"
             )
+        _assert_not_version_dependency(project, latest["path"])
         fields = {
             key: latest[key] for key in lifecycle.ArtifactRecord.__dataclass_fields__
         }
@@ -1766,6 +1836,7 @@ def collect(manifest: str) -> dict:
                 project, current["path"], current.get("retention_class", "")):
             raise lifecycle.LifecycleRefused(
                 f"artifact area is protected from cleanup: {item['artifact_id']}")
+        _assert_not_version_dependency(project, current["path"])
         if _in_quarantine_area(project, current["path"]):
             # A settled quarantine is already aside: its grace period
             # expired and it waits in the reviewed plan for the purge.

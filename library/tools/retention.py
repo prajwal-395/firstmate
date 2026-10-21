@@ -644,6 +644,31 @@ def _trash_candidates(project_folder: str, plan: PurgePlan) -> list:
     return found
 
 
+def _record_version_dependencies(plan: PurgePlan, roots: list) -> None:
+    """Name the files a retained generation still needs, as KEPT.
+
+    A dependency that no cleanup class would have taken anyway is
+    invisible in the plan, and an invisible protection is a protection
+    nobody can check. The dry run lists what it kept and why.
+    """
+    root = next((r for r in roots
+                 if r.name == "project:archived-generations"), None)
+    if root is None or root.status != gc.OK:
+        return
+    reported: dict[str, str] = {}
+    for path in root.paths:
+        resolved = os.path.realpath(path)
+        reported.setdefault(resolved, resolved)
+    for resolved in sorted(reported):
+        if not os.path.lexists(resolved):
+            continue
+        plan.kept.append({
+            "path": resolved,
+            "category": "version-dependency",
+            "why": ("a retained generation of this project still needs this "
+                    "file (root: project:archived-generations)")})
+
+
 def plan_purge(project_folder: str, db_paths, mode: str | None = None
                 ) -> PurgePlan:
     """The removal set, computed and nothing more. Writes NOTHING."""
@@ -672,9 +697,13 @@ def plan_purge(project_folder: str, db_paths, mode: str | None = None
     plan.protected_timelines = sorted(protected)
     plan.roots = [{"name": r.name, "status": r.status, "detail": r.detail}
                   for r in roots]
+    _record_version_dependencies(plan, roots)
     reachable: set = set()
+    reachable_by_root: dict[str, list[str]] = {}
     for root in roots:
         reachable |= set(root.paths)
+        for path in root.paths:
+            reachable_by_root.setdefault(path, []).append(root.name)
 
     found: list = []
     quarantine_expirations: dict[str, str] = {}
@@ -722,8 +751,11 @@ def plan_purge(project_folder: str, db_paths, mode: str | None = None
                                       + ", ".join(input_names))})
             continue
         if path in reachable:
+            names = sorted(set(reachable_by_root.get(path) or ()))
+            why = ("referenced by a current root: " + ", ".join(names)
+                   if names else "referenced by a current root")
             plan.kept.append({"path": path, "category": category,
-                              "why": "referenced by a current root"})
+                              "why": why})
             continue
         if path.endswith(NEVER_PURGE_SUFFIXES):
             plan.kept.append(

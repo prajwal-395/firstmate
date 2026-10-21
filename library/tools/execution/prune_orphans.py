@@ -36,7 +36,6 @@ import os
 import shutil
 import sqlite3
 import tempfile
-from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -494,77 +493,16 @@ def retained_recovery_paths(project_folder: str) -> set[str]:
     Recovery records are liveness roots even when their timeline is no
     longer current. Walk only the project review ledger and known recovery
     areas; arbitrary project JSON is not an ownership declaration.
-    """
-    review = Path(project_folder) / "pipeline_output" / "review"
-    roots = [review / "reel_versions.json",
-             review / "reel_versions_pending_rollback.json",
-             review / "reel_versions_pending_redo.json",
-             review / "resolve_checkpoints.json"]
-    roots.extend(sorted(review.glob("*.timeline.json")))
-    archives = []
-    for directory in (review / "undo", review / "recovery_archives",
-                      review / "timeline_snapshots", review / "snapshots"):
-        if directory.exists():
-            roots.extend(sorted(directory.rglob("*.json")))
-            if directory.name == "recovery_archives":
-                archives.extend(sorted(directory.rglob("*.drt")))
 
-    paths: set[str] = set()
-    # The key names a retained record names its media under.
-    # `source_file` is the one the undo journal and the reel read use
-    # (`reel_read` writes every item's media under it), and it was
-    # missing from this set: a recorded version's own journal said which
-    # file it played and the prune did not hear it, so the pool could
-    # take the file out from under a version that could still be
-    # restored. A prune that cannot hear the record must not delete
-    # from it.
-    path_keys = {"file_path", "media_path", "source_path", "asset_path",
-                 "source_file"}
-    def collect(value):
-        if isinstance(value, dict):
-            for key, item in value.items():
-                if key in path_keys and isinstance(item, str):
-                    paths.add(os.path.abspath(os.path.expanduser(item)))
-            # A recovery receipt's asset manifest spells each media file
-            # "path", so the receipt is read for what it DECLARES rather
-            # than for the keys it happens to share with other records.
-            receipt = value.get("recovery_archive")
-            if isinstance(receipt, Mapping):
-                for asset in receipt.get("assets") or ():
-                    if isinstance(asset, Mapping):
-                        raw = asset.get("path")
-                        if isinstance(raw, str) and raw:
-                            paths.add(
-                                os.path.abspath(os.path.expanduser(raw)))
-            collect(item)
-        elif isinstance(value, list):
-            for item in value:
-                collect(item)
-    for record_path in roots:
-        if not record_path.is_file():
-            continue
-        try:
-            collect(json.loads(record_path.read_text(encoding="utf-8")))
-        except (OSError, ValueError):
-            raise RemovalRefused(
-                f"retained recovery record {record_path} is unreadable; "
-                "pruning cannot prove its media is unreferenced")
-    for archive_path in archives:
-        try:
-            from library.tools.resolve_archive import read_archive
-            archive = read_archive(archive_path)
-        except Exception as unreadable:  # noqa: BLE001 - fail closed
-            raise RemovalRefused(
-                f"retained recovery archive {archive_path} is unreadable "
-                f"({unreadable}); pruning cannot prove its media is "
-                "unreferenced") from unreadable
-        for timeline in archive["timelines"]:
-            for track in timeline["tracks"]:
-                for item in track["items"]:
-                    path = item.get("media_path")
-                    if path:
-                        paths.add(os.path.abspath(os.path.expanduser(path)))
-    return paths
+    The READING is one reader, `library/tools/version_dependencies.py`, so
+    the pool prune and the project cleanup cannot hear different records.
+    """
+    from library.tools import version_dependencies
+
+    try:
+        return version_dependencies.dependency_paths(project_folder)
+    except version_dependencies.VersionDependencyUnreadable as unreadable:
+        raise RemovalRefused(str(unreadable)) from unreadable
 
 
 def delete_files(paths: list[str], referenced: set[str],
