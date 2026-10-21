@@ -1,0 +1,77 @@
+{
+  "report": "AXI-014 compound transaction live proof",
+  "date": "2026-10-21",
+  "lane": "p-axi014-compound-tx",
+  "outcome": "not_run - the three-write compound is not routable today",
+  "scenarios_planned": [
+    "baseline: one committed write, so the timeline holds a VALIDATED generation",
+    "compound_failure: three writes with a failure injected after the first of them",
+    "no_silent_retry: the same transaction id submitted again"
+  ],
+  "measured": {
+    "where_the_proof_ran": (
+      "the serving broker's worker, on the lane's own code: the proof installs "
+      "the lane's library.tools.axi_transaction, library.tools."
+      "compound_transaction and library.tools.resolve_axi_core in front of the "
+      "worker's own modules, because the worker runs the primary checkout's "
+      "code"),
+    "scratch_project": "Ren Scratch - axi014 (Ren-owned, created for this lane)",
+    "first_refusal": (
+      "the plan is infeasible before staging: clip.trim: clip.trim has no "
+      "production-enabled backend - it has an executor on resolve_axi that is "
+      "not production-enabled"),
+    "write_attempted": false
+  },
+  "denominators": {
+    "production_enabled_operations": [
+      "broll.insert",
+      "caption.style",
+      "clip.delete",
+      "clip.insert",
+      "clip.remove",
+      "clip.replace",
+      "clip.set_property",
+      "mask.create",
+      "reel.opening",
+      "retime.segments",
+      "track.add"
+    ],
+    "declared_compound_scenarios": {
+      "trim_insert": "clip.trim + clip.insert (reel_touchup, implemented)",
+      "remove_ripple": "clip.remove + clip.ripple (DECLARED, not implemented)",
+      "replace_caption": "clip.replace + caption.style (reel_touchup, implemented)",
+      "broll_over_linked_audio": "broll.insert (DECLARED, not implemented)",
+      "trim_and_delete": "clip.trim + clip.delete (resolve_axi, implemented; the trim is not production-enabled)",
+      "caption_restyle_batch": "caption.style (resolve_axi, implemented)",
+      "overlay_transform_pair": "overlay.position + overlay.resize (reel_touchup, implemented)"
+    },
+    "protected_experimental_compounds": [
+      "clip.insert + clip.trim",
+      "caption.style + clip.replace"
+    ],
+    "protected_experimental_compound_size": 2
+  },
+  "why_the_three_write_proof_could_not_run": (
+    "A compound request reaches the sequential executor path only when the "
+    "ROUTER can route it and the compound registry declares its shape. The "
+    "protected experimental policy covers PAIRS of operations, so a three "
+    "operation request is never covered by it; the production policy refuses "
+    "an operation that is implemented but not production-enabled. The "
+    "production-enabled operations on the resolve_axi backend are clip.delete, "
+    "clip.remove, clip.insert, broll.insert, caption.style and reel.opening, "
+    "and the only declared compound shape that matches them is "
+    "caption_restyle_batch (caption.style), whose targets are Ren-rendered "
+    "captions on a row named Subtitles. A three-write compound therefore "
+    "needs EITHER the shared qualification fixture's Subtitles row (whose "
+    "journal belongs to the shared project, so another lane's transactions "
+    "would land in it) OR a new declared compound shape and a protected "
+    "policy grant - a product decision above this lane."
+  ),
+  "what_is_proven_by_the_code_and_the_tests": {
+    "write_order_and_dependencies": "tests/unit/resolve/test_compound_transaction.py",
+    "preservation_refused_before_the_first_write": "tests/unit/resolve/test_compound_transaction.py",
+    "restoration_claimed_only_against_the_validated_generation": "tests/unit/resolve/test_compound_transaction.py",
+    "aborted_pre_write_transaction_leaves_no_hold": "tests/unit/resolve/test_compound_transaction.py",
+    "possibly_committed_mutation_is_not_retried": "tests/unit/resolve/test_compound_transaction.py"
+  }
+}

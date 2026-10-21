@@ -189,6 +189,8 @@ AXI is the only production boundary for Resolve inspection and mutation. Discove
 
 One Resolve instance and its broker/lease coordinate every writer. Never mutate through a direct API, MCP or UI path, overlap writers, or promote an unverified result. Use the [resolve-axi skill](.agents/skills/resolve-axi/SKILL.md) for discovery, execution and recovery; its generated references derive from `library/tools/edit_algebra.py`. Custom scripts follow [the AXI script safeguards](docs/RESOLVE_AXI_CUSTOM_SCRIPTS.md). Pipeline-owned composition and render details belong to [davinci_resolve_pipeline](.agents/skills/davinci_resolve_pipeline/SKILL.md) and their owning modules.
 
+**A COMPOUND request is a TRANSACTION: its write order and dependencies are declared, a preservation constraint that cannot hold refuses BEFORE the first write, a partial mutation is recovered and only claimed when a fresh read-back matches the validated generation, and a possibly committed mutation is never retried silently.** `library/tools/compound_transaction.py`.
+
 ## 6. The spine contract
 
 - Every block carries `clip_id`, `source_start`, `source_end`, `word_timestamps` and `alignment_method`. `None`/empty only for non-speech blocks.

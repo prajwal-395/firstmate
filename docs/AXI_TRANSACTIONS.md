@@ -80,6 +80,61 @@ python3 -m library.tools.axi_transaction <project-folder> --transaction-id <id> 
 closes one the captain decided to live with. Omitting `--transaction-id`
 reports the project's outstanding recoveries instead of closing any.
 
+## The compound transaction rules (AXI-014)
+
+`library/tools/compound_transaction.py` owns the rules that make a
+MULTI-OPERATION request a transaction. It writes nothing to Resolve and
+decides no editorial intent.
+
+### The write order and the dependencies
+
+The engine DECLARES the dependencies it knows
+(`compound_transaction.ENGINE_DEPENDENCIES`): a ripple closes the gap a
+delete left, so the delete is written first; a join restores a split; a
+resize preserves the position the overlay was given. The requester may
+declare more (`depends_on` on a request operation), and an operation that
+acts on a clip another operation in the same request CREATES waits for
+the creator.
+
+`plan_write_order` returns the order and the dependency that produced
+it. A request whose declared order CONTRADICTS a declared dependency is
+REFUSED before the first write - the engine does not choose an order the
+requester did not ask for.
+
+### The checks before a write
+
+`compound_transaction.preflight` is the one gate, and it answers before
+anything is written:
+
+- the declared dependencies resolve (above);
+- every named preservation requirement (`preservation_invariant`'s
+  vocabulary) can be satisfied BY THE WRITES the request asks for. A
+  request that requires a clip to be unchanged and writes to that clip
+  is a contradiction, and it is refused before the mutation instead of
+  being noticed on the read-back;
+- this transaction is not a silent retry of a mutation that may already
+  have committed. The journal's prior outcome decides: a clean commit is
+  read back, and an UNSETTLED transaction is refused with
+  `recovery_required`.
+
+### The recovery
+
+A partial mutation is recovered by reversing what landed
+(`edit_recovery`), and the recovery is only CLAIMED when a fresh
+read-back matches the VALIDATED generation - the newest generation a
+verified write left. The comparison is `timeline_shadow.diff`, the one
+the differ and the replace guard use. A compensation that ran is not a
+proof that the timeline is back.
+
+`compound_transaction.terminal_stage` decides the transaction's durable
+end:
+
+| stage | when |
+|---|---|
+| `abandoned` | the request never wrote - it owes no recovery and leaves no hold |
+| `recovered` | it wrote, and the timeline reads as the validated generation |
+| `recovery_required` | it wrote, and the timeline does not - the hold stays |
+
 ## The receipt
 
 `axi_transaction.build_receipt` publishes the seven things a receipt has to

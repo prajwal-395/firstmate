@@ -363,25 +363,56 @@ def _project_folder_for(request) -> str:
             return str(project_path.parent)
         config = project_registry.get_project(request.project)
     except Exception:  # noqa: BLE001 - a missing registry is not a gate
+        config = None
+    if config is not None:
+        return str(getattr(config, "project_root", "") or "")
+    # A request names the RESOLVE project; the journal lives in the REN
+    # project folder. The registry maps one back to the other, and
+    # without that mapping the recovery anchor has nowhere to live.
+    try:
+        folder = project_registry.project_folder_for_resolve_name(
+            str(request.project))
+    except Exception:  # noqa: BLE001 - a missing registry is not a gate
         return ""
-    if config is None:
-        return ""
-    return str(getattr(config, "project_root", "") or "")
+    return str(folder or "")
 
 
-def _pre_mutation_refusal(*, request, generation, head) -> dict | None:
+def _pre_mutation_refusal(*, request, generation, head, operations=(),
+                          before=None, requirements=(), affected_spans=(),
+                          depends_on=None) -> dict | None:
     """The checks a batch must pass before its first write.
 
-    Two questions, and both are asked before anything is written:
+    Four questions, and all of them are asked before anything is
+    written:
 
     - does the live project still answer to the exact identity and
       revision this request was planned against (AXI-045);
-    - is the timeline free of an unresolved recovery (AXI-048).
+    - is the timeline free of an unresolved recovery (AXI-048);
+    - can the request's own preservation requirements be satisfied by
+      the writes it asks for (AXI-014);
+    - is this transaction a silent retry of a mutation that may
+      already have committed (AXI-014).
 
     Returns ``None`` when the batch may proceed, or a refusal descriptor
     naming the category and the reason.
     """
-    from library.tools import axi_transaction
+    from library.tools import axi_transaction, compound_transaction
+
+    folder = _project_folder_for(request)
+    # AXI-014: the compound preflight. It refuses before the first
+    # write when the declared dependencies cannot be satisfied, when a
+    # named preservation constraint cannot hold, or when this
+    # transaction may already have written.
+    compound = compound_transaction.preflight(
+        project_folder=folder, transaction_id=str(request.id),
+        operations=operations, before=before or {}, requirements=requirements,
+        affected_spans=affected_spans, depends_on=depends_on)
+    if compound.get("status") == "refused":
+        return {"category": compound.get("category") or "conflict",
+                "reason": compound.get("reason") or "the compound request "
+                "cannot run as asked",
+                "evidence": {"mutation_state": "none", "mutated": False,
+                             "compound_preflight": compound}}
 
     project_key = _shadow_project_key(request.project)
     conflict = axi_transaction.detect_conflict(
@@ -401,7 +432,6 @@ def _pre_mutation_refusal(*, request, generation, head) -> dict | None:
             "evidence": {"mutation_state": "none", "mutated": False,
                          "conflict": conflict.as_dict()},
         }
-    folder = _project_folder_for(request)
     if not folder:
         return None
     try:
@@ -836,6 +866,35 @@ def _failure_receipt(*, request: Any, backend: str, generation: Any,
         "execution_routing": dict(decision),
     }
     return standardize_receipt(failure_receipt)
+
+
+def _verify_restoration(*, request, generation) -> dict:
+    """Whether the timeline is back at the validated generation.
+
+    The comparison is against the newest generation a verified write
+    left: the state the request was authorized against. A restoration
+    that cannot be proven is reported as unprovable, never as a pass.
+    """
+    from library.tools import compound_transaction
+
+    project_key = _shadow_project_key(request.project)
+    validated = compound_transaction.validated_generation(
+        project_key, str(request.timeline))
+    if validated is None:
+        return {"status": "unprovable",
+                "reason": ("no validated generation is recorded for this "
+                           "timeline, so the restoration cannot be proven")}
+    try:
+        live = read_live_timeline(request.project, request.timeline)
+    except Exception as exc:  # noqa: BLE001 - an unread timeline is unprovable
+        return {"status": "unprovable",
+                "generation": validated["generation"],
+                "reason": f"the live timeline could not be read: {exc}"}
+    return compound_transaction.verify_restored(
+        project=project_key, timeline=str(request.timeline),
+        generation=validated["generation"], live=live)
+
+
 def _named_preservation(request: Any) -> tuple:
     """The request's preservation requirements, and its operations'.
 
@@ -851,12 +910,36 @@ def _named_preservation(request: Any) -> tuple:
     return tuple(named)
 
 
+def _declared_dependencies(request: Any, compiled: Any) -> list[list[int]]:
+    """The requester's own dependencies, in the compiled write order.
+
+    The request declares its dependencies over ITS OWN operation
+    indices; the compiled list is the same operations in dependency
+    order. This maps one onto the other so the compound plan reads the
+    requester's declared dependencies in the space it works in.
+    """
+    try:
+        declared = [tuple(int(index) for index in
+                          (operation.depends_on or ()))
+                    for operation in request.operations]
+    except (AttributeError, TypeError):
+        return []
+    order = [int(index) for index in (getattr(compiled, "order", ()) or ())]
+    position = {original: index for index, original in enumerate(order)}
+    mapped: list[list[int]] = []
+    for original in order:
+        dependencies = declared[original] if original < len(declared) else ()
+        mapped.append(sorted(position[dependency] for dependency
+                             in dependencies if dependency in position))
+    return mapped
+
+
 def _execute_registered_backend(*, backend: str, plan: Mapping,
                                 request: Any, preparation: Any,
                                 compiled: Any, generation: Any,
                                 snapshot: Mapping, owner: str) -> dict:
     """Run the router-selected adapters and preserve sequential semantics."""
-    from library.tools import axi_transaction, edit_algebra
+    from library.tools import axi_transaction, compound_transaction, edit_algebra
     from library.tools.edit_execution_adapters import (
         register_builtin_edit_executors,
     )
@@ -923,6 +1006,19 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
     if not transaction_plan.supported:
         raise ValueError(transaction_plan.refusal)
     _validate_caption_style_batch(operations, snapshot)
+    # AXI-014: the declared write order. The request's own dependency
+    # order was applied when the request was compiled; the engine's
+    # declared dependencies are applied here, and the operations are
+    # written in that order. A request whose declared order contradicts
+    # a declared dependency is refused by the preflight below, before
+    # the first write.
+    depends_on = _declared_dependencies(request, compiled)
+    try:
+        write_order = compound_transaction.plan_write_order(
+            operations, depends_on=depends_on).order
+    except compound_transaction.CompoundRefused:
+        write_order = tuple(range(len(operations)))
+    executors.sort(key=lambda row: write_order.index(row[0]))
 
     execution = ExecutionInput(
         intent=request.to_dict(), decision=decision,
@@ -934,6 +1030,21 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
             str(value) for value in request.preconditions),
     )
     receipts: list[dict] = []
+    # AXI-014: a COMPOUND transaction journals its own stages, so a
+    # later submission of the same transaction id is answered with the
+    # prior outcome instead of a second write - and so the AXI-048 gate
+    # can tell a transaction that never wrote from one that may have.
+    journal_folder = (_project_folder_for(request)
+                      if len(operations) > 1 else "")
+    write_attempted = {"value": False}
+
+    def journal_stage(stage: str, **fields: Any) -> None:
+        if not journal_folder:
+            return
+        axi_transaction.record_transaction(
+            journal_folder, str(request.id), stage,
+            project=_shadow_project_key(request.project),
+            timeline=str(request.timeline), **fields)
 
     def refused(category: str, reason: str, *, failed_index: int,
                 evidence: Mapping | None = None) -> dict:
@@ -969,6 +1080,14 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
                 compiled=compiled, generation=generation, snapshot=snapshot,
                 operation=operations[index], operation_index=index, owner=owner,
             )
+            # The attempt is journalled BEFORE the call: an adapter may
+            # mutate and then raise, and the journal is what proves the
+            # difference between a transaction that owes a recovery and
+            # one that never wrote.
+            write_attempted["value"] = True
+            journal_stage("applying", index=index,
+                          op=str(operations[index].get("op") or ""),
+                          operation=dict(operations[index]))
             try:
                 result = executor(context)
             except Exception as exc:  # noqa: BLE001 - preserve partial result
@@ -1011,6 +1130,8 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
                                      for key in ("unique_id", "client_unique_id")
                                      if key in operations[index]}),
                              "receipt": receipt})
+            journal_stage("applied", index=index,
+                          op=str(operations[index].get("op") or ""))
         return None
 
     from library.tools.resolve_lock import resolve_lease
@@ -1056,11 +1177,25 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
             # project and timeline it names, at the revision it was
             # planned against, and not while a recovery is unresolved.
             blocked = _pre_mutation_refusal(
-                request=request, generation=generation, head=current[0][0])
+                request=request, generation=generation, head=current[0][0],
+                operations=operations, before=snapshot,
+                requirements=_named_preservation(request),
+                affected_spans=compiled.affected_spans,
+                depends_on=depends_on)
             refusal = (None if blocked is None else
                        refused(blocked["category"], blocked["reason"],
                                failed_index=0,
                                evidence=blocked.get("evidence") or {}))
+        if refusal is None:
+            # AXI-014: the durable intent reaches the journal before the
+            # first write. A job that dies here owes no recovery - the
+            # journal proves no write was attempted - so it must not
+            # leave a hold on the timeline.
+            journal_stage("prepared", operations=operations,
+                          base_generation=generation.generation,
+                          scenario=transaction_plan.scenario,
+                          intent_digest=axi_transaction.intent_digest(
+                              operations))
         if refusal is None and compound_touchup:
             try:
                 batch_receipt = _execute_protected_compound_touchup(
@@ -1222,10 +1357,32 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
             recovery["failure_reason"] = refusal["refusal"]["reason"]
             recovery["failed_operation_index"] = refusal[
                 "failed_operation_index"]
+            # AXI-014: the recovery is only claimed when a fresh
+            # read-back matches the validated generation the request was
+            # planned against. A compensation that ran is not a proof
+            # that the timeline is back.
+            recovery["restoration"] = _verify_restoration(
+                request=request, generation=generation)
             refusal["recovery"] = recovery
         elif refusal is not None and refusal.get("mutated"):
             refusal["recovery"] = compensate_completed(
                 refusal.get("failure_evidence"))
+            refusal["recovery"]["restoration"] = _verify_restoration(
+                request=request, generation=generation)
+        # AXI-014: the compound transaction's own durable stage. A
+        # transaction that never wrote is closed, so it leaves no hold;
+        # one that wrote and was not restored keeps its honest hold.
+        if refusal is not None:
+            stage = compound_transaction.terminal_stage(
+                write_attempted=write_attempted["value"],
+                restoration=(refusal.get("recovery") or {}).get("restoration"))
+            journal_stage(stage, reason=(
+                "the request was refused before its first write, so it owes "
+                "no recovery" if stage == "abandoned" else
+                "the writes that landed were reversed and the timeline "
+                "reads as the validated generation" if stage == "recovered"
+                else "a write was attempted and the timeline does not read "
+                "as the validated generation"))
     if refusal is not None:
         return refusal
     if batch_receipt is not None:
@@ -1247,6 +1404,7 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
                       "observed_generation": committed_generation,
                       "mutated": True},
         )
+    journal_stage("committed", generation=committed_generation)
     return _registered_execution_receipt(
         backend=backend, plan=plan, request=request,
         operations=operations, receipts=receipts,

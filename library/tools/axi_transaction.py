@@ -558,14 +558,19 @@ def prior_outcome(project_folder: str, transaction_id: str, *,
     """
     digest = intent_digest(operations)
     prior: dict[str, Any] | None = None
+    recorded_digest = ""
     for event in _journal_events(project_folder):
         fields = event.get("fields", {})
         if str(fields.get("transaction_id") or "") != str(transaction_id):
             continue
         prior = fields
+        # The digest is carried by the event that PREPARED the
+        # transaction; the later stages do not repeat it.
+        if fields.get("intent_digest"):
+            recorded_digest = str(fields["intent_digest"])
     if prior is None:
         return None
-    recorded = prior.get("intent_digest")
+    recorded = prior.get("intent_digest") or recorded_digest
     if recorded and recorded != digest:
         return {"status": "conflict",
                 "reason": ("this transaction id was already used for "
@@ -574,6 +579,14 @@ def prior_outcome(project_folder: str, transaction_id: str, *,
     stage = str(prior.get("stage") or "")
     if stage in ("committed", "promoted", "delivered"):
         return {"status": "committed", "stage": stage,
+                "transaction_id": transaction_id,
+                "receipt": prior.get("receipt")}
+    if stage in ("recovered", "abandoned"):
+        # The transaction was settled WITHOUT a commit: its writes were
+        # reversed, or the captain accepted the state as it stands.
+        # Nothing landed, so a resubmission is a new attempt, not a
+        # retry of a possibly committed mutation.
+        return {"status": "settled", "stage": stage,
                 "transaction_id": transaction_id,
                 "receipt": prior.get("receipt")}
     return {"status": "unresolved", "stage": stage,
