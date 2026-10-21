@@ -1163,15 +1163,20 @@ def _advise_grouping(world: World, fresh: list, select=None) -> None:
     """
     try:
         from library.tools.local_ci import grouping
-        for member in fresh:
-            if member.get("files"):
-                continue
-            try:
-                files = world.pr_files(member["pr"])
-            except Exception:  # noqa: BLE001, S112 - unknown, not unjudgeable
-                continue
-            if files:
-                member["files"] = list(files)
+        # A ONE-member cluster verifies immediately - the advice is one
+        # constant line - so no diff is read for it.  Reading one costs
+        # an API round trip, and it happens on the path to the gate:
+        # the machine sits idle while the advice is priced.
+        if len(fresh) > 1:
+            for member in fresh:
+                if member.get("files"):
+                    continue
+                try:
+                    files = world.pr_files(member["pr"])
+                except Exception:  # noqa: BLE001, S112 - unknown, not unjudgeable
+                    continue
+                if files:
+                    member["files"] = list(files)
         for line in grouping.advise_for_cluster(
                 fresh, state_dir=world.state_dir, now=time.time(),
                 select=select):

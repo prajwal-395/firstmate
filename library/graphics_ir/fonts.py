@@ -13,6 +13,12 @@ The vertical metrics follow the CSS rule a browser uses: typo metrics
 when the font sets USE_TYPO_METRICS, else hhea. ``line-height: normal``
 is ascent + descent + line gap; a numeric line height splits its leading
 evenly above and below the content area.
+
+An instance is BYTE-REPRODUCIBLE: two cuts of the same file at the same
+weight produce the same bytes, so the disk cache holds one answer rather
+than whatever the clock happened to stamp into it.  The fontTools default
+stamps the wall clock into ``head`` at save time; the cut keeps the
+source font's own stamp instead.
 """
 
 from __future__ import annotations
@@ -73,11 +79,18 @@ def _disk_cache_dir() -> Optional[str]:
         return None
 
 
+#: What the cached bytes are, as a version of the CUT itself.  The
+#: instance is byte-reproducible (see `_instance_bytes`), so a cache
+#: entry written by an older cut - one that stamped the wall clock into
+#: the font - is not this engine's bytes and must not be served as one.
+INSTANCE_FORMAT = "ren-font-instance/2"
+
+
 def _disk_cache_key(signature: tuple[str, int, int],
                     weight: Optional[int]) -> str:
     digest = hashlib.sha1(
         f"{signature[0]}\0{signature[1]}\0{signature[2]}\0{weight}\0"
-        f"{_fonttools_version()}".encode("utf-8")).hexdigest()
+        f"{_fonttools_version()}\0{INSTANCE_FORMAT}".encode("utf-8")).hexdigest()
     return digest + ".ttf"
 
 
@@ -142,7 +155,15 @@ def _instance_bytes(signature: tuple[str, int, int], weight: Optional[int]) -> t
 
     path = signature[0]
     try:
-        font = TTFont(path)
+        # `recalcTimestamp=False` keeps the SOURCE font's modification
+        # stamp instead of stamping the wall clock into the instance at
+        # save time.  Without it two cuts of the same file a second
+        # apart differ in a few bytes of `head`, so the instance is not
+        # reproducible: the disk cache holds whatever the last cut
+        # happened to be, and a render's digest moves with the clock.
+        # The instance derives from that font, so it carries that
+        # font's stamp.
+        font = TTFont(path, recalcTimestamp=False)
     except Exception as exc:  # fontTools raises a zoo of types on bad input
         raise FontUnreadable(f"cannot read font file {path}: {exc}") from exc
     family = font["name"].getDebugName(16) or font["name"].getDebugName(1) or "Font"

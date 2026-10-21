@@ -4,7 +4,7 @@
   "frozen_inputs": true,
   "source_manifest": {
     "path": "2026-10-15-editorial-eval-corpus.json",
-    "sha256": "2ea35f4af400c7d28e5ef6bbcf61d319c3314dc9542c0e36c77ffcb12527bff8",
+    "sha256": "b09741ac6bede79dae9e8df09d0d912eba946f3a2ef7c232e8a320800543b273",
     "policy": "inherited source hashes, rights, split and leakage groups are authoritative"
   },
   "source_scopes": [

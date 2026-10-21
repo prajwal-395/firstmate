@@ -557,6 +557,11 @@ def test_tier2_fires_as_soon_as_running_tier1_drains(
         def pr_head(self, pr):
             return f"head-{pr}"
 
+        def pr_files(self, pr):
+            # Scripted worlds carry no diffs: unknown files group with
+            # eyes open, and no test spawns a real gh-axi read.
+            return []
+
         def proof_requirements(self, pr):
             # Scripted worlds owe no live proofs, and no test spawns
             # a real gh-axi read at merge time.
@@ -680,6 +685,13 @@ class _BlockingGateWorld(queue.World):
 
     def pr_head(self, pr):
         return f"head-{pr}"
+
+    def pr_files(self, pr):
+        # Scripted worlds carry no diffs: unknown files group with eyes
+        # open, and no test spawns a real gh-axi read.  A live read here
+        # would put the network between the test and the gate it waits
+        # for, and the gate would start (or not) on the network's mood.
+        return []
 
     def proof_requirements(self, pr):
         # Scripted worlds owe no live proofs, and no test spawns a

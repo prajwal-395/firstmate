@@ -8,6 +8,7 @@ step 5.01's context carried only whole-frame numbers (`clip_exposure`),
 which average the two together.
 """
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -15,6 +16,7 @@ from PIL import Image
 
 from library.tools import footage_identity, model_task, region_stats, source_memory
 from library.tools import person_regions as pr
+from library.tools import context_reference
 from library.tools.context_views import build_view
 from library.tools.replay_bench import bench, trees
 from library.tools.replay_bench import snapshot as snapshot_mod
@@ -354,6 +356,26 @@ def test_the_spec_records_what_the_subject_grade_was_sourced_from(
 # ── Acceptance: a replay of 5.01 off frozen state ───────────────────
 
 
+def _reading_text(context: str) -> str:
+    """The subject-against-set reading, wherever it reaches the step.
+
+    A large context table travels BY REFERENCE (CI-11, by-reference
+    tables): the prompt carries the path and the map, and the rows live
+    in the file the model is told to read. A table small enough to stay
+    inline is read in the prompt. Either way the READING is what the
+    colourist gets, so the test follows it rather than pinning the
+    delivery shape.
+    """
+    marker = "\nregion_exposure:"
+    if marker not in context:
+        return context
+    section = context.split(marker, 1)[1]
+    path = context_reference.reference_path(section)
+    if not path:
+        return section
+    return Path(path).read_text(encoding="utf-8")
+
+
 def _project(tmp_path, source):
     """A project whose state satisfies color_grade's edges: one A-roll
     placement of clip_001, source seconds 9.5-11.5."""
@@ -411,7 +433,8 @@ def test_a_replay_of_color_grade_sources_the_subject_reading(tmp_path,
     assert {"clip_exposure", "region_exposure"} <= keys
     assert "region_stats" not in keys
     context = result["context"]
-    assert "clip_001/region_001" in context
+    reading = _reading_text(context)
+    assert "clip_001/region_001" in reading
     assert "measured_basis" in result["expected_schema"]
 
     stats = [region_stats.clip_region_stats(_project_folder(tmp_path), _clip(source), PLAYED)]
@@ -421,4 +444,4 @@ def test_a_replay_of_color_grade_sources_the_subject_reading(tmp_path,
     assert basis["subject_minus_outside_stops"] < -1.0
     for column in ("subject_luma_p50", "outside_luma_p50",
                    "subject_minus_outside_stops"):
-        assert f"{basis[column]:g}" in context, column
+        assert f"{basis[column]:g}" in reading, column
