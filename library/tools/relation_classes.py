@@ -6,6 +6,19 @@ until verified; semantic edges are never derived here - a model
 interpretation owns them (report lane 3, Relation row). Every edge
 cites the observations it rests on; a span with no backing
 observation is skipped, never bridged.
+
+**The predicate vocabulary is PUBLISHED here.** `PREDICATES` names every
+relation predicate the engine knows, the class it belongs to, the
+evidence bar it must clear and the lane that derives it. A predicate
+that is not in the table is not a relation the model may carry: the
+Project Model validator refuses it (see `project_model.validate`).
+The table is the answer to "which typed relationships does Ren hold",
+not a private tuple in a deriver.
+
+The seven predicates the grounding programme names (B-10) are
+`touching, holding, looking_at, speaking, entering, leaving,
+interacting`; `co_present` and `pointing` are the two the engine
+already measured.
 """
 from __future__ import annotations
 
@@ -18,9 +31,141 @@ from library.tools.identity_reassociation import interval_iou, source_clock_ids
 
 RELATION_CLASSES = ("temporal", "physical", "semantic")
 
-TEMPORAL_PREDICATES = ("co_present",)
+PREDICATES: dict[str, dict[str, Any]] = {
+    "co_present": {
+        "relation_class": "temporal",
+        "participants": "any two entities",
+        "evidence": "track samples sharing ticks on one clock",
+        "derived_by": "library.tools.relation_classes."
+                      "derive_temporal_relations",
+        "certainty": "measured",
+        "semantics": "the two entities are present in the frame at the "
+                     "same time; it says nothing about what they did "
+                     "to each other",
+    },
+    "touching": {
+        "relation_class": "physical",
+        "participants": "person and object, or person and person",
+        "evidence": "a measured hand joint inside the other entity's "
+                    "box, or two measured hands in contact",
+        "derived_by": "library.tools.relation_classes."
+                      "derive_physical_relations",
+        "certainty": "inferred",
+        "semantics": "contact: the two entities touch. A contact that "
+                     "lasts is a `holding`, not a longer `touching`",
+    },
+    "holding": {
+        "relation_class": "physical",
+        "participants": "person and object",
+        "evidence": "a measured contact sustained for at least "
+                    "HOLDING_MIN_SECONDS",
+        "derived_by": "library.tools.relation_classes."
+                      "derive_physical_relations",
+        "certainty": "inferred",
+        "semantics": "possession: the person keeps contact with the "
+                     "object rather than merely reaching it",
+    },
+    "looking_at": {
+        "relation_class": "physical",
+        "participants": "person and person",
+        "evidence": "a measured head-pose ray meeting the other "
+                    "person's measured region",
+        "derived_by": "library.tools.project_model_evidence."
+                      "_migrate_relationships (M10)",
+        "certainty": "inferred",
+        "semantics": "the subject's turned head faces the object; it "
+                     "does not claim the object looks back",
+    },
+    "pointing": {
+        "relation_class": "physical",
+        "participants": "person and person",
+        "evidence": "a measured extended hand whose ray falls within "
+                    "POINTING_MAX_ANGLE_DEG of the other person's face",
+        "derived_by": "library.tools.project_model_evidence."
+                      "_migrate_relationships (M10)",
+        "certainty": "inferred",
+        "semantics": "the subject's hand aims at the object",
+    },
+    "speaking": {
+        "relation_class": "temporal",
+        "participants": "person and person",
+        "evidence": "a measured voice turn of the subject overlapping "
+                    "a measured presence of the object",
+        "derived_by": "library.tools.relation_classes."
+                      "derive_speaking_relations",
+        "certainty": "inferred",
+        "semantics": "the subject speaks while the object is present. "
+                     "It is a co-occurrence, NOT an addressee claim: "
+                     "who is spoken to is not measured here",
+    },
+    "speaking_person_candidate": {
+        "relation_class": "temporal",
+        "participants": "speaker and person",
+        "evidence": "a measured alignment between a speaker's words "
+                    "and a person's voice turn",
+        "derived_by": "library.tools.cross_modal_grounding",
+        "certainty": "inferred",
+        "semantics": "the diarised speaker may be this person; a "
+                     "candidate until a voice match verifies it",
+    },
+    "entering": {
+        "relation_class": "physical",
+        "participants": "entity and scene",
+        "evidence": "a measured track whose first sample falls inside "
+                    "the scene's interval",
+        "derived_by": None,
+        "certainty": "measured",
+        "semantics": "the subject comes into the object's space. The "
+                     "vocabulary is published; no lane derives it yet, "
+                     "because the model carries no scene entity",
+    },
+    "leaving": {
+        "relation_class": "physical",
+        "participants": "entity and scene",
+        "evidence": "a measured track whose last sample falls inside "
+                    "the scene's interval",
+        "derived_by": None,
+        "certainty": "measured",
+        "semantics": "the subject goes out of the object's space. The "
+                     "vocabulary is published; no lane derives it yet, "
+                     "because the model carries no scene entity",
+    },
+    "interacting": {
+        "relation_class": "semantic",
+        "participants": "person and person",
+        "evidence": "an interpretation-level reading of measured "
+                    "co-presence and contact",
+        "derived_by": None,
+        "certainty": "interpreted",
+        "semantics": "the two people act on each other. A model "
+                     "interpretation owns this edge; the engine never "
+                     "derives it, and it is never verified",
+    },
+}
+"""Every relation predicate the engine knows, with its class, its
+evidence bar, the lane that derives it and what it means."""
 
-PHYSICAL_PREDICATES = ("touching",)
+HOLDING_MIN_SECONDS = 1.0
+"""A contact sustained this long is a `holding` (possession) rather
+than a `touching` (a reach). The review's own bar for holding is
+"> 1 s"; the engine measures the contact, so the bar is a stated
+constant rather than a model's opinion."""
+
+TEMPORAL_PREDICATES = tuple(name for name, row in PREDICATES.items()
+                            if row["relation_class"] == "temporal")
+
+PHYSICAL_PREDICATES = tuple(name for name, row in PREDICATES.items()
+                            if row["relation_class"] == "physical")
+
+SEMANTIC_PREDICATES = tuple(name for name, row in PREDICATES.items()
+                            if row["relation_class"] == "semantic")
+
+
+def predicate_class(predicate: str) -> str | None:
+    """The class a published predicate belongs to, or None when the
+    predicate is not published."""
+    row = PREDICATES.get(predicate)
+    return row["relation_class"] if row else None
 
 
 def _normalised_box(box: list[float],
@@ -170,22 +315,156 @@ def _face_person(model: dict[str, Any],
     return next(iter(owners))
 
 
+def _transformed(tick: int, transform: dict[str, Any]) -> int | None:
+    """One tick of a transform's `from` clock, in its `to` clock."""
+    for segment in transform.get("segments") or []:
+        source = segment.get("from") or {}
+        target = segment.get("to") or {}
+        try:
+            start = int(source["start"])
+            end = int(source["end"])
+            to_start = int(target["start"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not start <= tick < end:
+            continue
+        slope = segment.get("slope") or {}
+        try:
+            numerator = float(slope.get("numerator", 1))
+            denominator = float(slope.get("denominator", 1))
+        except (TypeError, ValueError):
+            continue
+        if denominator == 0:
+            continue
+        return int(round(to_start + (tick - start) * numerator / denominator))
+    return None
+
+
+def derive_speaking_relations(model: dict[str, Any], *,
+                               presence_modalities: tuple[str, ...] =
+                               ("face", "face_frame", "region_track",
+                                "region_frame")
+                               ) -> list[dict[str, Any]]:
+    """`speaking` edges: the subject speaks while the object is present.
+
+    The subject is the person a measured voice turn belongs to (a
+    verified identity link on the turn). The object is another person
+    whose measured presence overlaps the turn - on the same camera, or
+    on another camera of the same conversation, placed on the speaker's
+    clock by the model's own measured time transform.
+
+    The edge is a CO-OCCURRENCE, not an addressee claim: who is spoken
+    to is not measured here, and the edge says so in its own semantics.
+
+    Edges stay candidates with inferred certainty - the voice turn and
+    the presence are measured, the relation between them is inferred.
+    """
+    entities = {row["id"]: row.get("kind")
+                for row in model.get("entities") or []
+                if isinstance(row, dict)}
+    owners: dict[str, set[str]] = defaultdict(set)
+    for link in model.get("identity_links") or []:
+        if not isinstance(link, dict):
+            continue
+        if link.get("status") != "verified":
+            continue
+        entity_id = link.get("entity_id")
+        observation_id = link.get("observation_id")
+        if not isinstance(entity_id, str) or not isinstance(observation_id, str):
+            continue
+        if entities.get(entity_id) != "person":
+            continue
+        owners[observation_id].add(entity_id)
+    presence: dict[str, list[tuple[int, int, str, str]]] = defaultdict(list)
+    for row in model.get("observations") or []:
+        if not isinstance(row, dict):
+            continue
+        if row.get("modality") not in presence_modalities:
+            continue
+        interval = row.get("interval") or {}
+        clock_id = interval.get("clock_id")
+        if not isinstance(clock_id, str):
+            continue
+        for entity_id in owners.get(row.get("id"), ()):  # linked person
+            presence[clock_id].append(
+                (int(interval["start"]), int(interval["end"]), entity_id,
+                 str(row.get("id"))))
+    # A second camera of the same conversation: its presence lands on
+    # the speaker's clock through the model's own measured transform.
+    into: dict[str, list[tuple[int, int, str, str]]] = defaultdict(list)
+    for transform in model.get("time_transforms") or []:
+        if not isinstance(transform, dict):
+            continue
+        to_clock = transform.get("to_clock")
+        from_clock = transform.get("from_clock")
+        if not isinstance(to_clock, str) or not isinstance(from_clock, str):
+            continue
+        for start, end, entity_id, observation_id in presence.get(from_clock, ()):
+            mapped_start = _transformed(start, transform)
+            mapped_end = _transformed(max(start, end - 1), transform)
+            if mapped_start is None or mapped_end is None:
+                continue
+            into[to_clock].append((mapped_start, mapped_end + 1, entity_id,
+                                    observation_id))
+    for clock_id, rows in presence.items():
+        into[clock_id].extend(rows)
+    relations = []
+    for row in model.get("observations") or []:
+        if not isinstance(row, dict) or row.get("modality") != "voice_turn":
+            continue
+        interval = row.get("interval") or {}
+        clock_id = interval.get("clock_id")
+        if not isinstance(clock_id, str):
+            continue
+        speakers = owners.get(row.get("id"), set())
+        if len(speakers) != 1:
+            # No voice, or an ambiguous voice: no subject, no edge.
+            continue
+        speaker = next(iter(speakers))
+        start, end = int(interval["start"]), int(interval["end"])
+        for other_start, other_end, other, other_obs in into.get(clock_id, ()):
+            if other == speaker:
+                continue
+            if other_end <= start or other_start >= end:
+                continue
+            relations.append({
+                "id": (f"relation-speaking-{speaker}-{other}-"
+                       f"{clock_id}-{start}-{end}"),
+                "subject_id": speaker,
+                "predicate": "speaking",
+                "object_id": other,
+                "interval": {"clock_id": clock_id,
+                             "start": start, "end": end},
+                "confidence": None,
+                "provenance_id": row.get("provenance_id"),
+                "evidence_ids": sorted({row["id"], other_obs}),
+                "status": "candidate",
+                "certainty": "inferred",
+                "relation_class": "temporal",
+            })
+    relations.sort(key=lambda row: row["id"])
+    return relations
+
+
 def derive_physical_relations(
         model: dict[str, Any], *,
         hand_radius: float = 0.12,
         min_samples: int = 2,
         max_gap_ticks: int = 2000,
         max_face_drift_ticks: int = 500) -> list[dict[str, Any]]:
-    """Hand-object touching edges from measured landmarks and boxes.
+    """Hand-object contact edges from measured landmarks and boxes.
 
     A contact hit is a confident hand joint inside ``hand_radius`` of
     an object box on the same clock within ``max_face_drift_ticks``.
     Consecutive hits group into one edge; a group shorter than
     ``min_samples`` is dropped. The hand's owner is the person the
-    face observation links to - an unlinked or ambiguously linked
-    face row contributes no subject, so no edge is invented for it.
+    hand-bearing observation links to - an unlinked or ambiguously
+    linked row contributes no subject, so no edge is invented for it.
     Edges stay candidates with inferred certainty: proximity is
     measured, contact is inferred.
+
+    A group that lasts at least ``HOLDING_MIN_SECONDS`` is a
+    `holding` (possession); a shorter one is a `touching` (a reach).
     """
     if hand_radius <= 0 or min_samples < 1 or max_gap_ticks <= 0:
         raise ValueError("physical relation thresholds must be positive")
@@ -194,10 +473,7 @@ def derive_physical_relations(
     entity_kind = {row["id"]: row.get("kind")
                    for row in model.get("entities") or []
                    if isinstance(row, dict)}
-    face_rows = [row for row in model.get("observations") or []
-                 if isinstance(row, dict)
-                 and row.get("modality") == "face_frame"
-                 and isinstance(row.get("payload"), dict)]
+    face_rows = _hand_bearing_observations(model)
     by_clock: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in face_rows:
         by_clock[row["interval"]["clock_id"]].append(row)
@@ -208,6 +484,10 @@ def derive_physical_relations(
         if not isinstance(track, dict):
             continue
         if entity_kind.get(track.get("entity_id")) != "object":
+            continue
+        if _is_region_track(track):
+            # A person instance mask, not an object: a hand inside it is
+            # the person's own body, never a contact with a thing.
             continue
         clock_id = track.get("clock_id")
         boxes = _object_boxes(track)
@@ -259,6 +539,48 @@ def derive_physical_relations(
     return relations
 
 
+def _is_region_track(track: dict[str, Any]) -> bool:
+    """Whether a track is a person instance mask rather than an object.
+
+    M3d writes a person's region as a track whose samples carry
+    ``geometry.kind == "region"``. The migration files an unowned
+    region under an entity of kind ``object`` (it is an asset-local
+    instance, not a durable person), so the kind alone does not tell a
+    body from a thing - the geometry does.
+    """
+    for sample in track.get("samples") or []:
+        if not isinstance(sample, dict):
+            continue
+        geometry = sample.get("geometry") or {}
+        if isinstance(geometry, dict) and geometry.get("kind") == "region":
+            return True
+    return False
+
+
+def _hand_bearing_observations(model: dict[str, Any]) -> list[dict[str, Any]]:
+    """The observations that carry measured hand landmarks.
+
+    M3 measures the hands per FRAME, and the migration writes them on
+    a `face_frame` row; M3b's face spans carry a `face` row. A model
+    that hands its landmarks on either shape is read, so a migration
+    that drops or renames the row does not silently empty the
+    physical relations.
+    """
+    rows = []
+    for row in model.get("observations") or []:
+        if not isinstance(row, dict):
+            continue
+        payload = row.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        if row.get("modality") not in ("face_frame", "face"):
+            continue
+        if not payload.get("hands"):
+            continue
+        rows.append(row)
+    return rows
+
+
 def _touching_edge(track: dict[str, Any], person_id: str,
                    group: list[dict[str, Any]],
                    min_samples: int) -> list[dict[str, Any]]:
@@ -269,11 +591,14 @@ def _touching_edge(track: dict[str, Any], person_id: str,
     evidence = sorted({ref for hit in group
                        for ref in (hit["face_id"],
                                    hit["object_obs_id"])})
+    predicate = ("holding"
+                 if (end - start) >= HOLDING_MIN_SECONDS * 1000
+                 else "touching")
     return [{
-        "id": (f"relation-touching-{person_id}-"
+        "id": (f"relation-{predicate}-{person_id}-"
                f"{track.get('entity_id')}-{start}-{end}"),
         "subject_id": person_id,
-        "predicate": "touching",
+        "predicate": predicate,
         "object_id": str(track.get("entity_id")),
         "interval": {"clock_id": track.get("clock_id"),
                      "start": start, "end": end},
@@ -289,14 +614,25 @@ def _touching_edge(track: dict[str, Any], person_id: str,
 def score_relations(relations: list[dict[str, Any]],
                     labels: dict[str, Any],
                     entity_labels: dict[str, str], *,
-                    iou_threshold: float = 0.5) -> dict[str, Any]:
-    """Precision/recall of touching edges against labeled contacts.
+                    iou_threshold: float = 0.5,
+                    predicates: tuple[str, ...] = ("touching",),
+                    entity_kinds: dict[str, str] | None = None) -> dict[str, Any]:
+    """Precision/recall of physical edges against labeled contacts.
 
     ``entity_labels`` maps model entity ids to blind-label persistent
     ids; the map is built at scoring time by inspecting overlaps, so
     the labellers never see model internals. A labeled contact is
-    recalled when a touching edge on the same clock spans it at
+    recalled when a matching edge on the same clock spans it at
     ``iou_threshold``.
+
+    ``predicates`` names the prediction predicates that count as a
+    contact; the family score covers all of them, and
+    ``per_predicate`` reports each one on its own, so a reader can see
+    which typed relation carried the score. ``entity_kinds`` maps
+    model entity ids to their kind; with it, a prediction is only
+    matched to a label whose person/object roles agree, so a
+    person-to-person contact is never scored as a false positive
+    against a person-to-object label.
     """
     if not 0 < iou_threshold <= 1:
         raise ValueError("iou_threshold must be in (0, 1]")
@@ -317,38 +653,77 @@ def score_relations(relations: list[dict[str, Any]],
                 "clock_id": contact.get("clock_id")
                             or clock_by_source.get(source),
                 "start_tick": start, "end_tick": end,
+                "predicate": contact.get("predicate"),
             })
-    predicted = [rel for rel in relations
-                 if isinstance(rel, dict)
-                 and rel.get("relation_class") == "physical"
-                 and rel.get("predicate") == "touching"]
-    matched_labels: set[int] = set()
-    matched_predicted: set[int] = set()
-    for label_index, contact in enumerate(labeled):
-        person = contact.get("person")
-        obj = contact.get("object")
-        clock_id = contact.get("clock_id")
-        span = (int(contact["start_tick"]), int(contact["end_tick"]))
-        for pred_index, rel in enumerate(predicted):
-            if pred_index in matched_predicted:
+    physical = [rel for rel in relations
+                if isinstance(rel, dict)
+                and rel.get("relation_class") == "physical"]
+
+    def _kind_pair(entity_a: Any, entity_b: Any) -> tuple[Any, Any] | None:
+        if entity_kinds is None:
+            return None
+        return (entity_kinds.get(entity_a), entity_kinds.get(entity_b))
+
+    def _label_kind_pairs() -> set[tuple[Any, Any]]:
+        if entity_kinds is None:
+            return set()
+        reverse = {label: entity for entity, label
+                   in entity_labels.items()}
+        pairs: set[tuple[Any, Any]] = set()
+        for contact in labeled:
+            person_entity = reverse.get(contact.get("person"))
+            object_entity = reverse.get(contact.get("object"))
+            if person_entity is None or object_entity is None:
+                pairs.add((None, None))
                 continue
-            if (entity_labels.get(rel.get("subject_id")) != person
-                    or entity_labels.get(rel.get("object_id")) != obj):
-                continue
-            interval = rel.get("interval") or {}
-            if interval.get("clock_id") != clock_id:
-                continue
-            if interval_iou((interval["start"], interval["end"]),
-                            span) >= iou_threshold:
-                matched_labels.add(label_index)
-                matched_predicted.add(pred_index)
-                break
-    precision = (len(matched_predicted) / len(predicted)
-                 if predicted else None)
-    recall = len(matched_labels) / len(labeled) if labeled else None
-    return {"true_positives": len(matched_labels),
-            "predicted": len(predicted), "labeled": len(labeled),
-            "precision": precision, "recall": recall}
+            pairs.add((entity_kinds.get(person_entity),
+                       entity_kinds.get(object_entity)))
+        return pairs
+
+    def _score(predicate_subset: list[dict[str, Any]]) -> dict[str, Any]:
+        label_pairs = _label_kind_pairs()
+        comparable: list[dict[str, Any]] = []
+        for rel in predicate_subset:
+            pair = _kind_pair(rel.get("subject_id"), rel.get("object_id"))
+            if pair is None or pair == (None, None) or pair in label_pairs:
+                comparable.append(rel)
+        matched_labels: set[int] = set()
+        matched_predicted: set[int] = set()
+        for label_index, contact in enumerate(labeled):
+            person = contact.get("person")
+            obj = contact.get("object")
+            clock_id = contact.get("clock_id")
+            span = (int(contact["start_tick"]), int(contact["end_tick"]))
+            for pred_index, rel in enumerate(comparable):
+                if pred_index in matched_predicted:
+                    continue
+                subject = entity_labels.get(rel.get("subject_id"))
+                obj_label = entity_labels.get(rel.get("object_id"))
+                if subject != person or obj_label != obj:
+                    continue
+                interval = rel.get("interval") or {}
+                if interval.get("clock_id") != clock_id:
+                    continue
+                if interval_iou((interval["start"], interval["end"]),
+                                span) >= iou_threshold:
+                    matched_labels.add(label_index)
+                    matched_predicted.add(pred_index)
+                    break
+        precision = (len(matched_predicted) / len(comparable)
+                     if comparable else None)
+        recall = len(matched_labels) / len(labeled) if labeled else None
+        return {"true_positives": len(matched_labels),
+                "predicted": len(comparable), "labeled": len(labeled),
+                "precision": precision, "recall": recall}
+
+    family = [rel for rel in physical
+              if rel.get("predicate") in predicates]
+    per_predicate = {predicate: _score([rel for rel in physical
+                                        if rel.get("predicate") == predicate])
+                     for predicate in predicates}
+    result = _score(family)
+    result["per_predicate"] = per_predicate
+    return result
 
 
 def score_pickups(events: list[dict[str, Any]],

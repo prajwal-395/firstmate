@@ -498,10 +498,15 @@ def test_migration_validates_and_covers_the_catalog(fixture_project):
     assert report["counts"]["masks"] >= 3
     assert report["counts"]["tracks"] == 3
     relations = model["relations"]
-    assert report["counts"]["relations"] == len(relations) == 1
-    assert relations[0]["relation_class"] in {"temporal", "physical"}
-    assert relations[0]["status"] == "candidate"
-    assert relations[0]["evidence_ids"]
+    # The co-present edge, and the typed `speaking` edge the measured
+    # voice turn and the measured presence make.
+    assert report["counts"]["relations"] == len(relations) == 2
+    assert {row["predicate"] for row in relations} == {"co_present",
+                                                       "speaking"}
+    assert all(row["relation_class"] in {"temporal", "physical"}
+               for row in relations)
+    assert all(row["status"] == "candidate" for row in relations)
+    assert all(row["evidence_ids"] for row in relations)
     # Read-only proof: not one lane byte changed.
     after = {path: path.read_bytes()
              for path in fixture_project["memory"].rglob("*") if path.is_file()}
@@ -941,6 +946,94 @@ def test_m10_relation_candidates_keep_two_participants_and_evidence(
     assert relation["status"] == "candidate"
     assert relation["subject_id"] != relation["object_id"]
     assert len(relation["evidence_ids"]) == 1
+    validate_project_model(model)
+
+
+def test_m10_hands_meeting_hands_reach_the_model_as_a_published_predicate(
+        fixture_project):
+    """M10 measures a hand meeting a hand. The published predicate for
+    that contact is `touching`; a two-handed grip on no object is not a
+    relation between two entities, and stays a measurement."""
+    fixture = fixture_project
+    _write_m6m7m8m10(fixture["memory"], D2)
+    relation_path = fixture["memory"] / D2 / "relationships.json"
+    relation_doc = json.loads(relation_path.read_text(encoding="utf-8"))
+    relation_doc["relationships"]["holding"]["spans"] = [
+        {"owners": ["face_001", "face_002"], "start": 3.0, "end": 4.0},
+        {"owners": ["face_001", "face_001"], "start": 5.0, "end": 6.0}]
+    _write(relation_path, relation_doc)
+    model, _report = _migrate(fixture)
+    contacts = [item for item in model["relations"]
+                if item["predicate"] == "touching"]
+    assert len(contacts) == 1
+    assert contacts[0]["subject_id"] != contacts[0]["object_id"]
+    assert contacts[0]["relation_class"] == "physical"
+    assert contacts[0]["status"] == "candidate"
+    validate_project_model(model)
+
+
+def test_the_model_refuses_a_relation_predicate_it_does_not_publish(
+        fixture_project):
+    fixture = fixture_project
+    _write_m6m7m8m10(fixture["memory"], D2)
+    relation_path = fixture["memory"] / D2 / "relationships.json"
+    relation_doc = json.loads(relation_path.read_text(encoding="utf-8"))
+    relation_doc["relationships"]["pointing"]["spans"] = [{
+        "owners": ["face_001", "face_002"], "start": 3.0, "end": 4.0}]
+    _write(relation_path, relation_doc)
+    model, _report = _migrate(fixture)
+    assert model["relations"]
+    model["relations"][0]["predicate"] = "holding_a_thing"
+    with pytest.raises(ValueError, match="not published"):
+        validate_project_model(model)
+
+
+def _write_m3_with_hands(memory: Path, digest: str) -> None:
+    """M3 measured by the current instrument, with hands, on frames M2
+    also measured - and the identity doc rewritten after them, so M3b
+    stays fresh."""
+    from library.tools.person_measurements import M3_METHOD
+
+    source = memory / digest
+    _write(source / "frames.index.json", {
+        "content_digest": digest, "frames": [
+            {"t": 1.0, "file": "frames/0001.jpg"},
+            {"t": 1.5, "file": "frames/0002.jpg"}]})
+    identity = json.loads(
+        (source / "identity.json").read_text(encoding="utf-8"))
+    _write(source / "identity.json", identity)
+    _write(source / "persons.json", {
+        "content_digest": digest,
+        "frames": [
+            {"t": 1.0, "faces": [{"box": [0, 0, 10, 10]}],
+             "hands": [{"chirality": "right",
+                        "joints": {"wrist": [0.03, 0.05, 0.9]}}]},
+            {"t": 1.5, "faces": [{"box": [0, 0, 10, 10]}],
+             "hands": [{"chirality": "right",
+                        "joints": {"wrist": [0.03, 0.05, 0.9]}}]}],
+        "instrument": {"method": M3_METHOD, "frame_pixels": [384, 216]}})
+
+
+def test_the_measured_hands_reach_the_model_and_derive_a_contact(
+        fixture_project):
+    """D2: the hands were measured and the model carried none of them,
+    so every physical relation was empty."""
+    fixture = fixture_project
+    _write_m3_with_hands(fixture["memory"], D1)
+    model, _report = _migrate(fixture)
+    frame_rows = [row for row in model["observations"]
+                  if row["modality"] == "face_frame"]
+    assert frame_rows
+    assert any(row["payload"].get("hands") for row in frame_rows)
+    owners = [link for link in model["identity_links"]
+              if link["method"] == "face_frame_presence"]
+    assert owners
+    contacts = [row for row in model["relations"]
+                if row["predicate"] in ("touching", "holding")]
+    assert contacts
+    assert contacts[0]["relation_class"] == "physical"
+    assert contacts[0]["status"] == "candidate"
+    assert contacts[0]["evidence_ids"]
     validate_project_model(model)
 
 

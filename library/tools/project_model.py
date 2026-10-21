@@ -238,6 +238,21 @@ def validate_project_model(model: dict[str, Any]) -> None:
         relation_class = relation.get("relation_class")
         if relation_class not in (None, "temporal", "physical", "semantic"):
             raise ValueError("relation relation_class must use the lane 3 vocabulary")
+        # The published predicate vocabulary: a relation names a
+        # predicate the engine publishes, and the predicate's class is
+        # the class the edge carries. An unpublished predicate is not a
+        # relation this model may hold.
+        predicate = relation.get("predicate")
+        if relation_class is not None and isinstance(predicate, str):
+            from library.tools import relation_classes
+            published = relation_classes.PREDICATES.get(predicate)
+            if published is None:
+                raise ValueError(
+                    f"relation predicate {predicate!r} is not published")
+            if published["relation_class"] != relation_class:
+                raise ValueError(
+                    f"relation predicate {predicate!r} is a "
+                    f"{published['relation_class']} relation")
         if relation_class == "temporal":
             if clock_ids and relation["interval"]["clock_id"] not in clock_ids:
                 raise ValueError("temporal relations require a known clock")

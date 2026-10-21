@@ -2709,30 +2709,34 @@ def _migrate_relationships(builder: _Builder, digest: str, asset_id: str,
                 and (person_id := _face_person(roster, digest, owner)) is not None
             ]
             # M10's owner list is only a relation when it identifies two
-            # distinct people. Never invent an object target from a hand or
-            # a single owner; retain those measurements as candidates above.
-            if (observation_id is not None and len(participant_ids) == 2
-                    and ticks is not None):
-                builder.model["relations"].append({
-                    "id": f"relation-{observation_id}",
-                    "subject_id": participant_ids[0],
-                    "predicate": ("two_hand_contact"
-                                  if name == "holding"
-                                  and participant_ids[0] == participant_ids[1]
-                                  else str(name)),
-                    "object_id": participant_ids[1],
-                    "interval": {"clock_id": clock_id,
-                                 "start": ticks[0], "end": ticks[1]},
-                    "confidence": None,
-                    "provenance_id": _prov_id(digest, "m10"),
-                    "evidence_ids": [observation_id],
-                    "status": "candidate",
-                    "certainty": "inferred",
-                    # Lane 3: owner co-presence is spatial contact
-                    # evidence, so the edge is physical and stays a
-                    # candidate until verified.
-                    "relation_class": "physical",
-                })
+            # DISTINCT people: two hands of one person are a grip, and a
+            # grip on no object is not a relation between two entities.
+            # The measurement stays as an observation either way.
+            if (observation_id is None or len(participant_ids) != 2
+                    or participant_ids[0] == participant_ids[1]
+                    or ticks is None):
+                continue
+            builder.model["relations"].append({
+                "id": f"relation-{observation_id}",
+                "subject_id": participant_ids[0],
+                # M10 measures a hand meeting a hand; the published
+                # predicate for that contact is `touching`. `holding`
+                # is possession of an OBJECT, and M10 measures no
+                # object.
+                "predicate": M10_PREDICATES.get(name, name),
+                "object_id": participant_ids[1],
+                "interval": {"clock_id": clock_id,
+                             "start": ticks[0], "end": ticks[1]},
+                "confidence": None,
+                "provenance_id": _prov_id(digest, "m10"),
+                "evidence_ids": [observation_id],
+                "status": "candidate",
+                "certainty": "inferred",
+                # Lane 3: owner co-presence is spatial contact
+                # evidence, so the edge is physical and stays a
+                # candidate until verified.
+                "relation_class": "physical",
+            })
 
 
 def _migrate_multicam(builder: _Builder, digest: str, asset_id: str,
@@ -2864,8 +2868,16 @@ def _materialize_multicam_transforms(builder: _Builder,
 
 
 def _migrate_m3_frames(builder: _Builder, digest: str, asset_id: str,
-                       clock_id: str, root: Path | None) -> None:
-    """M3 frames ride M2 samples with one native record per sampled frame."""
+                       clock_id: str, root: Path | None,
+                       roster: list[dict] | None = None) -> None:
+    """M3 frames ride M2 samples with one native record per sampled frame.
+
+    Each frame's row carries the measured hands, and it is LINKED to the
+    one roster person present in that frame. Without that link the hands
+    have no owner and every physical relation is empty: the model would
+    carry landmarks nobody can attribute. A frame with two people in it
+    is left unlinked - an ambiguous owner is not an owner.
+    """
     from library.tools import footage_analysis
 
     m3 = person_measurements.read_m3(digest, root)
@@ -2913,11 +2925,21 @@ def _migrate_m3_frames(builder: _Builder, digest: str, asset_id: str,
                 references=({"kind": "source_frame",
                              "stream_id": _stream_id(digest),
                              "frame_index": index},))
-            builder.observation(
+            observation_id = builder.observation(
                 digest, "m3", asset_id, clock_id,
                 bounds[0] / TICKS_PER_SECOND,
                 bounds[1] / TICKS_PER_SECOND, "face_frame", payload, None,
                 "library.tools.person_measurements", evidence=native)
+            if observation_id is None or not payload.get("hands"):
+                continue
+            present = _persons_at(roster or [], digest, t) if roster else []
+            if not present:
+                continue
+            for person_id in present:
+                builder.link(person_id, observation_id,
+                             FACE_FRAME_PRESENCE_METHOD,
+                             digest, "m3", "library.tools.person_measurements",
+                             confidence=None)
 
 
 def _subject_person_for_clip(roster: list[dict], digest: str,
@@ -2944,6 +2966,30 @@ def _subject_person_for_clip(roster: list[dict], digest: str,
     if len(owners) == 1:
         return next(iter(owners))
     return None
+
+
+def _persons_at(roster: list[dict], digest: str,
+                sample_t: float) -> list[str]:
+    """Every roster person whose measured face span covers the sample.
+
+    A frame can hold two people: both are present, and the frame's row
+    links to both. A hand on that frame then has no single owner, and
+    the physical deriver refuses to invent one.
+    """
+    people: list[str] = []
+    for person in roster:
+        for span in person.get("face_spans") or []:
+            if span.get("content_digest") != digest:
+                continue
+            entry = span.get("span") if isinstance(span.get("span"), dict) else span
+            try:
+                start, end = float(entry["start"]), float(entry["end"])
+            except (TypeError, ValueError, KeyError):
+                continue
+            if start <= sample_t < end:
+                people.append(person["person_id"])
+                break
+    return people
 
 
 def _object_track_method(width: int, height: int) -> str:
@@ -3461,6 +3507,22 @@ REGION_SOURCE_MODEL = "apple_vision_person_instance_mask"
 REGION_OBSERVATION_MODALITY = "region_track"
 FACE_IN_REGION_METHOD = "face_in_region"
 STALE_REGION_FACE_TRACK_REASON = "face_track_without_roster_person"
+FACE_FRAME_PRESENCE_METHOD = "face_frame_presence"
+"""The identity link a measured M3 frame carries: the one roster
+person present in that frame. The hands on that frame are theirs; a
+frame with two people in it carries no link, so no physical relation
+invents an owner for them."""
+
+M10_PREDICATES = {
+    "holding": "touching",
+    "pointing": "pointing",
+    "looking_at": "looking_at",
+}
+"""M10's own slot names, and the published relation predicate each one
+carries. M10's `holding` is a hand meeting a hand - contact, which is
+`touching`; possession (`holding`) needs an object, and M10 measures
+none. The M10 slot keeps its own vocabulary; the model's typed edge
+says what the measurement is."""
 
 
 def _migrate_regions(builder: _Builder, digest: str, asset_id: str,
@@ -4161,7 +4223,7 @@ def migrate_project_evidence(project_folder: str, *,
         _migrate_digest(builder, digest, uri, clip_ids, duration, root,
                         roster, frame_rate)
         _migrate_m3_frames(builder, digest, _asset_id(digest),
-                           _clock_id(digest), root)
+                           _clock_id(digest), root, roster)
     _materialize_multicam_transforms(builder, sorted(seen), durations, root)
     for digest in seen:
         _migrate_faces(builder, digest, _asset_id(digest),
@@ -4211,10 +4273,13 @@ def migrate_project_evidence(project_folder: str, *,
             f"{skipped['later']}: {skipped['reason']}")
     from library.tools.relation_classes import (
         derive_physical_relations,
+        derive_speaking_relations,
         derive_temporal_relations,
     )
     builder.model["relations"].extend(
         derive_temporal_relations(builder.model))
+    builder.model["relations"].extend(
+        derive_speaking_relations(builder.model))
     builder.model["relations"].extend(
         derive_physical_relations(builder.model))
     from library.tools import cross_modal_grounding
