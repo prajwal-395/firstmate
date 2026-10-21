@@ -353,6 +353,37 @@ def test_slip_adapter_routes_source_window_delta_to_staged_touchup(monkeypatch):
     assert calls[0]["acceptance_operations"] == [context.operation]
 
 
+def test_touchup_resolves_reel_by_number_when_scratch_timeline_is_renamed(
+        monkeypatch):
+    """A unique scratch timeline name must still map to its planned reel."""
+    from library.tools import project_registry, reel_proposal, reel_touchup
+
+    context = _context({
+        "op": "clip.slip", "unique_id": "clip-17", "delta_frames": 7,
+    })
+    context.request.timeline = "Breaktest - Reel 13 - selected dc7fa3f8"
+    monkeypatch.setattr(project_registry, "resolve_project_path",
+                        lambda _project: Path("/tmp/project/project.yaml"))
+    proposal = SimpleNamespace(
+        number=13,
+        timeline_name=("Reel 13 - the-accounting-firm-ai-called-healthcare"),
+    )
+    monkeypatch.setattr(reel_proposal, "proposal_path",
+                        lambda _folder: "/tmp/project/proposal.json")
+    monkeypatch.setattr(reel_proposal, "read_proposal",
+                        lambda _path: [proposal])
+    calls = []
+    monkeypatch.setattr(reel_touchup, "apply_touchup", lambda _folder, spec: (
+        calls.append(spec) or _verified_touchup_receipt(spec)))
+
+    adapters._touchup(context)
+
+    assert calls[0]["reel"] == 13
+    assert calls[0]["edits"] == [{
+        "op": "slip", "row": "V2", "item": 0, "delta_frames": 7,
+    }]
+
+
 def test_audio_fade_adapter_converts_seconds_using_timeline_rate(monkeypatch):
     from library.tools import project_registry, reel_proposal, reel_touchup
 

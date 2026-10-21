@@ -7,6 +7,7 @@ remains in ``execution_router``.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 
 
@@ -1966,9 +1967,20 @@ def _touchup(context) -> dict:
         project_folder = folder
     else:
         project_folder = str(project_path.parent)
-    matches = [moment for moment in reel_proposal.read_proposal(
+    proposal = reel_proposal.read_proposal(
         str(reel_proposal.proposal_path(project_folder)))
-        if moment.timeline_name == request.timeline]
+    matches = [moment for moment in proposal
+               if moment.timeline_name == request.timeline]
+    if not matches:
+        # A scratch timeline may be renamed to disambiguate it from another
+        # Resolve timeline with the same display name. Its reel number still
+        # identifies the one proposal entry that owns the selected reel.
+        numbers = {int(number) for number in re.findall(
+            r"\breel\s+0*(\d+)\b", str(request.timeline), re.IGNORECASE)}
+        if len(numbers) == 1:
+            reel_number = next(iter(numbers))
+            matches = [moment for moment in proposal
+                       if int(moment.number) == reel_number]
     if len(matches) != 1:
         raise ValueError(
             f"touch-up timeline {request.timeline!r} matched "
