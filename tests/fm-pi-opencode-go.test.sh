@@ -8,7 +8,7 @@ set -u
 HELPER="$ROOT/bin/fm-pi-opencode-go.sh"
 TMP_ROOT=$(fm_test_tmproot fm-pi-opencode-go)
 FAKEBIN="$TMP_ROOT/bin"
-AGENT="$TMP_ROOT/pi-agent"
+AGENT="$TMP_ROOT/shared-home/.pi/agent"
 DATA="$TMP_ROOT/opencode-data"
 CONFIG="$TMP_ROOT/config"
 LIVE_DB="$DATA/opencode.db"
@@ -46,9 +46,31 @@ cat > "$AGENT/models.json" <<'JSON'
 {"$schema":"https://pi.dev/schemas/models.schema.json","providers":{"local":{"baseUrl":"http://localhost:11434/v1","api":"openai-completions","apiKey":"local","models":[{"id":"qwen"}]}}}
 JSON
 "$HELPER" install "$AGENT" || fail "provider installation failed"
-jq -e '.providers.local.models[0].id == "qwen" and .providers["opencode-go"].baseUrl == "https://opencode.ai/inference/go/openai/v1" and .providers["opencode-go"].api == "openai-completions" and (.providers["opencode-go"].apiKey | startswith("!bash ")) and .providers["opencode-go"].headers["x-opencode-org-id"] == "${FM_OPENCODE_ORG_ID}" and .providers["opencode-go"].headers["x-opencode-session"] == "${FM_OPENCODE_SESSION}" and ([.providers["opencode-go"].models[].id] == ["minimax-m3.1-flash-free", "muse-spark-1.3-contributor"]) and .providers["opencode-go"].models[1].api == "openai-responses"' "$AGENT/models.json" >/dev/null \
+jq -e --arg prefix '!bash "${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/fm-opencode-go/' \
+  '.providers.local.models[0].id == "qwen" and .providers["opencode-go"].baseUrl == "https://opencode.ai/inference/go/openai/v1" and .providers["opencode-go"].api == "openai-completions" and (.providers["opencode-go"].apiKey | startswith($prefix) and endswith("/fm-pi-opencode-go.sh\" token")) and .providers["opencode-go"].headers["x-opencode-org-id"] == "${FM_OPENCODE_ORG_ID}" and .providers["opencode-go"].headers["x-opencode-session"] == "${FM_OPENCODE_SESSION}" and ([.providers["opencode-go"].models[].id] == ["minimax-m3.1-flash-free", "muse-spark-1.3-contributor"]) and .providers["opencode-go"].models[1].api == "openai-responses"' "$AGENT/models.json" >/dev/null \
   || fail "provider install did not preserve Pi settings and configure both ladder models"
 pass "Pi provider install preserves other providers and adds both OpenCode Go models with per-task headers"
+
+# Migrate the exact managed form written by older code roots, then prove two
+# distinct checkouts can safely converge the same shared Pi agent directory.
+LEGACY="$TMP_ROOT/legacy"
+mkdir -p "$LEGACY"
+printf '%s\n' '{"providers":{"opencode-go":{"baseUrl":"https://opencode.ai/inference/go/openai/v1","api":"openai-completions","apiKey":"!bash /old/home/bin/fm-pi-opencode-go.sh token","models":[{"id":"captain-custom-model","name":"Custom Go model"}]}}}' > "$LEGACY/models.json"
+"$HELPER" install "$LEGACY" || fail "legacy managed provider entry did not migrate"
+jq -e --arg prefix '!bash "${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/fm-opencode-go/' \
+  '(.providers["opencode-go"].apiKey | startswith($prefix) and endswith("/fm-pi-opencode-go.sh\" token"))' \
+  "$LEGACY/models.json" >/dev/null \
+  || fail "legacy code-root-bound entry was not migrated to the agent-dir-local helper"
+jq -e 'any(.providers["opencode-go"].models[]?; .id == "captain-custom-model")' "$LEGACY/models.json" >/dev/null \
+  || fail "installer dropped a user-defined OpenCode Go model"
+OTHER_ROOT="$TMP_ROOT/other-code-root"
+mkdir -p "$OTHER_ROOT/bin"
+cp "$ROOT/bin/fm-pi-opencode-go.sh" "$OTHER_ROOT/bin/"
+cp "$ROOT/bin/fm-opencode-second-lib.sh" "$OTHER_ROOT/bin/"
+cp "$ROOT/bin/fm-backend.sh" "$OTHER_ROOT/bin/"
+cp "$ROOT/bin/fm-timeout-lib.sh" "$OTHER_ROOT/bin/"
+"$OTHER_ROOT/bin/fm-pi-opencode-go.sh" install "$LEGACY" || fail "a second code root could not install into the shared Pi directory"
+pass "managed global provider entries migrate safely and converge across different code roots"
 
 sqlite3 "$LIVE_DB" <<'SQL'
 CREATE TABLE account(id TEXT PRIMARY KEY,email TEXT NOT NULL,url TEXT NOT NULL,access_token TEXT NOT NULL,refresh_token TEXT NOT NULL,token_expiry INTEGER,time_created INTEGER NOT NULL,time_updated INTEGER NOT NULL);
@@ -70,6 +92,37 @@ out=$(PATH="$FAKEBIN:$PATH" FM_TEST_OPENCODE_DATA="$DATA" FM_TEST_OPENCODE_CALLS
 [ "$(sqlite3 "$TASK_DB" 'SELECT active_org_id FROM account_state WHERE id=1;')" = org_test_second ] \
   || fail "task database was not pinned to its selected workspace"
 pass "request-time auth uses OpenCode refresh, copies the fresh login to the task database, and pins its workspace"
+
+# The shared provider command must resolve the token helper from each worker's
+# own Pi agent directory, without depending on a Firstmate code-root variable.
+API_KEY_COMMAND=$(jq -r '.providers["opencode-go"].apiKey | ltrimstr("!")' "$AGENT/models.json")
+HOME_A="$TMP_ROOT/home-a"
+HOME_B="$TMP_ROOT/home-b"
+CONFIG_A="$HOME_A/config"
+CONFIG_B="$HOME_B/config"
+TASK_DB_A="$HOME_A/task.db"
+TASK_DB_B="$HOME_B/task.db"
+mkdir -p "$HOME_A/.pi/agent" "$HOME_B/.pi/agent" "$CONFIG_A" "$CONFIG_B"
+cp "$TASK_DB" "$TASK_DB_A"
+cp "$TASK_DB" "$TASK_DB_B"
+"$HELPER" install "$HOME_A/.pi/agent" || fail "home A could not install its Pi helper"
+"$OTHER_ROOT/bin/fm-pi-opencode-go.sh" install "$HOME_B/.pi/agent" \
+  || fail "home B with another code root could not install its Pi helper"
+API_KEY_COMMAND_A=$(jq -r '.providers["opencode-go"].apiKey | ltrimstr("!")' "$HOME_A/.pi/agent/models.json")
+API_KEY_COMMAND_B=$(jq -r '.providers["opencode-go"].apiKey | ltrimstr("!")' "$HOME_B/.pi/agent/models.json")
+[ "$API_KEY_COMMAND_A" = "$API_KEY_COMMAND_B" ] \
+  || fail "different code roots wrote incompatible commands into their Pi provider files"
+for home in "$HOME_A" "$HOME_B"; do
+  if [ "$home" = "$HOME_A" ]; then db=$TASK_DB_A; config=$CONFIG_A; command_text=$API_KEY_COMMAND_A
+  else db=$TASK_DB_B; config=$CONFIG_B; command_text=$API_KEY_COMMAND_B
+  fi
+  out=$(PATH="$FAKEBIN:$PATH" HOME="$home" FM_OPENCODE_TASK_DB="$db" \
+    FM_OPENCODE_ORG_ID=org_test_second FM_OPENCODE_CONFIG_DIR="$config" \
+    env -u PI_CODING_AGENT_DIR -u FM_PI_OPENCODE_GO_HELPER bash -c "$command_text") \
+    || fail "a Pi worker from '$home' could not resolve its local helper"
+  [ "$out" = refreshed-test-token ] || fail "a Pi worker from '$home' returned the wrong task token"
+done
+pass "workers from two homes and code roots resolve the shared provider command with no launcher-only helper variable"
 
 # Pi's apiKey command has a hard 10s timeout. Concurrent requests with a
 # comfortably fresh task token must avoid both OpenCode and the shared lock.
