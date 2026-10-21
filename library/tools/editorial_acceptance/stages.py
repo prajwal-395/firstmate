@@ -308,11 +308,11 @@ def measure(record: Mapping[str, Any], brief: Mapping[str, Any],
     }
 
 
-def _stage_rate(measurements: Sequence[Mapping[str, Any]]
-                ) -> dict[str, Any]:
+def _stage_rate(measurements: Sequence[Mapping[str, Any]],
+                excluded: int = 0) -> dict[str, Any]:
     measured = [row for row in measurements
                 if row.get("status") == MEASURED]
-    not_measured = len(measurements) - len(measured)
+    not_measured = (len(measurements) - len(measured)) + excluded
     passed = sum(row.get("passed") is True for row in measured)
     failed = len(measured) - passed
     return {
@@ -322,29 +322,34 @@ def _stage_rate(measurements: Sequence[Mapping[str, Any]]
         "failed": failed,
         "measured": len(measured),
         "not_measured": not_measured,
-        "total": len(measurements),
+        "total": len(measurements) + excluded,
     }
 
 
-def summarize(stage_measurements: Sequence[Mapping[str, Any]]
-              ) -> dict[str, Any]:
+def summarize(stage_measurements: Sequence[Mapping[str, Any]],
+              excluded: int = 0) -> dict[str, Any]:
     """One rate per stage, each with its own denominator.
 
     There is deliberately no combined number here. The five stages are
     not the same unit, and a single figure over them would hide exactly
     the thing the report exists to say: WHICH stage broke.
+
+    ``excluded`` counts the briefs this view leaves out of the
+    denominator - the premise view leaves out the briefs whose premise
+    the substrate does not carry, and counts them as not measured, so
+    the denominator stays the size of the set.
     """
     rows = list(stage_measurements)
     stages = {}
     for stage in STAGES:
         column = [row[stage] for row in rows
                   if isinstance(row, Mapping) and stage in row]
-        rate = _stage_rate(column)
+        rate = _stage_rate(column, excluded)
         rate["question"] = STAGE_DEFINITIONS[stage]
         stages[stage] = rate
     return {
         "schema": "ren-editorial-stage-metrics/1",
-        "task_count": len(rows),
+        "task_count": len(rows) + excluded,
         "stages": stages,
         "stages_are_not_combined": True,
         "note": (

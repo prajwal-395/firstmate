@@ -12,10 +12,14 @@ Resolve, no model and no network.
     ren accept --records <path> [--report <path>] [--judge <module:attr>]
         measure every record against its brief and write the report
 
+    ren accept --select
+        the substrate each brief would run against, and why
+
 `--records` takes one JSON file holding a list of records, or a
 directory of one-record files. `--judge` names a factory that returns
 the independent judge; without one, the editorial half of a task is
 `not_measured` and the report says so rather than scoring it.
+`--substrates` names the substrate catalogue to measure against.
 """
 
 from __future__ import annotations
@@ -26,7 +30,7 @@ import json
 import sys
 from typing import Any
 
-from library.tools.editorial_acceptance import briefs, runner
+from library.tools.editorial_acceptance import briefs, footage, runner
 
 
 def _load_factory(spec: str):
@@ -44,8 +48,10 @@ def _load_factory(spec: str):
     return factory
 
 
-def _list_briefs(brief_set: dict[str, Any]) -> int:
+def _list_briefs(brief_set: dict[str, Any],
+                 catalogue: dict[str, Any]) -> int:
     coverage = briefs.coverage(brief_set)
+    selection = footage.select_for_set(brief_set, catalogue)
     print(f"brief set: {brief_set.get('path')}")
     print(f"sha256:    {brief_set.get('sha256')}")
     print(f"briefs:    {coverage['brief_count']} "
@@ -56,6 +62,13 @@ def _list_briefs(brief_set: dict[str, Any]) -> int:
         print(f"    {brief['instruction']}")
         for criterion in brief["acceptance_criteria"]:
             print(f"      - {criterion['id']}: {criterion['statement']}")
+        for requirement in key.get("footage_requirements") or []:
+            feature = requirement.get("feature")
+            print(f"      premise: {feature} must be "
+                  f"{requirement.get('presence')}")
+        chosen = selection["briefs"].get(str(brief["id"]), {})
+        print(f"      substrate: {chosen.get('selected')} "
+              f"({chosen.get('reason')})")
     print("\nedge cases covered: "
           + ", ".join(f"{case} ({count})" for case, count
                       in sorted(coverage["edge_case_counts"].items())))
@@ -78,6 +91,11 @@ def main(argv: list[str] | None = None) -> int:
                              "returns the independent judge")
     parser.add_argument("--report", default=None,
                         help="where to write the report")
+    parser.add_argument("--substrates", default=None,
+                        help="the substrate catalogue to measure against")
+    parser.add_argument("--select", action="store_true",
+                        help="print the substrate each brief would run "
+                             "against, and why")
     parser.add_argument("--list", action="store_true",
                         help="print the briefs and their coverage, and stop")
     parser.add_argument("--json", action="store_true",
@@ -85,11 +103,17 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     brief_set = briefs.load_brief_set(args.briefs)
+    catalogue = footage.load_catalogue(args.substrates)
+    if args.select:
+        selection = footage.select_for_set(brief_set, catalogue)
+        print(json.dumps(selection, indent=2, sort_keys=True))
+        return 0
     if args.list or not args.records:
-        return _list_briefs(brief_set)
+        return _list_briefs(brief_set, catalogue)
     judge = _load_factory(args.judge)() if args.judge else None
     records = runner.read_records(args.records)
-    report = runner.run_acceptance(records, brief_set=brief_set, judge=judge)
+    report = runner.run_acceptance(records, brief_set=brief_set, judge=judge,
+                                   catalogue=catalogue)
     out = runner.write_report(report, args.report)
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
@@ -104,6 +128,11 @@ def main(argv: list[str] | None = None) -> int:
                 stage: {"value": row["value"], "measured": row["measured"],
                         "not_measured": row["not_measured"]}
                 for stage, row in report["stage_metrics"]["stages"].items()},
+            "premise": {
+                "not_carried": report["premise"]["premise_not_carried"],
+                "unchecked": report["premise"]["premise_unchecked"],
+                "carried": report["premise"]["premise_carried_count"],
+            },
             "failure_causes": {
                 "bottleneck": report["failure_causes"]["bottleneck"],
                 "dominant_cause": report["failure_causes"]["dominant_cause"],

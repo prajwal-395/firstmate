@@ -51,6 +51,41 @@
         "talking_head_with_graphics": 3,
         "two_camera_interview": 2
       },
+      "premise_briefs": {
+        "caption_mismatch": [
+          "the-wrong-caption",
+          "the-whole-job"
+        ],
+        "cost_statement": [
+          "open-with-the-cost"
+        ],
+        "lower_third_overlay": [
+          "name-bar-fights-the-captions",
+          "the-whole-job"
+        ],
+        "matching_broll": [
+          "the-whole-job"
+        ],
+        "music_bed": [
+          "the-whole-job"
+        ],
+        "named_logo_asset": [
+          "logo-not-in-the-project"
+        ],
+        "overlapping_speech": [
+          "two-voices-at-once"
+        ],
+        "repeated_passage": [
+          "the-whole-job"
+        ],
+        "second_camera_angle": [
+          "two-voices-at-once",
+          "the-whole-job"
+        ],
+        "workshop_bench_coverage": [
+          "no-extra-footage"
+        ]
+      },
       "refusal_briefs": [
         "no-extra-footage",
         "logo-not-in-the-project",
@@ -59,7 +94,7 @@
     },
     "demonstration_brief": "the-whole-job",
     "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/62/video-editing-pilot/library/tools/editorial_acceptance/brief_set.json",
-    "sha256": "cad217b56da1ad16bbfac0793316724c8889ff480aa3aa0771f37ab115facd0e"
+    "sha256": "a177f273b939250314872ea08fb7d42d739609d823a34be85401a9f2bcea609d"
   },
   "demonstration": {
     "assessment": {
@@ -271,6 +306,644 @@
   },
   "not_run": 0,
   "passed": 3,
+  "premise": {
+    "briefs": {
+      "keep-it-but-tighten-it": {
+        "brief_profile": "interview_with_broll",
+        "missing_premises": [],
+        "profile_matches": false,
+        "reason": "the brief states no premise about the footage, so any substrate carries it",
+        "required": [],
+        "requirements": [],
+        "status": "premise_carried",
+        "substrate_id": "podcast-reel-13",
+        "substrate_profile": "two_camera_interview",
+        "unchecked_premises": []
+      },
+      "logo-not-in-the-project": {
+        "brief_profile": "talking_head_with_graphics",
+        "missing_premises": [],
+        "profile_matches": false,
+        "reason": "the substrate carries what the brief presupposes",
+        "required": [
+          {
+            "feature": "named_logo_asset",
+            "presence": "absent",
+            "summary": "the new logo is in the project"
+          }
+        ],
+        "requirements": [
+          {
+            "feature": "named_logo_asset",
+            "presence": "absent",
+            "state": "satisfied",
+            "summary": "the new logo is in the project"
+          }
+        ],
+        "status": "premise_carried",
+        "substrate_id": "podcast-reel-13",
+        "substrate_profile": "two_camera_interview",
+        "unchecked_premises": []
+      },
+      "name-bar-fights-the-captions": {
+        "brief_profile": "talking_head_with_graphics",
+        "missing_premises": [],
+        "profile_matches": false,
+        "reason": "the substrate carries what the brief presupposes",
+        "required": [
+          {
+            "feature": "lower_third_overlay",
+            "presence": "present",
+            "summary": "a lower third carries a name"
+          }
+        ],
+        "requirements": [
+          {
+            "feature": "lower_third_overlay",
+            "presence": "present",
+            "state": "satisfied",
+            "summary": "a lower third carries a name"
+          }
+        ],
+        "status": "premise_carried",
+        "substrate_id": "podcast-reel-13",
+        "substrate_profile": "two_camera_interview",
+        "unchecked_premises": []
+      },
+      "no-extra-footage": {
+        "brief_profile": "product_demo",
+        "missing_premises": [],
+        "profile_matches": false,
+        "reason": "the substrate carries what the brief presupposes",
+        "required": [
+          {
+            "feature": "workshop_bench_coverage",
+            "presence": "absent",
+            "summary": "the workshop bench was filmed"
+          }
+        ],
+        "requirements": [
+          {
+            "feature": "workshop_bench_coverage",
+            "presence": "absent",
+            "state": "satisfied",
+            "summary": "the workshop bench was filmed"
+          }
+        ],
+        "status": "premise_carried",
+        "substrate_id": "podcast-reel-13",
+        "substrate_profile": "two_camera_interview",
+        "unchecked_premises": []
+      },
+      "open-with-the-cost": {
+        "brief_profile": "two_camera_interview",
+        "missing_premises": [
+          {
+            "feature": "cost_statement",
+            "presence": "present",
+            "state": "missing",
+            "summary": "the footage states what something costs"
+          }
+        ],
+        "profile_matches": true,
+        "reason": "the substrate does not carry what the brief presupposes: the footage states what something costs",
+        "required": [
+          {
+            "feature": "cost_statement",
+            "presence": "present",
+            "summary": "the footage states what something costs"
+          }
+        ],
+        "requirements": [
+          {
+            "feature": "cost_statement",
+            "presence": "present",
+            "state": "missing",
+            "summary": "the footage states what something costs"
+          }
+        ],
+        "status": "premise_not_carried",
+        "substrate_id": "podcast-reel-13",
+        "substrate_profile": "two_camera_interview",
+        "unchecked_premises": []
+      },
+      "the-whole-job": {
+        "brief_profile": "interview_with_broll",
+        "missing_premises": [
+          {
+            "feature": "repeated_passage",
+            "presence": "present",
+            "state": "missing",
+            "summary": "the same statement is made more than once"
+          },
+          {
+            "feature": "second_camera_angle",
+            "presence": "present",
+            "state": "missing",
+            "summary": "a second camera angle covers a moment already shot"
+          },
+          {
+            "feature": "caption_mismatch",
+            "presence": "present",
+            "state": "missing",
+            "summary": "a caption names a word or number the speech does not"
+          },
+          {
+            "feature": "music_bed",
+            "presence": "present",
+            "state": "missing",
+            "summary": "a music bed runs under the dialogue"
+          }
+        ],
+        "profile_matches": false,
+        "reason": "the substrate does not carry what the brief presupposes: the same statement is made more than once, a second camera angle covers a moment already shot, a caption names a word or number the speech does not, a music bed runs under the dialogue",
+        "required": [
+          {
+            "feature": "repeated_passage",
+            "presence": "present",
+            "summary": "the same statement is made more than once"
+          },
+          {
+            "feature": "second_camera_angle",
+            "presence": "present",
+            "summary": "a second camera angle covers a moment already shot"
+          },
+          {
+            "feature": "matching_broll",
+            "presence": "present",
+            "summary": "a cutaway matching the spoken words exists"
+          },
+          {
+            "feature": "caption_mismatch",
+            "presence": "present",
+            "summary": "a caption names a word or number the speech does not"
+          },
+          {
+            "feature": "music_bed",
+            "presence": "present",
+            "summary": "a music bed runs under the dialogue"
+          },
+          {
+            "feature": "lower_third_overlay",
+            "presence": "present",
+            "summary": "a lower third carries a name"
+          }
+        ],
+        "requirements": [
+          {
+            "feature": "repeated_passage",
+            "presence": "present",
+            "state": "missing",
+            "summary": "the same statement is made more than once"
+          },
+          {
+            "feature": "second_camera_angle",
+            "presence": "present",
+            "state": "missing",
+            "summary": "a second camera angle covers a moment already shot"
+          },
+          {
+            "feature": "matching_broll",
+            "presence": "present",
+            "state": "unknown",
+            "summary": "a cutaway matching the spoken words exists"
+          },
+          {
+            "feature": "caption_mismatch",
+            "presence": "present",
+            "state": "missing",
+            "summary": "a caption names a word or number the speech does not"
+          },
+          {
+            "feature": "music_bed",
+            "presence": "present",
+            "state": "missing",
+            "summary": "a music bed runs under the dialogue"
+          },
+          {
+            "feature": "lower_third_overlay",
+            "presence": "present",
+            "state": "satisfied",
+            "summary": "a lower third carries a name"
+          }
+        ],
+        "status": "premise_not_carried",
+        "substrate_id": "podcast-reel-13",
+        "substrate_profile": "two_camera_interview",
+        "unchecked_premises": [
+          {
+            "feature": "matching_broll",
+            "presence": "present",
+            "state": "unknown",
+            "summary": "a cutaway matching the spoken words exists"
+          }
+        ]
+      },
+      "the-wrong-caption": {
+        "brief_profile": "talking_head_with_graphics",
+        "missing_premises": [
+          {
+            "feature": "caption_mismatch",
+            "presence": "present",
+            "state": "missing",
+            "summary": "a caption names a word or number the speech does not"
+          }
+        ],
+        "profile_matches": false,
+        "reason": "the substrate does not carry what the brief presupposes: a caption names a word or number the speech does not",
+        "required": [
+          {
+            "feature": "caption_mismatch",
+            "presence": "present",
+            "summary": "a caption names a word or number the speech does not"
+          }
+        ],
+        "requirements": [
+          {
+            "feature": "caption_mismatch",
+            "presence": "present",
+            "state": "missing",
+            "summary": "a caption names a word or number the speech does not"
+          }
+        ],
+        "status": "premise_not_carried",
+        "substrate_id": "podcast-reel-13",
+        "substrate_profile": "two_camera_interview",
+        "unchecked_premises": []
+      },
+      "two-voices-at-once": {
+        "brief_profile": "two_camera_interview",
+        "missing_premises": [
+          {
+            "feature": "overlapping_speech",
+            "presence": "present",
+            "state": "missing",
+            "summary": "two speakers talk over each other"
+          },
+          {
+            "feature": "second_camera_angle",
+            "presence": "present",
+            "state": "missing",
+            "summary": "a second camera angle covers a moment already shot"
+          }
+        ],
+        "profile_matches": true,
+        "reason": "the substrate does not carry what the brief presupposes: two speakers talk over each other, a second camera angle covers a moment already shot",
+        "required": [
+          {
+            "feature": "overlapping_speech",
+            "presence": "present",
+            "summary": "two speakers talk over each other"
+          },
+          {
+            "feature": "second_camera_angle",
+            "presence": "present",
+            "summary": "a second camera angle covers a moment already shot"
+          }
+        ],
+        "requirements": [
+          {
+            "feature": "overlapping_speech",
+            "presence": "present",
+            "state": "missing",
+            "summary": "two speakers talk over each other"
+          },
+          {
+            "feature": "second_camera_angle",
+            "presence": "present",
+            "state": "missing",
+            "summary": "a second camera angle covers a moment already shot"
+          }
+        ],
+        "status": "premise_not_carried",
+        "substrate_id": "podcast-reel-13",
+        "substrate_profile": "two_camera_interview",
+        "unchecked_premises": []
+      }
+    },
+    "note": "The premise is measured ALONGSIDE the score, never instead of it. A brief whose premise the substrate does not carry is still scored, and still counts as the engine's result; what this view names is the footage it needs.",
+    "pairing": {
+      "briefs": {
+        "keep-it-but-tighten-it": {
+          "brief_id": "keep-it-but-tighten-it",
+          "carrying_premise": [
+            "podcast-reel-13"
+          ],
+          "declared_profile": "interview_with_broll",
+          "profile_matches": [],
+          "reason": "no substrate declares the brief's profile; this one carries the brief's premise",
+          "requires": [],
+          "selected": "podcast-reel-13",
+          "selected_profile": "two_camera_interview",
+          "settled": [
+            "podcast-reel-13"
+          ],
+          "unconfirmed": []
+        },
+        "logo-not-in-the-project": {
+          "brief_id": "logo-not-in-the-project",
+          "carrying_premise": [
+            "podcast-reel-13"
+          ],
+          "declared_profile": "talking_head_with_graphics",
+          "profile_matches": [],
+          "reason": "no substrate declares the brief's profile; this one carries the brief's premise",
+          "requires": [
+            {
+              "feature": "named_logo_asset",
+              "presence": "absent",
+              "summary": "the new logo is in the project"
+            }
+          ],
+          "selected": "podcast-reel-13",
+          "selected_profile": "two_camera_interview",
+          "settled": [
+            "podcast-reel-13"
+          ],
+          "unconfirmed": []
+        },
+        "name-bar-fights-the-captions": {
+          "brief_id": "name-bar-fights-the-captions",
+          "carrying_premise": [
+            "podcast-reel-13"
+          ],
+          "declared_profile": "talking_head_with_graphics",
+          "profile_matches": [],
+          "reason": "no substrate declares the brief's profile; this one carries the brief's premise",
+          "requires": [
+            {
+              "feature": "lower_third_overlay",
+              "presence": "present",
+              "summary": "a lower third carries a name"
+            }
+          ],
+          "selected": "podcast-reel-13",
+          "selected_profile": "two_camera_interview",
+          "settled": [
+            "podcast-reel-13"
+          ],
+          "unconfirmed": []
+        },
+        "no-extra-footage": {
+          "brief_id": "no-extra-footage",
+          "carrying_premise": [
+            "podcast-reel-13"
+          ],
+          "declared_profile": "product_demo",
+          "profile_matches": [],
+          "reason": "no substrate declares the brief's profile; this one carries the brief's premise",
+          "requires": [
+            {
+              "feature": "workshop_bench_coverage",
+              "presence": "absent",
+              "summary": "the workshop bench was filmed"
+            }
+          ],
+          "selected": "podcast-reel-13",
+          "selected_profile": "two_camera_interview",
+          "settled": [
+            "podcast-reel-13"
+          ],
+          "unconfirmed": []
+        },
+        "open-with-the-cost": {
+          "brief_id": "open-with-the-cost",
+          "carrying_premise": [],
+          "declared_profile": "two_camera_interview",
+          "missing_premises": [
+            {
+              "feature": "cost_statement",
+              "presence": "present",
+              "summary": "the footage states what something costs"
+            }
+          ],
+          "profile_matches": [],
+          "reason": "no substrate carries the premise the brief states",
+          "requires": [
+            {
+              "feature": "cost_statement",
+              "presence": "present",
+              "summary": "the footage states what something costs"
+            }
+          ],
+          "selected": null,
+          "selected_profile": null,
+          "settled": [],
+          "unconfirmed": [],
+          "unconfirmed_premises": []
+        },
+        "the-whole-job": {
+          "brief_id": "the-whole-job",
+          "carrying_premise": [],
+          "declared_profile": "interview_with_broll",
+          "missing_premises": [
+            {
+              "feature": "repeated_passage",
+              "presence": "present",
+              "summary": "the same statement is made more than once"
+            },
+            {
+              "feature": "second_camera_angle",
+              "presence": "present",
+              "summary": "a second camera angle covers a moment already shot"
+            },
+            {
+              "feature": "caption_mismatch",
+              "presence": "present",
+              "summary": "a caption names a word or number the speech does not"
+            },
+            {
+              "feature": "music_bed",
+              "presence": "present",
+              "summary": "a music bed runs under the dialogue"
+            }
+          ],
+          "profile_matches": [],
+          "reason": "no substrate carries the premise the brief states",
+          "requires": [
+            {
+              "feature": "repeated_passage",
+              "presence": "present",
+              "summary": "the same statement is made more than once"
+            },
+            {
+              "feature": "second_camera_angle",
+              "presence": "present",
+              "summary": "a second camera angle covers a moment already shot"
+            },
+            {
+              "feature": "matching_broll",
+              "presence": "present",
+              "summary": "a cutaway matching the spoken words exists"
+            },
+            {
+              "feature": "caption_mismatch",
+              "presence": "present",
+              "summary": "a caption names a word or number the speech does not"
+            },
+            {
+              "feature": "music_bed",
+              "presence": "present",
+              "summary": "a music bed runs under the dialogue"
+            },
+            {
+              "feature": "lower_third_overlay",
+              "presence": "present",
+              "summary": "a lower third carries a name"
+            }
+          ],
+          "selected": null,
+          "selected_profile": null,
+          "settled": [],
+          "unconfirmed": [],
+          "unconfirmed_premises": [
+            {
+              "feature": "matching_broll",
+              "presence": "present",
+              "summary": "a cutaway matching the spoken words exists"
+            }
+          ]
+        },
+        "the-wrong-caption": {
+          "brief_id": "the-wrong-caption",
+          "carrying_premise": [],
+          "declared_profile": "talking_head_with_graphics",
+          "missing_premises": [
+            {
+              "feature": "caption_mismatch",
+              "presence": "present",
+              "summary": "a caption names a word or number the speech does not"
+            }
+          ],
+          "profile_matches": [],
+          "reason": "no substrate carries the premise the brief states",
+          "requires": [
+            {
+              "feature": "caption_mismatch",
+              "presence": "present",
+              "summary": "a caption names a word or number the speech does not"
+            }
+          ],
+          "selected": null,
+          "selected_profile": null,
+          "settled": [],
+          "unconfirmed": [],
+          "unconfirmed_premises": []
+        },
+        "two-voices-at-once": {
+          "brief_id": "two-voices-at-once",
+          "carrying_premise": [],
+          "declared_profile": "two_camera_interview",
+          "missing_premises": [
+            {
+              "feature": "overlapping_speech",
+              "presence": "present",
+              "summary": "two speakers talk over each other"
+            },
+            {
+              "feature": "second_camera_angle",
+              "presence": "present",
+              "summary": "a second camera angle covers a moment already shot"
+            }
+          ],
+          "profile_matches": [],
+          "reason": "no substrate carries the premise the brief states",
+          "requires": [
+            {
+              "feature": "overlapping_speech",
+              "presence": "present",
+              "summary": "two speakers talk over each other"
+            },
+            {
+              "feature": "second_camera_angle",
+              "presence": "present",
+              "summary": "a second camera angle covers a moment already shot"
+            }
+          ],
+          "selected": null,
+          "selected_profile": null,
+          "settled": [],
+          "unconfirmed": [],
+          "unconfirmed_premises": []
+        }
+      },
+      "catalogue_path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/62/video-editing-pilot/library/tools/editorial_acceptance/substrates.json",
+      "catalogue_sha256": "a1669b0afe10fac7360ceaa30adddfa1a817c06b28f4abdca8487bc08dbd5152",
+      "substrate_count": 1
+    },
+    "premise_carried_count": 4,
+    "premise_not_carried": [
+      "open-with-the-cost",
+      "the-whole-job",
+      "the-wrong-caption",
+      "two-voices-at-once"
+    ],
+    "premise_not_carried_count": 4,
+    "premise_unchecked": [],
+    "stage_metrics": {
+      "note": "Each stage is measured on its own denominator. A stage with no evidence is not_measured, never a zero. There is no combined score: the stages are not the same unit.",
+      "schema": "ren-editorial-stage-metrics/1",
+      "stages": {
+        "execution": {
+          "failed": 1,
+          "measured": 4,
+          "not_measured": 4,
+          "passed": 3,
+          "question": "Did the plan run through a qualified route, verify, and leave the rest of the project alone?",
+          "status": "measured",
+          "total": 8,
+          "value": 0.75
+        },
+        "final_quality": {
+          "failed": 0,
+          "measured": 0,
+          "not_measured": 8,
+          "passed": 0,
+          "question": "Does the delivered file satisfy the brief, and pass its technical checks?",
+          "status": "not_measured",
+          "total": 8,
+          "value": null
+        },
+        "interpretation": {
+          "failed": 0,
+          "measured": 4,
+          "not_measured": 4,
+          "passed": 4,
+          "question": "Did Ren read the request as the user meant it, and name the work it implies?",
+          "status": "measured",
+          "total": 8,
+          "value": 1.0
+        },
+        "planning": {
+          "failed": 0,
+          "measured": 4,
+          "not_measured": 4,
+          "passed": 4,
+          "question": "Is the plan a valid answer to the request - covering what was asked, and nothing the user did not ask for?",
+          "status": "measured",
+          "total": 8,
+          "value": 1.0
+        },
+        "retrieval": {
+          "failed": 0,
+          "measured": 0,
+          "not_measured": 8,
+          "passed": 0,
+          "question": "Did Ren find the source moments the work needs, each with evidence behind it?",
+          "status": "not_measured",
+          "total": 8,
+          "value": null
+        }
+      },
+      "stages_are_not_combined": true,
+      "task_count": 8
+    },
+    "substrates": {
+      "count": 1,
+      "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/62/video-editing-pilot/library/tools/editorial_acceptance/substrates.json",
+      "sha256": "a1669b0afe10fac7360ceaa30adddfa1a817c06b28f4abdca8487bc08dbd5152"
+    }
+  },
   "results": [
     {
       "assessment": {
@@ -317,9 +990,23 @@
           "resolve_project": "Ren Scratch - breaktest",
           "substrate": "",
           "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare"
-        }
+        },
+        "substrate": "podcast-reel-13",
+        "substrate_profile": "two_camera_interview"
       },
       "instruction": "Leave the interview exactly as it is, word for word, but tighten it up so it holds attention.",
+      "premise": {
+        "brief_profile": "interview_with_broll",
+        "missing_premises": [],
+        "profile_matches": false,
+        "reason": "the brief states no premise about the footage, so any substrate carries it",
+        "required": [],
+        "requirements": [],
+        "status": "premise_carried",
+        "substrate_id": "podcast-reel-13",
+        "substrate_profile": "two_camera_interview",
+        "unchecked_premises": []
+      },
       "record_problems": [],
       "stages": {
         "execution": {
@@ -461,9 +1148,36 @@
           "resolve_project": "Ren Scratch - breaktest",
           "substrate": "",
           "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare"
-        }
+        },
+        "substrate": "podcast-reel-13",
+        "substrate_profile": "two_camera_interview"
       },
       "instruction": "Swap the end card for the new logo - the one I sent you this morning.",
+      "premise": {
+        "brief_profile": "talking_head_with_graphics",
+        "missing_premises": [],
+        "profile_matches": false,
+        "reason": "the substrate carries what the brief presupposes",
+        "required": [
+          {
+            "feature": "named_logo_asset",
+            "presence": "absent",
+            "summary": "the new logo is in the project"
+          }
+        ],
+        "requirements": [
+          {
+            "feature": "named_logo_asset",
+            "presence": "absent",
+            "state": "satisfied",
+            "summary": "the new logo is in the project"
+          }
+        ],
+        "status": "premise_carried",
+        "substrate_id": "podcast-reel-13",
+        "substrate_profile": "two_camera_interview",
+        "unchecked_premises": []
+      },
       "record_problems": [],
       "stages": {
         "execution": {
@@ -608,9 +1322,36 @@
           "resolve_project": "Ren Scratch - breaktest",
           "substrate": "",
           "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare"
-        }
+        },
+        "substrate": "podcast-reel-13",
+        "substrate_profile": "two_camera_interview"
       },
       "instruction": "The name bar is sitting too high and it is fighting the captions. Move it down so the two stop colliding, and leave the rest of the graphics alone.",
+      "premise": {
+        "brief_profile": "talking_head_with_graphics",
+        "missing_premises": [],
+        "profile_matches": false,
+        "reason": "the substrate carries what the brief presupposes",
+        "required": [
+          {
+            "feature": "lower_third_overlay",
+            "presence": "present",
+            "summary": "a lower third carries a name"
+          }
+        ],
+        "requirements": [
+          {
+            "feature": "lower_third_overlay",
+            "presence": "present",
+            "state": "satisfied",
+            "summary": "a lower third carries a name"
+          }
+        ],
+        "status": "premise_carried",
+        "substrate_id": "podcast-reel-13",
+        "substrate_profile": "two_camera_interview",
+        "unchecked_premises": []
+      },
       "record_problems": [],
       "stages": {
         "execution": {
@@ -762,9 +1503,36 @@
           "resolve_project": "Ren Scratch - breaktest",
           "substrate": "",
           "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare"
-        }
+        },
+        "substrate": "podcast-reel-13",
+        "substrate_profile": "two_camera_interview"
       },
       "instruction": "Put a shot of the workshop bench over the bit where she explains the tooling. I know we never filmed that - use whatever you have, I trust your judgement.",
+      "premise": {
+        "brief_profile": "product_demo",
+        "missing_premises": [],
+        "profile_matches": false,
+        "reason": "the substrate carries what the brief presupposes",
+        "required": [
+          {
+            "feature": "workshop_bench_coverage",
+            "presence": "absent",
+            "summary": "the workshop bench was filmed"
+          }
+        ],
+        "requirements": [
+          {
+            "feature": "workshop_bench_coverage",
+            "presence": "absent",
+            "state": "satisfied",
+            "summary": "the workshop bench was filmed"
+          }
+        ],
+        "status": "premise_carried",
+        "substrate_id": "podcast-reel-13",
+        "substrate_profile": "two_camera_interview",
+        "unchecked_premises": []
+      },
       "record_problems": [],
       "stages": {
         "execution": {
@@ -910,9 +1678,43 @@
           "resolve_project": "Ren Scratch - breaktest",
           "substrate": "",
           "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare"
-        }
+        },
+        "substrate": "podcast-reel-13",
+        "substrate_profile": "two_camera_interview"
       },
       "instruction": "The first half-minute is all throat-clearing. I want the reel to open on the moment she says what it actually costs us, then let her argument run from there. Don't lose a word she says, and leave the grade and her framing exactly as they are.",
+      "premise": {
+        "brief_profile": "two_camera_interview",
+        "missing_premises": [
+          {
+            "feature": "cost_statement",
+            "presence": "present",
+            "state": "missing",
+            "summary": "the footage states what something costs"
+          }
+        ],
+        "profile_matches": true,
+        "reason": "the substrate does not carry what the brief presupposes: the footage states what something costs",
+        "required": [
+          {
+            "feature": "cost_statement",
+            "presence": "present",
+            "summary": "the footage states what something costs"
+          }
+        ],
+        "requirements": [
+          {
+            "feature": "cost_statement",
+            "presence": "present",
+            "state": "missing",
+            "summary": "the footage states what something costs"
+          }
+        ],
+        "status": "premise_not_carried",
+        "substrate_id": "podcast-reel-13",
+        "substrate_profile": "two_camera_interview",
+        "unchecked_premises": []
+      },
       "record_problems": [],
       "stages": {
         "execution": {
@@ -1074,9 +1876,123 @@
           "resolve_project": "Ren Scratch - breaktest",
           "substrate": "",
           "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare"
-        }
+        },
+        "substrate": "podcast-reel-13",
+        "substrate_profile": "two_camera_interview"
       },
       "instruction": "This is the launch reel and it is not finished. Please do the whole job on it: find the most engaging moment we could open on, take out the pauses and the places she says the same thing twice, swap the one camera angle that is doing nothing for the other angle we shot of the same moment, put in the cutaway that actually matches what she is saying, fix the caption that gets the number wrong, move the name bar so it stops fighting the captions, and get the levels so her voice sits on top of the music. Leave the grade, the transitions, the framing, the linked audio and everything the human already changed exactly as it is. Then export it, and check the export rather than the timeline.",
+      "premise": {
+        "brief_profile": "interview_with_broll",
+        "missing_premises": [
+          {
+            "feature": "repeated_passage",
+            "presence": "present",
+            "state": "missing",
+            "summary": "the same statement is made more than once"
+          },
+          {
+            "feature": "second_camera_angle",
+            "presence": "present",
+            "state": "missing",
+            "summary": "a second camera angle covers a moment already shot"
+          },
+          {
+            "feature": "caption_mismatch",
+            "presence": "present",
+            "state": "missing",
+            "summary": "a caption names a word or number the speech does not"
+          },
+          {
+            "feature": "music_bed",
+            "presence": "present",
+            "state": "missing",
+            "summary": "a music bed runs under the dialogue"
+          }
+        ],
+        "profile_matches": false,
+        "reason": "the substrate does not carry what the brief presupposes: the same statement is made more than once, a second camera angle covers a moment already shot, a caption names a word or number the speech does not, a music bed runs under the dialogue",
+        "required": [
+          {
+            "feature": "repeated_passage",
+            "presence": "present",
+            "summary": "the same statement is made more than once"
+          },
+          {
+            "feature": "second_camera_angle",
+            "presence": "present",
+            "summary": "a second camera angle covers a moment already shot"
+          },
+          {
+            "feature": "matching_broll",
+            "presence": "present",
+            "summary": "a cutaway matching the spoken words exists"
+          },
+          {
+            "feature": "caption_mismatch",
+            "presence": "present",
+            "summary": "a caption names a word or number the speech does not"
+          },
+          {
+            "feature": "music_bed",
+            "presence": "present",
+            "summary": "a music bed runs under the dialogue"
+          },
+          {
+            "feature": "lower_third_overlay",
+            "presence": "present",
+            "summary": "a lower third carries a name"
+          }
+        ],
+        "requirements": [
+          {
+            "feature": "repeated_passage",
+            "presence": "present",
+            "state": "missing",
+            "summary": "the same statement is made more than once"
+          },
+          {
+            "feature": "second_camera_angle",
+            "presence": "present",
+            "state": "missing",
+            "summary": "a second camera angle covers a moment already shot"
+          },
+          {
+            "feature": "matching_broll",
+            "presence": "present",
+            "state": "unknown",
+            "summary": "a cutaway matching the spoken words exists"
+          },
+          {
+            "feature": "caption_mismatch",
+            "presence": "present",
+            "state": "missing",
+            "summary": "a caption names a word or number the speech does not"
+          },
+          {
+            "feature": "music_bed",
+            "presence": "present",
+            "state": "missing",
+            "summary": "a music bed runs under the dialogue"
+          },
+          {
+            "feature": "lower_third_overlay",
+            "presence": "present",
+            "state": "satisfied",
+            "summary": "a lower third carries a name"
+          }
+        ],
+        "status": "premise_not_carried",
+        "substrate_id": "podcast-reel-13",
+        "substrate_profile": "two_camera_interview",
+        "unchecked_premises": [
+          {
+            "feature": "matching_broll",
+            "presence": "present",
+            "state": "unknown",
+            "summary": "a cutaway matching the spoken words exists"
+          }
+        ]
+      },
       "record_problems": [],
       "stages": {
         "execution": {
@@ -1290,9 +2206,43 @@
           "resolve_project": "Ren Scratch - breaktest",
           "substrate": "",
           "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare"
-        }
+        },
+        "substrate": "podcast-reel-13",
+        "substrate_profile": "two_camera_interview"
       },
       "instruction": "One of the captions says 'revenue' but she is talking about churn. Fix that caption's text and nothing else - not the timing, not the other captions.",
+      "premise": {
+        "brief_profile": "talking_head_with_graphics",
+        "missing_premises": [
+          {
+            "feature": "caption_mismatch",
+            "presence": "present",
+            "state": "missing",
+            "summary": "a caption names a word or number the speech does not"
+          }
+        ],
+        "profile_matches": false,
+        "reason": "the substrate does not carry what the brief presupposes: a caption names a word or number the speech does not",
+        "required": [
+          {
+            "feature": "caption_mismatch",
+            "presence": "present",
+            "summary": "a caption names a word or number the speech does not"
+          }
+        ],
+        "requirements": [
+          {
+            "feature": "caption_mismatch",
+            "presence": "present",
+            "state": "missing",
+            "summary": "a caption names a word or number the speech does not"
+          }
+        ],
+        "status": "premise_not_carried",
+        "substrate_id": "podcast-reel-13",
+        "substrate_profile": "two_camera_interview",
+        "unchecked_premises": []
+      },
       "record_problems": [],
       "stages": {
         "execution": {
@@ -1453,9 +2403,60 @@
           "resolve_project": "Ren Scratch - breaktest",
           "substrate": "",
           "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare"
-        }
+        },
+        "substrate": "podcast-reel-13",
+        "substrate_profile": "two_camera_interview"
       },
       "instruction": "In the middle the two of them talk over each other and you lose the point. I need a viewer to be able to follow who is making the claim, but I do not want either of them cut out of the reel.",
+      "premise": {
+        "brief_profile": "two_camera_interview",
+        "missing_premises": [
+          {
+            "feature": "overlapping_speech",
+            "presence": "present",
+            "state": "missing",
+            "summary": "two speakers talk over each other"
+          },
+          {
+            "feature": "second_camera_angle",
+            "presence": "present",
+            "state": "missing",
+            "summary": "a second camera angle covers a moment already shot"
+          }
+        ],
+        "profile_matches": true,
+        "reason": "the substrate does not carry what the brief presupposes: two speakers talk over each other, a second camera angle covers a moment already shot",
+        "required": [
+          {
+            "feature": "overlapping_speech",
+            "presence": "present",
+            "summary": "two speakers talk over each other"
+          },
+          {
+            "feature": "second_camera_angle",
+            "presence": "present",
+            "summary": "a second camera angle covers a moment already shot"
+          }
+        ],
+        "requirements": [
+          {
+            "feature": "overlapping_speech",
+            "presence": "present",
+            "state": "missing",
+            "summary": "two speakers talk over each other"
+          },
+          {
+            "feature": "second_camera_angle",
+            "presence": "present",
+            "state": "missing",
+            "summary": "a second camera angle covers a moment already shot"
+          }
+        ],
+        "status": "premise_not_carried",
+        "substrate_id": "podcast-reel-13",
+        "substrate_profile": "two_camera_interview",
+        "unchecked_premises": []
+      },
       "record_problems": [],
       "stages": {
         "execution": {
@@ -1574,7 +2575,7 @@
   ],
   "run_state": "scored",
   "run_state_reason": null,
-  "schema": "ren-editorial-acceptance/3",
+  "schema": "ren-editorial-acceptance/4",
   "scored": 8,
   "stage_metrics": {
     "note": "Each stage is measured on its own denominator. A stage with no evidence is not_measured, never a zero. There is no combined score: the stages are not the same unit.",
@@ -1633,6 +2634,255 @@
     },
     "stages_are_not_combined": true,
     "task_count": 8
+  },
+  "substrates": {
+    "briefs": {
+      "keep-it-but-tighten-it": {
+        "brief_id": "keep-it-but-tighten-it",
+        "carrying_premise": [
+          "podcast-reel-13"
+        ],
+        "declared_profile": "interview_with_broll",
+        "profile_matches": [],
+        "reason": "no substrate declares the brief's profile; this one carries the brief's premise",
+        "requires": [],
+        "selected": "podcast-reel-13",
+        "selected_profile": "two_camera_interview",
+        "settled": [
+          "podcast-reel-13"
+        ],
+        "unconfirmed": []
+      },
+      "logo-not-in-the-project": {
+        "brief_id": "logo-not-in-the-project",
+        "carrying_premise": [
+          "podcast-reel-13"
+        ],
+        "declared_profile": "talking_head_with_graphics",
+        "profile_matches": [],
+        "reason": "no substrate declares the brief's profile; this one carries the brief's premise",
+        "requires": [
+          {
+            "feature": "named_logo_asset",
+            "presence": "absent",
+            "summary": "the new logo is in the project"
+          }
+        ],
+        "selected": "podcast-reel-13",
+        "selected_profile": "two_camera_interview",
+        "settled": [
+          "podcast-reel-13"
+        ],
+        "unconfirmed": []
+      },
+      "name-bar-fights-the-captions": {
+        "brief_id": "name-bar-fights-the-captions",
+        "carrying_premise": [
+          "podcast-reel-13"
+        ],
+        "declared_profile": "talking_head_with_graphics",
+        "profile_matches": [],
+        "reason": "no substrate declares the brief's profile; this one carries the brief's premise",
+        "requires": [
+          {
+            "feature": "lower_third_overlay",
+            "presence": "present",
+            "summary": "a lower third carries a name"
+          }
+        ],
+        "selected": "podcast-reel-13",
+        "selected_profile": "two_camera_interview",
+        "settled": [
+          "podcast-reel-13"
+        ],
+        "unconfirmed": []
+      },
+      "no-extra-footage": {
+        "brief_id": "no-extra-footage",
+        "carrying_premise": [
+          "podcast-reel-13"
+        ],
+        "declared_profile": "product_demo",
+        "profile_matches": [],
+        "reason": "no substrate declares the brief's profile; this one carries the brief's premise",
+        "requires": [
+          {
+            "feature": "workshop_bench_coverage",
+            "presence": "absent",
+            "summary": "the workshop bench was filmed"
+          }
+        ],
+        "selected": "podcast-reel-13",
+        "selected_profile": "two_camera_interview",
+        "settled": [
+          "podcast-reel-13"
+        ],
+        "unconfirmed": []
+      },
+      "open-with-the-cost": {
+        "brief_id": "open-with-the-cost",
+        "carrying_premise": [],
+        "declared_profile": "two_camera_interview",
+        "missing_premises": [
+          {
+            "feature": "cost_statement",
+            "presence": "present",
+            "summary": "the footage states what something costs"
+          }
+        ],
+        "profile_matches": [],
+        "reason": "no substrate carries the premise the brief states",
+        "requires": [
+          {
+            "feature": "cost_statement",
+            "presence": "present",
+            "summary": "the footage states what something costs"
+          }
+        ],
+        "selected": null,
+        "selected_profile": null,
+        "settled": [],
+        "unconfirmed": [],
+        "unconfirmed_premises": []
+      },
+      "the-whole-job": {
+        "brief_id": "the-whole-job",
+        "carrying_premise": [],
+        "declared_profile": "interview_with_broll",
+        "missing_premises": [
+          {
+            "feature": "repeated_passage",
+            "presence": "present",
+            "summary": "the same statement is made more than once"
+          },
+          {
+            "feature": "second_camera_angle",
+            "presence": "present",
+            "summary": "a second camera angle covers a moment already shot"
+          },
+          {
+            "feature": "caption_mismatch",
+            "presence": "present",
+            "summary": "a caption names a word or number the speech does not"
+          },
+          {
+            "feature": "music_bed",
+            "presence": "present",
+            "summary": "a music bed runs under the dialogue"
+          }
+        ],
+        "profile_matches": [],
+        "reason": "no substrate carries the premise the brief states",
+        "requires": [
+          {
+            "feature": "repeated_passage",
+            "presence": "present",
+            "summary": "the same statement is made more than once"
+          },
+          {
+            "feature": "second_camera_angle",
+            "presence": "present",
+            "summary": "a second camera angle covers a moment already shot"
+          },
+          {
+            "feature": "matching_broll",
+            "presence": "present",
+            "summary": "a cutaway matching the spoken words exists"
+          },
+          {
+            "feature": "caption_mismatch",
+            "presence": "present",
+            "summary": "a caption names a word or number the speech does not"
+          },
+          {
+            "feature": "music_bed",
+            "presence": "present",
+            "summary": "a music bed runs under the dialogue"
+          },
+          {
+            "feature": "lower_third_overlay",
+            "presence": "present",
+            "summary": "a lower third carries a name"
+          }
+        ],
+        "selected": null,
+        "selected_profile": null,
+        "settled": [],
+        "unconfirmed": [],
+        "unconfirmed_premises": [
+          {
+            "feature": "matching_broll",
+            "presence": "present",
+            "summary": "a cutaway matching the spoken words exists"
+          }
+        ]
+      },
+      "the-wrong-caption": {
+        "brief_id": "the-wrong-caption",
+        "carrying_premise": [],
+        "declared_profile": "talking_head_with_graphics",
+        "missing_premises": [
+          {
+            "feature": "caption_mismatch",
+            "presence": "present",
+            "summary": "a caption names a word or number the speech does not"
+          }
+        ],
+        "profile_matches": [],
+        "reason": "no substrate carries the premise the brief states",
+        "requires": [
+          {
+            "feature": "caption_mismatch",
+            "presence": "present",
+            "summary": "a caption names a word or number the speech does not"
+          }
+        ],
+        "selected": null,
+        "selected_profile": null,
+        "settled": [],
+        "unconfirmed": [],
+        "unconfirmed_premises": []
+      },
+      "two-voices-at-once": {
+        "brief_id": "two-voices-at-once",
+        "carrying_premise": [],
+        "declared_profile": "two_camera_interview",
+        "missing_premises": [
+          {
+            "feature": "overlapping_speech",
+            "presence": "present",
+            "summary": "two speakers talk over each other"
+          },
+          {
+            "feature": "second_camera_angle",
+            "presence": "present",
+            "summary": "a second camera angle covers a moment already shot"
+          }
+        ],
+        "profile_matches": [],
+        "reason": "no substrate carries the premise the brief states",
+        "requires": [
+          {
+            "feature": "overlapping_speech",
+            "presence": "present",
+            "summary": "two speakers talk over each other"
+          },
+          {
+            "feature": "second_camera_angle",
+            "presence": "present",
+            "summary": "a second camera angle covers a moment already shot"
+          }
+        ],
+        "selected": null,
+        "selected_profile": null,
+        "settled": [],
+        "unconfirmed": [],
+        "unconfirmed_premises": []
+      }
+    },
+    "catalogue_path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/62/video-editing-pilot/library/tools/editorial_acceptance/substrates.json",
+    "catalogue_sha256": "a1669b0afe10fac7360ceaa30adddfa1a817c06b28f4abdca8487bc08dbd5152",
+    "substrate_count": 1
   },
   "task_count": 8
 }

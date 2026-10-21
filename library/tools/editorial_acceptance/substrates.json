@@ -1,0 +1,40 @@
+{
+  "schema": "ren-editorial-substrates/1",
+  "note": "One entry per substrate reel the acceptance set can run against. A substrate is MEASURED once, and the measurement is recorded here: `features` are the facts the footage carries, `checked_features` are the facts somebody looked for and did not find. A feature in neither list was never looked for, and a premise resting on it is unknown rather than settled. Nothing here is written to make a brief pass.",
+  "substrates": [
+    {
+      "id": "podcast-reel-13",
+      "profile": "two_camera_interview",
+      "aliases": [
+        "Reel 13 - the-accounting-firm-ai-called-healthcare",
+        "reel 13",
+        "reel-13"
+      ],
+      "features": [
+        "lower_third_overlay"
+      ],
+      "checked_features": [
+        "cost_statement",
+        "overlapping_speech",
+        "caption_mismatch",
+        "repeated_passage",
+        "second_camera_angle",
+        "music_bed",
+        "workshop_bench_coverage",
+        "named_logo_asset"
+      ],
+      "measured": {
+        "date": "2026-10-20",
+        "by": "the live lane, against a scratch copy of the captain's reel 13",
+        "evidence": "docs/benchmarks/2026-10-20-unfamiliar-brief-acceptance.md",
+        "what_was_read": [
+          "all 45 caption cards, whose rendered text is the reel's spoken word",
+          "the timeline's audio and video row spans",
+          "the media pool's 56 items",
+          "the master timeline's transcript"
+        ]
+      },
+      "notes": "The two camera rows are two SPEAKERS, not two angles of one moment, so a brief that needs a second angle of the same moment does not apply here. The lower third `b-soft-focus-craig.mov` on V6 (frames 0-84) is the name bar, and it is a rendered .mov rather than a still. Whether a cutaway matching the spoken words exists was not settled by that run, so `matching_broll` is in neither list and stays unknown."
+    }
+  ]
+}

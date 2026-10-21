@@ -10,6 +10,10 @@ What the report carries:
 - the BRIEF SET it ran against, with its digest, so a report names the
   set it measured.
 - the FIVE STAGE metrics, each on its own denominator, never combined.
+- the PREMISE, measured ALONGSIDE the score: for every brief, whether
+  the substrate footage carried what the request presupposes, and the
+  pairing that says which substrate a brief still needs. The premise
+  never replaces the score - the headline stays the engine's headline.
 - the FAILURE CAUSES, with the bottleneck named, so the next engineering
   change has a target.
 - one row per brief, with the record it was measured against.
@@ -31,6 +35,7 @@ from library.tools.editorial_acceptance import (
     delivery,
     demo,
     failures,
+    footage,
     judgement,
     stages,
 )
@@ -38,7 +43,7 @@ from library.tools.editorial_acceptance import (
     record as record_module,
 )
 
-SCHEMA = "ren-editorial-acceptance/3"
+SCHEMA = "ren-editorial-acceptance/4"
 
 #: The report the live lane writes. The ordinary-request report keeps its
 #: own file: a typed request and a brief are different measurements, and
@@ -105,12 +110,30 @@ def _delivery_for(record: Mapping[str, Any], brief: Mapping[str, Any],
     return section, scored
 
 
+def _catalogue(catalogue: Mapping[str, Any] | None,
+              path: str | Path | None) -> dict[str, Any]:
+    if catalogue is not None:
+        return dict(catalogue)
+    return footage.load_catalogue(path)
+
+
 def score_task(record: Mapping[str, Any], brief: Mapping[str, Any],
-               *, judge: Callable | None = None) -> dict[str, Any]:
-    """One brief, one record, one row of the report."""
+               *, judge: Callable | None = None,
+               catalogue: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """One brief, one record, one row of the report.
+
+    The brief is SCORED, whatever the footage carries: the engine still
+    has to do the work the request asks for, and the headline is the
+    headline. The premise is measured beside it and reported beside it,
+    so a reader sees both - the score, and whether the footage could
+    carry the request at all.
+    """
     key = briefs.oracle(brief)
     public = briefs.public_view(brief)
     briefs.assert_no_leak(public, key)
+    substrate, _ = footage.resolve_substrate(
+        _catalogue(catalogue, None), record)
+    premise = footage.applicability(brief, substrate)
     rendered, assessment = _delivery_for(record, public, judge)
     measured_record = dict(record)
     measured_record["delivery"] = rendered
@@ -127,12 +150,15 @@ def score_task(record: Mapping[str, Any], brief: Mapping[str, Any],
         "expected_refusal": bool(key["expected_refusal"]),
         "footage": {
             "profile": str(public["project_state"]["footage_profile"]),
+            "substrate": premise.get("substrate_id"),
+            "substrate_profile": premise.get("substrate_profile"),
             "project": record.get("project"),
             "existing_adjustments": list(
                 public["project_state"]["existing_adjustments"]),
             "media_conditions": list(
                 public["project_state"]["media_conditions"]),
         },
+        "premise": premise,
         "stages": stage_measurements,
         "failure": classification,
         "delivery": {
@@ -159,11 +185,23 @@ def score_task(record: Mapping[str, Any], brief: Mapping[str, Any],
 def run_acceptance(records: Sequence[Mapping[str, Any]], *,
                    brief_set: Mapping[str, Any] | None = None,
                    brief_set_path: str | Path | None = None,
-                   judge: Callable | None = None) -> dict[str, Any]:
-    """Measure every record against its brief, and report."""
+                   judge: Callable | None = None,
+                   catalogue: Mapping[str, Any] | None = None,
+                   catalogue_path: str | Path | None = None) -> dict[str, Any]:
+    """Measure every record against its brief, and report.
+
+    The HEADLINE is the engine's score and nothing else: a brief the
+    footage cannot carry is still scored, because the engine still has
+    to do the work the request asks for. The PREMISE is measured
+    alongside it and reported alongside it, so a reader sees both at
+    once - the score, and whether the substrate could carry the
+    request - and so a brief that cannot be run yet says what footage
+    it needs.
+    """
     from library.tools.evaluation_levels import catalog as evaluation_level_catalog
 
     the_set = _load_brief_set(brief_set, brief_set_path)
+    the_catalogue = _catalogue(catalogue, catalogue_path)
     by_id = briefs.briefs_by_id(the_set)
     rows: list[dict[str, Any]] = []
     for record in records:
@@ -178,16 +216,18 @@ def run_acceptance(records: Sequence[Mapping[str, Any]], *,
                 "stages": {}, "failure": {},
             })
             continue
-        row = score_task(record, brief, judge=judge)
+        row = score_task(record, brief, judge=judge, catalogue=the_catalogue)
         row["status"] = "scored"
         rows.append(row)
-    stage_rows = [row["stages"] for row in rows if row.get("stages")]
-    classifications = [row["failure"] for row in rows
+    scored_rows = [row for row in rows if row.get("status") == "scored"]
+    stage_rows = [row["stages"] for row in scored_rows if row.get("stages")]
+    classifications = [row["failure"] for row in scored_rows
                         if row.get("failure")]
-    measured_rows = [row for row in rows if row.get("status") == "scored"]
+    measured_rows = scored_rows
     passed = sum(
         row["failure"].get("failed") is False
         for row in measured_rows)
+    premise = _premise_view(scored_rows, the_set, the_catalogue)
     demonstration = _demonstration(records, the_set, by_id)
     report = {
         "schema": SCHEMA,
@@ -206,6 +246,7 @@ def run_acceptance(records: Sequence[Mapping[str, Any]], *,
             "demonstration_brief": briefs.demonstration_brief_id(the_set),
             "coverage": briefs.coverage(the_set),
         },
+        "substrates": footage.select_for_set(the_set, the_catalogue),
         "task_count": len(rows),
         "scored": len(measured_rows),
         "not_run": len(rows) - len(measured_rows),
@@ -217,12 +258,61 @@ def run_acceptance(records: Sequence[Mapping[str, Any]], *,
         "passed": passed,
         "failed": len(measured_rows) - passed,
         "stage_metrics": stages.summarize(stage_rows),
+        "premise": premise,
         "failure_causes": failures.bottleneck_summary(classifications),
         "results": rows,
     }
     if demonstration is not None:
         report["demonstration"] = demonstration
     return report
+
+
+def _premise_view(scored_rows: Sequence[Mapping[str, Any]],
+                   the_set: Mapping[str, Any],
+                   catalogue: Mapping[str, Any]) -> dict[str, Any]:
+    """What the footage carried, reported NEXT TO the score.
+
+    The score is the headline and this is not a substitute for it: a
+    brief whose premise the substrate does not carry still counts as
+    scored and still counts as the engine's result. What this view
+    adds is the pairing - for every brief, the premises it presupposes,
+    the substrate that carries them, and the exact premises a substrate
+    has to carry for the briefs that have none.
+    """
+    not_carried = [row["brief_id"] for row in scored_rows
+                   if (row.get("premise") or {}).get("status")
+                   == footage.PREMISE_NOT_CARRIED]
+    unchecked = [row["brief_id"] for row in scored_rows
+                 if (row.get("premise") or {}).get("status")
+                 == footage.PREMISE_UNCHECKED]
+    carried_rows = [row for row in scored_rows
+                    if (row.get("premise") or {}).get("status")
+                    == footage.PREMISE_CARRIED]
+    excluded = len(scored_rows) - len(carried_rows)
+    return {
+        "note": (
+            "The premise is measured ALONGSIDE the score, never instead "
+            "of it. A brief whose premise the substrate does not carry is "
+            "still scored, and still counts as the engine's result; what "
+            "this view names is the footage it needs."),
+        "substrates": {
+            "path": catalogue.get("path"),
+            "sha256": catalogue.get("sha256"),
+            "count": len(footage.substrates(catalogue)),
+        },
+        "briefs": {
+            str(row["brief_id"]): dict(row.get("premise") or {})
+            for row in scored_rows
+        },
+        "premise_not_carried": not_carried,
+        "premise_not_carried_count": len(not_carried),
+        "premise_unchecked": unchecked,
+        "premise_carried_count": len(carried_rows),
+        "pairing": footage.select_for_set(the_set, catalogue),
+        "stage_metrics": stages.summarize(
+            [row["stages"] for row in carried_rows if row.get("stages")],
+            excluded=excluded),
+    }
 
 
 def _demonstration(records: Sequence[Mapping[str, Any]],

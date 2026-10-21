@@ -17,6 +17,8 @@ The pieces, each in one module:
 - ``judgement`` the independent editorial assessment, and what a judge is
   allowed to see.
 - ``record``   the task record a run leaves behind.
+- ``footage``  the substrate a brief runs against, and whether the
+  brief's premise is in it.
 - ``runner``   the report these make together.
 
 Import the submodules directly; this package declares no eager imports so
@@ -30,6 +32,7 @@ __all__ = [
     "briefs",
     "delivery",
     "failures",
+    "footage",
     "judgement",
     "record",
     "runner",

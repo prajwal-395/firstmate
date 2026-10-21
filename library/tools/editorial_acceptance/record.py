@@ -18,6 +18,12 @@ Five sections, and each answers one question:
 - ``delivery`` - the delivered file, its digest, and the technical
   checks taken off it.
 
+The record also carries the PROJECT it was worked in, and the substrate
+that project's footage came from: the acceptance harness reads the
+substrate to decide whether the brief's premise is in the footage at
+all, so a record that names no substrate is a record whose premise
+nobody has checked.
+
 The record is DATA, and it is validated rather than trusted: a section
 that says what it must say is checked when it is read, so a run that
 wrote half a record produces a `not_measured` stage rather than a
@@ -108,6 +114,13 @@ def validate(record: Any) -> list[str]:
         path = delivery.get("path")
         if not str(path or "").strip():
             problems.append("the delivery section names no file")
+    project = record.get("project")
+    if project is not None and not isinstance(project, dict):
+        problems.append("the project section is not an object")
+    elif isinstance(project, dict):
+        substrate = project.get("substrate")
+        if substrate is not None and not isinstance(substrate, str):
+            problems.append("the project substrate is not a string")
     return problems
 
 

@@ -63,6 +63,7 @@ ORACLE_KEYS: tuple[str, ...] = (
     "expected_target_roles",
     "expected_moment_ids",
     "allowed_operations",
+    "footage_requirements",
     "notes",
 )
 
@@ -134,6 +135,7 @@ def validate_brief_set(raw: Mapping[str, Any]) -> list[str]:
     problems: list[str] = []
     if not isinstance(raw, Mapping):
         return ["the brief set is not an object"]
+    from library.tools.editorial_acceptance import footage
     if raw.get("schema") != BRIEF_SET_SCHEMA:
         problems.append(
             f"schema must be {BRIEF_SET_SCHEMA!r}, not "
@@ -228,6 +230,26 @@ def validate_brief_set(raw: Mapping[str, Any]) -> list[str]:
                     problems.append(
                         f"{label} expects operations it does not allow: "
                         f"{missing}")
+            requirements = oracle.get("footage_requirements")
+            if not isinstance(requirements, list):
+                problems.append(
+                    f"{label} footage_requirements must be a list")
+            else:
+                for requirement in requirements:
+                    if not isinstance(requirement, Mapping):
+                        problems.append(
+                            f"{label} has a malformed footage requirement")
+                        continue
+                    feature = requirement.get("feature")
+                    presence = requirement.get("presence")
+                    if feature not in footage.FEATURES:
+                        problems.append(
+                            f"{label} names a premise outside the "
+                            f"enumeration: {feature!r}")
+                    if presence not in footage.PRESENCE:
+                        problems.append(
+                            f"{label} names a presence outside the "
+                            f"enumeration: {presence!r}")
             if isinstance(operations, list) and isinstance(allowed, list):
                 known = _known_operations()
                 unknown = sorted(
@@ -283,6 +305,10 @@ def oracle(brief: Mapping[str, Any]) -> dict[str, Any]:
         "expected_target_roles": list(key["expected_target_roles"]),
         "expected_moment_ids": list(key["expected_moment_ids"]),
         "allowed_operations": list(key["allowed_operations"]),
+        "footage_requirements": [
+            dict(requirement)
+            for requirement in (key.get("footage_requirements") or [])
+        ],
         "notes": key["notes"],
     }
 
@@ -311,6 +337,13 @@ def leak_problems(view: Mapping[str, Any],
                 forbidden.append(text)
     for value in forbidden:
         problems.append(f"the public view carries the oracle value {value!r}")
+    for requirement in (key.get("footage_requirements") or ()):
+        if not isinstance(requirement, Mapping):
+            continue
+        feature = str(requirement.get("feature") or "")
+        if feature and feature in serialised:
+            problems.append(
+                f"the public view names the premise {feature!r}")
     if key.get("expected_refusal") is True and "expected_refusal" in serialised:
         problems.append("the public view says a refusal is expected")
     edge_case = key.get("edge_case")
@@ -367,6 +400,7 @@ def coverage(brief_set: Mapping[str, Any]) -> dict[str, Any]:
     with_human_work: list[str] = []
     with_media_conditions: list[str] = []
     profiles: dict[str, int] = {}
+    premises: dict[str, list[str]] = {}
     criterion_count = 0
     refusal_briefs: list[str] = []
     for brief in briefs:
@@ -376,6 +410,9 @@ def coverage(brief_set: Mapping[str, Any]) -> dict[str, Any]:
         if case in edge_case_counts:
             edge_case_counts[case] += 1
             edge_case_briefs[case].append(brief_id)
+        for requirement in (key.get("footage_requirements") or []):
+            feature = str(requirement.get("feature") or "")
+            premises.setdefault(feature, []).append(brief_id)
         state = brief["project_state"]
         if list(state["existing_adjustments"]):
             with_human_work.append(brief_id)
@@ -396,6 +433,7 @@ def coverage(brief_set: Mapping[str, Any]) -> dict[str, Any]:
         "briefs_with_existing_adjustments": with_human_work,
         "briefs_with_imperfect_media": with_media_conditions,
         "footage_profile_counts": profiles,
+        "premise_briefs": premises,
         "refusal_briefs": refusal_briefs,
     }
 

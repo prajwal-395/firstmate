@@ -39,6 +39,11 @@ read.
 
 ## The numbers, with their denominators
 
+These are the numbers **as the run produced them**, and they are the
+numbers the shipped report still carries: the premise measurement
+described under cause 1 below is reported ALONGSIDE them and does not
+move them.
+
 `ren accept --records tests/live/reports/editorial-bench-records`
 (eight briefs, eight scored, none not-run):
 
@@ -93,6 +98,40 @@ footage profile whose content actually carries its premise - a reel with a
 music bed for the levels brief, a reel with a second camera angle for the
 angle brief - and to state the profile per brief in the set, which the
 brief set already does (`footage_profile`) but does not yet ENFORCE.
+
+**This is now measured, alongside the score.** Each brief states the
+premise its request presupposes of the footage
+(`oracle.footage_requirements`), each substrate reel is measured once
+and recorded with the features it carries and the features it was
+checked for and does not carry
+(`library/tools/editorial_acceptance/substrates.json`), and the
+harness reports, NEXT TO the score, whether the substrate carried the
+premise - naming the premise that is missing. The headline is
+unchanged: the run is still scored, and a brief the footage cannot
+carry still counts as the engine's result. A run also picks its
+substrate per brief - the one whose profile matches and whose measured
+content carries the premise - and the report names, per brief, the
+exact premises a substrate still has to carry. See
+[the premise contract](../EDITORIAL_ACCEPTANCE_PREMISES.md).
+
+Re-measured against the same records, the premise view says that **four
+of the eight briefs were not carried by reel 13**
+(`open-with-the-cost`, `two-voices-at-once`, `the-wrong-caption`,
+`the-whole-job`): the reel carries no cost statement, no overlapping
+speech, no second angle of the same moment, no caption that misstates
+its speech and no music bed. Those four briefs stay in the headline -
+three of the eight briefs pass, five fail, and the bottleneck is still
+`interpretation` - and the premise view counts them as `not_measured`
+alongside: 4 of 8 briefs measured, 4 not measured, 3 of the 4 measured
+passing.
+
+**The fix is the substrate, and it is not a harness fix.** Making every
+brief runnable means running each brief against footage that satisfies
+its premise - a reel with a music bed for the levels brief, a reel with
+a second camera angle for the angle brief - which is the reel export
+lane's work. The pairing in the report is the work list: per brief,
+the profile it is written against and the premises its substrate has
+to carry.
 
 The run also hit a hard limit here: only one reel of the captain's podcast
 could be copied out. The scratch import takes a `.drt` from the project
@@ -173,7 +212,9 @@ reached the executor, and the real refusals above became visible.
 - The brief set's own premises (a wrong caption, a music bed, overlapping
   speech) were **not seeded** into the substrate: they are the creator's
   pre-existing edits in the fiction, and fabricating them would have meant
-  the run grading its own fixture.
+  the run grading its own fixture. They are now STATED per brief and
+  checked against the substrate, and the pairing in the report says which
+  footage each of those briefs still needs.
 
 ## Reproducing this run
 
