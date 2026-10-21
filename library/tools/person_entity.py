@@ -54,6 +54,7 @@ import inspect
 import json
 import os
 import subprocess
+import sys
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -61,10 +62,13 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 try:
-    from library.tools import footage_identity, shared_environment, source_memory
+    from library.tools import (footage_identity, project_ref, shared_environment,
+                               source_memory)
+    from library.tools.ren_refusal import RenRefusal
     from library.tools import single_track_diarization as diarization
 except ImportError:  # imported as `tools.*` from inside library/
-    from tools import footage_identity, shared_environment, source_memory
+    from tools import footage_identity, project_ref, shared_environment, source_memory
+    from tools.ren_refusal import RenRefusal
     from tools import single_track_diarization as diarization
 
 FACE_MATCH_THRESHOLD = 0.25
@@ -1152,7 +1156,6 @@ def find_person(project_folder: str, query: str,
 
 def main(argv=None) -> int:
     import argparse
-    import sys
 
     parser = argparse.ArgumentParser(
         prog="person_entity",
@@ -1176,12 +1179,14 @@ def main(argv=None) -> int:
     p_find.add_argument("query")
 
     args = parser.parse_args(argv)
+    project = project_ref.require_project_state(
+        project_ref.resolve_project_folder(args.project))
     if args.command == "build":
-        result = build_project_identity(args.project, args.clip)
+        result = build_project_identity(project, args.clip)
     elif args.command == "roster":
-        result = resolve_person_tracks(args.project)
+        result = resolve_person_tracks(project)
     elif args.command == "find":
-        result = find_person(args.project, args.query)
+        result = find_person(project, args.query)
         if result is None:
             print(f"no person matching {args.query!r}", file=sys.stderr)
             return 1
@@ -1193,4 +1198,9 @@ def main(argv=None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        sys.exit(main())
+    except RenRefusal as refused:
+        from library.tools.ren_refusal import REFUSAL_EXIT_CODE
+        print(refused.render(), file=sys.stderr)
+        sys.exit(REFUSAL_EXIT_CODE)

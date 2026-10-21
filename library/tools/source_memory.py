@@ -146,11 +146,13 @@ from typing import Dict, List, Optional, Tuple
 
 try:
     from library.tools.shared_environment import vep_home
-    from library.tools import footage_identity
+    from library.tools import footage_identity, project_ref
+    from library.tools.ren_refusal import RenRefusal
     from library.tools.speech_measurements import nonverbal_vocalizations
 except ImportError:  # imported as `tools.*` from inside library/
     from tools.shared_environment import vep_home
-    from tools import footage_identity
+    from tools import footage_identity, project_ref
+    from tools.ren_refusal import RenRefusal
     from tools.speech_measurements import nonverbal_vocalizations
 
 MEMORY_DIRNAME = "source_memory"
@@ -2505,20 +2507,27 @@ def main(argv=None) -> int:
     if not args.command:
         parser.print_help()
         return 2
+    project = project_ref.require_project_state(
+        project_ref.resolve_project_folder(args.project))
     root = Path(args.memory_root).expanduser() if args.memory_root else None
     if args.command == "build":
-        report = build_project(args.project, clip_ids=args.clip, root=root)
+        report = build_project(project, clip_ids=args.clip, root=root)
         print(json.dumps(report, indent=2))
         return 1 if report["failed"] else 0
     if args.command == "frames":
         report = build_project_frames(
-            args.project, clip_ids=args.clip, root=root, width=args.width,
+            project, clip_ids=args.clip, root=root, width=args.width,
             use_hwaccel=not args.no_hwaccel)
         print(json.dumps(report, indent=2))
         return 1 if report["failed"] else 0
-    print(json.dumps(status_report(args.project, root=root), indent=2))
+    print(json.dumps(status_report(project, root=root), indent=2))
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except RenRefusal as refused:
+        from library.tools.ren_refusal import REFUSAL_EXIT_CODE
+        print(refused.render(), file=sys.stderr)
+        sys.exit(REFUSAL_EXIT_CODE)

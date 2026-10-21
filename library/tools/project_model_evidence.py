@@ -2458,8 +2458,20 @@ def _migrate_events(builder: _Builder, digest: str, asset_id: str,
     if not isinstance(verdicts, dict):
         verdicts = {}
     predicates = m7.get("predicates") or {}
+    # A predicate the record did NOT measure is not an empty measurement:
+    # an M7 built without M3b (the identity lane is licence-blocked for
+    # a commercial purpose) has no `speaking` and no `on_screen`, and
+    # writing "no spans, complete coverage" for them would assert that
+    # the person never spoke and was never on screen - a false negative
+    # caused by a licence.
+    for predicate, reason in (m7.get("predicates_unavailable") or {}).items():
+        builder.notes.append(
+            f"{digest[:12]}: M7 predicate {predicate!r} not measured: {reason}")
     for predicate in ("speaking", "on_screen"):
-        spans = (predicates.get(predicate) or {}).get("spans") or []
+        body = predicates.get(predicate)
+        if body is None:
+            continue
+        spans = body.get("spans") or []
         if not spans and duration:
             ticks = sec_to_ticks(0.0, duration)
             if ticks is not None:

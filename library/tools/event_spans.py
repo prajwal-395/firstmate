@@ -8,6 +8,14 @@ across camera angles on the M6 conversation clock, and placed on the
 timeline through the source/timeline binding `timeline_transcript`
 already records. No model runs at query time.
 
+**Identity is an ENRICHMENT here, not a precondition.** The candidate
+rules are geometry over M3 faces and hands, so they are measured whether
+or not M3b (ArcFace) exists: without it the tracks come from
+`face_tracks` (a face continuing across the picture, never a person),
+the record says so in its `identity` block, and the person-scoped
+predicates are recorded as UNAVAILABLE rather than as empty spans. A
+licence-blocked identity model must not remove the event lane.
+
 **What each predicate is made of** (one source file at a time):
 
 - `on_screen` - a face track's M3 frames (Apple Vision faces at the M2
@@ -103,8 +111,10 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from library.tools import (
     conversation_clock,
+    face_tracks,
     person_entity,
     person_measurements,
+    project_ref,
     source_memory,
 )
 from library.tools.ren_refusal import RenRefusal
@@ -138,9 +148,9 @@ CANDIDATE_PREDICATES = {
     "object_pickup": "M3 hand joint risen PICKUP_MIN_RISE face heights "
                      "within PICKUP_WINDOW frames, from below the face's "
                      "bottom to above it (a candidate, not an answer)",
-    "person_enters": "an M3b face track's first frames, with the frame "
+    "person_enters": "a face track's first frames, with the frame "
                      "before them (a candidate, not an answer)",
-    "person_leaves": "an M3b face track's last frames, with the frame "
+    "person_leaves": "a face track's last frames, with the frame "
                      "after them (a candidate, not an answer)",
 }
 """Predicates M7 records as CANDIDATES: too imprecise to answer alone,
@@ -1092,30 +1102,73 @@ def object_pickup_candidates(m3: dict, assignment: List[List[Optional[str]]]
 # ── building M7 ─────────────────────────────────────────────────────
 
 
+IDENTITY_ABSENT_REASON = (
+    "no M3b (identity.json) for this source: the identity model is "
+    "licence-blocked for a commercial purpose, so no face is KNOWN to be "
+    "a person. The candidate spans are measured from M3 geometry and are "
+    "not person-scoped.")
+"""Why a record has no person-scoped predicate. Recorded IN the record,
+so nothing downstream reads a missing identity lane as an empty
+measurement."""
+
+
 def build_source_events(content_digest: str, source_file: str,
                         root: Optional[Path] = None) -> dict:
-    """M7 for one source from its M3 + M3b. Light: no decode, no model."""
+    """M7 for one source from its M3, with M3b as an ENRICHMENT.
+
+    Light: no decode, no model. Without M3b the record still carries
+    every CANDIDATE span - the candidate rules are geometry over M3
+    faces and hands - and says which basis the tracks came from. The
+    person-scoped predicates (`speaking`, `on_screen`) are recorded as
+    UNAVAILABLE, never as empty spans: a missing identity lane is not a
+    measurement that found nothing.
+    """
     m3 = person_measurements.read_m3(content_digest, root)
-    identity = person_entity.read_identity(content_digest, root)
     if m3 is None:
         raise RuntimeError("no M3 (persons.json); run "
                            "`python3 -m library.tools.person_measurements build`")
+    identity = person_entity.read_identity(content_digest, root)
+    identity_reason = IDENTITY_ABSENT_REASON
+    if identity is not None and not (identity.get("faces") or []):
+        # An M3b record that carries NO face track (no faces detected, or
+        # the identity model unavailable for this purpose) attributes no
+        # face to a person. The candidates are measured anyway, on the
+        # geometry tracks, and the record says why the person-scoped
+        # predicates are not measured.
+        identity_reason = (
+            f"the M3b record for this source carries no face track "
+            f"(status {identity.get('status')!r}"
+            + (f", {identity.get('instrument', {}).get('face_unavailable_reason')!r}"
+               if (identity.get("instrument") or {}).get("face_unavailable_reason")
+               else "")
+            + ")")
+        identity = None
+    links: List[dict] = []
     if identity is None:
-        raise RuntimeError("no M3b (identity.json); run "
-                           "`python3 -m library.tools.person_entity build`")
-    assignment = assign_face_tracks(m3, identity)
-    links = link_voices_to_faces(m3, assignment, identity)
-    faces_total = sum(len(row) for row in assignment)
-    faces_assigned = sum(1 for row in assignment for t in row if t)
-    record = {
-        "content_digest": content_digest,
-        "size_bytes": m3.get("size_bytes"),
-        "source_file": source_file,
-        "status": STATUS_BUILT,
-        "frame_count": len(m3["frames"]),
-        "faces_assigned": faces_assigned,
-        "faces_unassigned": faces_total - faces_assigned,
-        "predicates": {
+        assignment = face_tracks.assign_tracks(m3)
+        identity_record = {
+            "basis": "geometry",
+            "available": False,
+            "unavailable_reason": identity_reason,
+            "track_basis": "M3 face continuity by geometry "
+                           "(library/tools/face_tracks.py): a track is a "
+                           "face continuing across the picture, not a "
+                           "person",
+        }
+        predicates: Dict[str, dict] = {}
+        predicates_unavailable = {"speaking": identity_reason,
+                                  "on_screen": identity_reason}
+    else:
+        assignment = assign_face_tracks(m3, identity)
+        links = link_voices_to_faces(m3, assignment, identity)
+        identity_record = {
+            "basis": "m3b",
+            "available": True,
+            "unavailable_reason": None,
+            "track_basis": "M3b ArcFace face tracks, assigned to M3 faces "
+                           "by position",
+        }
+        predicates = {
             "on_screen": {
                 "basis": "M3 Vision faces at the M2 cadence, assigned to M3b "
                          "ArcFace tracks by position",
@@ -1127,7 +1180,21 @@ def build_source_events(content_digest: str, source_file: str,
                 "voice_unavailable_reason": (identity.get("instrument") or {}
                                               ).get("voice_unavailable_reason"),
                 "spans": speaking_spans(identity, links, m3, assignment)},
-        },
+        }
+        predicates_unavailable = {}
+    faces_total = sum(len(row) for row in assignment)
+    faces_assigned = sum(1 for row in assignment for t in row if t)
+    record = {
+        "content_digest": content_digest,
+        "size_bytes": m3.get("size_bytes"),
+        "source_file": source_file,
+        "status": STATUS_BUILT,
+        "frame_count": len(m3["frames"]),
+        "faces_assigned": faces_assigned,
+        "faces_unassigned": faces_total - faces_assigned,
+        "identity": identity_record,
+        "predicates": predicates,
+        "predicates_unavailable": predicates_unavailable,
         "candidates": {
             "hand_near_mouth": {
                 "basis": f"M3 hand joint within {HAND_CANDIDATE_MAX_DISTANCE} "
@@ -1165,6 +1232,7 @@ def build_source_events(content_digest: str, source_file: str,
     return {"content_digest": content_digest, "source_file": source_file,
             "faces_assigned": faces_assigned,
             "faces_unassigned": faces_total - faces_assigned,
+            "identity": identity_record["basis"],
             **{name: len(body["spans"])
                for name, body in record["predicates"].items()},
             **{f"{name}_candidates": len(body["spans"])
@@ -1203,7 +1271,11 @@ def catalog_sources(project_folder: str) -> List[Tuple[str, str, str]]:
 @source_memory._project_scoped
 def build_project_events(project_folder: str,
                          root: Optional[Path] = None) -> dict:
-    """M7 for every catalog source that carries M3 and M3b.
+    """M7 for every catalog source that carries M3.
+
+    M3b is an enrichment, not a precondition: a source with no identity
+    record is still measured, on geometry tracks, and its report says
+    which basis it used.
 
     One lane per distinct digest: catalog_sources dedups serially up
     front, and each unit is pure compute over its M3/M3b records plus
@@ -1368,7 +1440,14 @@ def _predicate_spans(person: dict, predicate: str,
         record = read_m7(digest, root)
         if record is None:
             continue
-        for span in record["predicates"][predicate]["spans"]:
+        body = (record.get("predicates") or {}).get(predicate)
+        if body is None:
+            raise RenRefusal(
+                f"M7 on {digest[:12]} carries no {predicate!r} predicate",
+                (record.get("predicates_unavailable") or {}).get(
+                    predicate, "the record was built without it"),
+                "python3 -m library.tools.event_spans build <project>")
+        for span in body.get("spans") or []:
             if span.get("face_track") in tracks:
                 spans.append({"content_digest": digest,
                               "source_file": record["source_file"], **span})
@@ -1404,7 +1483,9 @@ def resolve_person(project_folder: str, query: str,
         f"no person matching {query!r}",
         f"the project's measured roster is: {known}",
         "build M3b and M7 first (`person_entity build`, `event_spans build`), "
-        "or declare `source.person_names` in project.yaml")
+        "or declare `source.person_names` in project.yaml. M3b is the "
+        "identity lane: when its model is licence-blocked, the roster is "
+        "empty and the candidate spans are still measured per source")
 
 
 def _candidate_spans(person: dict, predicate: str,
@@ -1626,16 +1707,18 @@ def main(argv=None) -> int:
     p_query.add_argument("--person", required=True)
     p_query.add_argument("--predicate", required=True)
     args = parser.parse_args(argv)
+    project = project_ref.require_project_state(
+        project_ref.resolve_project_folder(args.project))
     if args.command == "build":
-        report = build_project_events(args.project)
+        report = build_project_events(project)
         print(json.dumps(report, indent=2))
         return 1 if report["failed"] else 0
     if args.command == "names":
-        roster = person_entity.resolve_person_tracks(args.project)["persons"]
-        print(json.dumps(derived_person_names(args.project, roster), indent=2))
+        roster = person_entity.resolve_person_tracks(project)["persons"]
+        print(json.dumps(derived_person_names(project, roster), indent=2))
         return 0
     if args.command == "query":
-        print(json.dumps(query(args.project, args.person, args.predicate), indent=2))
+        print(json.dumps(query(project, args.person, args.predicate), indent=2))
         return 0
     parser.print_help()
     return 2

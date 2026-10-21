@@ -551,13 +551,23 @@ python3 -m library.tools.depth status <project>
 
 ## M7 `events.json` (written)
 
-Owner: `library/tools/event_spans.py`. Light: built from M3 + M3b, no
-decode, no model, no lock.
+Owner: `library/tools/event_spans.py`. Light: built from M3, no decode,
+no model, no lock. M3b is an ENRICHMENT, not a precondition: the
+candidate rules are geometry over M3 faces and hands, so a source with
+no identity record is still measured, on the geometry tracks of
+`library/tools/face_tracks.py` (a face continuing across the picture,
+never a person). The record says which basis it used, and the
+person-scoped predicates it could not measure are recorded as
+unavailable rather than as empty spans.
 
 ```json
 {
   "content_digest": "sha256 hex", "source_file": "<absolute path>",
   "status": "built", "faces_assigned": 8149, "faces_unassigned": 43,
+  "identity": {"basis": "m3b", "available": true,
+               "unavailable_reason": null,
+               "track_basis": "M3b ArcFace face tracks, assigned to M3 faces by position"},
+  "predicates_unavailable": {},
   "predicates": {
     "on_screen": {"basis": "...",
                   "spans": [{"face_track": "face_001", "start": 0.0, "end": 12.5,
@@ -584,6 +594,10 @@ decode, no model, no lock.
 - `on_screen`: M3 faces assigned to an M3b ArcFace track by position
   (the time-adjacent M3b observation whose face sits where this one
   does); a face nothing vouches for is unassigned, never guessed.
+  Without M3b the person-scoped predicates (`on_screen`, `speaking`)
+  are NOT measured: `predicates` carries neither and
+  `predicates_unavailable` names the reason, so a licence-blocked
+  identity model never reads as "this person never spoke".
 - `speaking`: an M3b voice turn belongs to the face whose LIPS move
   during that voice's turns and not outside them. M3b's own
   `speech_face_links` (co-occurrence) attach every voice to the only face
@@ -836,6 +850,12 @@ python3 -m library.tools.source_memory status <project>   # light, reads only
 python3 -m library.tools.source_memory build <project> --clip clip_003
 python3 -m library.tools.source_memory frames <project> --clip clip_003
 ```
+
+`<project>` is a project FOLDER or a project SLUG under
+`PIPELINE_PROJECTS_ROOT` (flat or client-grouped); the measurement CLIs
+resolve it through `library/tools/project_ref.py` and REFUSE a
+reference that names no project, rather than reporting an empty
+catalog.
 
 `build` reuses a fresh transcript (`reused: true`) and `frames` reuses
 a fresh M2 sample the same way; both record per-file failures without

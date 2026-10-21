@@ -8738,3 +8738,125 @@ the file (loudness, silence, one pass per audio channel), which is a delivery-ti
 cost on a file that was just rendered. And the channel check measures the PEAKS
 per channel, not the mix: a channel carrying only room tone passes, which is
 right - it carries signal.
+
+## the-licence-that-removed-the-event-lane
+
+**The rule:** Identity is an ENRICHMENT of the event lane, not its
+precondition. The M7 candidate rules are geometry over M3 faces and
+hands, so a project whose identity model is licence-blocked still
+measures them; the person-scoped predicates are recorded as
+UNAVAILABLE, never as empty spans.
+
+**What happened.** Measured on 2026-10-21 (the Milestone 0 baseline lane,
+`data/scout-g-m0-baseline/report.md` in firstmate's home). The
+InsightFace Buffalo-L pack is recorded in `library/model_registry/registry.json`
+as non-commercial research only, so `person_entity build` refuses for
+the default `commercial_client` purpose. `event_spans.build_source_events`
+REFUSED without M3b, so the refusal removed the WHOLE event lane: a
+commercial project measured no event spans at all. The baseline measured
+it on the M0 fixture (IMG_1822, a Ren-owned scratch copy):
+
+```
+$ bin/vep -m library.tools.event_spans build /tmp/m0l3/projects/m0-pickup
+  "failed": "RuntimeError: no M3b (identity.json); run `python3 -m library.tools.person_entity build`"
+```
+
+The typed evidence query then answered `not_yet_analysed` for every
+`event_span` plan, naming the missing lane `m7` - correctly, because
+nothing had been measured. The defect is not the refusal: it is that a
+LICENCE removed a measurement that did not need the licensed model. A
+false negative caused by a licence, not by the footage.
+
+**Where it is.** `library/tools/face_tracks.py` is the geometry
+alternative: a greedy nearest-neighbour continuation over the M3 face
+boxes, a track being a face continuing across the picture and never a
+person. `event_spans.build_source_events` uses M3b's assignment when
+there is an identity record and the geometry one when there is not, and
+the record says which basis it used (`identity.basis`). The candidate
+spans are measured either way; `speaking` and `on_screen` are
+person-scoped, so without M3b they are recorded in
+`predicates_unavailable` with the reason, and the canonical model
+migration reads that as "not measured" instead of writing an empty
+`COMPLETE` measurement that would assert the person never spoke.
+
+**Measured.** The identity-free build against the labelled hand-at-mouth
+events of the four Craig angles (`labels.csv` in firstmate's home, 17
+events, the same labels and matching rules the pre-registered evaluation
+used):
+
+| rule | assignment | events hit | spans | precision |
+|---|---|---:|---:|---:|
+| shipped candidate (1.5 face widths) | identity-free geometry | 16/17 | 259 | 0.062 |
+| shipped candidate (1.5 face widths) | identity (one track on the angle) | 16/17 | 259 | 0.062 |
+| pre-registered span (0.35, min 2 hits) | identity-free geometry | 11/17 | 23 | 0.478 |
+| pre-registered span (0.35, min 2 hits) | identity (one track on the angle) | 11/17 | 23 | 0.478 |
+
+The two arms are IDENTICAL: on these angles the identity lane's
+assignment is a single track, and the geometry tracker produces the same
+one (one track on LCATL0011/12, and 3-4 where a second face appears on
+LCATL0013/14). The pre-registered row reproduces the published
+measurement (11/17 at precision 0.478 at 720p) from the same harness, so
+the comparison is against the same yardstick. The cost of dropping
+identity is ZERO measured recall and ZERO measured precision.
+
+**What it does not fix.** A geometry track is not a person: without M3b
+the candidates are not person-scoped, the roster is empty, and
+`ren search --person <name> --predicate ...` still refuses by name. The
+M2 sample cadence still bounds the boundary (the M0 fixture's samples sit
+5.4 s apart, so the closest sample to the adjudicated onset band is
+2 frames early) - that is the frame-exact addressing lane, not this one.
+Defect-naming tests: `tests/unit/picture/test_spans_without_identity.py`.
+
+## a-measurement-cli-that-measured-nothing
+
+**The rule:** A measurement that cannot find its project REFUSES. It
+never reports an empty catalog: "the project has no clips" and "you
+named a project that does not exist" are different facts, and only one
+of them is a measurement.
+
+**What happened.** Measured on 2026-10-21 (the same Milestone 0
+baseline lane). The measurement CLIs read `pipeline_data.json` RELATIVE
+to the string they were given, so a project SLUG resolved to nothing:
+
+```
+$ bin/vep -m library.tools.person_measurements build m0-pickup
+{
+  "project_folder": "<cwd>/m0-pickup",
+  "clips": [],
+  "failed": []
+}
+```
+
+Exit 0. The same command with the absolute path built M3 in 6.1 s. The
+report read like "there was nothing to measure" on a project that had a
+clip, a catalog and a fresh M2 - a measurement that never ran, reported
+as a measurement that found nothing. `source_memory frames`,
+`person_entity build` and `event_spans build` had the same shape.
+
+**Where it is.** `library/tools/project_ref.py` resolves a reference -
+a path, a `project.yaml`, or a slug under `PIPELINE_PROJECTS_ROOT`
+(flat or client-grouped) - to the project FOLDER, and refuses anything
+else by name. The four measurement CLIs call it, and a folder with no
+`pipeline_data.json` yet is refused with the fix (scan it first) rather
+than measured as empty.
+
+**Measured.** The same command after the fix, on the same scratch
+project:
+
+```
+$ bin/vep -m library.tools.person_measurements build m0-pickup
+  "project_folder": "/private/tmp/m0l3/projects/m0-pickup",
+  "clips": [{"clip_id": "clip_001", "frames": 11, "faces": 8, "hands": 8}]
+
+$ bin/vep -m library.tools.person_measurements build no-such-project
+ren: refused - ...
+  what: no project named 'no-such-project'
+  fix: list what is there (`manage_project.py list`), or create the project with `ren new no-such-project`
+exit 4
+```
+
+**What it does not fix.** `ren search <slug> --temporal ...` has the same
+defect and is NOT fixed here: the search CLI takes the project string as
+it is given, so a slug builds an empty index. The module that fixes it
+is in place (`project_ref.resolve_project_folder`); the search CLI's own
+contract is another lane's call.

@@ -48,7 +48,8 @@ import time
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from library.tools import source_memory
+from library.tools import project_ref, source_memory
+from library.tools.ren_refusal import RenRefusal
 
 M3_STATUS_MEASURED = "measured"
 M3_METHOD = "vision-helper-v2 over M2"
@@ -362,15 +363,17 @@ def main(argv=None) -> int:
     if not args.command:
         parser.print_help()
         return 2
+    project = project_ref.require_project_state(
+        project_ref.resolve_project_folder(args.project))
     root = Path(args.memory_root).expanduser() if args.memory_root else None
     if args.command == "build":
-        report = build_project_persons(args.project, args.clip, root)
+        report = build_project_persons(project, args.clip, root)
         print(json.dumps(report, indent=2))
         return 1 if report["failed"] else 0
-    recorded = source_memory.load_recorded_fingerprints(args.project)
+    recorded = source_memory.load_recorded_fingerprints(project)
     rows = []
-    for clip in source_memory.load_catalog(args.project):
-        digest, _ = source_memory.digest_for_clip(args.project, clip, recorded)
+    for clip in source_memory.load_catalog(project):
+        digest, _ = source_memory.digest_for_clip(project, clip, recorded)
         doc = read_m3(digest, root) if digest else None
         rows.append({"clip_id": clip.get("clip_id"), "content_digest": digest,
                      "m3": "measured" if doc else "missing",
@@ -380,4 +383,9 @@ def main(argv=None) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except RenRefusal as refused:
+        from library.tools.ren_refusal import REFUSAL_EXIT_CODE
+        print(refused.render(), file=sys.stderr)
+        sys.exit(REFUSAL_EXIT_CODE)
