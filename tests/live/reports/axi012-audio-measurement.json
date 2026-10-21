@@ -1,0 +1,384 @@
+{
+ "renders": [
+  {
+   "name": "unity",
+   "path": "/tmp/axi012_renders/unity.mp4",
+   "clip_a": {
+    "window_seconds": 3.0,
+    "rms_db": -21.09,
+    "peak_db": -17.67,
+    "digital_zero_fraction": 0.0001
+   },
+   "clip_a_head": {
+    "window_seconds": 1.25,
+    "rms_db": -21.07,
+    "peak_db": -17.69,
+    "digital_zero_fraction": 0.0001
+   },
+   "clip_a_tail": {
+    "window_seconds": 3.5,
+    "rms_db": -21.07,
+    "peak_db": -12.27,
+    "digital_zero_fraction": 0.0001
+   },
+   "clip_b": {
+    "window_seconds": 2.539,
+    "rms_db": -21.13,
+    "peak_db": -17.76,
+    "digital_zero_fraction": 0.0148
+   },
+   "whole": {
+    "lufs": -18.7,
+    "peak": -12.3
+   }
+  },
+  {
+   "name": "gain_minus6",
+   "path": "/tmp/axi012_renders/gain_minus6.mp4",
+   "clip_a": {
+    "window_seconds": 3.0,
+    "rms_db": -27.09,
+    "peak_db": -23.67,
+    "digital_zero_fraction": 0.0002
+   },
+   "clip_a_head": {
+    "window_seconds": 1.25,
+    "rms_db": -27.07,
+    "peak_db": -23.7,
+    "digital_zero_fraction": 0.0001
+   },
+   "clip_a_tail": {
+    "window_seconds": 3.5,
+    "rms_db": -22.73,
+    "peak_db": -12.27,
+    "digital_zero_fraction": 0.0001
+   },
+   "clip_b": {
+    "window_seconds": 2.539,
+    "rms_db": -21.13,
+    "peak_db": -17.76,
+    "digital_zero_fraction": 0.0148
+   },
+   "whole": {
+    "lufs": -21.1,
+    "peak": -12.3
+   }
+  },
+  {
+   "name": "muted",
+   "path": "/tmp/axi012_renders/muted.mp4",
+   "clip_a": {
+    "window_seconds": 3.0,
+    "rms_db": null,
+    "peak_db": null,
+    "digital_zero_fraction": 1.0
+   },
+   "clip_a_head": {
+    "window_seconds": 1.25,
+    "rms_db": null,
+    "peak_db": null,
+    "digital_zero_fraction": 1.0
+   },
+   "clip_a_tail": {
+    "window_seconds": 3.5,
+    "rms_db": -23.48,
+    "peak_db": -12.27,
+    "digital_zero_fraction": 0.4257
+   },
+   "clip_b": {
+    "window_seconds": 2.539,
+    "rms_db": -21.13,
+    "peak_db": -17.76,
+    "digital_zero_fraction": 0.0148
+   },
+   "whole": {
+    "lufs": -18.8,
+    "peak": -12.3
+   }
+  },
+  {
+   "name": "faded",
+   "path": "/tmp/axi012_renders/faded.mp4",
+   "clip_a": {
+    "window_seconds": 3.0,
+    "rms_db": -22.53,
+    "peak_db": -17.68,
+    "digital_zero_fraction": 0.0001
+   },
+   "clip_a_head": {
+    "window_seconds": 1.25,
+    "rms_db": -27.57,
+    "peak_db": -20.45,
+    "digital_zero_fraction": 0.0001
+   },
+   "clip_a_tail": {
+    "window_seconds": 3.5,
+    "rms_db": -21.07,
+    "peak_db": -12.27,
+    "digital_zero_fraction": 0.0001
+   },
+   "clip_b": {
+    "window_seconds": 2.539,
+    "rms_db": -21.13,
+    "peak_db": -17.76,
+    "digital_zero_fraction": 0.0148
+   },
+   "whole": {
+    "lufs": -19.3,
+    "peak": -12.3
+   }
+  },
+  {
+   "name": "otio_gain_minus6",
+   "path": "/tmp/axi012_renders/otio_gain_minus6.mp4",
+   "clip_a": {
+    "window_seconds": 3.0,
+    "rms_db": -28.53,
+    "peak_db": -23.68,
+    "digital_zero_fraction": 0.0002
+   },
+   "clip_a_head": {
+    "window_seconds": 1.25,
+    "rms_db": -33.57,
+    "peak_db": -26.45,
+    "digital_zero_fraction": 0.0004
+   },
+   "clip_a_tail": {
+    "window_seconds": 3.5,
+    "rms_db": -22.73,
+    "peak_db": -12.27,
+    "digital_zero_fraction": 0.0001
+   },
+   "clip_b": {
+    "window_seconds": 2.539,
+    "rms_db": -21.13,
+    "peak_db": -17.76,
+    "digital_zero_fraction": 0.0148
+   },
+   "whole": {
+    "lufs": -20.9,
+    "peak": -12.3
+   }
+  },
+  {
+   "name": "otio_automation",
+   "path": "/tmp/axi012_renders/otio_automation.mp4",
+   "clip_a": {
+    "window_seconds": 3.0,
+    "rms_db": -32.8,
+    "peak_db": -22.69,
+    "digital_zero_fraction": 0.0004
+   },
+   "clip_a_head": {
+    "window_seconds": 1.25,
+    "rms_db": -36.88,
+    "peak_db": -32.75,
+    "digital_zero_fraction": 0.0004
+   },
+   "clip_a_tail": {
+    "window_seconds": 3.5,
+    "rms_db": -22.59,
+    "peak_db": -12.27,
+    "digital_zero_fraction": 0.0001
+   },
+   "clip_b": {
+    "window_seconds": 2.539,
+    "rms_db": -21.13,
+    "peak_db": -17.76,
+    "digital_zero_fraction": 0.0148
+   },
+   "whole": {
+    "lufs": -19.7,
+    "peak": -12.3
+   }
+  }
+ ],
+ "notes": [],
+ "errors": [],
+ "project": "Ren Qualification",
+ "resolve_version": "21.1.0.14",
+ "timeline": "AXI-012 audio probe",
+ "imported": [
+  "qual_a.mp4",
+  "qual_b.mp4"
+ ],
+ "placed": [
+  {
+   "start": 0,
+   "end": 96,
+   "type": "video",
+   "linked": [
+    "a6dba685-3a6b-4f9b-9256-87af0eb26d79"
+   ]
+  },
+  {
+   "start": 96,
+   "end": 168,
+   "type": "video",
+   "linked": [
+    "00eb5eea-2b3d-4997-921b-3da0c8641503"
+   ]
+  }
+ ],
+ "audio_tracks": [
+  {
+   "index": 1,
+   "name": "Audio 1",
+   "items": 2
+  }
+ ],
+ "audio_a": {
+  "track": "Audio 1",
+  "start": 0,
+  "end": 96,
+  "type": "audio"
+ },
+ "props_before": {
+  "GetProperty": {
+   "present": true,
+   "value": {
+    "AudioVolumeEnabled": true,
+    "AudioVolume": 0.0,
+    "AudioPanEnabled": true,
+    "AudioPan": 0.0,
+    "AudioPitchEnabled": true,
+    "AudioPitchSemiTones": 0,
+    "AudioPitchCents": 0,
+    "AudioVoiceIsolationEnabled": false,
+    "AudioVoiceIsolationAmount": 0,
+    "AudioDialogueLevelerEnabled": false,
+    "AudioDialogueLevelerMode": 0,
+    "AudioDialogueLevelerReduceLoudDialogue": false,
+    "AudioDialogueLevelerLiftSoftDialogue": false,
+    "AudioDialogueLevelerBackgroundReduction": false,
+    "AudioDialogueLevelerOutputGain": 0.0
+   }
+  },
+  "GetProperties": {
+   "present": true,
+   "value": {
+    "AudioVolumeEnabled": true,
+    "AudioVolume": 0.0,
+    "AudioPanEnabled": true,
+    "AudioPan": 0.0,
+    "AudioPitchEnabled": true,
+    "AudioPitchSemiTones": 0,
+    "AudioPitchCents": 0,
+    "AudioVoiceIsolationEnabled": false,
+    "AudioVoiceIsolationAmount": 0,
+    "AudioDialogueLevelerEnabled": false,
+    "AudioDialogueLevelerMode": 0,
+    "AudioDialogueLevelerReduceLoudDialogue": false,
+    "AudioDialogueLevelerLiftSoftDialogue": false,
+    "AudioDialogueLevelerBackgroundReduction": false,
+    "AudioDialogueLevelerOutputGain": 0.0
+   }
+  }
+ },
+ "set_property_spellings": {
+  "Volume": {
+   "set_return": false,
+   "read_back": false
+  },
+  "AudioVolume": {
+   "set_return": true,
+   "read_back": -6.0
+  },
+  "AudioVolumeEnabled": {
+   "set_return": true,
+   "read_back": true
+  },
+  "AudioPan": {
+   "set_return": true,
+   "read_back": 0.0
+  },
+  "Pan": {
+   "set_return": false,
+   "read_back": false
+  }
+ },
+ "props_unity": {
+  "GetProperty": {
+   "present": true,
+   "value": {
+    "AudioVolumeEnabled": true,
+    "AudioVolume": 0.0,
+    "AudioPanEnabled": true,
+    "AudioPan": 0.0,
+    "AudioPitchEnabled": true,
+    "AudioPitchSemiTones": 0,
+    "AudioPitchCents": 0,
+    "AudioVoiceIsolationEnabled": false,
+    "AudioVoiceIsolationAmount": 0,
+    "AudioDialogueLevelerEnabled": false,
+    "AudioDialogueLevelerMode": 0,
+    "AudioDialogueLevelerReduceLoudDialogue": false,
+    "AudioDialogueLevelerLiftSoftDialogue": false,
+    "AudioDialogueLevelerBackgroundReduction": false,
+    "AudioDialogueLevelerOutputGain": 0.0
+   }
+  },
+  "GetProperties": {
+   "present": true,
+   "value": {
+    "AudioVolumeEnabled": true,
+    "AudioVolume": 0.0,
+    "AudioPanEnabled": true,
+    "AudioPan": 0.0,
+    "AudioPitchEnabled": true,
+    "AudioPitchSemiTones": 0,
+    "AudioPitchCents": 0,
+    "AudioVoiceIsolationEnabled": false,
+    "AudioVoiceIsolationAmount": 0,
+    "AudioDialogueLevelerEnabled": false,
+    "AudioDialogueLevelerMode": 0,
+    "AudioDialogueLevelerReduceLoudDialogue": false,
+    "AudioDialogueLevelerLiftSoftDialogue": false,
+    "AudioDialogueLevelerBackgroundReduction": false,
+    "AudioDialogueLevelerOutputGain": 0.0
+   }
+  }
+ },
+ "gain_write": {
+  "set_return": true,
+  "read_back": -6.0,
+  "enabled_set": true
+ },
+ "mute_write": {
+  "set_return": true,
+  "read_back": false
+ },
+ "fade_write": {
+  "set_return": true
+ },
+ "fade_read": {
+  "FadeIn": 48.0,
+  "FadeOut": 0.0
+ },
+ "otio": {
+  "exported": true,
+  "imported": true,
+  "errors": [],
+  "levels_after_import": [
+   {
+    "source": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4",
+    "level_db": -6.0,
+    "keyframes": {}
+   }
+  ],
+  "link_group_ids_after": [
+   1,
+   2
+  ],
+  "automation_written": true
+ },
+ "after": {
+  "clip_b_enabled": null,
+  "clip_b_props": null,
+  "audio_a_linked": [
+   "5fcde73b-e94c-44ce-a876-e26d76b6d482"
+  ],
+  "audio_a_enabled": true
+ },
+ "timeline_left": false
+}

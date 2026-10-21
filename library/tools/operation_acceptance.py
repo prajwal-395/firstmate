@@ -111,7 +111,7 @@ def contract_for(op_id: str, operation: dict | None = None) -> dict:
         return {"id": f"acceptance:{op_id}", "operation": op_id,
                 "checks": checks, "structural_source": "timeline_readback",
                 "rendered_source": "caption_asset_rerender"}
-    elif op_id in {"audio.gain", "audio.fade"}:
+    elif op_id in {"audio.gain", "audio.fade", "audio.automation"}:
         checks = ["target_identity", "requested_audio_span",
                   "audio_parameters_match_request", "unrelated_items_unchanged",
                   "audio_render_matches_request", "no_clipping",

@@ -31,7 +31,7 @@ from functools import cache
 from pathlib import Path
 from typing import Any
 
-from library.tools import edit_algebra
+from library.tools import audio_operations, edit_algebra
 
 #: The schema the map is published under.  A consumer that reads a
 #: different schema is reading something else, and says so.
@@ -677,6 +677,23 @@ def _backend_row(op_id: str, backend: str, declared: bool,
     }
 
 
+def _audio_route(op_id: str) -> dict | None:
+    """The audio route for one operation, or None when it is not audio."""
+    row = audio_operations.BY_ID.get(op_id)
+    if row is None:
+        return None
+    return {
+        "route": row.route,
+        "resolve_call": row.resolve_call,
+        "read_back": row.read_back,
+        "audible_verification": row.audible_verification,
+        "preserves": list(row.preserves),
+        "rebuilds": row.rebuilds,
+        "refusal": audio_operations.refusal(op_id),
+        "evidence": list(row.evidence),
+    }
+
+
 def _purpose(op) -> str:
     if op.note:
         return op.note
@@ -774,6 +791,12 @@ def operation_entry(op_id: str, *, declared: Mapping[str, set[str]],
         "measured_cost": status.measured_cost,
         "target_strategy": status.target_strategy,
         "workflow_evidence": list(status.workflow_evidence),
+        # The ROUTE, for the operations whose semantics live in their own
+        # enumeration.  An audio operation that says nothing about which
+        # route writes it is a declaration an agent cannot act on, and the
+        # route is not derivable from the backend list: the OTIO route
+        # REBUILDS the timeline and the native one does not.
+        "audio_route": _audio_route(op_id),
         "audit": {
             "declared_backends": declared_backends,
             "implemented_backends": implemented_backends,

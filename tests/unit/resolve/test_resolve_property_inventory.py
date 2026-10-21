@@ -189,6 +189,22 @@ def test_a_partially_readable_property_is_not_claimed_as_fully_readable():
     assert "current" in inventory.PROPERTY_BY_ID["transform.Pan"].note.lower()
 
 
+def test_the_audio_level_is_read_under_its_resolve_21_1_spelling():
+    """Defect: Resolve 21.1 renamed the item's audio properties -
+    `AudioVolume` and `AudioPan`, with their `...Enabled` switches - and
+    the inventory looked for `Volume` and `Pan`.  A read that asks for a
+    name the property dictionary does not carry reports the property as
+    absent, so the inventory reported a level it could never see."""
+    surface = inventory.clip_surface(_detail(_Item(properties={
+        "Pan": 0.0, "Tilt": 0.0, "ZoomX": 1.0,
+        "AudioVolume": -6.0, "AudioVolumeEnabled": True,
+        "AudioPan": 0.0,
+    })))
+    assert surface["audio.volume"]["value"] == -6.0
+    assert surface["audio.volume"]["status"] == inventory.MEASURED
+    assert surface["audio.pan"]["value"] == 0.0
+
+
 # ── PRES-005: unavailable is not a default ───────────────────────────
 
 

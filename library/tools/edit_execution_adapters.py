@@ -1592,9 +1592,30 @@ def _caption_style(context) -> dict:
 
 
 def _audio_gain(context) -> dict:
+    """Refuse the gain BY NAME, with the route and the missing evidence.
+
+    The refusal used to name only the receipt's missing evidence, which
+    left a caller with no way to tell a gap in the EVIDENCE from a gap
+    in the ROUTE.  It is both: the level is written by the OTIO build
+    (a rebuild of the timeline), and the candidate that build produces
+    carries no independent audio-render evidence - nothing has measured
+    the rendered audio against the requested dB, so nothing can say the
+    clip plays at the level that was asked for.
+
+    The route and its evidence live in one place
+    (`library/tools/audio_operations.py`), so this refusal and the
+    operation map's row cannot disagree.
+    """
+    from library.tools import audio_operations
+
+    row = audio_operations.operation("audio.gain")
     raise RuntimeError(
-        "audio.gain is refused before mutation: the candidate receipt lacks "
-        "independent audio-render evidence for levels, clipping, and silence")
+        "audio.gain is refused before mutation: the route is the OTIO build "
+        f"({row.resolve_call or 'the volume parameter of the exported OTIO'}"
+        "), and the candidate receipt carries no independent audio-render "
+        "evidence for levels, clipping, and silence"
+        f" - the audible check the route needs is: {row.audible_verification}"
+        f" (library/tools/audio_operations.py)")
 
 
 def _multicam_select_angle(context) -> dict:

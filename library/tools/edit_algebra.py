@@ -2269,7 +2269,10 @@ ALGEBRA: dict[str, AlgebraOp] = {
         inverse=_self("the inverse carries the previous dB"),
         note="Per-clip gain in dB through an isolated OTIO candidate; exact "
              "source and record start, full timeline preservation and OTIO "
-             "level read-back are required."),
+             "level read-back are required. The route is a BUILD: the "
+             "import rebuilds the timeline (library/tools/"
+             "audio_operations.py). Resolve 21.1 also writes the level "
+             "natively, and that write is measured audible."),
     "audio.pan": AlgebraOp(
         id="audio.pan", domain="audio_mix",
         required=("unique_id", "pan"),
@@ -2279,7 +2282,8 @@ ALGEBRA: dict[str, AlgebraOp] = {
         merge="replace",
         inverse=_self("the inverse carries the previous pan"),
         note="Refuses by name: Resolve's OTIO carries no measured audio-pan "
-             "parameter - the audio surface is volume only."),
+             "parameter - the audio surface is volume only. The route and "
+             "the refusal live in library/tools/audio_operations.py."),
     "audio.fade": AlgebraOp(
         id="audio.fade", domain="audio_mix",
         required=("unique_id", "fade_in", "fade_out"),
@@ -2289,7 +2293,9 @@ ALGEBRA: dict[str, AlgebraOp] = {
         merge="replace",
         inverse=_self("the inverse carries the previous envelope"),
         note="Fade in/out in seconds; the staged native adapter converts "
-             "to frame counts and reads all item fades back."),
+             "to frame counts and reads all item fades back. The route is "
+             "Resolve's own SetFades, in place (library/tools/"
+             "audio_operations.py)."),
     "audio.automation": AlgebraOp(
         id="audio.automation", domain="audio_mix",
         required=("unique_id", "param", "keyframes"),
@@ -2301,7 +2307,9 @@ ALGEBRA: dict[str, AlgebraOp] = {
         inverse=_self("the inverse carries the previous keyframes"),
         note="A keyframed audio lane. No live-Resolve apply; "
              "`otio_mix.apply_audio_ops` writes it through the OTIO mix "
-             "path. Only the `volume` parameter has a measured spelling."),
+             "path. Only the `volume` parameter has a measured spelling. "
+             "The route is a BUILD: the import rebuilds the timeline "
+             "(library/tools/audio_operations.py)."),
 
     # ── grade (domain: color) ────────────────────────────────────
     "clip_lut": AlgebraOp(
@@ -3424,17 +3432,31 @@ _ROUTE_EVALUATION = {
         "not_yet_evaluated": [],
     },
     "audio.gain": {
-        "inspected": ["native scripting", "OTIO mix", "Blackmagic MCP delegated capabilities", "Resolve Workflow Integrations developer package and installed VEP plugin"],
-        "available": ["reel_touchup maps the exact audio item to a one-target OTIO round-trip; candidate promotion requires full timeline preservation and fresh OTIO level read-back", "Workflow Integration is a host over the same scripting API; the installed VEP plugin exposes read-only Resolve calls, not a new edit backend"],
-        "gaps": ["SetProperty(Volume) is not a working measured writer", "a target must match one audio item by exact source path and record start", "full timeline snapshot must be unchanged, so candidates that lose Fusion/CDL/editor state are discarded", "no rendered audio acceptance evidence for this request path", "plugin-owned writes have no AXI request/receipt path and would bypass the shared broker, lease, qualification, and recovery contract"],
-        "not_yet_evaluated": ["Resolve Fairlight UI-independent controls"],
+        "inspected": ["Resolve 21.1 TimelineItemProperties (AudioVolume/AudioVolumeEnabled) and the 21.1 changelog line 'Get/Set Property includes native audio properties and enabled states'", "native scripting", "OTIO mix", "Blackmagic MCP delegated capabilities", "Resolve Workflow Integrations developer package and installed VEP plugin"],
+        "available": ["reel_touchup maps the exact audio item to a one-target OTIO round-trip; candidate promotion requires full timeline preservation and fresh OTIO level read-back", "the OTIO route is a BUILD: the import rebuilds the timeline, and placement, transform, markers and native transitions survive it", "Workflow Integration is a host over the same scripting API; the installed VEP plugin exposes read-only Resolve calls, not a new edit backend"],
+        "gaps": ["Resolve 21.1's item properties carry AudioVolume, not the `Volume` spelling Ren used to try: SetProperty('Volume') is a call that answers False", "a target must match one audio item by exact source path and record start", "full timeline snapshot must be unchanged, so candidates that lose Fusion/CDL/editor state are discarded", "no rendered audio acceptance evidence for this request path", "plugin-owned writes have no AXI request/receipt path and would bypass the shared broker, lease, qualification, and recovery contract"],
+        "not_yet_evaluated": ["a native AudioVolume write on the timeline item is MEASURED (SetProperty('AudioVolume', -6) reads back -6.0 and the render measures exactly -6.00 dB) but Ren has no executor for it", "Resolve Fairlight UI-independent controls"],
         "next": "Run the deferred live qualification with rendered audio evidence, recovery and preservation checks before enabling normal routing.",
     },
     "audio.fade": {
-        "inspected": ["native scripting", "OTIO mix", "Blackmagic MCP delegated capabilities", "Resolve Workflow Integrations developer package and installed VEP plugin"],
-        "available": ["staged TimelineItem.SetFades/GetFades adapter uses frame-count durations and checks every audio item fade before and after the write", "Workflow Integration is a host over the same scripting API; the installed VEP plugin exposes read-only Resolve calls, not a new edit backend"],
+        "inspected": ["Resolve 21.1 TimelineItem.SetFades/GetFades", "native scripting", "OTIO mix", "Blackmagic MCP delegated capabilities", "Resolve Workflow Integrations developer package and installed VEP plugin"],
+        "available": ["staged TimelineItem.SetFades/GetFades adapter uses frame-count durations and checks every audio item fade before and after the write", "the native write is IN PLACE: it touches the clip's own fades and nothing else on the timeline", "Workflow Integration is a host over the same scripting API; the installed VEP plugin exposes read-only Resolve calls, not a new edit backend"],
         "gaps": ["the touch-up preservation snapshot does not include audio fades, so this adapter independently compares all native fade states on source and staged timelines", "audio-only request is required; mixed structural operations refuse", "independent rendered-audio acceptance evidence is not yet supplied, so normal production access remains disabled", "plugin-owned writes have no AXI request/receipt path and would bypass the shared broker, lease, qualification, and recovery contract"],
         "next": "Run the deferred live qualification with rendered audio evidence, recovery and preservation checks before enabling normal routing.",
+    },
+    "audio.automation": {
+        "inspected": ["Resolve 21.1 Fairlight clip volume in the OTIO export (the `volume` parameter and its keyframes)", "native scripting (there is no per-item automation curve in the scripting API)", "OTIO mix"],
+        "available": ["otio_mix.apply_audio_ops writes a keyframed volume lane through the same OTIO mix path every planned level takes, and reads it back"],
+        "gaps": ["the OTIO route is a BUILD: the import rebuilds the timeline", "only the `volume` parameter has a measured spelling; every other parameter is refused by name", "no executor carries audio.automation on a request path yet, so the operation is refused rather than routed"],
+        "not_yet_evaluated": ["Resolve Fairlight's own automation lanes, which the scripting API does not expose"],
+        "next": "Wire the OTIO automation writer to a request path and qualify it with rendered audio evidence before enabling normal routing.",
+    },
+    "audio.pan": {
+        "inspected": ["Resolve 21.1 TimelineItemProperties (AudioPanEnabled/AudioPan)", "the OTIO export of an audio clip (a Fairlight Clip Pan effect with no parameters)"],
+        "available": [],
+        "gaps": ["Resolve's OTIO carries no measured audio-pan parameter, so the OTIO route has nothing to write", "the AUDIBLE effect of a native AudioPan write was never measured, and Ren has no executor that writes a pan", "the operation refuses by name rather than refusing with a stack trace"],
+        "not_yet_evaluated": ["the audible effect of the native AudioPan write: the write itself is measured (SetProperty('AudioPan', 0) returns True and reads back 0.0), its sound is not"],
+        "next": "Measure a native pan write and what survives the build before the operation is routed anywhere.",
     },
     "clip.split": {
         "inspected": ["Resolve 21.1 TimelineItem and Timeline method inventory", "composed_edit", "OTIO", "Blackmagic MCP tools/list", "Fairlight UI/API coverage", "Resolve Workflow Integration"],

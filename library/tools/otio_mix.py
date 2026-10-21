@@ -8,15 +8,25 @@ automation entry into a cyan timeline marker - a note asking a human to
 set the level by hand - and set no level at all.  A block the spine
 planned `silent` played music at full level in the finished video.
 
-**The DaVinci scripting API cannot set an audio level, and that is a
-complete enumeration rather than a failed search.**  An audio
-`TimelineItem` has no property dictionary at all (`GetProperty()` returns
-`{}`), so `SetProperty("Volume", ...)` returns False because the property
-system on that object is empty, not because the name is wrong.  The whole
-documented audio surface is `GetFairlightPresets`,
-`ApplyFairlightPresetToCurrentTimeline` and
-`InsertAudioToCurrentTrackAtPlayhead`, none of which is a fader.  Do not
-re-probe it.
+**Resolve's audio surface CHANGED in 21.1, and the route below is still
+the route Ren writes.**  In 21.1 an item's property dictionary carries
+the native audio properties: `AudioVolumeEnabled`/`AudioVolume` (dB,
+-100.0 to 30.0), `AudioPanEnabled`/`AudioPan`, the pitch keys - and the
+21.1 changelog says exactly that ("TimelineItem properties - Get/Set
+Property includes native audio properties and enabled states").  The
+spelling that answers False is `Volume`, not `AudioVolume`:
+`SetProperty("Volume", ...)` asks for a name the dictionary does not
+carry, so the call fails for a reason that has nothing to do with the
+item being an audio item.
+
+The OTIO route is still the route Ren writes a level with, and it is
+still the only one that can carry a keyframed curve: the build's mix is
+a SEQUENCE of levels over blocks, not one value per clip.  What changed
+is the DECLARATION.  The audio operations' routes, their exact
+spellings, their read-backs, their audible verification and their
+refusals live in ONE enumeration, `library/tools/audio_operations.py`,
+and the operation map publishes that row per operation - so a capability
+declaration cannot claim a route that the executor does not take.
 
 **OpenTimelineIO is the route.**  Resolve exports and imports OTIO, and
 its OTIO carries Fairlight clip volume in plain JSON, in dB, with

@@ -660,7 +660,14 @@ _PROPERTY_KEYS: dict[str, tuple[tuple[str, str], ...]] = {
         ("retime.MotionEstimation", "MotionEstimation"),
     ),
     "audio": (
-        ("audio.volume", "Volume"), ("audio.pan", "Pan"),
+        # Resolve 21.1 renamed the audio properties: the item's property
+        # dictionary carries `AudioVolume` and `AudioPan` (with their
+        # `...Enabled` switches), NOT the `Volume`/`Pan` of the picture
+        # transform.  The 21.1 changelog records the change: "TimelineItem
+        # properties - Get/Set Property includes native audio properties
+        # and enabled states".  A read that looks for `Volume` finds
+        # nothing and reports the property as absent.
+        ("audio.volume", "AudioVolume"), ("audio.pan", "AudioPan"),
     ),
 }
 
