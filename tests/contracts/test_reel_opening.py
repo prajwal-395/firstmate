@@ -121,17 +121,27 @@ def test_reel_opening_adapter_is_registered_on_its_declared_backend():
     assert status.for_backend("resolve_axi") is not None
 
 
-def test_reel_opening_stays_fail_closed_until_qualified():
-    """Defect: production traffic reaching an unqualified executor. The
-    live-requests lane records the qualifying evidence; until then the
-    op is implemented but the router refuses it."""
+def test_reel_opening_is_qualified_only_in_the_state_its_evidence_names():
+    """Defect: production traffic reaching an executor whose live
+    evidence says nothing about the state in front of it.
+
+    The live qualification (the product-format scratch copy, 1080x1920
+    at 23.976) earned the row, and the row names the state it was
+    earned in: outside it the router still refuses.
+    """
     status = edit_algebra.status("reel.opening")
 
     assert status.compilable is True
-    assert status.qualified is False
-    assert status.production_enabled is False
-    assert edit_algebra.is_production_enabled(
-        "reel.opening", "resolve_axi") is False
+    assert status.qualified is True
+    row = status.for_backend("resolve_axi")
+    assert row is not None
+    assert row.production_enabled is True
+    assert row.qualification_predicates
+    assert row.qualification_evidence
+    values = {predicate["field"]: predicate["value"]
+              for predicate in row.qualification_predicates}
+    assert values["project_settings"] == "portrait_1080x1920"
+    assert values["frame_rate"] == "23.976"
 
 
 def test_reel_opening_refuses_ordinary_production_routing():

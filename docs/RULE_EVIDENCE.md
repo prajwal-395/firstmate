@@ -8860,3 +8860,47 @@ defect and is NOT fixed here: the search CLI takes the project string as
 it is given, so a slug builds an empty index. The module that fixes it
 is in place (`project_ref.resolve_project_folder`); the search CLI's own
 contract is another lane's call.
+## the-re-place-judged-in-the-wrong-timebase
+
+**The rule:** A SOURCE span is counted in the MEDIA's frames and a RECORD span in
+the TIMELINE's, and a write is judged in the timebase it lands in. The AXI's
+re-place verifies the source range and the record frame EXACTLY, and the derived
+record SPAN against the source span converted between the two rates.
+`library/tools/resolve_axi_core_commands.py` owns the conversion
+(`_placement_timebase`, `_record_frames_for_source`).
+
+**What happened.** Measured on 2026-10-21, on the product-format scratch copy
+(1080x1920 at 23.976) with 24fps media. The SAME 96-frame clip occupies 96 record
+frames on a 24fps timeline and 95 on the 23.976 one - 4.0 seconds of media are
+95.904 frames of a 23.976 timeline, and Resolve truncates. The re-place's
+verification demanded that the record span EQUAL the source span, so a trim whose
+media rate differs from its timeline's could never verify: the AXI reported "the
+re-place returned an item that did not verify at the requested source range and
+record frame", and the restoration of the pre-trim snapshot failed the same way,
+so the operation refused its own success. The read was not stale - it read a
+write that HAD landed, and compared two numbers that are not the same number.
+
+The fifth refusal of the `reel.opening` qualification was this one, and it was
+read as a read-after-write shape (PR 3028 named it as "the trim's own internal
+re-place read does not see the write yet"). The settle module
+(`library/tools/resolve_write_settle.py`) was already in the path and could not
+help: a predicate that can never be true does not become true by waiting. The
+same 96-frame clip, placed twice, is what proved it: 96 record frames on the
+24fps timeline, 95 on the 23.976 one.
+
+**Where it is.** The conversion is read from the live handles - the timeline's
+`timelineFrameRate` and the media pool item's `FPS` - and a rate that cannot be
+read leaves the old reading (the source span) in place. The record span is the
+only thing that moves: the source range and the record frame are still verified
+exactly, so a placement at the wrong range or the wrong frame is still refused.
+
+**What it does not fix.** The record span of a clip whose MEDIA rate differs from
+its TIMELINE's is still the source span converted - so a trim of a clip on a
+23.976 timeline from 24fps media shortens the record span by a frame per 1000
+media frames, and the ADAPTER's read-back judges the record span the operation
+asked for. A clip with a SPEED (not a frame-rate conversion) is still outside
+this: the re-place does not carry a speed, and the operation refuses it rather
+than claiming a retime it did not make. And the operation still refuses on a reel
+whose opening row carries a Fusion composition: the replacement path cannot carry
+one, and that refusal is a PRESERVATION requirement, not a bug - the
+`reel.opening` row says so in its preservation limits.

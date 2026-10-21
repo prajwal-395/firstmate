@@ -5235,6 +5235,60 @@ def cmd_edit_place(args) -> int:
         return 0
 
 
+def _placement_timebase(timeline, pool_item) -> tuple[float, float]:
+    """The timeline's frame rate and the media's, as the numbers they are.
+
+    A SOURCE span is counted in the media's frames and a RECORD span in
+    the timeline's, so the two are the same number only when the two
+    rates agree.  Measured 2026-10-21 on the product-format scratch
+    (1080x1920 at 23.976) with 24fps media: the SAME 96-frame clip
+    occupies 96 record frames on a 24fps timeline and 95 on the 23.976
+    one, and a 73-frame trim of it occupies 72.
+
+    A rate that cannot be read is 0.0, and a rate of 0.0 leaves the
+    record span equal to the source span - the old reading, which is
+    right whenever the two rates agree.
+    """
+    timeline_fps = 0.0
+    try:
+        timeline_fps = float(timeline.GetSetting("timelineFrameRate") or 0)
+    except Exception:  # noqa: BLE001 - an unread rate is not a rate
+        timeline_fps = 0.0
+    media_fps = 0.0
+    try:
+        media_fps = float(pool_item.GetClipProperty("FPS") or 0)
+    except Exception:  # noqa: BLE001 - an unread rate is not a rate
+        media_fps = 0.0
+    return timeline_fps, media_fps
+
+
+def _record_frames_for_source(source_frames: int, *, timeline_fps: float,
+                              media_fps: float) -> int:
+    """The record frames a source span occupies on this timeline.
+
+    Resolve converts the media's frames into the timeline's rate and
+    TRUNCATES the result: 96 media frames at 24fps are 4.0 seconds,
+    which is 95.904 frames on a 23.976 timeline, and the clip occupies
+    95 of them.
+
+    Judging a re-place by the EQUALITY of the two spans therefore
+    refuses a write that landed: on the product format a trim's
+    re-place "returned an item that did not verify at the requested
+    source range and record frame", and the restoration of the pre-trim
+    snapshot could not be proven either (measured 2026-10-21, the live
+    reel.opening qualification).  The source range and the record frame
+    are still verified exactly; only the derived record SPAN is read in
+    the timeline's timebase.
+    """
+    try:
+        frames = int(source_frames)
+    except (TypeError, ValueError):
+        return 0
+    if not timeline_fps or not media_fps or media_fps <= 0:
+        return frames
+    return int(frames * (float(timeline_fps) / float(media_fps)))
+
+
 def _replace_item(timeline, pool, orig, source_in: int,
                   source_out: int, record_frame: int,
                   track_index: int | None, media_type: int,
@@ -5270,6 +5324,12 @@ def _replace_item(timeline, pool, orig, source_in: int,
                 preservation_state, pool_item)
         except edit_state_preservation.StatePreservationError as exc:
             return None, f"{exc} - nothing was changed."
+    # The record span the re-placed item will occupy: the source span
+    # converted from the media's frame rate into the timeline's.
+    timeline_fps, media_fps = _placement_timebase(timeline, pool_item)
+    expected_record_frames = _record_frames_for_source(
+        int(source_out) - int(source_in) + 1, timeline_fps=timeline_fps,
+        media_fps=media_fps)
     # Measured against live Resolve 21.0.0b.28: AppendToTimeline's
     # endFrame is exclusive. For [4, 60] inclusive, endFrame=61 yields
     # 57 record frames; GetSourceEndFrame on that new item returns 61.
@@ -5315,7 +5375,7 @@ def _replace_item(timeline, pool, orig, source_in: int,
             return (bool(span["uid"])
                     and int(span["record_in"]) == int(record_frame)
                     and int(span["record_out"]) - int(span["record_in"])
-                    == int(source_out) - int(source_in) + 1)
+                    == expected_record_frames)
         except (TypeError, ValueError):
             return False
 
@@ -5355,7 +5415,7 @@ def _replace_item(timeline, pool, orig, source_in: int,
                 bool(readback["uid"])
                 and int(readback["record_in"]) == int(record_frame)
                 and int(readback["record_out"]) - int(readback["record_in"])
-                == int(source_out) - int(source_in) + 1
+                == expected_record_frames
                 and int(readback["source_in"]) == int(source_in)
                 # Live Resolve reports the exclusive endpoint for appended
                 # subranges, but clamps an endpoint at the media's final

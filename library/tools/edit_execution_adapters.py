@@ -350,7 +350,12 @@ def _verified_command(context, command: list[str], operation: dict,
         "target_identity": {
             **target_identity,
         },
-        "readback": {"snapshot": after, "command_output": result.stdout},
+        "readback": {"snapshot": after, "command_output": result.stdout,
+                     # Which id the target BECAME, when the write
+                     # re-placed it (a trim does): the caller that
+                     # aggregates several writes reads the target's new
+                     # identity from here instead of guessing it.
+                     "id_map": dict(id_map or {})},
         "acceptance_contracts": [acceptance],
         "preservation": preservation,
         "execution_contract": {
@@ -1814,7 +1819,8 @@ def _compensate_opening_edits(context, sub_receipts: list) -> dict:
 
 
 def _opening_preserved(before: Mapping, live: Mapping,
-                       ordered: list) -> bool:
+                       ordered: list, *, id_map: Mapping | None = None
+                       ) -> bool:
     """Whether every retained clip kept what the edits did not decide.
 
     Removed clips must be exactly the decided delete list and nothing
@@ -1824,6 +1830,12 @@ def _opening_preserved(before: Mapping, live: Mapping,
     opening-span read-back instead. A linked companion the executor
     moved without a decided edit fails here: that is collateral, not
     sync.
+
+    A trim RE-PLACES its target: the trimmed clip is a new item with a
+    new unique id and the original is gone. `id_map` says which id the
+    target became, so the re-placed clip is read as the SAME target
+    (measured 2026-10-21, the live reel.opening qualification: the
+    trim landed and the opening's own read-back could not see it).
     """
     def rows(snapshot: Mapping) -> dict:
         return {str(clip["unique_id"]): clip
@@ -1835,9 +1847,14 @@ def _opening_preserved(before: Mapping, live: Mapping,
               "speed", "name", "track_type", "track_index")
     target_stable = ("source_file", "transform", "enabled", "speed",
                      "name")
+    replaced = {str(old): str(new)
+                for old, new in (id_map or {}).items()}
     old, new = rows(before), rows(live)
     removed = {str(edit["unique_id"]) for edit in ordered
                if str(edit.get("op")) == "clip.remove"}
+    # A re-placed target's ORIGINAL id is gone, and its new id is not
+    # a clip that appeared: the two are the same editorial moment.
+    removed |= set(replaced)
     ripple_rows = {}
     for clip in old.values():
         if any(str(edit.get("op")) == "clip.remove"
@@ -1850,13 +1867,16 @@ def _opening_preserved(before: Mapping, live: Mapping,
                if edit.get("unique_id")}
     if {uid for uid in old if uid not in new} != removed:
         return False
-    if any(uid not in old for uid in new):
+    if any(uid not in old and uid not in set(replaced.values())
+           for uid in new):
         return False
     for uid, clip in old.items():
-        if uid in removed:
+        if uid in removed and uid not in replaced:
             continue
-        kept = new[uid]
-        keys = target_stable if uid in targets else stable
+        kept = new.get(replaced.get(uid, uid))
+        if kept is None:
+            return False
+        keys = target_stable if (uid in targets or uid in replaced) else stable
         row = (int(clip["track_index"]), str(clip["track_type"]))
         if row in ripple_rows and int(clip["record_in"]) > ripple_rows[row]:
             # The clip.remove executor's continuity acceptance proves
@@ -1952,14 +1972,32 @@ def _reel_opening(context) -> dict:
             live = resolve_axi_core.read_live_timeline(
                 context.request.project, context.request.timeline)
 
+        # Which id each edit's target BECAME: a trim re-places its
+        # target, so the id the operation named is gone afterwards.
+        id_map: dict[str, str] = {}
+        for receipt in sub_receipts:
+            id_map.update(
+                (receipt.get("readback") or {}).get("id_map") or {})
+        remapped_edits = [
+            {**edit, "unique_id": id_map.get(str(edit.get("unique_id")),
+                                              edit.get("unique_id"))}
+            for edit in ordered]
+        anchor_live_id = id_map.get(anchor_id, anchor_id)
+
         opening_ok = edit_algebra.get("reel.opening").verify(
-            {**operation, "edits": ordered}, live) is None
+            {**operation, "edits": remapped_edits}, live) is None
         anchor_before = [clip for track in before["tracks"]
                          for clip in track["clips"]
                          if str(clip["unique_id"]) == anchor_id]
+        # A trim RE-PLACES the clip it tightens: the trimmed clip is a
+        # new item with a new unique id and the original is gone. The
+        # opening's own read-back therefore follows the anchor to the
+        # id it became (measured 2026-10-21, the live reel.opening
+        # qualification: the trim landed and the opening read the
+        # anchor as missing).
         anchor_live = [clip for track in live["tracks"]
                        for clip in track["clips"]
-                       if str(clip["unique_id"]) == anchor_id]
+                       if str(clip["unique_id"]) == anchor_live_id]
         evidence = {
             "target_identity": (
                 len(anchor_before) == 1 and len(anchor_live) == 1
@@ -1967,7 +2005,7 @@ def _reel_opening(context) -> dict:
                 == anchor_live[0].get("source_file")),
             "requested_opening_span": opening_ok,
             "approved_edits_preserved": _opening_preserved(
-                before, live, ordered),
+                before, live, ordered, id_map=id_map),
             "unrelated_items_unchanged": not unrelated_clip_changes(
                 operations=([{**operation, "unique_id": anchor_id}]
                             + [{"unique_id": edit["unique_id"]}
@@ -1975,7 +2013,7 @@ def _reel_opening(context) -> dict:
                                if edit.get("unique_id")]),
                 affected_spans=[tuple(span)
                                 for span in compiled.affected_spans],
-                id_map=None, before=before, after=live),
+                id_map=id_map, before=before, after=live),
         }
         preservation = _preservation_verdict(
             context, ordered, before, live,

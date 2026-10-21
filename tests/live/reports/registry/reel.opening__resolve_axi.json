@@ -1,0 +1,265 @@
+{
+  "actual_state": {
+    "backend": "resolve_axi",
+    "opening_clip_record_in": 0,
+    "opening_clip_record_out": 72,
+    "receipt_status": "committed",
+    "source_in": 0,
+    "source_out": 72,
+    "undo_journal_entry": "20261021T061748Z-ren-scratch-axi010-opening-run-021237-bdb6c5"
+  },
+  "audio_verification": [
+    "the audio rows read back unchanged: the trim moved picture frames and no audio row"
+  ],
+  "backend": "resolve_axi",
+  "coverage": {
+    "configurations": [
+      "ren_owned_scratch_opening_1080x1920_23.976"
+    ],
+    "dimensions": {
+      "clip_composition": [
+        "none"
+      ],
+      "existing_effects": [
+        "none"
+      ],
+      "frame_rate": [
+        "23.976"
+      ],
+      "linked_audio_configuration": [
+        "no_linked_audio"
+      ],
+      "media_type": [
+        "none"
+      ],
+      "project_settings": [
+        "portrait_1080x1920"
+      ],
+      "resolve_version": [
+        "21.1.0.14"
+      ],
+      "timeline_density": [
+        "light"
+      ],
+      "timeline_structure": [
+        "multi_item_timeline"
+      ],
+      "track_layout": [
+        "video+audio"
+      ],
+      "track_occupancy": [
+        "mixed"
+      ]
+    },
+    "source": "measured",
+    "uncovered": {
+      "clip_composition": [
+        "single_video_clip",
+        "linked_video_clip",
+        "still_clip",
+        "audio_clip",
+        "linked_audio_clip",
+        "unknown_item",
+        "mixed"
+      ],
+      "existing_effects": [
+        "fusion",
+        "grades",
+        "grades+fusion",
+        "grades+retiming",
+        "grades+retiming+fusion",
+        "retiming",
+        "retiming+fusion",
+        "transforms",
+        "transforms+fusion",
+        "transforms+grades",
+        "transforms+grades+fusion",
+        "transforms+grades+retiming",
+        "transforms+grades+retiming+fusion",
+        "transforms+retiming",
+        "transforms+retiming+fusion",
+        "transitions",
+        "transitions+fusion",
+        "transitions+grades",
+        "transitions+grades+fusion",
+        "transitions+grades+retiming",
+        "transitions+grades+retiming+fusion",
+        "transitions+retiming",
+        "transitions+retiming+fusion",
+        "transitions+transforms",
+        "transitions+transforms+fusion",
+        "transitions+transforms+grades",
+        "transitions+transforms+grades+fusion",
+        "transitions+transforms+grades+retiming",
+        "transitions+transforms+grades+retiming+fusion",
+        "transitions+transforms+retiming",
+        "transitions+transforms+retiming+fusion"
+      ],
+      "frame_rate": [
+        "other",
+        "24",
+        "25",
+        "29.97",
+        "30",
+        "48",
+        "50",
+        "59.94",
+        "60"
+      ],
+      "linked_audio_configuration": [
+        "linked_audio_present"
+      ],
+      "media_type": [
+        "video",
+        "audio",
+        "still",
+        "mixed",
+        "unknown"
+      ],
+      "project_settings": [
+        "unknown",
+        "square_1920x1920",
+        "landscape_1280x720",
+        "landscape_1920x1080",
+        "landscape_2560x1440",
+        "landscape_3840x2160",
+        "portrait_2160x3840"
+      ],
+      "timeline_density": [
+        "empty",
+        "moderate",
+        "dense"
+      ],
+      "timeline_structure": [
+        "empty_timeline",
+        "single_item_timeline"
+      ],
+      "track_layout": [
+        "none",
+        "video",
+        "audio"
+      ],
+      "track_occupancy": [
+        "all_empty",
+        "all_populated"
+      ]
+    }
+  },
+  "environment": {
+    "platform": "darwin",
+    "resolve_version": "21.1.0.14"
+  },
+  "evidence": "tests/live/reports/opening-qualification/opening-evidence.json#the live reel.opening run on the Ren-owned scratch copy Ren Scratch - axi010-opening / Ren Scratch - axi010-opening run 021237 (1080x1920 at 23.976, the product's delivery format): the decided opening tighten committed, the trimmed clip read back at its declared span, every other item unchanged, and the undo journal entry written",
+  "expected_state": {
+    "every_other_item_unchanged": true,
+    "opening_clip_record_in": 0,
+    "opening_clip_record_out": 72
+  },
+  "operation_id": "reel.opening",
+  "preservation_checks": [
+    {
+      "check": "target_identity",
+      "result": "passed"
+    },
+    {
+      "check": "requested_opening_span",
+      "result": "passed"
+    },
+    {
+      "check": "approved_edits_preserved",
+      "result": "passed"
+    },
+    {
+      "check": "unrelated_items_unchanged",
+      "result": "passed"
+    }
+  ],
+  "preservation_limits": [
+    "one opening clip, trimmed at the frame the decision named",
+    "every other item on the timeline keeps its identity, its source span and its record span",
+    "the evidence is ONE live run on a Ren-owned scratch copy; it does not qualify a reel that carries a Fusion composition on the row the trim touches (the replacement path cannot carry one, and the operation refuses it there)"
+  ],
+  "project_conditions": [
+    "Ren Scratch - axi010-opening / Ren Scratch - axi010-opening run 021237",
+    "a Ren-owned scratch copy in the product's delivery format (1080x1920 at 23.976), seeded with the run's own media and the shot that follows the opening",
+    "the request named the brief the decision was made from, and the trim point the decision named"
+  ],
+  "qualification_predicates": [
+    {
+      "field": "clip_composition",
+      "operator": "equals",
+      "value": "none"
+    },
+    {
+      "field": "existing_effects",
+      "operator": "equals",
+      "value": "none"
+    },
+    {
+      "field": "frame_rate",
+      "operator": "equals",
+      "value": "23.976"
+    },
+    {
+      "field": "linked_audio_configuration",
+      "operator": "equals",
+      "value": "no_linked_audio"
+    },
+    {
+      "field": "media_type",
+      "operator": "equals",
+      "value": "none"
+    },
+    {
+      "field": "project_settings",
+      "operator": "equals",
+      "value": "portrait_1080x1920"
+    },
+    {
+      "field": "resolve_version",
+      "operator": "equals",
+      "value": "21.1.0.14"
+    },
+    {
+      "field": "timeline_density",
+      "operator": "equals",
+      "value": "light"
+    },
+    {
+      "field": "timeline_structure",
+      "operator": "equals",
+      "value": "multi_item_timeline"
+    },
+    {
+      "field": "track_layout",
+      "operator": "equals",
+      "value": "video+audio"
+    },
+    {
+      "field": "track_occupancy",
+      "operator": "equals",
+      "value": "mixed"
+    }
+  ],
+  "recovery_status": "passed",
+  "resolve_version": "21.1.0.14",
+  "result": "passed",
+  "schema": "ren-axi-qualification-result/v2",
+  "semantic_boundary": {
+    "applies_to": [
+      "tightening a reel's opening through the edits the model decided from the written brief and the reel's own words: a trim of the opening clip at the frame the decision named",
+      "a timeline that holds the opening clip on a video row and nothing else the decision touches"
+    ],
+    "does_not_apply_to": [
+      "a decided edit that removes a clip: `clip.remove` was not exercised by this run",
+      "a timeline whose frame rate, geometry, track layout, linked audio or existing effects are outside coverage.dimensions",
+      "the EDITORIAL choice of the opening: the operation carries out the edits a model decided from evidence, and no rule here picks the opening"
+    ]
+  },
+  "supported_media_types": [
+    "video"
+  ],
+  "visual_verification": [
+    "the opening clip reads back at record 0..72 with the source window the trim named, read from a fresh live timeline"
+  ]
+}

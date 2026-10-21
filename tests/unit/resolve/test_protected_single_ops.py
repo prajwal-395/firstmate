@@ -150,6 +150,12 @@ QUALIFIED_BY_THE_LIVE_LANE = {
                      "dense, linked video+audio, caption cards)",
     "clip.replace": "the product-format qualification of the EditPatch "
                     "source replacement on a real reel",
+    "reel.opening": "the live reel.opening qualification on a Ren-owned "
+                    "scratch copy in the product's delivery format "
+                    "(portrait 1080x1920, 23.976fps): the decided "
+                    "opening tighten committed, the trimmed clip read "
+                    "back at its declared span, every other item "
+                    "unchanged",
 }
 
 
