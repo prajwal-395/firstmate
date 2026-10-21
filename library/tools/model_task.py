@@ -46,6 +46,7 @@ from library.tools import (
     llm_handshake,
     perf_ledger,
     pipeline_skills,
+    token_measure,
     undetermined,
 )
 from library.tools.pipeline_logger import get_logger, step_timer
@@ -360,7 +361,19 @@ def run_model_task(task: ModelTask, inputs: dict, full_auto: str | None = None,
 def _run(key: str, task: ModelTask, inputs: dict, full_auto, llm_timeout,
          bridge_supplied, retry_feedback) -> dict:
     full_auto = normalize_full_auto(full_auto)
-    raw_input_tokens = len(str(inputs).split()) * 1.3
+    # The RAW figure is what the step's inputs look like BEFORE the
+    # projection.  It exists for one reason - to say how much the
+    # projection saved - and it is counted with the same NAMED tokenizer
+    # as everything else, so the ratio is a ratio of one unit.
+    #
+    # It used to be `len(str(inputs).split()) * 1.3`, a word count scaled
+    # by a guess.  The LLM context audit measured that figure to be wrong
+    # by 0.3x to 9.9x in both directions on 001's own archive, and the
+    # request it was used to PRICE carried the unprojected inputs on top
+    # of the prompt: `speech_sequence` logged 246,252 tokens for a
+    # request that was 63,598 bytes.  The price now comes from the text
+    # that was filed, counted by a tokenizer - see `_answer_by_handshake`.
+    raw_measure = token_measure.measure_text(str(inputs))
 
     # Clause 5 of the reference rule: a harness that cannot follow a path
     # gets the document whole.  `gather_step_inputs` reads the brief and
@@ -395,15 +408,17 @@ def _run(key: str, task: ModelTask, inputs: dict, full_auto, llm_timeout,
     # For hybrid steps, inputs may not be projected yet. Project them now if needed.
     inputs = project_context(inputs, task.context_fields, bridge_supplied)
 
-    projected_input_tokens = len(str(inputs).split()) * 1.3
+    projected_measure = token_measure.measure_text(str(inputs))
 
     prompt_additions = inputs.pop("__prompt_additions", {})
 
     from library.tools.toon_serializer import json_to_toon
     toon_str = json_to_toon(inputs)
 
-    toon_input_tokens = len(toon_str.split()) * 1.3
-    reduction_pct = 100 * (1 - (toon_input_tokens / raw_input_tokens)) if raw_input_tokens > 0 else 0
+    toon_measure = token_measure.measure_text(toon_str)
+    raw_value = token_measure.comparable(raw_measure)
+    toon_value = token_measure.comparable(toon_measure)
+    reduction_pct = 100 * (1 - (toon_value / raw_value)) if raw_value > 0 else 0
 
     logger = get_logger()
     if logger:
@@ -411,10 +426,14 @@ def _run(key: str, task: ModelTask, inputs: dict, full_auto, llm_timeout,
             step_id=key,
             event_type="llm_token_stats",
             token_count={
-                "raw": int(raw_input_tokens),
-                "projected": int(projected_input_tokens),
-                "toon": int(toon_input_tokens),
-                "reduction_pct": round(reduction_pct, 1)
+                "raw": raw_value,
+                "projected": token_measure.comparable(projected_measure),
+                "toon": toon_value,
+                "reduction_pct": round(reduction_pct, 1),
+                # What the numbers above ARE.  A count without its unit
+                # is the defect this replaced.
+                "unit": "tokens" if raw_measure["tokens"] is not None else "bytes",
+                "tokenizer": raw_measure["tokenizer"] or token_measure.BYTES,
             }
         )
 
@@ -684,7 +703,7 @@ def _run(key: str, task: ModelTask, inputs: dict, full_auto, llm_timeout,
         elif full_auto == "agent":
             parsed_result = _answer_by_handshake(
                 key, project_folder, prompt, constraints, current_context,
-                expected_schema_str, llm_timeout, raw_input_tokens, logger)
+                expected_schema_str, llm_timeout, logger)
 
         if full_auto == "api":
             # API calls are out of scope: Ren answers LLM steps through
@@ -737,7 +756,7 @@ def _interview_asked(task: ModelTask, brief_attached: bool) -> bool:
 
 def _answer_by_handshake(key, project_folder, prompt, constraints,
                          current_context, expected_schema_str, llm_timeout,
-                         raw_input_tokens, logger) -> dict:
+                         logger) -> dict:
     """File the request, wait for the host's answer, return it parsed.
 
     The handshake contract - the request's shape, what a valid response
@@ -780,6 +799,24 @@ def _answer_by_handshake(key, project_folder, prompt, constraints,
 
     llm_handshake.publish_request(req_file, res_file, req_data)
 
+    # WHAT THIS REQUEST COST, counted from the text that was FILED.
+    #
+    # This is the figure that was wrong twice.  It used to be
+    # `len(str(inputs).split()) * 1.3` over the UNPROJECTED input
+    # dictionary, plus `len(prompt.split()) * 1.3` - so it counted
+    # material the request does not carry, in a unit that is not a token.
+    # On project 001 it logged 246,252 tokens for a request that was
+    # 63,598 bytes: a 16x over-statement, in the opposite direction from
+    # the word-count's own 0.3x-0.55x under-statement, so the two errors
+    # did not cancel and no two planning variants could be ranked.
+    #
+    # Now the count is the FILED text - the prompt the host reads and
+    # the context it reads with it - measured by a NAMED tokenizer, and
+    # the exact byte count travels beside it so the figure is comparable
+    # even where no tokenizer is installed.
+    filed_input = token_measure.measure_text(
+        (req_data["prompt"] or "") + (req_data["context"] or ""))
+
     print(f"{llm_handshake.READY_MARKER}: {req_file}", file=sys.stdout)
     sys.stdout.flush()
 
@@ -812,23 +849,36 @@ def _answer_by_handshake(key, project_folder, prompt, constraints,
                     f"the request's expected_schema to {res_file}, "
                     f"then the run picks it up on retry")
 
-            # The host model's wait, priced. Tokens are the same
-            # word-count estimate the run log carries, and say so.
+            # The answer's own size, in the same unit and by the same
+            # tokenizer as the question's.
+            output_measure = token_measure.measure_text(res_content)
+
+            # The host model's wait, priced.  The price is the count of
+            # the text that was filed, under the tokenizer that counted
+            # it, and it says which tokenizer that was.
             perf_ledger.record(
                 "host_model", _agent_clock() - start_time_llm,
-                backend="agent", calls=1, tokens_estimated=True,
-                input_tokens=int(raw_input_tokens + len(prompt.split()) * 1.3),
-                output_tokens=int(len(res_content.split()) * 1.3))
+                backend="agent", calls=1, tokens_estimated=False,
+                input_tokens=filed_input["tokens"],
+                output_tokens=output_measure["tokens"],
+                input_bytes=filed_input["bytes"],
+                output_bytes=output_measure["bytes"],
+                tokenizer=filed_input["tokenizer"])
             if logger:
-                response_tokens = len(res_content.split()) * 1.3
                 logger.log(
                     step_id=key,
                     event_type="llm_generation",
                     backend="agent",
                     latency=round(_agent_clock() - start_time_llm, 2),
                     token_count={
-                        "prompt": int(raw_input_tokens + len(prompt.split()) * 1.3),
-                        "response": int(response_tokens)
+                        "prompt": filed_input["tokens"],
+                        "response": output_measure["tokens"],
+                        "prompt_bytes": filed_input["bytes"],
+                        "response_bytes": output_measure["bytes"],
+                        "unit": ("tokens" if filed_input["tokens"] is not None
+                                 else "bytes"),
+                        "tokenizer": (filed_input["tokenizer"]
+                                      or token_measure.BYTES),
                     }
                 )
             return parsed_result

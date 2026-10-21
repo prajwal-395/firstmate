@@ -8,9 +8,18 @@ The table is a measured subtotal; five steps and the separate per-reel request
 path are listed as gaps rather than estimated.
 
 **Every count names its tokenizer.** `o200k_base`, via `tiktoken`, is the
-stated proxy in `library/tools/replay_bench/tokens.py`; Claude's tokenizer is
-not public. `utf8_bytes` is exact. Do not quote the pipeline's own
-`llm_token_stats`: it is `len(s.split()) * 1.3`, not a tokenizer.
+stated proxy in `library/tools/token_measure.py`; Claude's tokenizer is
+not public. `utf8_bytes` is exact. The counting lives in ONE module,
+`library/tools/token_measure.py`, which the engine and the replay bench
+both use - so the pipeline's own figure and this bench's figure are the
+same measurement of the same text.
+
+**The pipeline's own figures changed on 2026-10-21.** They used to be
+`len(s.split()) * 1.3` over the UNPROJECTED input dictionary plus the
+prompt, which is not a token count and did not describe the request that
+was filed. They are now the count of the text that was FILED, with the
+tokenizer named beside them, and the exact byte count beside that. The
+before/after is in the table at the end of this document.
 
 ## Current remeasurement (2026-10-04)
 
@@ -376,3 +385,49 @@ is a symlink to the source project's, so a bridge that writes a
 referenced document (3.02, 3.04, 4.04) writes it there during a replay.
 Not fixed here. Fixed 2026-10-01: a replay runs in a throwaway clone
 (`replay_bench.snapshot.isolated_project`, docs/STEP_REPLAY_BENCH.md).
+
+---
+
+## The engine's own counter, before and after (2026-10-21)
+
+The figures above are the bench's. The pipeline also writes a figure of
+its own - the `llm_generation` event and the perf ledger's `host_model`
+row - and until 2026-10-21 that figure was wrong twice: it counted the
+UNPROJECTED input dictionary and then added the prompt on top, and it
+scaled a word count by 1.3. The two errors point in opposite directions
+and do not cancel, so no two planning variants could be ranked.
+
+Measured on the frozen 001 snapshot (`vep-cost-audit-20261004-001`), on
+the requests the engine really filed - OLD is what it logged for that
+call, NEW is what it records now:
+
+| step | OLD logged | filed bytes | NEW (`o200k_base`) | OLD / NEW |
+|---|---:|---:|---:|---:|
+| creative_direction | 9,148 | 42,290 | 12,107 | 0.8x |
+| mesh_spine | 249,501 | 36,704 | 10,293 | 24.2x |
+| music_selection | 5,406 | 27,721 | 7,058 | 0.8x |
+| plan_sfx | 256,201 | 69,896 | 19,126 | 13.4x |
+| plan_transitions | 255,134 | 67,461 | 18,049 | 14.1x |
+| plan_vfx | 33,399 | 60,120 | 16,333 | 2.0x |
+| render | 9,262 | 41,413 | 13,954 | 0.7x |
+| review_rough_cut | 231,011 | 55,072 | 15,160 | 15.2x |
+| select_broll | 252,878 | 69,576 | 20,197 | 12.5x |
+| speech_sequence | 246,252 | 60,470 | 17,721 | 13.9x |
+
+Read the OLD column both ways: it over-stated the big planning steps by
+12x to 24x, and UNDER-stated the small ones by about a fifth. A ranking
+built on it was not a ranking.
+
+Reproduce it (the snapshot is a COPY; nothing in a live project is
+touched):
+
+```sh
+cp -R ~/.video_editing_pilot/replay_snapshots/vep-cost-audit-20261004-001 /tmp/store/
+python3 -m library.tools.replay_bench --store /tmp/store \
+    replay vep-cost-audit-20261004-001 creative_direction --rev WORKTREE --json
+```
+
+The reconstruction is unchanged by the counter fix - `creative_direction`
+still rebuilds to 39,492 context bytes and `speech_sequence` to 71,162,
+the same figures the scout measured at HEAD - so the fix prices the same
+request and changes nothing about what is asked.

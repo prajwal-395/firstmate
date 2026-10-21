@@ -32,7 +32,8 @@ from library.tools import perf_ledger
 
 #: The cost dimensions a profile reports. A dimension no row measured
 #: stays `None` and is named in `dimensions_unmeasured`.
-COST_DIMENSIONS = ("wall_s", "cpu_s", "model_tokens", "agent_bytes", "usd")
+COST_DIMENSIONS = ("wall_s", "cpu_s", "model_tokens", "model_bytes",
+                   "agent_bytes", "usd")
 
 #: Memory pressure readings, worst last. The label comes from a measured
 #: percentage (the row keeps the raw number too), so a reader can
@@ -326,9 +327,12 @@ def _run_cost(rows: list[dict[str, Any]],
     wall = sum(float(c.get("wall_s") or 0.0) for c in capabilities)
     cpu = sum(float(c.get("cpu_s") or 0.0) for c in capabilities)
     tokens = 0
+    model_bytes = 0
     for s in spans:
         tokens += int(s.get("input_tokens") or 0)
         tokens += int(s.get("output_tokens") or 0)
+        model_bytes += int(s.get("input_bytes") or 0)
+        model_bytes += int(s.get("output_bytes") or 0)
     agent_bytes = 0
     usd = 0.0
     saw_usd = False
@@ -343,6 +347,7 @@ def _run_cost(rows: list[dict[str, Any]],
         "wall_s": round(wall, 3),
         "cpu_s": round(cpu, 3),
         "model_tokens": tokens,
+        "model_bytes": model_bytes,
         "agent_bytes": agent_bytes,
         "usd": round(usd, 4) if saw_usd else None,
     }
@@ -359,9 +364,9 @@ def cost_per_verified_decision(rows: list[dict[str, Any]],
     never graded does not count.
 
     The cost is a VECTOR, not a token count: wall seconds, CPU
-    seconds, model tokens, agent bytes and money where a row priced it.
-    A dimension no row measured is `None` and is named in
-    `dimensions_unmeasured` - it is never a zero, because "nobody
+    seconds, model tokens, model bytes, agent bytes and money where a
+    row priced it.  A dimension no row measured is `None` and is named
+    in `dimensions_unmeasured` - it is never a zero, because "nobody
     measured the money" and "the money was nothing" are different
     facts.
     """

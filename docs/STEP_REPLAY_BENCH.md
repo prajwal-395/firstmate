@@ -146,14 +146,21 @@ Measured from the reconstructed string, with the tokenizer named.
   an API key. When `tiktoken` is absent the count is absent - the bench
   does not print an estimate under a real tokenizer's name.
 
-**Never use the pipeline's own token figures.** `present_llm_step` records
-`len(s.split()) * 1.3` under the key `token_count`, and that is the only
-place the pipeline writes one. Measured on 001's own contexts at HEAD, it
-is 0.38x to 0.54x the `o200k_base` count; the context audit measured the
-full range at 0.3x to 9.9x, in both directions. `tokens.pipeline_heuristic`
-reproduces it deliberately so a report can show the two side by side, and
-it is unreachable through `count()` or `measure()` because those name a
-tokenizer and it names none.
+**Never use a count that does not name its tokenizer.** The pipeline used
+to record `len(s.split()) * 1.3` under the key `token_count`, and to
+price a request with the UNPROJECTED input dictionary plus the prompt.
+Measured on 001's own contexts at HEAD, that figure is 0.38x to 0.54x the
+`o200k_base` count; the context audit measured the full range at 0.3x to
+9.9x, in both directions, and the request it priced carried 16x the
+material it filed.
+
+**That figure is gone (2026-10-21).** The engine now counts the text it
+FILES, with a named tokenizer, through `library/tools/token_measure.py` -
+the same module this bench measures with, so the two can be compared
+instead of merely coexisting. `tokens.pipeline_heuristic` still
+reproduces the OLD figure, deliberately, so a report can show the gap
+that was closed; it is unreachable through `count()` or `measure()`
+because those name a tokenizer and it names none.
 
 ## The gate: reconstruct the past before comparing futures
 

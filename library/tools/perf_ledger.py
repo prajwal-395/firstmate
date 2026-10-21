@@ -1128,6 +1128,7 @@ def profile(rows: list[dict[str, Any]], run_id: str) -> dict[str, Any]:
         return buckets.setdefault(name, {"wall_s": 0.0, "cpu_s": 0.0,
                                          "calls": 0, "input_tokens": 0,
                                          "output_tokens": 0,
+                                         "input_bytes": 0, "output_bytes": 0,
                                          "subprocesses": 0})
 
     def intervals_of(s: dict[str, Any]) -> list[tuple]:
@@ -1140,7 +1141,8 @@ def profile(rows: list[dict[str, Any]], run_id: str) -> dict[str, Any]:
         layer, cap = str(s.get("layer")), str(s.get("capability"))
         b = bucket(layer)
         b["cpu_s"] += float(s.get("cpu_s") or 0.0)
-        for key in ("calls", "input_tokens", "output_tokens", "subprocesses"):
+        for key in ("calls", "input_tokens", "output_tokens", "subprocesses",
+                    "input_bytes", "output_bytes"):
             b[key] += int(s.get(key) or 0)
         by_cap_layer.setdefault((cap, layer), []).extend(intervals_of(s))
         by_cap.setdefault(cap, []).extend(intervals_of(s))
@@ -1452,13 +1454,15 @@ def render(report: dict[str, Any]) -> str:
     out.append("")
     out.append(f"{'layer / capability':<40} {'wall s':>9} {'%':>6} "
                f"{'cpu s':>8} {'calls':>6} {'procs':>6} {'tok in':>8} "
-               f"{'tok out':>8}")
+               f"{'tok out':>8} {'bytes in':>10} {'bytes out':>10}")
     for line in report["lines"]:
         out.append(f"{line['name'][:40]:<40} {line['wall_s']:>9.1f} "
                    f"{line['pct']:>6.1f} {line['cpu_s']:>8.1f} "
                    f"{line['calls'] or '':>6} {line['subprocesses'] or '':>6} "
                    f"{line['input_tokens'] or '':>8} "
-               f"{line['output_tokens'] or '':>8}")
+               f"{line['output_tokens'] or '':>8} "
+               f"{line.get('input_bytes') or '':>10} "
+               f"{line.get('output_bytes') or '':>10}")
     if report["capabilities"]:
         out.append("")
         out.append(f"{'capability':<36} {'wall s':>9} {'own s':>9} "
