@@ -12,13 +12,28 @@ from collections.abc import Mapping
 
 
 def _project_folder(context) -> str:
+    """The Ren project FOLDER the request's project names.
+
+    An edit request names the RESOLVE project - that is what the
+    broker's open-project check and the shadow store key on - and the
+    folder the executor needs (the undo journal's own store, the reel
+    proposals) is found through the registry's reverse lookup, the same
+    way the touch-up executor finds it. Reading the request's project as
+    a SLUG instead raised `No project with slug 'Ren Scratch - ...'`
+    for every request that named its Resolve project, so the executors
+    that carry a `--project-folder` could not run at all.
+    """
     from library.tools import project_registry
 
     project_path = project_registry.resolve_project_path(context.request.project)
-    if project_path is None:
-        project = project_registry.get_project(context.request.project)
-        return str(project.project_root)
-    return str(project_path.parent)
+    if project_path is not None:
+        return str(project_path.parent)
+    folder = project_registry.project_folder_for_resolve_name(
+        context.request.project)
+    if folder:
+        return str(folder)
+    project = project_registry.get_project(context.request.project)
+    return str(project.project_root)
 
 # These operations can change the positional address of a later item. Until
 # this adapter has a fresh live read-back after each command, a subsequent
@@ -49,6 +64,28 @@ def _target_position_for_context(context, unique_id: str) -> tuple[str, int]:
             f"mutation(s) {invalidators}; refresh target identity before "
             "the next mutation")
     return _target_position(context.snapshot, unique_id)
+
+
+def _axi_target_position_for_context(context, unique_id: str) -> tuple[str, int]:
+    """The target's position in the AXI's own track spelling.
+
+    The same staleness guard as the touch-up path, and the AXI's
+    spelling rather than the SOP's: an AXI write verb handed `V1`
+    refuses with "bad track 'V1' - tracks read video1, audio2, ...".
+    """
+    operation_index = int(getattr(context, "operation_index", 0))
+    compiled = getattr(context, "compiled", None)
+    prior = (compiled.operations[:operation_index] if compiled is not None
+             else ())
+    invalidators = [str(operation["op"]) for operation in prior
+                    if str(operation["op"]) in _POSITION_INVALIDATING_OPERATIONS]
+    live_identity_operations = {"clip.delete", "clip.remove"}
+    if invalidators and str(context.operation["op"]) not in live_identity_operations:
+        raise ValueError(
+            "cannot safely reuse a prepared track/index after positional "
+            f"mutation(s) {invalidators}; refresh target identity before "
+            "the next mutation")
+    return _axi_track(context.snapshot, unique_id)
 
 
 def _target_identity_args(context, unique_id: str) -> list[str]:
@@ -84,6 +121,35 @@ def _target_position(snapshot: Mapping, unique_id: str) -> tuple[str, int]:
         raise ValueError(
             f"target {unique_id!r} resolved to {len(hits)} timeline items")
     return hits[0]
+
+
+#: The AXI writes address a track as `video1` / `audio1` / `subtitle1`.
+#: The touch-up path addresses the same row as `V1` / `A1` (the SOP's
+#: label, `library/tools/composed_edit.row_label`), so the two spellings
+#: meet here - and an AXI verb handed the SOP label refuses the write
+#: with "bad track 'V1' - tracks read video1, audio2, ...".
+_AXI_TRACK_KINDS = {"video": "video", "audio": "audio",
+                    "subtitle": "subtitle"}
+
+
+def _axi_track(snapshot: Mapping, unique_id: str) -> tuple[str, int]:
+    """The target's track in the AXI's spelling, and its item index."""
+    hits = []
+    for track in snapshot["tracks"]:
+        for index, clip in enumerate(track["clips"]):
+            if clip["unique_id"] == unique_id:
+                hits.append((str(track.get("type") or ""),
+                             int(track.get("index") or 0), index))
+    if len(hits) != 1:
+        raise ValueError(
+            f"target {unique_id!r} resolved to {len(hits)} timeline items")
+    track_type, track_index, item_index = hits[0]
+    kind = _AXI_TRACK_KINDS.get(track_type.strip().lower())
+    if kind is None:
+        raise ValueError(
+            f"target {unique_id!r} sits on a {track_type!r} row, which the "
+            f"AXI cannot address")
+    return f"{kind}{track_index}", item_index
 
 
 def _preservation_verdict(context, operations, before: Mapping,
@@ -164,26 +230,46 @@ def _verified_command(context, command: list[str], operation: dict,
                        if clip["unique_id"] == target_id), None)
     operation_matches = False
     evidence = {}
-    if operation_id == "clip.trim" and before_clip and after_clip:
+    id_map = None
+    if operation_id == "clip.trim" and before_clip:
         expected_in = int(before_clip["source_in_frame"]) + (
             int(operation["in_frame"]) - int(before_clip["record_in"]))
         expected_out = int(before_clip["source_out_frame"]) - (
             int(before_clip["record_out"]) - int(operation["out_frame"]))
+        # The AXI trims by RE-PLACING the item: the trimmed clip is a
+        # new item with a new unique id and the original is gone. The
+        # read-back therefore finds the target by its IDENTITY - the same
+        # media at the trimmed source range - and says which id the
+        # target became, so a re-placed item is not read as an unrelated
+        # clip that appeared (measured 2026-10-21, the live
+        # reel.opening qualification: the trim landed and the read-back
+        # could not see it).
+        after_clip = next((
+            clip for track in after["tracks"] for clip in track["clips"]
+            if str(clip.get("source_file") or "")
+            == str(before_clip.get("source_file") or "")
+            and int(clip["source_in_frame"]) == expected_in
+            and int(clip["source_out_frame"]) == expected_out), None)
+        if after_clip is not None:
+            id_map = {target_id: str(after_clip["unique_id"])}
         evidence.update({
-            "target_identity": True,
+            "target_identity": after_clip is not None,
             "requested_source_in_out": (
-                int(after_clip["source_in_frame"]) == expected_in
+                after_clip is not None
+                and int(after_clip["source_in_frame"]) == expected_in
                 and int(after_clip["source_out_frame"]) == expected_out),
             "requested_record_span": (
-                int(after_clip["record_in"]) == int(operation["in_frame"])
+                after_clip is not None
+                and int(after_clip["record_in"]) == int(operation["in_frame"])
                 and int(after_clip["record_out"]) == int(operation["out_frame"])),
         })
-        evidence["linked_audio_preserved"] = (
-            _audio_rows_signature(before, exclude_id=target_id)
-            == _audio_rows_signature(after, exclude_id=target_id))
-        evidence["approved_edits_preserved"] = (
-            _approved_state_signature(before_clip)
-            == _approved_state_signature(after_clip))
+        if after_clip is not None:
+            evidence["linked_audio_preserved"] = (
+                _audio_rows_signature(before, exclude_id=target_id)
+                == _audio_rows_signature(after, exclude_id=target_id))
+            evidence["approved_edits_preserved"] = (
+                _approved_state_signature(before_clip)
+                == _approved_state_signature(after_clip))
         operation_matches = all(evidence.values())
     elif operation_id == "clip.delete":
         evidence["target_absent"] = after_clip is None
@@ -201,9 +287,17 @@ def _verified_command(context, command: list[str], operation: dict,
             evidence.get("downstream_continuity_preserved") is True)
     else:
         evidence["unrelated_items_unchanged"] = not _unrelated_changes(
-            before, after, target_id)
+            before, after, target_id, id_map=id_map)
+    preservation_operations = [operation]
+    for new_id in (id_map or {}).values():
+        # The target was RE-PLACED: the trimmed item is a new item and
+        # the old one is gone. The scope has to know that the new id is
+        # the same target, or the re-place reads as a clip that appeared
+        # where none was authorized (measured 2026-10-21, the live
+        # reel.opening qualification).
+        preservation_operations.append({**operation, "unique_id": new_id})
     preservation = _preservation_verdict(
-        context, [operation], before, after)
+        context, preservation_operations, before, after)
     _refuse_collateral(operation_id, preservation)
     acceptance = operation_acceptance.evaluate(
         {**operation, "op": operation_id},
@@ -433,7 +527,7 @@ def _remove_readback_evidence(before: Mapping, after: Mapping,
 def _trim(context) -> dict:
     operation = context.operation
     unique_id = str(operation["unique_id"])
-    row, index = _target_position_for_context(context, unique_id)
+    row, index = _axi_target_position_for_context(context, unique_id)
     clips = context.snapshot["tracks"]
     clip = next(
         clip for track in clips for clip in track["clips"]
@@ -456,7 +550,7 @@ def _trim(context) -> dict:
 
 
 def _delete(context) -> dict:
-    row, index = _target_position_for_context(
+    row, index = _axi_target_position_for_context(
         context, str(context.operation["unique_id"]))
     return _verified_command(context, [
         "edit", "delete", "--track", row, "--index", str(index),
@@ -481,7 +575,7 @@ def _remove(context) -> dict:
         raise ValueError(
             "clip.remove cannot disable gap closure; use clip.delete for "
             "a local deletion")
-    row, index = _target_position_for_context(
+    row, index = _axi_target_position_for_context(
         context, str(context.operation["unique_id"]))
     return _verified_command(context, [
         "edit", "track-ripple-remove", "--track", row, "--index",
@@ -1541,7 +1635,7 @@ def _multicam_select_angle(context) -> dict:
     # Revalidate the exact target before dispatch. The command performs a
     # journaled, place-then-delete replacement and restores the prior
     # timeline snapshot if the new placement cannot be verified.
-    track, index = _target_position_for_context(context, unique_id)
+    track, index = _axi_target_position_for_context(context, unique_id)
     identity_args = _target_identity_args(context, unique_id)
     command = [
         "edit", "switch-camera", "--project", context.request.project,

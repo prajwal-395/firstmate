@@ -16,6 +16,7 @@ import copy
 import datetime as dt
 import json
 import os
+import re
 import shlex
 import sys
 import uuid
@@ -1500,6 +1501,228 @@ def _expected_schema() -> str:
     }, ensure_ascii=False)
 
 
+#: The brief's own words travel in the request context up to this many
+#: bytes. A brief longer than this is REFERENCED instead (its absolute
+#: path and its section map), never truncated: half a brief is a brief
+#: the decision cannot be sourced from.
+BRIEF_TEXT_LIMIT = 24_000
+
+#: A reel number inside a timeline name. The captain's format is
+#: "Reel 13 - topic"; a scratch copy of that reel may be named
+#: "reel13" or "reel-13", so the number is read with the separators
+#: optional. A name with no number in it is not a guess: it is read as
+#: a name that names no recorded reel.
+_REEL_NUMBER_IN_NAME = re.compile(r"reel[\s_.-]*0*(\d+)", re.IGNORECASE)
+
+
+def _reel_number(name) -> int | None:
+    """The reel number a timeline name carries, or None."""
+    match = _REEL_NUMBER_IN_NAME.search(str(name or ""))
+    if not match:
+        return None
+    try:
+        number = int(match.group(1))
+    except ValueError:
+        return None
+    return number if number > 0 else None
+
+
+def _recorded_moment(state: dict, reel: str):
+    """The recorded reel moment the named reel IS, or None.
+
+    The reel is matched by its recorded timeline name first and by its
+    number second, because a project may hold a copy of a reel under
+    another name - "reel13" - and the DECISION still belongs to the reel
+    the copy was made from.
+    """
+    from library.tools import capability_outputs
+
+    selection = capability_outputs.value(state, "reel.select", "reel_selection")
+    moments = (selection or {}).get("moments") or []
+    named = str(reel or "")
+    number = _reel_number(named)
+    candidates = [entry for entry in moments if isinstance(entry, dict)]
+    for entry in candidates:
+        if str(entry.get("timeline_name") or "") == named:
+            return _moment_or_none(entry)
+    if number is not None:
+        for entry in candidates:
+            if entry.get("number") == number:
+                return _moment_or_none(entry)
+    return None
+
+
+def _moment_or_none(entry: dict):
+    """The recorded moment, or None when the record is not a whole one.
+
+    A recorded moment that carries no span is not a moment: reading it
+    raises, and a context that raised would take the whole request with
+    it. An unread moment is skipped, and the request says what it holds.
+    """
+    from library.tools.reel_proposal import ReelMoment
+
+    try:
+        return ReelMoment.from_dict(entry)
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _written_brief(state: dict, project_folder: str) -> tuple[str, dict]:
+    """The brief AS WRITTEN, and where those words came from.
+
+    A request that opens a reel on its strongest moment decides from
+    the brief, and the brief is a DOCUMENT. The project's state names it
+    by path - the attachment reading is the project's own choice, and
+    the path is what the run reads - so the context used to carry the
+    FILE NAME and the decision had nothing to read (measured 2026-10-21:
+    the section-12 demonstration could not ground its opening, because
+    the request carried "only the FILE NAME of the creative brief").
+
+    The brief is read the way the run reads it - a relative declaration
+    against the project folder, an absolute one as given - and only when
+    the project's own attachment reading says it is ATTACHED. A project
+    that declined its brief gets no brief here either, and says why.
+    """
+    attachment = state.get("creative_brief_attachment")
+    attachment = attachment if isinstance(attachment, dict) else {}
+    declared = state.get("creative_brief")
+    declared = declared if isinstance(declared, str) else ""
+    reading = str(attachment.get("reading") or "")
+    path = str(attachment.get("path") or "")
+    basis = str(attachment.get("basis") or "")
+    if not attachment:
+        # No run has recorded the attachment reading yet, so the
+        # project's OWN declaration is read - it is where the reading
+        # comes from, and a project that never ran still declares one.
+        try:
+            from library.tools import brief_attachment
+
+            declaration = brief_attachment.read_declaration(project_folder)
+        except Exception:  # noqa: BLE001 - an unread declaration is absence
+            declaration = None
+        if declaration is not None:
+            reading = str(declaration.reading or "")
+            path = str(declaration.path or "")
+            basis = str(declaration.basis or "")
+    if not path:
+        path = declared
+    reference = {"declared": declared, "path": path, "reading": reading,
+                 "basis": basis, "included": False}
+    if not declared and not path:
+        reference["why_absent"] = (
+            "the project attached no creative brief, so no written brief "
+            "reaches this request; ask the editor for the audience, the "
+            "opening goal and the required spoken content")
+        return "", reference
+    if reading and reading != "attached":
+        reference["why_absent"] = (
+            f"the project's brief attachment reads {reading!r}, so no brief "
+            "is sent; ask the editor for the audience, the opening goal "
+            "and the required spoken content")
+        return "", reference
+    resolved = path
+    if resolved and not os.path.isabs(resolved) and project_folder:
+        resolved = os.path.join(project_folder, resolved)
+    reference["path"] = resolved
+    try:
+        content = Path(resolved).read_text(encoding="utf-8")
+    except OSError as exc:
+        reference["why_absent"] = (
+            f"the declared brief at {resolved!r} could not be read: {exc}")
+        return "", reference
+    if len(content.encode("utf-8")) > BRIEF_TEXT_LIMIT:
+        reference["why_absent"] = (
+            f"the declared brief at {resolved!r} is longer than "
+            f"{BRIEF_TEXT_LIMIT} bytes, so it is REFERENCED rather than "
+            "copied; read it at that path before deciding")
+        return "", reference
+    reference["included"] = True
+    reference["bytes"] = len(content.encode("utf-8"))
+    return content, reference
+
+
+def _reel_words(state: dict, reel: str) -> dict:
+    """The named reel's OWN spoken words, in the order a listener hears them.
+
+    A reel's words are what an opening is chosen FROM: "the strongest
+    line" is a judgement about words, and a decision made without them
+    is a decision made from nothing (AGENTS.md 10.1 - a decision must be
+    sourced from its own context).
+
+    Two records hold them, and both are read here. `reel.reading_context`
+    is the reading the judge was given - every line, in order, with its
+    speaker and its reel-relative second - and `reel.select` is the
+    selector's own transcript preview of the same reel. A project whose
+    pipeline ran `speech_sequence` carries the transcript view too.
+    """
+    from library.tools import capability_outputs
+
+    words: dict = {}
+    number = _reel_number(reel)
+    reading = capability_outputs.value(state, "reel.reading_context",
+                                       "reels_to_read") or []
+    for row in reading:
+        if not isinstance(row, dict):
+            continue
+        if number is None or row.get("reel") != number:
+            continue
+        lines = [line for line in (row.get("lines") or [])
+                 if isinstance(line, dict)]
+        words = {
+            "reel": row.get("reel"),
+            "runs_for_seconds": row.get("runs_for_seconds"),
+            "lines": [{"at": line.get("at"), "speaker": line.get("speaker"),
+                       "says": line.get("says")} for line in lines],
+        }
+        break
+    moment = _recorded_moment(state, reel)
+    if moment is not None:
+        words.setdefault("reel", moment.number)
+        if moment.transcript_preview:
+            words["transcript_preview"] = moment.transcript_preview
+        words.setdefault("runs_for_seconds",
+                         round(moment.duration, 1))
+    if not words:
+        words = {"available": False,
+                 "why": (f"no recorded reading names the reel {reel!r}; the "
+                         "project's recorded reels are the ones its "
+                         "reel_selection and reading context hold")}
+    else:
+        words["available"] = True
+    return words
+
+
+def _reel_observations(state: dict, reel: str) -> dict:
+    """What the project MEASURED about the named reel.
+
+    The measured facts a content-driven opening is judged against: the
+    reel's own recorded reasoning, the observations the opening rules
+    produced on it (`library/tools/reel_opening.py`), the repeated takes
+    and the straddling speech inside it. They are measurements, not
+    preferences, and they are reported so the decision can weigh them.
+    """
+    moment = _recorded_moment(state, reel)
+    if moment is None:
+        return {"available": False,
+                "why": (f"no recorded moment names the reel {reel!r}, so "
+                        "the project holds no measurements about it")}
+    return {
+        "available": True,
+        "reel": moment.number,
+        "slug": moment.slug,
+        "reason": moment.reason,
+        "speakers": list(moment.speakers),
+        "duration_seconds": round(moment.duration, 3),
+        "opening_observations": [dict(observation) for observation
+                                 in moment.opening_observations],
+        "duplicate_takes": [dict(take) for take in moment.duplicate_takes],
+        "refused_take_groups": [dict(group) for group
+                                in moment.refused_take_groups],
+        "straddling_within": [dict(item) for item in moment.straddling_within],
+        "source_spans": [dict(span) for span in moment.source_spans],
+    }
+
+
 def _project_context(project_folder: str, request: str, reel: str) -> dict:
     """Read the smallest available project facts useful for translation.
 
@@ -1529,6 +1752,9 @@ def _project_context(project_folder: str, request: str, reel: str) -> dict:
              "stated_number_fields": edit_operations.STATED_NUMBER_FIELDS,
              "proxy_preview": PROXY_PREVIEW}
     if not Path(path).is_file():
+        brief_text, brief_reference = _written_brief({}, project_folder)
+        facts["creative_brief"] = brief_text
+        facts["creative_brief_reference"] = brief_reference
         facts["project_facts_note"] = (
             "No pipeline_data.json exists yet. Do not infer footage, "
             "transcript, brand or reel facts.")
@@ -1541,10 +1767,12 @@ def _project_context(project_folder: str, request: str, reel: str) -> dict:
     from library.tools import capability_outputs
     outputs = capability_outputs.node_outputs(state)
     catalog = outputs.get("catalog", {})
+    brief_text, brief_reference = _written_brief(state, project_folder)
     facts.update({
         "project_facts_available": True,
         "project_config": state.get("project_config", {}),
-        "creative_brief": state.get("creative_brief", {}),
+        "creative_brief": brief_text,
+        "creative_brief_reference": brief_reference,
         "clips": [{key: clip[key] for key in (
             "clip_id", "filename", "duration_seconds", "frame_rate")
                    if key in clip}
@@ -1582,6 +1810,19 @@ def _project_context(project_folder: str, request: str, reel: str) -> dict:
     facts["transcript_context"] = {
         key: speech[key] for key in ("transcripts_toon", "topics_toon")
         if key in speech}
+    # The reel's OWN words. A decision that opens a reel on its strongest
+    # moment is made from what the reel SAYS, so the words travel with
+    # the request; a request that carried no transcript could only be
+    # decided by guessing (AGENTS.md 10.1 - a decision must be sourced
+    # from its own context).
+    facts["transcript_context"]["reel_words"] = _reel_words(state, reel)
+    facts["reel_observations"] = _reel_observations(state, reel)
+    if not facts["footage_observations"]:
+        facts["footage_observations_note"] = (
+            "this project holds no semantic analysis of its footage, so no "
+            "footage observation reaches this request; choose among the "
+            "shots already listed in `reel_timeline` and do not invent "
+            "what a shot shows")
     if "brand_template" in state:
         facts["brand_template"] = state["brand_template"]
     from library.tools.reel_proposal import reel_timeline_name
@@ -1612,6 +1853,28 @@ def _project_context(project_folder: str, request: str, reel: str) -> dict:
              "keywords": observation.get("assessment", {}).get(
                  "keywords", [])[:8]}
             for observation in facts["footage_observations"]]
+        brief = facts.get("creative_brief") or ""
+        if brief:
+            # The brief is never truncated: a half brief is a brief the
+            # decision cannot be sourced from. It leaves the context whole
+            # and stays readable at its path, with the map of its
+            # sections - the same shape every other reference in the
+            # engine takes.
+            from library.tools import brief_reference
+
+            try:
+                _preamble, sections = brief_reference.parse_sections(brief)
+            except Exception:  # noqa: BLE001 - an unread brief is a map
+                # with no sections, and the path still carries it
+                sections = []
+            facts["creative_brief"] = ""
+            facts["creative_brief_reference"]["included"] = False
+            facts["creative_brief_reference"]["sections"] = [
+                {"title": section.title, "start_line": section.start_line,
+                 "end_line": section.end_line} for section in sections]
+            facts["creative_brief_reference"]["why_absent"] = (
+                "the brief did not fit this request's context; read it in "
+                "full at `creative_brief_reference.path` before deciding")
         facts["project_context_note"] = (
             "Detailed observations were compacted to fit the handshake. "
             "Do not infer an unlisted shot or brand value; ask if the "
@@ -1862,14 +2125,20 @@ def prepare_request(project_folder: str, request: str, reel: str = "",
         "which reel. "
         "For a request to improve, tighten or otherwise change a reel's "
         "opening, make the editorial decision from the written "
-        "`creative_brief`, `transcript_context`, `footage_observations` and "
-        "`reel_timeline` together. Identify the intended audience, opening "
-        "goal and required spoken content from the brief; use transcript "
-        "wording and measured timeline frames to find a self-contained "
-        "opening, and use footage observations only to choose among shots "
-        "already in that timeline. Preserve required dialogue and the "
-        "context that makes it intelligible. Do not invent frame values, "
-        "clip identities, spoken lines or footage. Return one "
+        "`creative_brief`, `transcript_context`, `reel_observations`, "
+        "`footage_observations` and `reel_timeline` together. "
+        "`creative_brief` carries the brief's own words when the project "
+        "attached one, and `creative_brief_reference` says where they "
+        "came from; the reel's own spoken words are in "
+        "`transcript_context.reel_words` and what the project MEASURED "
+        "about that reel is in `reel_observations`. Identify the intended "
+        "audience, opening goal and required spoken content from the "
+        "brief; use transcript wording and measured timeline frames to "
+        "find a self-contained opening, and use footage observations only "
+        "to choose among shots already in that timeline. Preserve required "
+        "dialogue and the context that makes it intelligible. Do not "
+        "invent frame values, clip identities, spoken lines or footage. "
+        "Return one "
         "`edit_program` containing exactly one `reel.opening` op. Its "
         "`params` must contain `unique_id` for the opening anchor clip, "
         "`brief` with the applicable written brief and opening goal, and "

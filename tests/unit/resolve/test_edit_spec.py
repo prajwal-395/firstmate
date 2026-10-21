@@ -649,6 +649,120 @@ def test_angle_plan_asks_for_an_exact_known_reel_before_ledger_recording(
     assert "no reels yet" in question["question"]
 
 
+def _reel_project(tmp_path, *, brief="", attach=True, reading=None,
+                  moments=None):
+    """A project whose state holds a reel's words, its moment and a brief.
+
+    The shape is the one a project built from an existing master carries:
+    `reel.reading_context` holds every line a listener hears, and
+    `reel.select` holds the moment the selector chose.
+    """
+    project = _project(tmp_path)
+    if brief:
+        (project / "creative_brief.md").write_text(brief, encoding="utf-8")
+    state_path = Path(ProjectLayout(str(project)).pipeline_data_path)
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state = {"capability_outputs": {
+        "reel.reading_context": {"reels_to_read": reading or []},
+        "reel.select": {"reel_selection": {"moments": moments or []}},
+    }}
+    if attach:
+        state["creative_brief"] = "creative_brief.md"
+        state["creative_brief_attachment"] = {
+            "reading": "attached", "path": "creative_brief.md",
+            "basis": "the declared path is read as the choice to attach it"}
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    return project
+
+
+def test_spec_context_carries_the_reels_own_words_and_the_written_brief(
+        tmp_path):
+    """An opening is chosen from what the reel SAYS and what the brief says.
+
+    Catches: the revise request carrying the FILE NAME of the creative
+    brief and no transcript at all, so a content-driven opening could not
+    be decided from the evidence the request carried (measured
+    2026-10-21, the section-12 demonstration's opening step).
+    """
+    project = _reel_project(
+        tmp_path,
+        brief="# Brief\n\nOpen for first-time viewers on the claim.",
+        reading=[{"reel": 13, "runs_for_seconds": 66.7, "lines": [
+            {"at": 0.0, "speaker": "Craig", "says": "it all started here"},
+            {"at": 41.9, "speaker": "Craig",
+             "says": "it is not the AI's fault"}]}],
+        moments=[{"number": 13, "slug": "the-accounting-firm",
+                  "timeline_name": "Reel 13 - the-accounting-firm",
+                  "reason": "a whodunnit with the answer inside it",
+                  "transcript_preview": "it all started here",
+                  "timeline_start": 100.0, "timeline_end": 166.7,
+                  "speakers": ["Craig"], "source_spans": [
+                      {"source_file": "/media/a.mxf", "source_start": 1.0,
+                       "source_end": 2.0}]}])
+
+    context = edit_spec._project_context(
+        str(project), "tighten the opening",
+        "Reel 13 - the-accounting-firm")
+
+    assert "first-time viewers" in context["creative_brief"]
+    assert context["creative_brief"] != "creative_brief.md"
+    assert context["creative_brief_reference"]["included"] is True
+    words = context["transcript_context"]["reel_words"]
+    assert words["available"] is True
+    assert [line["says"] for line in words["lines"]] == [
+        "it all started here", "it is not the AI's fault"]
+    observations = context["reel_observations"]
+    assert observations["available"] is True
+    assert observations["reason"] == "a whodunnit with the answer inside it"
+
+
+def test_spec_context_says_when_the_reel_has_no_recorded_words(tmp_path):
+    """A reel nothing was recorded about is SAID, not filled in.
+
+    Catches: the context inventing a transcript for a reel the project
+    holds no reading of, which would let an opening be decided from
+    words nobody recorded.
+    """
+    project = _reel_project(tmp_path, brief="# Brief\n\nAim wide.",
+                            reading=[{"reel": 4, "lines": []}],
+                            moments=[{"number": 4, "slug": "other",
+                                      "timeline_name": "Reel 04 - other",
+                                      "timeline_start": 0.0,
+                                      "timeline_end": 10.0}])
+
+    context = edit_spec._project_context(
+        str(project), "tighten the opening", "Reel 99 - nothing")
+
+    words = context["transcript_context"]["reel_words"]
+    assert words["available"] is False
+    assert "Reel 99 - nothing" in words["why"]
+    assert context["reel_observations"]["available"] is False
+
+
+def test_spec_context_carries_no_brief_a_project_declined(tmp_path):
+    """A declined brief is not attached anyway.
+
+    Catches: the request reading the brief file of a project that
+    DECLINED it, which would send a brief the project refused to send.
+    """
+    project = _reel_project(tmp_path, brief="# Brief\n\nAim wide.",
+                            attach=False)
+    (project / "creative_brief.md").write_text(
+        "# Brief\n\nAim wide.", encoding="utf-8")
+    state_path = Path(ProjectLayout(str(project)).pipeline_data_path)
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["creative_brief_attachment"] = {
+        "reading": "declined", "path": "creative_brief.md",
+        "basis": "attach_creative_brief is false"}
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    context = edit_spec._project_context(
+        str(project), "tighten the opening", "")
+
+    assert context["creative_brief"] == ""
+    assert "declined" in context["creative_brief_reference"]["why_absent"]
+
+
 def test_spec_context_uses_the_planned_and_built_reel_timeline_names(
         tmp_path):
     """A reel alias is checked against names the project actually declares.

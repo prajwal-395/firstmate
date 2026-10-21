@@ -79,7 +79,7 @@ def test_trim_adapter_converts_record_edges_to_the_existing_source_trim(monkeypa
     receipt = adapters._trim(context)
 
     assert calls == [[
-        "edit", "trim", "--track", "V2", "--index", "0",
+        "edit", "trim", "--track", "video2", "--index", "0",
         "--source-in", "9", "--source-out", "60",
         "--target-unique-id", "clip-17",
         "--expected-source-file", "/media/music.wav",
@@ -635,3 +635,150 @@ def test_slip_touchup_keeps_record_span_and_refuses_source_overrun():
         reel_touchup._op_slip(
             {"row": "V2", "item": 0, "delta_frames": 40}, 0,
             tracks, {}, [], [], [], [], [], [], [])
+
+
+def test_the_project_folder_is_found_from_the_resolve_project_name(
+        tmp_path, monkeypatch):
+    """A request naming its RESOLVE project finds the Ren project folder.
+
+    Catches: the executors that carry a `--project-folder` (the trim, the
+    remove, the undo journal) reading the request's project as a project
+    SLUG, so a request that names its Resolve project - which every
+    request does, because the broker's open-project check and the shadow
+    store key on that name - raised "No project with slug 'Ren Scratch -
+    ...'" and the operation could not run at all.
+    """
+    from library.tools import project_registry
+
+    folder = tmp_path / "the-ren-project"
+    folder.mkdir()
+    (folder / "project.yaml").write_text(
+        "project_name: the-ren-project\n"
+        "resolve:\n  project_name: Ren Scratch - axc-example\n",
+        encoding="utf-8")
+    monkeypatch.setattr(
+        project_registry, "project_folder_for_resolve_name",
+        lambda name, root=None: (str(folder)
+                                  if name == "Ren Scratch - axc-example"
+                                  else None))
+    monkeypatch.setattr(
+        project_registry, "resolve_project_path",
+        lambda ref: None)
+    monkeypatch.setattr(
+        project_registry, "get_project",
+        lambda slug, *args, **kwargs: (_ for _ in ()).throw(
+            FileNotFoundError(f"No project with slug {slug!r}.")))
+
+    context = SimpleNamespace(request=SimpleNamespace(
+        project="Ren Scratch - axc-example"))
+
+    assert adapters._project_folder(context) == str(folder)
+
+
+def test_an_axi_write_verb_is_given_the_axis_own_track_spelling(monkeypatch):
+    """The trim names the row the way the AXI writes address it.
+
+    Catches: the adapter handing the AXI the SOP's row label (`V1`), which
+    the verb refuses with "bad track 'V1' - tracks read video1, audio2,
+    ..." - so every `reel.opening` tighten failed at its first write
+    (measured 2026-10-21, the live reel.opening qualification).
+    """
+    from library.tools import resolve_axi_core
+
+    calls = []
+    after = {"reported_fps": 30.0, "tracks": [{
+        "type": "video", "index": 1, "clips": [{
+            "unique_id": "clip-17", "record_in": 24, "record_out": 76,
+            "source_in_frame": 9, "source_out_frame": 60,
+            "duration": 52, "source_file": "/media/music.wav",
+            "transform": {"Pan": -24.0, "Tilt": 0.0, "ZoomX": 1.0},
+            "enabled": True, "clip_color": "", "flags": [],
+        }],
+    }]}
+    monkeypatch.setattr(resolve_axi_core, "execute", lambda command: (
+        calls.append(command) or SimpleNamespace(
+            ok=True,
+            stdout="command completed\njournal:\n  entry: journal-17",
+            stderr="")))
+    monkeypatch.setattr(resolve_axi_core, "read_live_timeline",
+                        lambda *_args: after)
+    monkeypatch.setattr(adapters, "_project_folder",
+                        lambda _context: "/tmp/project")
+
+    context = _context({"op": "clip.trim", "unique_id": "clip-17",
+                        "in_frame": 24, "out_frame": 76})
+    audio = {"type": "audio", "index": 1, "clips": [{
+        "unique_id": "audio-9", "record_in": 20, "record_out": 80,
+        "source_in_frame": 5, "source_out_frame": 64,
+        "source_file": "/media/music.wav",
+    }]}
+    context.snapshot["tracks"] = [
+        {"type": "video", "index": 1, "clips": [
+            {"unique_id": "clip-17", "record_in": 24, "record_out": 76,
+             "source_in_frame": 9, "source_out_frame": 60,
+             "duration": 52, "source_file": "/media/music.wav",
+             "transform": {"Pan": -24.0, "Tilt": 0.0, "ZoomX": 1.0},
+             "enabled": True, "clip_color": "", "flags": [],
+             "track_type": "video", "track_index": 1,
+             "linked_unique_ids": []}]},
+        audio,
+    ]
+    after["tracks"].append(audio)
+
+    adapters._trim(context)
+
+    assert calls[0][:4] == ["edit", "trim", "--track", "video1"]
+
+
+def test_the_trim_read_back_finds_the_replaced_item_by_its_identity(
+        monkeypatch):
+    """The AXI trims by RE-PLACING the item; the read-back must see it.
+
+    Catches: the read-back looking the target up by the unique id the
+    trim took away with it, so a landed trim read as a missing target
+    (`missing evidence [target_identity, requested_source_in_out,
+    requested_record_span]`) and the operation refused its own success
+    (measured 2026-10-21, the live reel.opening qualification).
+    """
+    from library.tools import resolve_axi_core
+
+    calls = []
+    after = {"reported_fps": 30.0, "tracks": [{
+        "type": "video", "index": 2, "clips": [{
+            "unique_id": "clip-18", "record_in": 24, "record_out": 60,
+            "source_in_frame": 9, "source_out_frame": 44,
+            "duration": 36, "source_file": "/media/music.wav",
+            "transform": {"Pan": -24.0, "Tilt": 0.0, "ZoomX": 1.0},
+            "enabled": True, "clip_color": "", "flags": [],
+        }],
+    }]}
+    monkeypatch.setattr(resolve_axi_core, "execute", lambda command: (
+        calls.append(command) or SimpleNamespace(
+            ok=True,
+            stdout="command completed\njournal:\n  entry: journal-17",
+            stderr="")))
+    monkeypatch.setattr(resolve_axi_core, "read_live_timeline",
+                        lambda *_args: after)
+    monkeypatch.setattr(adapters, "_project_folder",
+                        lambda _context: "/tmp/project")
+
+    context = _context({"op": "clip.trim", "unique_id": "clip-17",
+                        "in_frame": 24, "out_frame": 60})
+    audio = {"type": "audio", "index": 1, "clips": [{
+        "unique_id": "audio-9", "record_in": 20, "record_out": 80,
+        "source_in_frame": 5, "source_out_frame": 64,
+        "source_file": "/media/music.wav",
+    }]}
+    context.snapshot["tracks"].append(audio)
+    after["tracks"].append(audio)
+
+    receipt = adapters._trim(context)
+
+    acceptance = receipt["acceptance_contracts"][0]
+    assert acceptance["passed"], acceptance
+    results = {row["check"]: row["passed"]
+               for row in acceptance["results"]}
+    assert results["target_identity"] is True
+    assert results["requested_source_in_out"] is True
+    assert results["requested_record_span"] is True
+    assert results["unrelated_items_unchanged"] is True
