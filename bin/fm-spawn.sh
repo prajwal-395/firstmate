@@ -6218,6 +6218,22 @@ if [ "$KEEP_AI_TRAILERS" = 0 ]; then
   }
 fi
 
+# Per-task git guard that refuses `git stash` in this task's worktree. Every
+# worktree of one repository shares a single refs/stash, so a stash made in one
+# lane can be popped in another lane and land that lane's changes here. The
+# guard is installed for every ship and scout, on every harness, and reaches
+# the worker through the PATH of its own pane alone: the captain's own shells
+# and firstmate itself keep an ordinary git. bin/fm-git-stash-guard.sh owns the
+# refusal, its message, and the hand-off to the real git.
+GIT_GUARD_DIR=
+if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
+  GIT_GUARD_DIR="$STATE_REAL/$ID.git-guard"
+  "$FM_ROOT/bin/fm-git-stash-guard.sh" install "$GIT_GUARD_DIR" || {
+    echo "error: could not install the git stash guard for $ID" >&2
+    exit 1
+  }
+fi
+
 # Delivery posture recorded in meta so fm-teardown's safety check and the
 # validate/merge stages can branch on it. A ship task carries the explicit
 # per-task decision validated above; a secondmate's posture is fixed; a scout
@@ -6676,6 +6692,13 @@ fi
 if [ "$KEEP_AI_TRAILERS" = 0 ]; then
   LAUNCH="export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=$(shell_quote "$GIT_HOOKS_DIR"); $LAUNCH"
 fi
+# The same per-task git guard the pane received, carried by the launch command
+# itself so the agent process is protected even when the pane's export never
+# landed. The export statement form survives a compound raw launch expression,
+# where a command-prefix assignment would cover only its first command.
+if [ -n "$GIT_GUARD_DIR" ]; then
+  LAUNCH="export PATH=$(shell_quote "$GIT_GUARD_DIR"):\$PATH; $LAUNCH"
+fi
 # Every agent this fleet launches - crewmate, scout, and secondmate, on a fresh
 # spawn and on a relaunch alike - runs with the compact-adviser kill switch on.
 # This is an export statement rather than a forwarded ambient name or a
@@ -6745,6 +6768,12 @@ spawn_send_text_line "$T" "export GOTMPDIR=$TASK_TMP/gotmp"
 # Prepend the lane git wrapper so a worker lane can never corrupt the shared
 # checkout with `git checkout -B` / `switch -C` onto a branch held elsewhere.
 spawn_send_text_line "$T" "export PATH=\"\$FM_ROOT/bin/lane-wrappers:\$PATH\""
+# Prepend this task's own git guard so a worker lane can never stash into the
+# repository's shared refs/stash. The path is absolute because the pane shell
+# has no FM_ROOT of its own to expand.
+if [ -n "$GIT_GUARD_DIR" ]; then
+  spawn_send_text_line "$T" "export PATH=$(shell_quote "$GIT_GUARD_DIR"):\$PATH"
+fi
 # Export the compact-adviser kill switch into the pane shell through the same
 # pre-launch channel, so later commands in that shell inherit it too. The launch
 # command independently establishes the value for the agent process itself.

@@ -1066,6 +1066,16 @@ When stripping is enabled, the hooks directory is read-only, so a hook manager r
 The flag is a home-wide attribution choice, so it is inherited into secondmate homes under the [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md) inherited-local-material contract and a secondmate's own workers keep AI trailers too.
 Per-machine Cursor `cli-config.json` attribution-off is not this contract: it does not travel with Firstmate, defaults back to on when unset, and only feeds the CLI's request to the server, so it suppresses the trailer rather than preventing it.
 
+### Stash guard
+
+Every crewmate and scout Firstmate launches refuses `git stash` in its own worktree, on every harness, because every worktree of one repository shares a single `refs/stash`: a stash made in one lane can be popped in another lane and land that lane's changes in the first lane's worktree.
+The refusal is mechanical rather than advisory, so a worker cannot ignore it by accident.
+Each task gets its own `state/<id>.git-guard/git` wrapper, prepended to the PATH of that task's pane and of its launch command, which refuses the stash subcommand and hands every other git command to the real git.
+[`bin/fm-git-stash-guard.sh`](../bin/fm-git-stash-guard.sh) owns the refusal, its message, and the hand-off, and the generated worker brief states the rule and the reason.
+The guard reaches only the launched worker, so the captain's own shells and Firstmate itself keep an ordinary git.
+A secondmate launch is not guarded, because a secondmate has no task worktree of its own; the crewmates it spawns in its own home are guarded there.
+Regression coverage is in [`tests/fm-git-stash-guard.test.sh`](../tests/fm-git-stash-guard.test.sh).
+
 ## Crew dispatch profiles (config/crew-dispatch.json)
 
 `config/crew-dispatch.json` is an optional local, gitignored file containing natural-language rules that firstmate reads before dispatching a crewmate or scout.
