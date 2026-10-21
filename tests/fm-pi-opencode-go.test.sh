@@ -13,7 +13,12 @@ DATA="$TMP_ROOT/opencode-data"
 CONFIG="$TMP_ROOT/config"
 LIVE_DB="$DATA/opencode.db"
 TASK_DB="$TMP_ROOT/task.db"
-mkdir -p "$FAKEBIN" "$DATA" "$CONFIG"
+# The credential path resolves the machine's console login when its own
+# lookup finds nothing, so every case runs against a scratch home and a
+# scratch data directory. No fixture in this suite may reach a real path.
+SCRATCH_HOME="$TMP_ROOT/scratch-home"
+SCRATCH_XDG="$TMP_ROOT/scratch-xdg"
+mkdir -p "$FAKEBIN" "$DATA" "$CONFIG" "$SCRATCH_HOME" "$SCRATCH_XDG/opencode"
 
 cat > "$FAKEBIN/opencode" <<'SH'
 #!/usr/bin/env bash
@@ -23,6 +28,9 @@ case "${1:-} ${2:-}" in
   'debug config')
     printf '%s %s\n' "$1" "$2" >> "$FM_TEST_OPENCODE_CALLS"
     [ -n "${OPENCODE_DB:-}" ] || exit 1
+    # A refresh never touches a database outside this suite's own scratch
+    # tree, whatever the caller passed in.
+    case "$OPENCODE_DB" in "$FM_TEST_SCRATCH_ROOT"/*) ;; *) exit 1 ;; esac
     [ -z "${FM_TEST_OPENCODE_DELAY:-}" ] || sleep "$FM_TEST_OPENCODE_DELAY"
     if [ "${FM_TEST_NO_REFRESH:-0}" != 1 ]; then
       sqlite3 "$OPENCODE_DB" "UPDATE account SET access_token='refreshed-test-token', token_expiry=$(( $(date +%s) * 1000 + 600000 ));"
@@ -40,6 +48,13 @@ SH
 chmod +x "$FAKEBIN/sqlite3"
 CALLS="$TMP_ROOT/opencode-calls"
 : > "$CALLS"
+# The whole suite runs against a scratch home and a scratch data directory,
+# and names the console database outright, so a credential lookup resolves
+# inside this suite's own tree or resolves nothing at all.
+export HOME="$SCRATCH_HOME"
+export XDG_DATA_HOME="$SCRATCH_XDG"
+export FM_TEST_SCRATCH_ROOT="$TMP_ROOT"
+export FM_OPENCODE_LIVE_DB="$LIVE_DB"
 
 mkdir -p "$AGENT"
 cat > "$AGENT/models.json" <<'JSON'
@@ -82,6 +97,9 @@ sqlite3 "$TASK_DB" <<'SQL'
 CREATE TABLE account(id TEXT PRIMARY KEY,email TEXT NOT NULL,url TEXT NOT NULL,access_token TEXT NOT NULL,refresh_token TEXT NOT NULL,token_expiry INTEGER,time_created INTEGER NOT NULL,time_updated INTEGER NOT NULL);
 CREATE TABLE account_state(id INTEGER PRIMARY KEY,active_account_id TEXT,active_org_id TEXT);
 SQL
+# The scratch data directory also holds the fallback login database, so a
+# lookup that ignores the OpenCode CLI still lands inside this suite.
+cp "$LIVE_DB" "$SCRATCH_XDG/opencode/opencode.db"
 
 out=$(PATH="$FAKEBIN:$PATH" FM_TEST_OPENCODE_DATA="$DATA" FM_TEST_OPENCODE_CALLS="$CALLS" FM_OPENCODE_TASK_DB="$TASK_DB" \
   FM_OPENCODE_ORG_ID=org_test_second FM_OPENCODE_CONFIG_DIR="$CONFIG" \
@@ -182,5 +200,96 @@ mkdir -p "$bad"
 printf '%s\n' '{"providers":{"opencode-go":{"baseUrl":"https://other.invalid/v1","api":"openai-completions","apiKey":"manual"}}}' > "$bad/models.json"
 "$HELPER" install "$bad" >/dev/null 2>&1 && fail "conflicting custom provider was overwritten"
 pass "a conflicting user-defined opencode-go provider is preserved by refusing the install"
+
+# A busy machine is what produces the contention: many workers read and
+# refresh the same task database at once, so the request path meets a locked
+# task database. The token it already holds must still be served, inside Pi's
+# budget, without starting OpenCode.
+CONTENDED_DB="$TMP_ROOT/contended.db"
+CONTENDED_LOG="$CONTENDED_DB.token-errors.log"
+sqlite3 "$CONTENDED_DB" <<'SQL'
+CREATE TABLE account(id TEXT PRIMARY KEY,email TEXT NOT NULL,url TEXT NOT NULL,access_token TEXT NOT NULL,refresh_token TEXT NOT NULL,token_expiry INTEGER,time_created INTEGER NOT NULL,time_updated INTEGER NOT NULL);
+CREATE TABLE account_state(id INTEGER PRIMARY KEY,active_account_id TEXT,active_org_id TEXT);
+INSERT INTO account VALUES('acct','test@example.invalid','https://opencode.ai','contended-valid-token','refresh-token',4102444800000,1,1);
+INSERT INTO account_state VALUES(1,'acct','org_test_second');
+SQL
+: > "$CALLS"
+{ printf 'BEGIN EXCLUSIVE;\n'; sleep 2; printf 'COMMIT;\n'; } | sqlite3 "$CONTENDED_DB" >/dev/null 2>&1 &
+lock_holder=$!
+sleep 0.3
+sqlite3 "$CONTENDED_DB" 'SELECT 1 FROM account LIMIT 1;' >/dev/null 2>&1 \
+  && fail "the contended task database was not actually locked, so the case proved nothing"
+started=$(date +%s)
+out=$(PATH="$FAKEBIN:$PATH" FM_TEST_OPENCODE_DATA="$DATA" FM_TEST_OPENCODE_CALLS="$CALLS" \
+  FM_OPENCODE_TASK_DB="$CONTENDED_DB" FM_OPENCODE_ORG_ID=org_test_second \
+  FM_OPENCODE_CONFIG_DIR="$CONFIG" "$HELPER" token 2>/dev/null) \
+  || fail "a request against a contended task database failed while a valid token was present"
+wait "$lock_holder"
+elapsed=$(($(date +%s) - started))
+[ "$out" = contended-valid-token ] || fail "a contended request returned the wrong token"
+[ "$elapsed" -lt 10 ] || fail "a contended request exceeded Pi's 10s budget (${elapsed}s)"
+[ ! -s "$CALLS" ] || fail "a contended request started OpenCode instead of answering from the task database"
+[ ! -e "$CONTENDED_LOG" ] || fail "a served request wrote a failure record"
+pass "a valid token is served through task-database contention inside Pi's budget without OpenCode"
+
+# The fast path must not depend on the shared libraries: a token that is
+# already in the task database is answered before anything is sourced.
+INSTALLED_HELPER=$(find "$AGENT/fm-opencode-go" -name fm-pi-opencode-go.sh -type f | head -n 1)
+[ -n "$INSTALLED_HELPER" ] || fail "the installed Pi helper was not found"
+NOLIB_DIR="$TMP_ROOT/helper-without-libraries"
+cp -R "$(dirname "$INSTALLED_HELPER")" "$NOLIB_DIR"
+rm -f "$NOLIB_DIR/fm-opencode-second-lib.sh" "$NOLIB_DIR/fm-timeout-lib.sh" "$NOLIB_DIR/fm-backend.sh"
+out=$(PATH="$FAKEBIN:$PATH" FM_TEST_OPENCODE_DATA="$DATA" FM_TEST_OPENCODE_CALLS="$CALLS" \
+  FM_OPENCODE_TASK_DB="$CONTENDED_DB" FM_OPENCODE_ORG_ID=org_test_second \
+  FM_OPENCODE_CONFIG_DIR="$CONFIG" "$NOLIB_DIR/fm-pi-opencode-go.sh" token 2>/dev/null) \
+  || fail "the request path needed the shared libraries to answer a valid token"
+[ "$out" = contended-valid-token ] || fail "the library-free request path returned the wrong token"
+pass "a valid token is answered before any shared library is sourced"
+
+# Pi discards the command's stderr, so a failure that leaves no record is a
+# failure nobody can diagnose. The record sits beside the task's state and
+# never carries the token.
+LOGGED_DB="$TMP_ROOT/logged.db"
+sqlite3 "$LOGGED_DB" <<'SQL'
+CREATE TABLE account(id TEXT PRIMARY KEY,email TEXT NOT NULL,url TEXT NOT NULL,access_token TEXT NOT NULL,refresh_token TEXT NOT NULL,token_expiry INTEGER,time_created INTEGER NOT NULL,time_updated INTEGER NOT NULL);
+CREATE TABLE account_state(id INTEGER PRIMARY KEY,active_account_id TEXT,active_org_id TEXT);
+INSERT INTO account VALUES('acct','test@example.invalid','https://opencode.ai','SUPER-SECRET-TOKEN','refresh-token',1,1,1);
+INSERT INTO account_state VALUES(1,'acct','org_test_second');
+SQL
+out=$(PATH="/usr/bin:/bin" FM_OPENCODE_TASK_DB="$LOGGED_DB" FM_OPENCODE_ORG_ID=org_test_second \
+  FM_OPENCODE_CONFIG_DIR="$CONFIG" "$HELPER" token 2>/dev/null) \
+  && fail "an expired token was accepted without the OpenCode CLI"
+[ -z "$out" ] || fail "an expired token was emitted"
+LOGGED_LOG="$LOGGED_DB.token-errors.log"
+[ -f "$LOGGED_LOG" ] || fail "a failed request left no cause beside the task's state"
+grep -q 'step=' "$LOGGED_LOG" || fail "the recorded cause names no failing step"
+grep -q 'elapsed_ms=' "$LOGGED_LOG" || fail "the recorded cause carries no elapsed time"
+grep -q "$LOGGED_DB" "$LOGGED_LOG" || fail "the recorded cause does not name the task database"
+grep -q 'SUPER-SECRET-TOKEN' "$LOGGED_LOG" && fail "the recorded cause leaked the token"
+pass "a failed request records its cause beside the task's state and never the token"
+
+# A named console database is taken as it stands. When it is missing, the
+# lookup refuses instead of falling back to the machine's own data
+# directory, so a scratch home can never reach the account of the person
+# running the machine. The scratch data directory does hold a usable login,
+# so a fallback here would succeed and hide the defect.
+ABSENT_DB="$TMP_ROOT/absent-live.db"
+ABSENT_TASK_DB="$TMP_ROOT/absent-task.db"
+sqlite3 "$ABSENT_TASK_DB" <<'SQL'
+CREATE TABLE account(id TEXT PRIMARY KEY,email TEXT NOT NULL,url TEXT NOT NULL,access_token TEXT NOT NULL,refresh_token TEXT NOT NULL,token_expiry INTEGER,time_created INTEGER NOT NULL,time_updated INTEGER NOT NULL);
+CREATE TABLE account_state(id INTEGER PRIMARY KEY,active_account_id TEXT,active_org_id TEXT);
+INSERT INTO account VALUES('acct','test@example.invalid','https://opencode.ai','expired-token','refresh-token',1,1,1);
+INSERT INTO account_state VALUES(1,'acct','org_test_second');
+SQL
+out=$(PATH="$FAKEBIN:$PATH" FM_OPENCODE_LIVE_DB="$ABSENT_DB" \
+  FM_OPENCODE_TASK_DB="$ABSENT_TASK_DB" FM_OPENCODE_ORG_ID=org_test_second \
+  FM_OPENCODE_CONFIG_DIR="$CONFIG" "$HELPER" token 2>/dev/null) \
+  && fail "a named console database that is absent was replaced by another one"
+[ -z "$out" ] || fail "a token was emitted without a console database to refresh it"
+ABSENT_LOG="$ABSENT_TASK_DB.token-errors.log"
+[ -f "$ABSENT_LOG" ] || fail "the refused console database left no cause behind"
+grep -q 'step=live-db-unavailable' "$ABSENT_LOG" \
+  || fail "the recorded cause does not name the absent console database"
+pass "a named console database that is absent is refused rather than replaced by the machine's own"
 
 printf '%s\n' 'ok - Pi OpenCode Go provider and credential flow'

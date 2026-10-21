@@ -1237,9 +1237,11 @@ MiniMax M3.1 Flash Free uses OpenAI Chat Completions; Muse Spark 1.3 Contributor
 Firstmate supplies each task's selected workspace id and stable `x-opencode-session` value through that launch's environment, and uses the existing workspace pin database to create the task's private credential database.
 
 Pi does not refresh OpenCode console credentials itself.
-For each model request, its credential command asks OpenCode to refresh the canonical console database, copies only the login rows into that task's private database, and refuses an absent or near-expiry token.
+For each model request, its credential command reads the token from that task's private database first and hands it to Pi when it is comfortably unexpired, so a busy machine answers from the task database without asking OpenCode anything.
+A near-expiry or absent token makes the command ask OpenCode to refresh the canonical console database and copy only the login rows into that task's private database, and the refresh is serialized across tasks so workers do not race the same console refresh token.
+Pi gives that command a hard 10s budget and discards its stderr, so the command bounds its own work, waits out a contended task database instead of failing on it, and records the failing step beside the task's state when it cannot answer; that record never carries the token.
 Tokens remain in OpenCode databases; the request-time command hands the token directly to Pi without logging or persisting it elsewhere.
-The refresh is serialized across tasks so workers do not race the same console refresh token.
+`FM_OPENCODE_LIVE_DB` names the console database outright; when it is set, the lookup never falls back to the machine's own data directory, so a scratch home or a test cannot reach the account of the person running the machine.
 The shared provider entry calls a content-versioned helper installed inside the Pi agent directory, selected through `PI_CODING_AGENT_DIR` or the default `$HOME/.pi/agent` path. Multiple homes and code roots can therefore share the provider without a code-root-specific command. Older helper versions remain installed so workers that already loaded an earlier provider command continue to work after a later install; installation migrates the older code-root-bound managed entry.
 `bin/fm-pi-opencode-go.sh` owns provider installation and request-time credential handling.
 
