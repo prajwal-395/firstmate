@@ -8,6 +8,16 @@ AXI transaction boundary. It does not choose shots or invent edit parameters.
 Planning is read-only with respect to Resolve. Applying a plan requires an
 explicit authorization source, rechecks task provenance, and submits the
 whole request once through AXI. The AXI receipt is kept on the assignment.
+
+PLAN-011: a plan is compiled against the intent, and the intent carries
+every instruction the person stated. Before anything runs, every one of
+those instructions must be ACCOUNTED FOR: the plan carries it - a
+criterion declares the instruction it serves - or the plan DECLINES it,
+with a reason. A plan that is silent about a stated instruction is
+REFUSED here, before the write, because a plan that drops half the
+request silently is how the request arrives at the timeline as half of
+itself. The account at the end of the task is
+`library/tools/instruction_loop.py`.
 """
 from __future__ import annotations
 
@@ -141,11 +151,81 @@ def _validate_operations(workflow_id: str, request: EditRequest) -> list[str]:
                    for domain in edit_algebra.status(operation.op).state_domains})
 
 
+def _account_for_stated_instructions(intent, intent_request_id: str,
+                                     criteria: Sequence[Mapping[str, Any]],
+                                     declined: Mapping[str, str] | None
+                                     ) -> None:
+    """Every instruction the intent stated is carried or declined.
+
+    The intent carries what the person asked for: its explicit
+    requirements and its explicit requests.  This plan serves ONE
+    request, and may carry requirements through the criteria it
+    declares - a criterion names the instruction it serves in
+    `instruction_id`.  Anything the plan neither carries nor declines is
+    a REFUSAL here, before the write: a plan that is silent about half
+    the request is how half the request reaches the timeline.
+
+    A decline carries a reason, because "this plan does not do that" is
+    not an answer on its own.
+    """
+    stated: list[tuple[str, str]] = []
+    served = getattr(intent, "request", None)
+    served_request = served(intent_request_id) if served else None
+    served_statement = str(getattr(served_request, "statement", "") or "")
+    for requirement in getattr(intent, "requirements", ()) or ():
+        if getattr(requirement, "explicit", True):
+            stated.append((str(requirement.declaration_id),
+                           str(requirement.statement)))
+    for request in getattr(intent, "requests", ()) or ():
+        if not getattr(request, "explicit", True):
+            continue
+        request_id = str(request.request_id)
+        if request_id == str(intent_request_id):
+            continue
+        # ONE statement asked for as two kinds is one instruction, and
+        # the plan serves it.
+        if served_statement and str(request.statement) == served_statement:
+            continue
+        stated.append((request_id, str(request.statement)))
+    if not stated:
+        return
+    carried = {str(row.get("instruction_id") or "") for row in criteria}
+    declined_map = {str(name): str(reason)
+                    for name, reason in dict(declined or {}).items()}
+    known = {name for name, _statement in stated}
+    unknown = sorted(set(declined_map) - known)
+    if unknown:
+        raise WorkflowRefused(
+            "the plan declines instructions the intent does not carry: "
+            + ", ".join(unknown))
+    for name, reason in declined_map.items():
+        if not reason.strip():
+            raise WorkflowRefused(
+                f"the plan declines the instruction {name!r} without a "
+                f"reason; a decline has to say why")
+    unaccounted = [name for name, _statement in stated
+                   if name not in carried and name not in declined_map]
+    if unaccounted:
+        raise WorkflowRefused(
+            "the plan does not account for every stated instruction: "
+            + ", ".join(unaccounted)
+            + " - carry it in a criterion's instruction_id, or decline it "
+              "with a reason")
+    for row in criteria:
+        name = str(row.get("instruction_id") or "")
+        if name and name not in known:
+            raise WorkflowRefused(
+                f"the criterion {str(row.get('id') or '')!r} carries the "
+                f"instruction {name!r}, which the intent does not state")
+
+
 def plan(project: str, assignment_id: str, *, workflow_id: str,
          intent_id: str = "", intent_request_id: str,
          request: EditRequest | Mapping,
          evidence_ids: Sequence[str], decision_ids: Sequence[str],
-         acceptance_criteria: Sequence[Mapping[str, Any]]) -> dict:
+         acceptance_criteria: Sequence[Mapping[str, Any]],
+         declined_instructions: Mapping[str, str] | None = None
+         ) -> dict:
     """Validate and persist a typed workflow plan without contacting Resolve."""
     root = _root(project)
     req = request if isinstance(request, EditRequest) else EditRequest.from_dict(request)
@@ -239,6 +319,8 @@ def plan(project: str, assignment_id: str, *, workflow_id: str,
             "technical", "editorial"}:
         raise WorkflowRefused(
             "an edit workflow needs technical and editorial acceptance criteria")
+    _account_for_stated_instructions(
+        intent, intent_request_id, criteria, declined_instructions)
     payload = req.to_dict()
     payload["originator"] = {
         **payload.get("originator", {}),
@@ -263,6 +345,7 @@ def plan(project: str, assignment_id: str, *, workflow_id: str,
         "decision_ids": decisions,
         "domains": domains,
         "acceptance_criteria": criteria,
+        "declined_instructions": dict(declined_instructions or {}),
         "status": "planned",
     }
     with lifecycle.assignment_lock(root, assignment_id):

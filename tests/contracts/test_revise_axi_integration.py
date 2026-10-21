@@ -151,3 +151,44 @@ def test_revise_program_base_generation_reaches_the_request_as_a_number():
 
     assert request.expected_base_generation == 12
     assert isinstance(request.expected_base_generation, int)
+
+
+def test_a_landed_revision_with_no_summary_does_not_reply_with_the_note():
+    """Catches: the final reply repeating the intention instead of the result.
+
+    The reply is the one line the person reads.  A landed revision with
+    no change summary on record used to answer with nothing at all, and
+    the host - holding the request - wrote the request back.  The reply
+    now states the result, and it never states the note.
+    """
+    from library.tools import revise
+
+    note = "move the name bar down so it stops fighting the captions"
+    result = revise._result("/project", {
+        "revise_id": "revise_1",
+        "status": revise.STATUS_PATCHED,
+        "note": note,
+    })
+    assert result["reply"], "a landed revision answered with nothing"
+    assert note not in result["reply"], (
+        "the reply repeated the note instead of stating the result")
+    assert "applied" in result["reply"].lower()
+
+
+def test_a_landed_revision_replies_with_the_change_that_landed():
+    """Catches: a reply that names no outcome at all.
+
+    The change summary IS the result - what moved, on which row, over
+    which seconds - and it is what the person is told.
+    """
+    from library.tools import revise
+
+    summary = ("Set position on V6 name bar from 0.02 to 0.14 of the frame "
+               "height.")
+    result = revise._result("/project", {
+        "revise_id": "revise_2",
+        "status": revise.STATUS_PATCHED,
+        "note": "move the name bar down",
+        "change": {"summary": summary},
+    })
+    assert result["reply"] == summary

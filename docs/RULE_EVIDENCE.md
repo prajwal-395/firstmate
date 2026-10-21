@@ -10494,3 +10494,53 @@ BEFORE the source is read.
 `library/tools/edit_outcome.py` is the one enumeration of the outcome
 and the one classification; `reel_adoption` records it when the
 captain's hand edit becomes a version.
+
+## the-task-that-dropped-half-the-request
+
+**What happened.** A captain instruction reaches Ren as a sentence, and the
+engine keeps five records of what was done with it: the canonical intent
+of what was asked (`editorial_intent`, PLAN-001), the plan that will
+serve it, the operations that ran and their receipts, the acceptance
+contract and the evidence against it, and the acceptance state the gate
+reached (`acceptance_state`, QA-008).
+
+Every one of those records was sound on its own, and none of them read
+the others. So a task could serve ONE of the three requests its intent
+carried, declare a contract of its own, finish with its criteria passed
+and its delivery receipt clean - and report itself DONE while the other
+two stated instructions had never been planned, never been executed and
+never been mentioned. The gate read the contract; the contract did not
+know what the person asked for.
+
+**Measured, before and after, with the denominators:**
+
+- stated instructions the ENGINE's own verdict carries, over the BASE-003
+  corpus briefs: 0/33 before, 33/33 after;
+- stated instructions that reached a verdict, over the eight-brief set's
+  live records: 15/22 before (the edit briefs; the number the 2026-10-20
+  run published), 22/22 after - 0 met, 22 refused, 0 unaccounted, so the
+  improvement is in the ACCOUNT and not in the run;
+- the gate, on a delivered task that served one stated instruction and
+  dropped the other: COMPLETE before, NOT complete and naming the
+  dropped instruction after.
+
+**The rule.** A task is not DONE while a STATED INSTRUCTION is
+unaccounted for. A stated instruction is a requirement of the canonical
+intent, a request of it, or a criterion of the acceptance contract, and
+it is ACCOUNTED when it reached a VERDICT - met, refused with a reason,
+or failed a check. A refusal IS a verdict: "this could not be done, and
+here is why" is an answer, and an answer that says nothing is not one.
+Before the write, a plan must CARRY or DECLINE every instruction the
+intent states, and a decline carries a reason.
+
+And the final reply states the ACTUAL RESULT rather than repeating the
+original intention: the reply is built from the record and checked
+against it, so a reply that restates the note is refused as a result and
+the engine says what it can instead.
+
+One enumeration, `library/tools/instruction_loop.py`; the gate is
+`assignment_contract.completion`, the plan-time refusal is
+`assignment_edit_workflow.plan`, and the measurement is
+`evaluation/tools/plan011_instruction_loop.py` (the report:
+`docs/benchmarks/2026-10-23-plan011-instruction-loop.md`).
+

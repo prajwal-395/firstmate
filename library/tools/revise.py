@@ -1028,17 +1028,18 @@ def _rebuild(project: str, record: dict, spec: dict, verdict: dict,
                  and "--only-reel" in a), "")
     owners = edit_spec.rerun_steps(edit_spec.routes_for(spec))
     where = record["reel"] or (f"reel {reel}" if reel else "the edit")
-    summary = (f"Rebuilding {where} from "
-               f"{', '.join(owners) or 'its recorded edits'}"
-               + (f" at \"{anchors[0]}\"" if anchors and anchors[0] else "")
-               + ": " + "; ".join(clause["text"] for clause in
-                                  spec.get("clauses") or ()))
+    plan_summary = (f"Rebuilding {where} from "
+                    f"{', '.join(owners) or 'its recorded edits'}"
+                    + (f" at \"{anchors[0]}\"" if anchors and anchors[0] else "")
+                    + ": " + "; ".join(clause["text"] for clause in
+                                       spec.get("clauses") or ()))
     change = {"region": {"reel": record["reel"], "owners": owners,
                          "anchors": [a for a in anchors if a]},
               "changes": [{"op": clause["op"], "text": clause["text"]}
                           for clause in spec.get("clauses") or ()],
               "changed_categories": [],
-              "summary": summary}
+              "summary": plan_summary,
+              "plan_summary": plan_summary}
     note = _note_for(project, record)
     record["assignment_id"] = spine.attach_revision(
         project, record["reel"], request=record["note"],
@@ -1048,7 +1049,7 @@ def _rebuild(project: str, record: dict, spec: dict, verdict: dict,
         # A resumed rebuild already recorded its spec and its plan.
         edit_spec.record_spec(project, spec)
         feedback_outcomes.record_plan(project, note, action_kind="rebuild",
-                                      summary=summary)
+                                      summary=plan_summary)
     run = options.get("run") or _run_engine
     for argv in commands:
         code = run(argv)
@@ -1056,13 +1057,20 @@ def _rebuild(project: str, record: dict, spec: dict, verdict: dict,
             return {"status": STATUS_INCOMPLETE, "route": ROUTE_REBUILD,
                     "change": change, "commands": [_shown(a) for a in commands],
                     "failed_command": _shown(argv), "exit_code": code}
+    # The rebuild RAN.  The summary now states what happened - not what
+    # was going to happen, and not the request that asked for it: a
+    # result that reads as a plan is a reply that repeats the
+    # intention.
+    result_summary = (f"Rebuilt {where} from "
+                      f"{', '.join(owners) or 'its recorded edits'}")
+    change["summary"] = result_summary
     return {"status": STATUS_UNVERIFIED, "route": ROUTE_REBUILD,
             "change": change, "commands": [_shown(a) for a in commands],
             "verification": {"state": "not_proven",
                              "record": _addressed(
                                  project, note,
                                  f"rebuilt from {', '.join(owners) or 'the ledger'}",
-                                 verdict["reason"], summary)}}
+                                 verdict["reason"], result_summary)}}
 
 
 # ── The whole verb ──────────────────────────────────────────────────
@@ -1265,8 +1273,44 @@ def _record_ruling(project: str, record: dict, spec: dict,
     }
 
 
+def _reply_that_states_the_result(reply, record: dict, status: str,
+                                  instruction_loop) -> str:
+    """A reply that says what HAPPENED, or one that says it did not.
+
+    The reply is the one line the person reads, and it is the only place
+    the result reaches them.  A reply that repeats the note is not a
+    result, and a reply that is empty leaves the host to write one - and
+    the host writes the REQUEST, because that is what it was given.
+
+    So the reply is checked against the outcome, and when it fails the
+    engine says what it can: the outcome, and the fact that the detail
+    is not on record.  It never falls back to the note.
+    """
+    said = str(reply or "").strip()
+    outcome = {
+        "state": status,
+        "summary": str((record.get("change") or {}).get("summary") or ""),
+    }
+    ok, _why = instruction_loop.states_actual_result(
+        said, request=str(record.get("note") or ""), outcome=outcome)
+    if ok and said:
+        return said
+    if status in LANDED:
+        return ("The change was applied, and the detail of what changed "
+                "is not on record.")
+    if status == STATUS_UNVERIFIED:
+        return ("The scoped rebuild ran, and the requested outcome has no "
+                "request-specific verification.")
+    if status == STATUS_REFUSED:
+        return (f"{record.get('refusal')} {SETTLED_REFUSAL_NOTE}"
+                if record.get("refusal") else SETTLED_REFUSAL_NOTE)
+    return said or "The revision reached no result that can be reported."
+
+
 def _result(project: str, record: dict) -> dict:
     """What the host reads: the state, and the one line to tell the person."""
+    from library.tools import instruction_loop
+
     status = record["status"]
     reply = {
         STATUS_AWAITING: "Translating the note.",
@@ -1288,6 +1332,8 @@ def _result(project: str, record: dict) -> dict:
                   or "the existing material already achieves the request")
             + ". Nothing was written to the timeline."),
     }.get(status) or (record.get("change") or {}).get("summary")
+    reply = _reply_that_states_the_result(reply, record, status,
+                                          instruction_loop)
     out = {key: record.get(key) for key in (
         "revise_id", "status", "note", "note_id", "source", "reel", "anchor",
         "assignment_id", "requested_assignment_id",

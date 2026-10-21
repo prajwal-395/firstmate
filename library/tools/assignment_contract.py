@@ -107,7 +107,14 @@ def declare(project: str, assignment_id: str,
     criterion that changes its meaning after the work started is not a
     contract any more. A declared criterion is never removed - only
     added to.
+
+    A criterion may name the STATED INSTRUCTION it carries, in
+    `instruction_id`: the id of a requirement of the canonical intent
+    (`editorial_intent`). That is the link that lets the task's promise
+    be read back against what the person actually asked for, and it is
+    what `library/tools/instruction_loop.py` accounts for at the end.
     """
+
     declared = []
     for criterion in criteria:
         if not isinstance(criterion, Mapping):
@@ -128,6 +135,7 @@ def declare(project: str, assignment_id: str,
             "id": str(criterion["id"]),
             "statement": criterion["statement"].strip(),
             "kind": criterion["kind"],
+            "instruction_id": str(criterion.get("instruction_id") or ""),
             "declared_at": str(criterion.get("declared_at") or _now()),
             "declared_by": str(criterion.get("declared_by") or "creator"),
         })
@@ -145,7 +153,9 @@ def declare(project: str, assignment_id: str,
                 known[criterion["id"]] = criterion
                 continue
             if prior["statement"] != criterion["statement"] \
-                    or prior["kind"] != criterion["kind"]:
+                    or prior["kind"] != criterion["kind"] \
+                    or prior.get("instruction_id", "") \
+                    != criterion["instruction_id"]:
                 raise ValueError(
                     f"acceptance criterion {criterion['id']!r} is already "
                     f"declared with a different meaning; a contract is a "
@@ -310,14 +320,24 @@ def completion(project: str, assignment_id: str) -> dict:
     are three different things and none of them is completion. A task
     whose acceptance gate has not run carries no verdict, and the
     answer says so rather than reading the absence as a pass.
+
+    THE ACCOUNT OF THE STATED INSTRUCTIONS is the third gate, and it is
+    PLAN-011's: a task is complete only when every instruction the
+    person stated reached a VERDICT - met, refused with a reason, or
+    failed a check. A criterion with no evidence is already a blocker
+    above; what this adds is the instruction the contract never carried
+    at all, and the request of the intent that no plan served. Without
+    it, a task whose contract happened to be small could report itself
+    done while the person asked for three things and got one.
     """
     from library.tools import acceptance_state
+    from library.tools import instruction_loop
 
     stored = lifecycle.load(project, assignment_id)
     if stored is None:
         return {"complete": False, "stage": "BRIEF", "assignment_state": None,
                 "reason": "the task has no record", "criteria": {},
-                "delivery": None, "acceptance": None,
+                "delivery": None, "acceptance": None, "account": None,
                 "blockers": ["the task has no record"]}
     state = str(stored.get("state") or "brief")
     stage = STATE_STAGES.get(state, "BRIEF")
@@ -354,6 +374,13 @@ def completion(project: str, assignment_id: str) -> dict:
             f"the final acceptance did not accept this work: "
             f"{acceptance.get('outcome')} - "
             f"{acceptance.get('reason') or 'no reason recorded'}")
+    account = instruction_loop.account_assignment(project, assignment_id)
+    for row in account["instructions"]:
+        if row["accounted"]:
+            continue
+        blockers.append(
+            f"the stated {row['kind']} {row['id']!r} reached no verdict: "
+            f"{row['reason'] or 'nothing accounts for it'}")
     complete = (stage in ("DELIVERED", "ACCEPTED") and not blockers)
     return {
         "complete": complete,
@@ -366,5 +393,6 @@ def completion(project: str, assignment_id: str) -> dict:
         "criteria": evaluated,
         "delivery": delivery,
         "acceptance": acceptance,
+        "account": account,
         "blockers": blockers,
     }

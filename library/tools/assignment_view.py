@@ -717,12 +717,14 @@ def task_state(project: str, assignment_id: str | None = None) -> dict:
             LEDGER: _empty(LEDGER),
             "completed": _no_task_completed(),
             "blocking": _no_task_blocking(),
+            "instruction_account": _no_task_account(),
             "resume_point": None,
             "note": "No assignment is recorded yet; a proposal or an edit "
                     "run opens one.",
         }
     revisions = _revisions(root, record)
     intent = _intent(root, record)
+    completed = _completed(root, record)
     from library.tools import assignment_interaction
     ledger = _chain(root, record)
     ledger["decisions"] = ledger["decisions"] + _approved_decisions(revisions)
@@ -741,8 +743,9 @@ def task_state(project: str, assignment_id: str | None = None) -> dict:
         "verified": _verified(root, record, revisions),
         "corrections": _corrections(root, record, revisions),
         LEDGER: ledger,
-        "completed": _completed(root, record),
+        "completed": completed,
         "blocking": _blocking(root, record),
+        "instruction_account": _instruction_account(completed),
         "resume_point": assignment_spine.resume_point(root, record),
     }
 
@@ -865,6 +868,26 @@ def _blocking(project: str, record: dict) -> dict:
     return assignment_task.blocker(project, record["assignment_id"])
 
 
+def _instruction_account(completed: dict) -> dict:
+    """Every stated instruction, and where each one ended up (PLAN-011).
+
+    The account is the engine's own read of the task's records: a
+    requirement of the canonical intent, a request of it, and a criterion
+    of the acceptance contract. An instruction with no verdict is
+    UNACCOUNTED, and the task is not finished while one is.
+
+    It is the account the COMPLETION GATE read, not a second reading of
+    the same records: one task, one account, and the gate and this view
+    cannot disagree about it.
+    """
+    account = completed.get("account")
+    if isinstance(account, dict):
+        return account
+    return {"instructions": [], "unaccounted": [],
+            "counts": {"total": 0, "accounted": 0, "met": 0,
+                       "refused": 0, "failed": 0, "unaccounted": 0}}
+
+
 def _no_task_completed() -> dict:
     """The completion verdict for a project with no task."""
     return {"complete": False, "stage": "BRIEF", "assignment_state": None,
@@ -877,6 +900,13 @@ def _no_task_blocking() -> dict:
     """The blocker for a project with no task."""
     return {"kind": "none", "action": "none", "command": None,
             "why": "no task is recorded for this project", "needs": []}
+
+
+def _no_task_account() -> dict:
+    """The account for a project with no task: nothing was stated."""
+    return {"instructions": [], "unaccounted": [],
+            "counts": {"total": 0, "accounted": 0, "met": 0, "refused": 0,
+                       "failed": 0, "unaccounted": 0}}
 
 
 def _empty(section: str) -> dict:
@@ -1011,6 +1041,20 @@ def render(view: dict) -> str:
     resume = view.get("resume_point") or {}
     if resume.get("command"):
         lines.append(f"Next: {resume['command']} ({resume.get('why')})")
+    account = view.get("instruction_account") or {}
+    counts = account.get("counts") or {}
+    if counts.get("total"):
+        lines.append(
+            f"Stated instructions: {counts.get('accounted')} of "
+            f"{counts.get('total')} reached a verdict"
+            + (f"; unaccounted: {', '.join(account.get('unaccounted') or [])}"
+               if account.get("unaccounted") else ""))
+        for row in account.get("instructions") or []:
+            if row.get("accounted"):
+                continue
+            lines.append(f"  unaccounted {row.get('id')} "
+                         f"({row.get('kind')}): "
+                         f"{row.get('reason') or row.get('where')}")
     return "\n".join(lines)
 
 

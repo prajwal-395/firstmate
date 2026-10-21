@@ -288,3 +288,93 @@ def test_assignment_readback_does_not_hide_a_planned_edit_workflow():
 
     assert applied["counts"]["planned"] == 1
     assert applied["planned"][0]["workflow_id"] == "E2E-009"
+
+
+def _two_requirement_intent(_project, _intent_id):
+    return build_intent(
+        intent_id="intent-two",
+        desired_outcome="Tighten dialogue and keep the grade",
+        editorial_spec={
+            "requirements": [
+                {"id": "req:tighten", "statement": "Tighten the pause"},
+                {"id": "req:grade", "statement": "Keep the grade as it is"}],
+            "preferences": [], "platform": "", "audience": "",
+            "target_duration": {}, "pacing": [], "subjects": {},
+            "prohibited_content": [], "references": [],
+            "unresolved_decisions": []},
+        requests=[{"id": "tighten", "kind": "tighten_dialogue",
+                   "statement": "Tighten dialogue", "evidence_lanes": ["m1"]}],
+    ), "model-revision-1"
+
+
+def test_a_plan_that_silently_drops_a_stated_requirement_is_refused(
+        tmp_path, monkeypatch):
+    """The defect: half the request reaches the timeline as half itself.
+
+    The intent states two things.  The plan serves one of them and says
+    nothing about the other, and the note that was written down was the
+    note the person read, not the one the plan serves.  The refusal
+    happens BEFORE the write, and it names what is missing.
+    """
+    project = _assignment(tmp_path)
+    record = assignment_lifecycle.load(project, "assignment-1")
+    record["intent_id"] = "intent-two"
+    assignment_lifecycle.save(project, record)
+    monkeypatch.setattr(workflow, "_intent", _two_requirement_intent)
+
+    with pytest.raises(workflow.WorkflowRefused,
+                       match="does not account for every stated instruction"):
+        workflow.plan(
+            project, "assignment-1", workflow_id="E2E-009",
+            intent_id="intent-two", intent_request_id="tighten",
+            request=_request(project), evidence_ids=["pause-span"],
+            decision_ids=["remove-pause"], acceptance_criteria=[
+                {"id": "sync", "statement": "dialogue remains in sync",
+                 "kind": "technical"},
+                {"id": "clean", "statement": "the pause is shortened safely",
+                 "kind": "editorial",
+                 "instruction_id": "req:tighten"}])
+
+
+def test_a_plan_may_decline_a_stated_requirement_when_it_says_why(
+        tmp_path, monkeypatch):
+    """The defect this guards: a decline that is not a reason.
+
+    A plan that does not serve a stated instruction may say so - but it
+    has to say WHY, because "this plan does not do that" is not an
+    answer, and the person is owed one.
+    """
+    project = _assignment(tmp_path)
+    record = assignment_lifecycle.load(project, "assignment-1")
+    record["intent_id"] = "intent-two"
+    assignment_lifecycle.save(project, record)
+    monkeypatch.setattr(workflow, "_intent", _two_requirement_intent)
+
+    with pytest.raises(workflow.WorkflowRefused, match="without a reason"):
+        workflow.plan(
+            project, "assignment-1", workflow_id="E2E-009",
+            intent_id="intent-two", intent_request_id="tighten",
+            request=_request(project), evidence_ids=["pause-span"],
+            decision_ids=["remove-pause"], acceptance_criteria=[
+                {"id": "sync", "statement": "dialogue remains in sync",
+                 "kind": "technical"},
+                {"id": "clean", "statement": "the pause is shortened safely",
+                 "kind": "editorial",
+                 "instruction_id": "req:tighten"}],
+            declined_instructions={"req:grade": ""})
+
+    entry = workflow.plan(
+        project, "assignment-1", workflow_id="E2E-009",
+        intent_id="intent-two", intent_request_id="tighten",
+        request=_request(project), evidence_ids=["pause-span"],
+        decision_ids=["remove-pause"], acceptance_criteria=[
+            {"id": "sync", "statement": "dialogue remains in sync",
+             "kind": "technical"},
+            {"id": "clean", "statement": "the pause is shortened safely",
+             "kind": "editorial",
+             "instruction_id": "req:tighten"}],
+        declined_instructions={
+            "req:grade": "the grade is preserved by not touching it"})
+
+    assert entry["declined_instructions"] == {
+        "req:grade": "the grade is preserved by not touching it"}

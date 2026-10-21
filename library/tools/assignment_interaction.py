@@ -565,7 +565,8 @@ def _act(root: str, args) -> dict:
             workflow_id=plan["workflow_id"], intent_id=plan.get("intent_id", ""),
             intent_request_id=plan["intent_request_id"], request=plan["request"],
             evidence_ids=plan["evidence_ids"], decision_ids=plan["decision_ids"],
-            acceptance_criteria=plan["acceptance_criteria"])
+            acceptance_criteria=plan["acceptance_criteria"],
+            declined_instructions=plan.get("declined_instructions") or {})
     if args.edit_apply:
         _require_id(args)
         if not args.authorization_source:
