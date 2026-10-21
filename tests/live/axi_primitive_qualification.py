@@ -134,7 +134,8 @@ PRIMITIVES = (
               ("target_absent", "gap_left", "other_track_untouched")),
     Primitive("delete_linked_effects", "AXI-011",
               "Delete a linked A/V clip with existing transforms and retiming",
-              "clip.delete", "resolve_axi", "resolve-axi edit delete",
+              "clip.delete", "edit_patch",
+              "edit_patch.apply_live_patch",
               "commit",
               ("video_target_absent", "linked_audio_preserved",
                "other_items_untouched")),
@@ -449,8 +450,10 @@ def _cases() -> dict:
                             "segments": [{"record_frame": 0,
                                           "percent": 90.0}]}],
                           ["timeline_structure"], "delete-target-retime")],
-            "commands": [_edit("delete", "--track", "video1", "--index",
-                               "0", "--apply")],
+            "commands": [_patch(
+                [{"op": "clip.delete",
+                  "unique_id": "$qual_a.mp4@video"}],
+                ["timeline_structure"], "delete-linked-effects")],
             "targets": [{"name": "qual_a.mp4", "kind": "video"}],
         },
         # ── AXI-012 ──
@@ -1239,7 +1242,10 @@ for name, case in CASES.items():
     _carried = cleanup()
     setup["imported"] = import_owned_media()
     for argv in case.get("setup", []):
-        receipt = call(argv)
+        if isinstance(argv, dict):
+            receipt = apply_patch(argv, live_state())
+        else:
+            receipt = call(argv)
         setup_receipts.append(receipt)
         if receipt["exit_code"]:
             # The setup is the fixture's own placement: a refusal here
