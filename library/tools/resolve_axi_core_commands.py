@@ -422,6 +422,7 @@ def _qualification_context(resolve, project, timeline, operations) -> dict:
 # verbs it does not know yet).
 _LOCAL_COMMANDS = frozenset({
     "cmd_capabilities",
+    "cmd_actions",
     "cmd_operation_map",
     "cmd_capability_coverage",
     "cmd_support",
@@ -513,6 +514,93 @@ def cmd_capability_coverage(args) -> int:
             "priority_note", "priority")}
     sys.stdout.write(json.dumps(payload, sort_keys=True, indent=2) + "\n")
     return 0
+
+
+def cmd_actions(args) -> int:
+    """PLAN-010: the query that says what an agent MAY do, and what it costs.
+
+    `capabilities` answers about an operation the caller already named.
+    This verb answers the question a caller actually has - "what can I do
+    about this?" - and returns the smallest relevant slice for each
+    answer: the schema and a worked example, the known preservation
+    limits, the expected verification, the refusal categories with their
+    recovery options, and how to request it.
+
+    The menu holds the operations ordinary routing may use.  The
+    operations that are declared but not routable are reported beside
+    it, each with the blocker that keeps it out, so a caller learns the
+    gap instead of naming an operation that cannot run.
+    """
+    from library.tools import action_discovery
+
+    request = (getattr(args, "request", "") or "").strip()
+    limit = int(getattr(args, "limit", 5) or 5)
+    if not request:
+        payload = action_discovery.catalog()
+    else:
+        payload = action_discovery.discover(request, limit=limit)
+    if getattr(args, "json", False):
+        sys.stdout.write(json.dumps(payload, sort_keys=True, indent=2) + "\n")
+        return 0
+    sys.stdout.write(_actions_toon(payload) + "\n")
+    return 0
+
+
+def _actions_toon(payload: dict) -> str:
+    """The action query as compact tables, for a person reading it."""
+    if "operations" in payload:
+        rows = [{
+            "id": row["id"],
+            "effect": row["effect"],
+            "required": ", ".join(row["required"]) or "none",
+            "verified_by": row["verified_by"],
+        } for row in payload["operations"]]
+        return "\n".join([
+            f"{payload['supported_count']} of {payload['total_operations']} "
+            "operations are production-enabled; these are they.",
+            "",
+            table("supported_operations", rows,
+                  ["id", "effect", "required", "verified_by"]),
+        ])
+    parts = [
+        f"query: {payload['query']}",
+        (f"matched the effect of: {', '.join(payload['terms'])}"
+         if payload["effect_match"] else
+         "no operation's name matched this effect; the menu below is the "
+         "supported set, ordered by how often the editorial loop asks "
+         "for it"),
+        "",
+    ]
+    rows = []
+    for match in payload["matches"]:
+        card = match["card"]
+        rows.append({
+            "id": card["id"],
+            "effect": card["effect"],
+            "required": ", ".join(card["schema"]["required"]) or "none",
+            "preserves": "; ".join(card["preserves"]["limits"]) or "not recorded",
+            "verified_by": card["verifies"]["contract"],
+        })
+    parts.append(table("supported_actions", rows,
+                       ["id", "effect", "required", "preserves", "verified_by"]))
+    if payload.get("not_routable"):
+        parts.append("")
+        parts.append(table("declared_not_routable", [
+            {"id": row["id"],
+             "effect": row["effect"],
+             "blocker": row["blocker"],
+             "next_action": row["next_action"],
+             "supported_alternatives": ", ".join(
+                 row["supported_alternatives"]) or "none"}
+            for row in payload["not_routable"]],
+            ["id", "effect", "blocker", "next_action", "supported_alternatives"]))
+    parts.append("")
+    parts.append(table("refusal_categories", [
+        {"blocker": row["blocker"], "plain": row["plain"],
+         "next_action": row["next_action"]}
+        for row in payload["refusal_catalog"]],
+        ["blocker", "plain", "next_action"]))
+    return "\n".join(parts)
 
 
 def cmd_support(args) -> int:
@@ -10546,6 +10634,21 @@ def build_parser() -> Parser:
     p.add_argument("--json", action="store_true",
                    help="emit structured JSON instead of concise TOON")
     p.set_defaults(func=cmd_capabilities)
+
+    p = subs.add_parser(
+        "actions",
+        help="what this build can actually do, and what each action "
+             "costs: the supported operations for a requested effect, "
+             "with their schema, preservation limits, verification and "
+             "recovery options")
+    p.add_argument("request", nargs="?", default="",
+                   help="the effect you want, in your own words; the "
+                        "whole supported menu when omitted")
+    p.add_argument("--limit", type=int, default=5,
+                   help="how many actions to return (default 5)")
+    p.add_argument("--json", action="store_true",
+                   help="emit structured JSON instead of compact tables")
+    p.set_defaults(func=cmd_actions)
 
     p = subs.add_parser(
         "operation-map",
