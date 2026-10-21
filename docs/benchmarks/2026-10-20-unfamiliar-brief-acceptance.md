@@ -58,6 +58,35 @@ move them.
 > across the five briefs that expect an edit. Every other number here is
 > unchanged, and the bottleneck is still `interpretation`.
 
+> **Amendment, 2026-10-21 - the interpretation stage is now published as
+> a SPLIT.** The stage measures two different things: whether the run
+> READ the request, and whether it could GROUND the work in something
+> the footage carries. The report now publishes both beside the
+> unchanged headline:
+>
+> | view | measured | passed | value |
+> |---|---|---|---|
+> | `reading` (briefs) | 8 | 8 | 1.00 |
+> | `reading` with the request's stated constraints | 8 | 7 | 0.875 |
+> | `grounding` (role instances, applicable) | 4 | 3 | 0.75 |
+> | `grounding` (role instances, all) | 11 | 3 | 0.27 |
+>
+> The one reading defect the run made is now MEASURED rather than
+> invisible: `name-bar-fights-the-captions` says "Move it down", and the
+> run's restatement says "move it so it stops colliding" - the direction
+> was dropped, and no schema could express it before. It is reported as
+> `direction-down` in the reading view.
+>
+> The grounding view counts ROLE INSTANCES, and keeps three answers
+> apart: seven role instances are **not applicable** (the substrate does
+> not carry the premise the request presupposes, so there was nothing to
+> point at), three of the four applicable ones were resolved, and of the
+> four the run CLAIMED to resolve, exactly one is **verified** - the
+> recorded timeline carries the clip it named. The other three name no
+> clip the harness can check, so they are unverified rather than
+> resolved-and-trusted. The headline is untouched by all of this.
+
+
 `ren accept --records tests/live/reports/editorial-bench-records`
 (eight briefs, eight scored, none not-run):
 

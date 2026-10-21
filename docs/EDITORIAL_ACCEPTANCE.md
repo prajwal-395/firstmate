@@ -93,6 +93,66 @@ not the same unit, and an average over them hides WHICH one broke.
 A stage with no evidence is `not_measured`, never a zero. A zero is a
 claim that something was measured and came out badly.
 
+### The reading and the grounding are two measurements
+
+The interpretation stage measures two different things at once: whether
+the run READ the request, and whether it could GROUND the work in
+something the footage carries. Folding them together is what made the
+published number unreadable - eight of eight briefs were read
+correctly while four of eleven target roles could be pointed at.
+
+The report therefore publishes the split ALONGSIDE the headline, never
+instead of it:
+
+- **`reading`** - did the run restate the request, name exactly the
+  operations the request implies, and plan nothing for a brief whose
+  correct outcome is to report back? Measured per brief.
+- **`grounding`** - could the run point at the thing the work is about?
+  Measured per ROLE INSTANCE, because a brief that names seven roles
+  and a brief that names one are not the same size of claim.
+
+Three things are kept apart in the grounding view, because they are
+three different answers:
+
+- **not applicable**: the brief's own premise is not in the substrate.
+  There was nothing to point at; this is not a failure of the run.
+- **resolved**: the run said which item the role names. A claim is not
+  evidence.
+- **verified**: the recorded timeline CARRIES the item the run named -
+  the clip's own stable id, on the timeline the record says it worked
+  in. A resolution with no evidence behind it is unverified, and one the
+  recorded timeline does not carry is NOT verified.
+
+The verification never guesses. No recorded timeline, an ambiguous
+timeline name, or a target that names no clip leaves the resolution
+unverified rather than counting as resolved.
+
+### The constraints a request states are measured too
+
+A request that says "move it down" and a reading that says "move it so
+it stops colliding" are different readings, and before this the
+difference was invisible: a prose restatement has nowhere to put a
+direction. Each brief's answer key now DECLARES the constraints its
+request states, with the words that carry them, and the reading is
+measured against that. The constraint's words are the requester's own -
+they are already in the instruction the run read - so nothing is handed
+to the run; what the harness gains is a place to say "the reading
+dropped this".
+
+The count is published BESIDE the reading, not folded into it: the
+reading is one measurement, and whether it carried the request's
+constraints is another.
+
+### The canonical intent is measured, not believed
+
+A record may carry the canonical intent the run read the request into
+(`interpretation.intent`), and when it does the harness MEASURES it -
+the intent's own contract is checked here, rather than the run's word
+that the intent is fine. `editorial_intent.intent_from_request` is the
+path from a one-off sentence to that canonical record: it declares the
+request kinds the sentence names, with each kind's own evidence bar and
+autonomy, and it invents no requirement and no preference.
+
 ### The planning stage is gated on the brief's acceptance criteria
 
 A plan has to CARRY the brief's acceptance criteria - the statements the
@@ -177,7 +237,10 @@ One record per brief attempt, written by whoever ran the brief:
   "brief_id": "the-whole-job",
   "instruction": "the user's words, verbatim",
   "interpretation": {"restated_outcome": "...", "selected_operations": [...],
-                     "resolved_targets": [...]},
+                     "resolved_targets": [...],
+                     "intent": {"intent_id": "...", "requirements": [...],
+                                "requests": [...]},
+                     "constraints_covered": [...]},
   "retrieval": {"moments": [{"moment_id": "...", "evidence_ids": [...]}],
                 "abstained": false, "unavailable": []},
   "planning": {"operations": [{"op": "...", "target_role": "..."}],
@@ -193,6 +256,19 @@ One record per brief attempt, written by whoever ran the brief:
 
 `record.validate` names every breach, and a record that breaks it is
 refused rather than read as a run that did nothing.
+
+Three parts of the record are MEASURED rather than believed, when the
+record carries them:
+
+- `interpretation.intent` - the canonical intent the run read the
+  request into. The harness checks it against the intent's own contract.
+- `interpretation.constraints_covered` - the constraints the request
+  stated and the reading carried. The brief's answer key declares the
+  constraints and the words that carry them.
+- `interpretation.resolved_targets[].evidence` - the clip's stable id,
+  the row and the frame span of what the run resolved. Without it a
+  resolution is unverified, and a resolution the recorded timeline does
+  not carry is not verified either.
 
 ## Running it
 

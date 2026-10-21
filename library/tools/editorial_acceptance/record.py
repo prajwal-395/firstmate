@@ -8,7 +8,11 @@ nothing about how it was produced.
 Five sections, and each answers one question:
 
 - ``interpretation`` - what the run thought the request was, and which
-  work it named.
+  work it named. It may also carry the canonical intent the run read
+  the request into (``intent``), the constraints the request stated
+  that the reading carried (``constraints_covered``), and the evidence
+  behind each resolved target (``resolved_targets[].evidence``); the
+  harness MEASURES each of those rather than believing it.
 - ``retrieval`` - the source moments it found, and the evidence behind
   each one.
 - ``planning`` - the operations it meant to run, and which of the

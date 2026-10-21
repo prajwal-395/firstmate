@@ -382,6 +382,53 @@ def test_a_run_with_no_commission_yields_an_intent_with_nothing_in_it():
                for problem in ei.validate_intent(intent))
 
 
+# ── The intent of a ONE-OFF request ───────────────────────────────────
+
+def test_a_one_off_request_becomes_a_canonical_intent():
+    """The defect: a request that arrives as a sentence had no path to
+    the canonical record, so the harness could only read a prose
+    restatement the run wrote about itself."""
+    intent = ei.intent_from_request(
+        "The lower third fights the captions - move it down.",
+        intent_id="intent:request-1")
+    assert intent.desired_outcome == (
+        "The lower third fights the captions - move it down.")
+    assert [request.kind for request in intent.requests] == [
+        ei.REVISE_GRAPHICS]
+    assert intent.requests[0].evidence_bar == ei.REQUEST_PROFILES[
+        ei.REVISE_GRAPHICS].evidence_bar
+    assert ei.validate_intent(intent) == []
+
+
+def test_a_one_off_request_invents_no_requirement():
+    """The defect: a request says "move it down", and the intent builder
+    promotes it to a mandatory statement nobody asked for - an
+    invention, wearing a requirement's name."""
+    intent = ei.intent_from_request("Move it down.", intent_id="intent:1")
+    assert intent.requirements == ()
+    assert intent.preferences == ()
+    assert intent.inferred_preferences == ()
+
+
+def test_a_one_off_request_naming_no_kind_still_declares_its_outcome():
+    """The defect: a request in the requester's own words is forced into
+    one of the declared kinds, and the engine's own vocabulary replaces
+    what was actually asked."""
+    intent = ei.intent_from_request(
+        "Put the shot of the bench over the tooling bit.",
+        intent_id="intent:1")
+    assert intent.requests == ()
+    assert intent.desired_outcome
+    assert ei.validate_intent(intent) == []
+
+
+def test_a_one_off_request_that_states_nothing_is_refused():
+    """The defect: an empty request becomes an intent with no outcome,
+    and the validator has to catch it after the fact."""
+    with pytest.raises(ei.IntentError):
+        ei.intent_from_request("   ", intent_id="intent:1")
+
+
 # ── The intent reaches the Project Model ───────────────────────────────
 
 def test_the_intent_is_written_into_the_project_model(tmp_path):

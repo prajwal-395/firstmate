@@ -64,6 +64,8 @@ ORACLE_KEYS: tuple[str, ...] = (
     "expected_moment_ids",
     "allowed_operations",
     "footage_requirements",
+    "stated_constraints",
+    "role_premises",
     "notes",
 )
 
@@ -250,6 +252,53 @@ def validate_brief_set(raw: Mapping[str, Any]) -> list[str]:
                         problems.append(
                             f"{label} names a presence outside the "
                             f"enumeration: {presence!r}")
+            # The constraints the request STATES, and the premise each
+            # target role rests on. Both are the evaluator's key: the
+            # first says what a reading must carry, the second says
+            # what a target needs the footage to hold.
+            constraints = oracle.get("stated_constraints")
+            if not isinstance(constraints, list):
+                problems.append(
+                    f"{label} stated_constraints must be a list")
+            else:
+                constraint_ids: set[str] = set()
+                for constraint in constraints:
+                    if not isinstance(constraint, Mapping):
+                        problems.append(
+                            f"{label} has a malformed stated constraint")
+                        continue
+                    constraint_id = str(constraint.get("id") or "").strip()
+                    if not constraint_id:
+                        problems.append(
+                            f"{label} has a stated constraint with no id")
+                    elif constraint_id in constraint_ids:
+                        problems.append(
+                            f"{label} repeats stated constraint "
+                            f"{constraint_id!r}")
+                    constraint_ids.add(constraint_id)
+                    terms = constraint.get("terms")
+                    if not isinstance(terms, list) or not terms:
+                        problems.append(
+                            f"{label} stated constraint {constraint_id!r} "
+                            "names no words to look for")
+                    if not str(constraint.get("statement") or "").strip():
+                        problems.append(
+                            f"{label} stated constraint {constraint_id!r} "
+                            "states nothing")
+            role_premises = oracle.get("role_premises")
+            if not isinstance(role_premises, Mapping):
+                problems.append(f"{label} role_premises must be an object")
+            else:
+                roles = list(oracle.get("expected_target_roles") or [])
+                for role, feature in role_premises.items():
+                    if role not in roles:
+                        problems.append(
+                            f"{label} role_premises names a role the brief "
+                            f"does not expect: {role!r}")
+                    if feature not in footage.FEATURES:
+                        problems.append(
+                            f"{label} role_premises names a premise outside "
+                            f"the enumeration: {feature!r}")
             if isinstance(operations, list) and isinstance(allowed, list):
                 known = _known_operations()
                 unknown = sorted(
@@ -309,6 +358,14 @@ def oracle(brief: Mapping[str, Any]) -> dict[str, Any]:
             dict(requirement)
             for requirement in (key.get("footage_requirements") or [])
         ],
+        "stated_constraints": [
+            dict(constraint)
+            for constraint in (key.get("stated_constraints") or [])
+        ],
+        "role_premises": {
+            str(role): str(feature)
+            for role, feature in (key.get("role_premises") or {}).items()
+        },
         "notes": key["notes"],
     }
 
@@ -335,6 +392,17 @@ def leak_problems(view: Mapping[str, Any],
             text = str(value)
             if text and text in serialised:
                 forbidden.append(text)
+    # A stated constraint's ID is the evaluator's label and must not
+    # leak. Its WORDS are the requester's own - they are already in the
+    # instruction the run read - so they are not forbidden here: the
+    # requester saying "down" is not the harness handing over an
+    # answer.
+    for constraint in (key.get("stated_constraints") or ()):
+        if not isinstance(constraint, Mapping):
+            continue
+        text = str(constraint.get("id") or "")
+        if text and text in serialised:
+            forbidden.append(text)
     for value in forbidden:
         problems.append(f"the public view carries the oracle value {value!r}")
     for requirement in (key.get("footage_requirements") or ()):
@@ -403,6 +471,7 @@ def coverage(brief_set: Mapping[str, Any]) -> dict[str, Any]:
     premises: dict[str, list[str]] = {}
     criterion_count = 0
     refusal_briefs: list[str] = []
+    with_constraints: list[str] = []
     for brief in briefs:
         brief_id = str(brief["id"])
         key = brief["oracle"]
@@ -423,6 +492,8 @@ def coverage(brief_set: Mapping[str, Any]) -> dict[str, Any]:
         criterion_count += len(brief["acceptance_criteria"])
         if key.get("expected_refusal"):
             refusal_briefs.append(brief_id)
+        if list(key.get("stated_constraints") or ()):
+            with_constraints.append(brief_id)
     missing = [case for case in EDGE_CASES if not edge_case_counts[case]]
     return {
         "brief_count": len(briefs),
@@ -435,6 +506,7 @@ def coverage(brief_set: Mapping[str, Any]) -> dict[str, Any]:
         "footage_profile_counts": profiles,
         "premise_briefs": premises,
         "refusal_briefs": refusal_briefs,
+        "briefs_with_stated_constraints": with_constraints,
     }
 
 

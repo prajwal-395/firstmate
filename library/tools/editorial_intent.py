@@ -712,6 +712,55 @@ def build_intent(*, intent_id: str,
     )
 
 
+def intent_from_request(statement: str, *, intent_id: str,
+                        brief_ref: str = "",
+                        evidence_lanes: Iterable[str] = (),
+                        ) -> EditorialIntent:
+    """The canonical intent of ONE request, in the requester's own words.
+
+    A commission arrives as a structured spec, and `build_intent` reads
+    that. A one-off request arrives as a sentence, and this is the path
+    from the sentence to the canonical record - so the harness can
+    measure what the run READ instead of reading a prose restatement it
+    wrote about itself.
+
+    It is deliberately narrow. It declares the REQUEST KINDS the sentence
+    names, each with that kind's own evidence bar and autonomy, and it
+    invents NO requirement and NO preference: a direction the sentence
+    does not state has nowhere to live here, and inventing one is the
+    failure this exists to prevent. A sentence that names none of the
+    declared kinds yields an intent that says so - a request in the
+    requester's own words is not forced into one.
+    """
+    text = str(statement or "").strip()
+    if not text:
+        raise IntentError("a request states nothing")
+    lanes = tuple(str(lane) for lane in evidence_lanes)
+    requests = []
+    for index, kind in enumerate(match_request_kinds(text)):
+        profile = REQUEST_PROFILES[kind]
+        missing = [{"lane": lane, "status": NOT_YET_ANALYSED}
+                   for lane in profile.evidence_bar if lane not in lanes]
+        requests.append(IntentRequest(
+            request_id=f"request:{index}",
+            kind=kind,
+            statement=text,
+            explicit=True,
+            objective=profile.objective,
+            autonomy=profile.autonomy,
+            autonomy_basis=f"the declared default for {kind}",
+            evidence_bar=profile.evidence_bar,
+            evidence_lanes=lanes,
+            missing_evidence=tuple(missing),
+        ))
+    return EditorialIntent(
+        intent_id=str(intent_id),
+        desired_outcome=text,
+        brief_ref=str(brief_ref or ""),
+        requests=tuple(requests),
+    )
+
+
 def from_state(state: Mapping[str, Any], *, intent_id: str = "intent:1",
                brief_ref: str = "",
                requests: Sequence[Mapping[str, Any]] = (),

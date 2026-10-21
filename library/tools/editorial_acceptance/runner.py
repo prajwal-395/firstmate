@@ -39,7 +39,9 @@ from library.tools.editorial_acceptance import (
     demo,
     failures,
     footage,
+    grounding,
     judgement,
+    reading,
     stages,
 )
 from library.tools.editorial_acceptance import (
@@ -129,7 +131,8 @@ def _catalogue(catalogue: Mapping[str, Any] | None,
 
 def score_task(record: Mapping[str, Any], brief: Mapping[str, Any],
                *, judge: Callable | None = None,
-               catalogue: Mapping[str, Any] | None = None) -> dict[str, Any]:
+               catalogue: Mapping[str, Any] | None = None,
+               timelines: dict | None = None) -> dict[str, Any]:
     """One brief, one record, one row of the report.
 
     The brief is SCORED, whatever the footage carries: the engine still
@@ -152,6 +155,13 @@ def score_task(record: Mapping[str, Any], brief: Mapping[str, Any],
     classification = failures.classify(
         stage_measurements, task_id=str(record.get("task_id") or brief["id"]),
         expected_refusal=bool(key["expected_refusal"]))
+    reading_row = reading.measure(record, key,
+                                  stage_measurements["interpretation"])
+    reading_row["brief_id"] = str(brief["id"])
+    grounding_row = grounding.measure(record, key, premise,
+                                       timeline=_recorded_timeline(
+                                           record, timelines))
+    grounding_row["brief_id"] = str(brief["id"])
     return {
         "brief_id": str(brief["id"]),
         "task_id": str(record.get("task_id") or brief["id"]),
@@ -170,6 +180,8 @@ def score_task(record: Mapping[str, Any], brief: Mapping[str, Any],
         },
         "premise": premise,
         "stages": stage_measurements,
+        "reading": reading_row,
+        "grounding": grounding_row,
         "failure": classification,
         "delivery": {
             "path": rendered.get("path"),
@@ -214,6 +226,7 @@ def run_acceptance(records: Sequence[Mapping[str, Any]], *,
     the_catalogue = _catalogue(catalogue, catalogue_path)
     by_id = briefs.briefs_by_id(the_set)
     rows: list[dict[str, Any]] = []
+    timelines: dict = {}
     for record in records:
         brief_id = str(record.get("brief_id") or record.get("task_id") or "")
         brief = by_id.get(brief_id)
@@ -226,7 +239,8 @@ def run_acceptance(records: Sequence[Mapping[str, Any]], *,
                 "stages": {}, "failure": {},
             })
             continue
-        row = score_task(record, brief, judge=judge, catalogue=the_catalogue)
+        row = score_task(record, brief, judge=judge, catalogue=the_catalogue,
+                         timelines=timelines)
         row["status"] = "scored"
         rows.append(row)
     scored_rows = [row for row in rows if row.get("status") == "scored"]
@@ -268,6 +282,11 @@ def run_acceptance(records: Sequence[Mapping[str, Any]], *,
         "passed": passed,
         "failed": len(measured_rows) - passed,
         "stage_metrics": stages.summarize(stage_rows),
+        "reading": reading.summarize([row["reading"] for row in scored_rows
+                                       if row.get("reading")]),
+        "grounding": grounding.summarize([row["grounding"]
+                                           for row in scored_rows
+                                           if row.get("grounding")]),
         "premise": premise,
         "criteria_coverage": _criteria_coverage(scored_rows),
         "failure_causes": failures.bottleneck_summary(classifications),
@@ -324,6 +343,26 @@ def _premise_view(scored_rows: Sequence[Mapping[str, Any]],
             [row["stages"] for row in carried_rows if row.get("stages")],
             excluded=excluded),
     }
+
+
+def _recorded_timeline(record: Mapping[str, Any],
+                       cache: dict | None) -> grounding.RecordedTimeline:
+    """The recorded timeline a record names, read once per run.
+
+    The recorded generations are read from Ren's own store and never
+    from Resolve. One read per project and timeline: several briefs run
+    against the same reel, and the store is not small.
+    """
+    if cache is None:
+        return grounding.recorded_timeline(record)
+    project = record.get("project")
+    project = project if isinstance(project, Mapping) else {}
+    resolve_project = str(project.get("resolve_project") or "").strip()
+    timeline = str(project.get("timeline") or "").strip()
+    key = (resolve_project, timeline)
+    if key not in cache:
+        cache[key] = grounding.recorded_timeline(record)
+    return cache[key]
 
 
 def _criteria_coverage(scored_rows: Sequence[Mapping[str, Any]]

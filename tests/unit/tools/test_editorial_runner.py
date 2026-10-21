@@ -154,6 +154,30 @@ def test_a_run_that_changed_unrelated_work_is_reported_as_unsafe():
     assert report["failure_causes"]["bottleneck"] == "execution"
 
 
+def test_the_report_publishes_the_reading_and_grounding_split():
+    """The defect: the interpretation stage measures the reading AND the
+    grounding together, so a report that says "interpretation 5/8"
+    cannot say which half of it was earned."""
+    report = runner.run_acceptance([_record()])
+    assert report["reading"]["measured"] == 1
+    assert report["reading"]["value"] == 1.0
+    assert report["grounding"]["role_instances"] == 1
+    assert report["grounding"]["unit"] == "role instances"
+    assert "role instance" in report["grounding"]["note"]
+    assert report["stage_metrics"]["stages"]["interpretation"]["value"] == 1.0
+
+
+def test_the_split_is_published_alongside_the_headline_and_moves_nothing():
+    """The defect: a supplementary view REPLACES the headline, and the
+    engine's score becomes a number the harness chose."""
+    report = runner.run_acceptance([_record()])
+    assert set(report["stage_metrics"]["stages"]) == {
+        "interpretation", "retrieval", "planning", "execution",
+        "final_quality"}
+    assert "reading" not in report["stage_metrics"]["stages"]
+    assert "grounding" not in report["stage_metrics"]["stages"]
+
+
 def test_the_report_publishes_the_criteria_coverage_beside_the_headline():
     """The defect: the headline's planning number says how many plans
     were valid answers and nothing says how much of the brief each plan

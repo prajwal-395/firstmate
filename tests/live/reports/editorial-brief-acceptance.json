@@ -24,6 +24,9 @@
         "name-bar-fights-the-captions",
         "the-whole-job"
       ],
+      "briefs_with_stated_constraints": [
+        "name-bar-fights-the-captions"
+      ],
       "edge_case_briefs": {
         "conflicting_instruction": [
           "keep-it-but-tighten-it"
@@ -94,7 +97,7 @@
     },
     "demonstration_brief": "the-whole-job",
     "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/66/video-editing-pilot/library/tools/editorial_acceptance/brief_set.json",
-    "sha256": "a177f273b939250314872ea08fb7d42d739609d823a34be85401a9f2bcea609d"
+    "sha256": "965880c76546d20010a625fccfda1614f13d6c338b9cc10e63355c5dac95cf21"
   },
   "criteria_coverage": {
     "acceptance_criteria": 22,
@@ -349,6 +352,304 @@
     "schema": "ren-editorial-failure-causes/1",
     "unattributed": 0,
     "unsafe_failures": 0
+  },
+  "grounding": {
+    "applicable_role_instances": 4,
+    "briefs": {
+      "keep-it-but-tighten-it": {
+        "brief_id": "keep-it-but-tighten-it",
+        "detail": {
+          "applicable_role_instances": 0,
+          "claimed_resolved_role_instances": 0,
+          "instances": [],
+          "not_applicable_role_instances": 0,
+          "recorded_timeline": {
+            "available": true,
+            "note": "2 recorded timelines carry the name 'Reel 13 - the-accounting-firm-ai-called-healthcare' in project Ren Scratch - breaktest (f7d663e7-cd78-419f-ae67-a2ec1c280dd2, fb4134e0-6ab5-49d7-9c18-0801417a631d); the claim was checked against all of them"
+          },
+          "resolved_applicable_role_instances": 0,
+          "resolved_role_instances": 0,
+          "role_instances": 0,
+          "unavailable_role_instances": 0,
+          "unverified_role_instances": 0,
+          "verified_role_instances": 0
+        },
+        "passed": false,
+        "status": "measured"
+      },
+      "logo-not-in-the-project": {
+        "brief_id": "logo-not-in-the-project",
+        "detail": {
+          "applicable_role_instances": 0,
+          "claimed_resolved_role_instances": 0,
+          "instances": [],
+          "not_applicable_role_instances": 0,
+          "recorded_timeline": {
+            "available": true,
+            "note": "2 recorded timelines carry the name 'Reel 13 - the-accounting-firm-ai-called-healthcare' in project Ren Scratch - breaktest (f7d663e7-cd78-419f-ae67-a2ec1c280dd2, fb4134e0-6ab5-49d7-9c18-0801417a631d); the claim was checked against all of them"
+          },
+          "resolved_applicable_role_instances": 0,
+          "resolved_role_instances": 0,
+          "role_instances": 0,
+          "unavailable_role_instances": 0,
+          "unverified_role_instances": 0,
+          "verified_role_instances": 0
+        },
+        "passed": false,
+        "status": "measured"
+      },
+      "name-bar-fights-the-captions": {
+        "brief_id": "name-bar-fights-the-captions",
+        "detail": {
+          "applicable_role_instances": 1,
+          "claimed_resolved_role_instances": 1,
+          "instances": [
+            {
+              "claimed": "the speaker name bar - the lower third 'b-soft-focus-craig.mov' on the Motion Graphics row (V6), unique_id c71c3d10-cc65-4764-b567-82b1f6222b66, frames 0-84",
+              "claimed_resolved": true,
+              "evidence": "verified",
+              "premise_feature": "lower_third_overlay",
+              "premise_state": "satisfied",
+              "reason": "",
+              "role": "name_lower_third",
+              "status": "resolved"
+            }
+          ],
+          "not_applicable_role_instances": 0,
+          "recorded_timeline": {
+            "available": true,
+            "note": "2 recorded timelines carry the name 'Reel 13 - the-accounting-firm-ai-called-healthcare' in project Ren Scratch - breaktest (f7d663e7-cd78-419f-ae67-a2ec1c280dd2, fb4134e0-6ab5-49d7-9c18-0801417a631d); the claim was checked against all of them"
+          },
+          "resolved_applicable_role_instances": 1,
+          "resolved_role_instances": 1,
+          "role_instances": 1,
+          "unavailable_role_instances": 0,
+          "unverified_role_instances": 0,
+          "verified_role_instances": 1
+        },
+        "passed": true,
+        "status": "measured"
+      },
+      "no-extra-footage": {
+        "brief_id": "no-extra-footage",
+        "detail": {
+          "applicable_role_instances": 0,
+          "claimed_resolved_role_instances": 0,
+          "instances": [],
+          "not_applicable_role_instances": 0,
+          "recorded_timeline": {
+            "available": true,
+            "note": "2 recorded timelines carry the name 'Reel 13 - the-accounting-firm-ai-called-healthcare' in project Ren Scratch - breaktest (f7d663e7-cd78-419f-ae67-a2ec1c280dd2, fb4134e0-6ab5-49d7-9c18-0801417a631d); the claim was checked against all of them"
+          },
+          "resolved_applicable_role_instances": 0,
+          "resolved_role_instances": 0,
+          "role_instances": 0,
+          "unavailable_role_instances": 0,
+          "unverified_role_instances": 0,
+          "verified_role_instances": 0
+        },
+        "passed": false,
+        "status": "measured"
+      },
+      "open-with-the-cost": {
+        "brief_id": "open-with-the-cost",
+        "detail": {
+          "applicable_role_instances": 0,
+          "claimed_resolved_role_instances": 1,
+          "instances": [
+            {
+              "claimed": "the reel's first picture (video1 frame 75-129, video2 frame 0-75 of Reel 13)",
+              "claimed_resolved": true,
+              "evidence": "no_evidence",
+              "premise_feature": "cost_statement",
+              "premise_state": "missing",
+              "reason": "the substrate does not carry what the request presupposes: the footage states what something costs",
+              "role": "opening_section",
+              "status": "not_applicable"
+            }
+          ],
+          "not_applicable_role_instances": 1,
+          "recorded_timeline": {
+            "available": true,
+            "note": "2 recorded timelines carry the name 'Reel 13 - the-accounting-firm-ai-called-healthcare' in project Ren Scratch - breaktest (f7d663e7-cd78-419f-ae67-a2ec1c280dd2, fb4134e0-6ab5-49d7-9c18-0801417a631d); the claim was checked against all of them"
+          },
+          "resolved_applicable_role_instances": 0,
+          "resolved_role_instances": 0,
+          "role_instances": 1,
+          "unavailable_role_instances": 0,
+          "unverified_role_instances": 0,
+          "verified_role_instances": 0
+        },
+        "passed": false,
+        "status": "measured"
+      },
+      "the-whole-job": {
+        "brief_id": "the-whole-job",
+        "detail": {
+          "applicable_role_instances": 3,
+          "claimed_resolved_role_instances": 2,
+          "instances": [
+            {
+              "claimed": "the reel's first picture (frames 0-129)",
+              "claimed_resolved": true,
+              "evidence": "no_evidence",
+              "premise_feature": "",
+              "premise_state": "",
+              "reason": "",
+              "role": "opening_section",
+              "status": "resolved"
+            },
+            {
+              "claimed": "not found - the reel's 45 caption cards state each answer once",
+              "claimed_resolved": false,
+              "evidence": "no_evidence",
+              "premise_feature": "repeated_passage",
+              "premise_state": "missing",
+              "reason": "the substrate does not carry what the request presupposes: the same statement is made more than once",
+              "role": "repeated_passages",
+              "status": "not_applicable"
+            },
+            {
+              "claimed": "not found - the two camera rows are two speakers, not two angles of one moment",
+              "claimed_resolved": false,
+              "evidence": "no_evidence",
+              "premise_feature": "second_camera_angle",
+              "premise_state": "missing",
+              "reason": "the substrate does not carry what the request presupposes: a second camera angle covers a moment already shot",
+              "role": "weak_angle_turn",
+              "status": "not_applicable"
+            },
+            {
+              "claimed": "not found - the reel's one b-roll card covers the opening only",
+              "claimed_resolved": false,
+              "evidence": "no_evidence",
+              "premise_feature": "matching_broll",
+              "premise_state": "unknown",
+              "reason": "",
+              "role": "broll_cover_range",
+              "status": "unresolved"
+            },
+            {
+              "claimed": "not found - no caption names a word the speech does not",
+              "claimed_resolved": false,
+              "evidence": "no_evidence",
+              "premise_feature": "caption_mismatch",
+              "premise_state": "missing",
+              "reason": "the substrate does not carry what the request presupposes: a caption names a word or number the speech does not",
+              "role": "wrong_caption_card",
+              "status": "not_applicable"
+            },
+            {
+              "claimed": "the lower third 'b-soft-focus-craig.mov' (V6, frames 0-84)",
+              "claimed_resolved": true,
+              "evidence": "no_evidence",
+              "premise_feature": "lower_third_overlay",
+              "premise_state": "satisfied",
+              "reason": "",
+              "role": "name_lower_third",
+              "status": "resolved"
+            },
+            {
+              "claimed": "not found - the reel carries no music bed (its audio rows are the two dialogue channels only)",
+              "claimed_resolved": false,
+              "evidence": "no_evidence",
+              "premise_feature": "music_bed",
+              "premise_state": "missing",
+              "reason": "the substrate does not carry what the request presupposes: a music bed runs under the dialogue",
+              "role": "music_bed",
+              "status": "not_applicable"
+            }
+          ],
+          "not_applicable_role_instances": 4,
+          "recorded_timeline": {
+            "available": true,
+            "note": "2 recorded timelines carry the name 'Reel 13 - the-accounting-firm-ai-called-healthcare' in project Ren Scratch - breaktest (f7d663e7-cd78-419f-ae67-a2ec1c280dd2, fb4134e0-6ab5-49d7-9c18-0801417a631d); the claim was checked against all of them"
+          },
+          "resolved_applicable_role_instances": 2,
+          "resolved_role_instances": 2,
+          "role_instances": 7,
+          "unavailable_role_instances": 0,
+          "unverified_role_instances": 2,
+          "verified_role_instances": 0
+        },
+        "passed": false,
+        "status": "measured"
+      },
+      "the-wrong-caption": {
+        "brief_id": "the-wrong-caption",
+        "detail": {
+          "applicable_role_instances": 0,
+          "claimed_resolved_role_instances": 0,
+          "instances": [
+            {
+              "claimed": "not found - no caption in the reel names a word the speech does not",
+              "claimed_resolved": false,
+              "evidence": "no_evidence",
+              "premise_feature": "caption_mismatch",
+              "premise_state": "missing",
+              "reason": "the substrate does not carry what the request presupposes: a caption names a word or number the speech does not",
+              "role": "wrong_caption_card",
+              "status": "not_applicable"
+            }
+          ],
+          "not_applicable_role_instances": 1,
+          "recorded_timeline": {
+            "available": true,
+            "note": "2 recorded timelines carry the name 'Reel 13 - the-accounting-firm-ai-called-healthcare' in project Ren Scratch - breaktest (f7d663e7-cd78-419f-ae67-a2ec1c280dd2, fb4134e0-6ab5-49d7-9c18-0801417a631d); the claim was checked against all of them"
+          },
+          "resolved_applicable_role_instances": 0,
+          "resolved_role_instances": 0,
+          "role_instances": 1,
+          "unavailable_role_instances": 0,
+          "unverified_role_instances": 0,
+          "verified_role_instances": 0
+        },
+        "passed": false,
+        "status": "measured"
+      },
+      "two-voices-at-once": {
+        "brief_id": "two-voices-at-once",
+        "detail": {
+          "applicable_role_instances": 0,
+          "claimed_resolved_role_instances": 0,
+          "instances": [
+            {
+              "claimed": "not found - the reel has no overlapping turn",
+              "claimed_resolved": false,
+              "evidence": "no_evidence",
+              "premise_feature": "overlapping_speech",
+              "premise_state": "missing",
+              "reason": "the substrate does not carry what the request presupposes: two speakers talk over each other",
+              "role": "overlapping_turn",
+              "status": "not_applicable"
+            }
+          ],
+          "not_applicable_role_instances": 1,
+          "recorded_timeline": {
+            "available": true,
+            "note": "2 recorded timelines carry the name 'Reel 13 - the-accounting-firm-ai-called-healthcare' in project Ren Scratch - breaktest (f7d663e7-cd78-419f-ae67-a2ec1c280dd2, fb4134e0-6ab5-49d7-9c18-0801417a631d); the claim was checked against all of them"
+          },
+          "resolved_applicable_role_instances": 0,
+          "resolved_role_instances": 0,
+          "role_instances": 1,
+          "unavailable_role_instances": 0,
+          "unverified_role_instances": 0,
+          "verified_role_instances": 0
+        },
+        "passed": false,
+        "status": "measured"
+      }
+    },
+    "claimed_resolved_role_instances": 4,
+    "not_applicable_role_instances": 7,
+    "note": "A supplementary view, published ALONGSIDE the headline and never instead of it: whether the run could POINT AT the thing the request is about, counted per role instance. A role instance whose premise the substrate does not carry is NOT APPLICABLE - there was nothing to point at - and is counted beside the number rather than dropped from the report. A resolution the recorded timeline does not carry is NOT VERIFIED: the run's own claim is not evidence.",
+    "resolved_applicable_role_instances": 3,
+    "resolved_role_instances": 3,
+    "role_instances": 11,
+    "unit": "role instances",
+    "value": 0.75,
+    "value_over_all_role_instances": 0.2727272727272727,
+    "verified_role_instances": 1
   },
   "not_run": 0,
   "passed": 3,
@@ -990,6 +1291,206 @@
       "sha256": "a1669b0afe10fac7360ceaa30adddfa1a817c06b28f4abdca8487bc08dbd5152"
     }
   },
+  "reading": {
+    "briefs": {
+      "keep-it-but-tighten-it": {
+        "brief_id": "keep-it-but-tighten-it",
+        "constraint_reasons": [],
+        "constraints_passed": true,
+        "detail": {
+          "constraints_dropped": [],
+          "intent_problems": [],
+          "intent_request_kinds": [],
+          "missing_operations": [],
+          "reading_surface": "the prose restatement",
+          "restated_outcome": "Leave the interview word for word exactly as it is, and tighten the cut so it holds attention - two requests that cannot both be obeyed.",
+          "selected_operations": [],
+          "stated_constraints": [],
+          "unexpected_operations": []
+        },
+        "passed": true,
+        "reasons": [],
+        "status": "measured"
+      },
+      "logo-not-in-the-project": {
+        "brief_id": "logo-not-in-the-project",
+        "constraint_reasons": [],
+        "constraints_passed": true,
+        "detail": {
+          "constraints_dropped": [],
+          "intent_problems": [],
+          "intent_request_kinds": [],
+          "missing_operations": [],
+          "reading_surface": "the prose restatement",
+          "restated_outcome": "Swap the end card for the new logo sent this morning, or say so if the project does not hold it.",
+          "selected_operations": [],
+          "stated_constraints": [],
+          "unexpected_operations": []
+        },
+        "passed": true,
+        "reasons": [],
+        "status": "measured"
+      },
+      "name-bar-fights-the-captions": {
+        "brief_id": "name-bar-fights-the-captions",
+        "constraint_reasons": [
+          "the reading dropped a constraint the request stated: direction-down"
+        ],
+        "constraints_passed": false,
+        "detail": {
+          "constraints_dropped": [
+            "direction-down"
+          ],
+          "intent_problems": [],
+          "intent_request_kinds": [],
+          "missing_operations": [],
+          "reading_surface": "the prose restatement",
+          "restated_outcome": "Move the name bar so it stops colliding with the captions, and leave the rest of the graphics alone.",
+          "selected_operations": [
+            "overlay.position"
+          ],
+          "stated_constraints": [
+            {
+              "id": "direction-down",
+              "statement": "the name bar moves DOWN, so it stops being where it is now - not only away from the captions",
+              "status": "dropped"
+            }
+          ],
+          "unexpected_operations": []
+        },
+        "passed": true,
+        "reasons": [],
+        "status": "measured"
+      },
+      "no-extra-footage": {
+        "brief_id": "no-extra-footage",
+        "constraint_reasons": [],
+        "constraints_passed": true,
+        "detail": {
+          "constraints_dropped": [],
+          "intent_problems": [],
+          "intent_request_kinds": [],
+          "missing_operations": [],
+          "reading_surface": "the prose restatement",
+          "restated_outcome": "Cover her explanation of the tooling with a shot of the workshop bench, or say so if that coverage does not exist.",
+          "selected_operations": [],
+          "stated_constraints": [],
+          "unexpected_operations": []
+        },
+        "passed": true,
+        "reasons": [],
+        "status": "measured"
+      },
+      "open-with-the-cost": {
+        "brief_id": "open-with-the-cost",
+        "constraint_reasons": [],
+        "constraints_passed": true,
+        "detail": {
+          "constraints_dropped": [],
+          "intent_problems": [],
+          "intent_request_kinds": [],
+          "missing_operations": [],
+          "reading_surface": "the prose restatement",
+          "restated_outcome": "Open the reel on the moment she names what the problem actually costs, let her argument run from there, lose no word, and leave the grade and her framing exactly as they are.",
+          "selected_operations": [
+            "reel.opening"
+          ],
+          "stated_constraints": [],
+          "unexpected_operations": []
+        },
+        "passed": true,
+        "reasons": [],
+        "status": "measured"
+      },
+      "the-whole-job": {
+        "brief_id": "the-whole-job",
+        "constraint_reasons": [],
+        "constraints_passed": true,
+        "detail": {
+          "constraints_dropped": [],
+          "intent_problems": [],
+          "intent_request_kinds": [],
+          "missing_operations": [],
+          "reading_surface": "the prose restatement",
+          "restated_outcome": "Do the whole launch reel: open on the strongest moment, cut the pauses and the repeated statements, swap the camera angle that adds nothing for the other angle of the same moment, insert the cutaway that matches the words, fix the caption that gets the number wrong, move the name bar off the captions, and let her voice sit above the music - leaving the grade, the transitions, the framing, the linked audio and every human edit alone, then export and check the export.",
+          "selected_operations": [
+            "reel.opening",
+            "clip.trim",
+            "multicam.select_angle",
+            "broll.insert",
+            "caption_fix",
+            "overlay.position",
+            "audio.gain"
+          ],
+          "stated_constraints": [],
+          "unexpected_operations": []
+        },
+        "passed": true,
+        "reasons": [],
+        "status": "measured"
+      },
+      "the-wrong-caption": {
+        "brief_id": "the-wrong-caption",
+        "constraint_reasons": [],
+        "constraints_passed": true,
+        "detail": {
+          "constraints_dropped": [],
+          "intent_problems": [],
+          "intent_request_kinds": [],
+          "missing_operations": [],
+          "reading_surface": "the prose restatement",
+          "restated_outcome": "Fix the one caption whose text names the wrong word, and change nothing else - not its timing, not the other captions.",
+          "selected_operations": [
+            "caption_fix"
+          ],
+          "stated_constraints": [],
+          "unexpected_operations": []
+        },
+        "passed": true,
+        "reasons": [],
+        "status": "measured"
+      },
+      "two-voices-at-once": {
+        "brief_id": "two-voices-at-once",
+        "constraint_reasons": [],
+        "constraints_passed": true,
+        "detail": {
+          "constraints_dropped": [],
+          "intent_problems": [],
+          "intent_request_kinds": [],
+          "missing_operations": [],
+          "reading_surface": "the prose restatement",
+          "restated_outcome": "Make it possible for a viewer to follow who is making the claim where the two of them talk over each other, without cutting either of them out of the reel.",
+          "selected_operations": [
+            "multicam.select_angle"
+          ],
+          "stated_constraints": [],
+          "unexpected_operations": []
+        },
+        "passed": true,
+        "reasons": [],
+        "status": "measured"
+      }
+    },
+    "constraints": {
+      "carried": 7,
+      "dropped": 1,
+      "dropped_detail": [
+        {
+          "brief_id": "name-bar-fights-the-captions",
+          "constraint_id": "direction-down"
+        }
+      ],
+      "measured": 8,
+      "value": 0.875
+    },
+    "failed": 0,
+    "measured": 8,
+    "note": "A supplementary view, published ALONGSIDE the headline and never instead of it: whether the run READ the request - it restated it, named exactly the operations the request implies, and planned nothing for a brief whose correct outcome is to report back. The constraints the request states are counted beside it, because a restatement has nowhere to put a direction the request gave it. The headline's interpretation stage measures the reading AND the grounding together.",
+    "passed": 8,
+    "value": 1.0,
+    "value_including_constraints": 0.875
+  },
   "results": [
     {
       "assessment": {
@@ -1040,6 +1541,27 @@
         "substrate": "podcast-reel-13",
         "substrate_profile": "two_camera_interview"
       },
+      "grounding": {
+        "brief_id": "keep-it-but-tighten-it",
+        "detail": {
+          "applicable_role_instances": 0,
+          "claimed_resolved_role_instances": 0,
+          "instances": [],
+          "not_applicable_role_instances": 0,
+          "recorded_timeline": {
+            "available": true,
+            "note": "2 recorded timelines carry the name 'Reel 13 - the-accounting-firm-ai-called-healthcare' in project Ren Scratch - breaktest (f7d663e7-cd78-419f-ae67-a2ec1c280dd2, fb4134e0-6ab5-49d7-9c18-0801417a631d); the claim was checked against all of them"
+          },
+          "resolved_applicable_role_instances": 0,
+          "resolved_role_instances": 0,
+          "role_instances": 0,
+          "unavailable_role_instances": 0,
+          "unverified_role_instances": 0,
+          "verified_role_instances": 0
+        },
+        "passed": false,
+        "status": "measured"
+      },
       "instruction": "Leave the interview exactly as it is, word for word, but tighten it up so it holds attention.",
       "premise": {
         "brief_profile": "interview_with_broll",
@@ -1052,6 +1574,25 @@
         "substrate_id": "podcast-reel-13",
         "substrate_profile": "two_camera_interview",
         "unchecked_premises": []
+      },
+      "reading": {
+        "brief_id": "keep-it-but-tighten-it",
+        "constraint_reasons": [],
+        "constraints_passed": true,
+        "detail": {
+          "constraints_dropped": [],
+          "intent_problems": [],
+          "intent_request_kinds": [],
+          "missing_operations": [],
+          "reading_surface": "the prose restatement",
+          "restated_outcome": "Leave the interview word for word exactly as it is, and tighten the cut so it holds attention - two requests that cannot both be obeyed.",
+          "selected_operations": [],
+          "stated_constraints": [],
+          "unexpected_operations": []
+        },
+        "passed": true,
+        "reasons": [],
+        "status": "measured"
       },
       "record_problems": [],
       "stages": {
@@ -1200,6 +1741,27 @@
         "substrate": "podcast-reel-13",
         "substrate_profile": "two_camera_interview"
       },
+      "grounding": {
+        "brief_id": "logo-not-in-the-project",
+        "detail": {
+          "applicable_role_instances": 0,
+          "claimed_resolved_role_instances": 0,
+          "instances": [],
+          "not_applicable_role_instances": 0,
+          "recorded_timeline": {
+            "available": true,
+            "note": "2 recorded timelines carry the name 'Reel 13 - the-accounting-firm-ai-called-healthcare' in project Ren Scratch - breaktest (f7d663e7-cd78-419f-ae67-a2ec1c280dd2, fb4134e0-6ab5-49d7-9c18-0801417a631d); the claim was checked against all of them"
+          },
+          "resolved_applicable_role_instances": 0,
+          "resolved_role_instances": 0,
+          "role_instances": 0,
+          "unavailable_role_instances": 0,
+          "unverified_role_instances": 0,
+          "verified_role_instances": 0
+        },
+        "passed": false,
+        "status": "measured"
+      },
       "instruction": "Swap the end card for the new logo - the one I sent you this morning.",
       "premise": {
         "brief_profile": "talking_head_with_graphics",
@@ -1225,6 +1787,25 @@
         "substrate_id": "podcast-reel-13",
         "substrate_profile": "two_camera_interview",
         "unchecked_premises": []
+      },
+      "reading": {
+        "brief_id": "logo-not-in-the-project",
+        "constraint_reasons": [],
+        "constraints_passed": true,
+        "detail": {
+          "constraints_dropped": [],
+          "intent_problems": [],
+          "intent_request_kinds": [],
+          "missing_operations": [],
+          "reading_surface": "the prose restatement",
+          "restated_outcome": "Swap the end card for the new logo sent this morning, or say so if the project does not hold it.",
+          "selected_operations": [],
+          "stated_constraints": [],
+          "unexpected_operations": []
+        },
+        "passed": true,
+        "reasons": [],
+        "status": "measured"
       },
       "record_problems": [],
       "stages": {
@@ -1376,6 +1957,38 @@
         "substrate": "podcast-reel-13",
         "substrate_profile": "two_camera_interview"
       },
+      "grounding": {
+        "brief_id": "name-bar-fights-the-captions",
+        "detail": {
+          "applicable_role_instances": 1,
+          "claimed_resolved_role_instances": 1,
+          "instances": [
+            {
+              "claimed": "the speaker name bar - the lower third 'b-soft-focus-craig.mov' on the Motion Graphics row (V6), unique_id c71c3d10-cc65-4764-b567-82b1f6222b66, frames 0-84",
+              "claimed_resolved": true,
+              "evidence": "verified",
+              "premise_feature": "lower_third_overlay",
+              "premise_state": "satisfied",
+              "reason": "",
+              "role": "name_lower_third",
+              "status": "resolved"
+            }
+          ],
+          "not_applicable_role_instances": 0,
+          "recorded_timeline": {
+            "available": true,
+            "note": "2 recorded timelines carry the name 'Reel 13 - the-accounting-firm-ai-called-healthcare' in project Ren Scratch - breaktest (f7d663e7-cd78-419f-ae67-a2ec1c280dd2, fb4134e0-6ab5-49d7-9c18-0801417a631d); the claim was checked against all of them"
+          },
+          "resolved_applicable_role_instances": 1,
+          "resolved_role_instances": 1,
+          "role_instances": 1,
+          "unavailable_role_instances": 0,
+          "unverified_role_instances": 0,
+          "verified_role_instances": 1
+        },
+        "passed": true,
+        "status": "measured"
+      },
       "instruction": "The name bar is sitting too high and it is fighting the captions. Move it down so the two stop colliding, and leave the rest of the graphics alone.",
       "premise": {
         "brief_profile": "talking_head_with_graphics",
@@ -1401,6 +2014,37 @@
         "substrate_id": "podcast-reel-13",
         "substrate_profile": "two_camera_interview",
         "unchecked_premises": []
+      },
+      "reading": {
+        "brief_id": "name-bar-fights-the-captions",
+        "constraint_reasons": [
+          "the reading dropped a constraint the request stated: direction-down"
+        ],
+        "constraints_passed": false,
+        "detail": {
+          "constraints_dropped": [
+            "direction-down"
+          ],
+          "intent_problems": [],
+          "intent_request_kinds": [],
+          "missing_operations": [],
+          "reading_surface": "the prose restatement",
+          "restated_outcome": "Move the name bar so it stops colliding with the captions, and leave the rest of the graphics alone.",
+          "selected_operations": [
+            "overlay.position"
+          ],
+          "stated_constraints": [
+            {
+              "id": "direction-down",
+              "statement": "the name bar moves DOWN, so it stops being where it is now - not only away from the captions",
+              "status": "dropped"
+            }
+          ],
+          "unexpected_operations": []
+        },
+        "passed": true,
+        "reasons": [],
+        "status": "measured"
       },
       "record_problems": [],
       "stages": {
@@ -1563,6 +2207,27 @@
         "substrate": "podcast-reel-13",
         "substrate_profile": "two_camera_interview"
       },
+      "grounding": {
+        "brief_id": "no-extra-footage",
+        "detail": {
+          "applicable_role_instances": 0,
+          "claimed_resolved_role_instances": 0,
+          "instances": [],
+          "not_applicable_role_instances": 0,
+          "recorded_timeline": {
+            "available": true,
+            "note": "2 recorded timelines carry the name 'Reel 13 - the-accounting-firm-ai-called-healthcare' in project Ren Scratch - breaktest (f7d663e7-cd78-419f-ae67-a2ec1c280dd2, fb4134e0-6ab5-49d7-9c18-0801417a631d); the claim was checked against all of them"
+          },
+          "resolved_applicable_role_instances": 0,
+          "resolved_role_instances": 0,
+          "role_instances": 0,
+          "unavailable_role_instances": 0,
+          "unverified_role_instances": 0,
+          "verified_role_instances": 0
+        },
+        "passed": false,
+        "status": "measured"
+      },
       "instruction": "Put a shot of the workshop bench over the bit where she explains the tooling. I know we never filmed that - use whatever you have, I trust your judgement.",
       "premise": {
         "brief_profile": "product_demo",
@@ -1588,6 +2253,25 @@
         "substrate_id": "podcast-reel-13",
         "substrate_profile": "two_camera_interview",
         "unchecked_premises": []
+      },
+      "reading": {
+        "brief_id": "no-extra-footage",
+        "constraint_reasons": [],
+        "constraints_passed": true,
+        "detail": {
+          "constraints_dropped": [],
+          "intent_problems": [],
+          "intent_request_kinds": [],
+          "missing_operations": [],
+          "reading_surface": "the prose restatement",
+          "restated_outcome": "Cover her explanation of the tooling with a shot of the workshop bench, or say so if that coverage does not exist.",
+          "selected_operations": [],
+          "stated_constraints": [],
+          "unexpected_operations": []
+        },
+        "passed": true,
+        "reasons": [],
+        "status": "measured"
       },
       "record_problems": [],
       "stages": {
@@ -1740,6 +2424,38 @@
         "substrate": "podcast-reel-13",
         "substrate_profile": "two_camera_interview"
       },
+      "grounding": {
+        "brief_id": "open-with-the-cost",
+        "detail": {
+          "applicable_role_instances": 0,
+          "claimed_resolved_role_instances": 1,
+          "instances": [
+            {
+              "claimed": "the reel's first picture (video1 frame 75-129, video2 frame 0-75 of Reel 13)",
+              "claimed_resolved": true,
+              "evidence": "no_evidence",
+              "premise_feature": "cost_statement",
+              "premise_state": "missing",
+              "reason": "the substrate does not carry what the request presupposes: the footage states what something costs",
+              "role": "opening_section",
+              "status": "not_applicable"
+            }
+          ],
+          "not_applicable_role_instances": 1,
+          "recorded_timeline": {
+            "available": true,
+            "note": "2 recorded timelines carry the name 'Reel 13 - the-accounting-firm-ai-called-healthcare' in project Ren Scratch - breaktest (f7d663e7-cd78-419f-ae67-a2ec1c280dd2, fb4134e0-6ab5-49d7-9c18-0801417a631d); the claim was checked against all of them"
+          },
+          "resolved_applicable_role_instances": 0,
+          "resolved_role_instances": 0,
+          "role_instances": 1,
+          "unavailable_role_instances": 0,
+          "unverified_role_instances": 0,
+          "verified_role_instances": 0
+        },
+        "passed": false,
+        "status": "measured"
+      },
       "instruction": "The first half-minute is all throat-clearing. I want the reel to open on the moment she says what it actually costs us, then let her argument run from there. Don't lose a word she says, and leave the grade and her framing exactly as they are.",
       "premise": {
         "brief_profile": "two_camera_interview",
@@ -1772,6 +2488,27 @@
         "substrate_id": "podcast-reel-13",
         "substrate_profile": "two_camera_interview",
         "unchecked_premises": []
+      },
+      "reading": {
+        "brief_id": "open-with-the-cost",
+        "constraint_reasons": [],
+        "constraints_passed": true,
+        "detail": {
+          "constraints_dropped": [],
+          "intent_problems": [],
+          "intent_request_kinds": [],
+          "missing_operations": [],
+          "reading_surface": "the prose restatement",
+          "restated_outcome": "Open the reel on the moment she names what the problem actually costs, let her argument run from there, lose no word, and leave the grade and her framing exactly as they are.",
+          "selected_operations": [
+            "reel.opening"
+          ],
+          "stated_constraints": [],
+          "unexpected_operations": []
+        },
+        "passed": true,
+        "reasons": [],
+        "status": "measured"
       },
       "record_problems": [],
       "stages": {
@@ -1943,6 +2680,98 @@
         "substrate": "podcast-reel-13",
         "substrate_profile": "two_camera_interview"
       },
+      "grounding": {
+        "brief_id": "the-whole-job",
+        "detail": {
+          "applicable_role_instances": 3,
+          "claimed_resolved_role_instances": 2,
+          "instances": [
+            {
+              "claimed": "the reel's first picture (frames 0-129)",
+              "claimed_resolved": true,
+              "evidence": "no_evidence",
+              "premise_feature": "",
+              "premise_state": "",
+              "reason": "",
+              "role": "opening_section",
+              "status": "resolved"
+            },
+            {
+              "claimed": "not found - the reel's 45 caption cards state each answer once",
+              "claimed_resolved": false,
+              "evidence": "no_evidence",
+              "premise_feature": "repeated_passage",
+              "premise_state": "missing",
+              "reason": "the substrate does not carry what the request presupposes: the same statement is made more than once",
+              "role": "repeated_passages",
+              "status": "not_applicable"
+            },
+            {
+              "claimed": "not found - the two camera rows are two speakers, not two angles of one moment",
+              "claimed_resolved": false,
+              "evidence": "no_evidence",
+              "premise_feature": "second_camera_angle",
+              "premise_state": "missing",
+              "reason": "the substrate does not carry what the request presupposes: a second camera angle covers a moment already shot",
+              "role": "weak_angle_turn",
+              "status": "not_applicable"
+            },
+            {
+              "claimed": "not found - the reel's one b-roll card covers the opening only",
+              "claimed_resolved": false,
+              "evidence": "no_evidence",
+              "premise_feature": "matching_broll",
+              "premise_state": "unknown",
+              "reason": "",
+              "role": "broll_cover_range",
+              "status": "unresolved"
+            },
+            {
+              "claimed": "not found - no caption names a word the speech does not",
+              "claimed_resolved": false,
+              "evidence": "no_evidence",
+              "premise_feature": "caption_mismatch",
+              "premise_state": "missing",
+              "reason": "the substrate does not carry what the request presupposes: a caption names a word or number the speech does not",
+              "role": "wrong_caption_card",
+              "status": "not_applicable"
+            },
+            {
+              "claimed": "the lower third 'b-soft-focus-craig.mov' (V6, frames 0-84)",
+              "claimed_resolved": true,
+              "evidence": "no_evidence",
+              "premise_feature": "lower_third_overlay",
+              "premise_state": "satisfied",
+              "reason": "",
+              "role": "name_lower_third",
+              "status": "resolved"
+            },
+            {
+              "claimed": "not found - the reel carries no music bed (its audio rows are the two dialogue channels only)",
+              "claimed_resolved": false,
+              "evidence": "no_evidence",
+              "premise_feature": "music_bed",
+              "premise_state": "missing",
+              "reason": "the substrate does not carry what the request presupposes: a music bed runs under the dialogue",
+              "role": "music_bed",
+              "status": "not_applicable"
+            }
+          ],
+          "not_applicable_role_instances": 4,
+          "recorded_timeline": {
+            "available": true,
+            "note": "2 recorded timelines carry the name 'Reel 13 - the-accounting-firm-ai-called-healthcare' in project Ren Scratch - breaktest (f7d663e7-cd78-419f-ae67-a2ec1c280dd2, fb4134e0-6ab5-49d7-9c18-0801417a631d); the claim was checked against all of them"
+          },
+          "resolved_applicable_role_instances": 2,
+          "resolved_role_instances": 2,
+          "role_instances": 7,
+          "unavailable_role_instances": 0,
+          "unverified_role_instances": 2,
+          "verified_role_instances": 0
+        },
+        "passed": false,
+        "status": "measured"
+      },
       "instruction": "This is the launch reel and it is not finished. Please do the whole job on it: find the most engaging moment we could open on, take out the pauses and the places she says the same thing twice, swap the one camera angle that is doing nothing for the other angle we shot of the same moment, put in the cutaway that actually matches what she is saying, fix the caption that gets the number wrong, move the name bar so it stops fighting the captions, and get the levels so her voice sits on top of the music. Leave the grade, the transitions, the framing, the linked audio and everything the human already changed exactly as it is. Then export it, and check the export rather than the timeline.",
       "premise": {
         "brief_profile": "interview_with_broll",
@@ -2055,6 +2884,33 @@
             "summary": "a cutaway matching the spoken words exists"
           }
         ]
+      },
+      "reading": {
+        "brief_id": "the-whole-job",
+        "constraint_reasons": [],
+        "constraints_passed": true,
+        "detail": {
+          "constraints_dropped": [],
+          "intent_problems": [],
+          "intent_request_kinds": [],
+          "missing_operations": [],
+          "reading_surface": "the prose restatement",
+          "restated_outcome": "Do the whole launch reel: open on the strongest moment, cut the pauses and the repeated statements, swap the camera angle that adds nothing for the other angle of the same moment, insert the cutaway that matches the words, fix the caption that gets the number wrong, move the name bar off the captions, and let her voice sit above the music - leaving the grade, the transitions, the framing, the linked audio and every human edit alone, then export and check the export.",
+          "selected_operations": [
+            "reel.opening",
+            "clip.trim",
+            "multicam.select_angle",
+            "broll.insert",
+            "caption_fix",
+            "overlay.position",
+            "audio.gain"
+          ],
+          "stated_constraints": [],
+          "unexpected_operations": []
+        },
+        "passed": true,
+        "reasons": [],
+        "status": "measured"
       },
       "record_problems": [],
       "stages": {
@@ -2286,6 +3142,38 @@
         "substrate": "podcast-reel-13",
         "substrate_profile": "two_camera_interview"
       },
+      "grounding": {
+        "brief_id": "the-wrong-caption",
+        "detail": {
+          "applicable_role_instances": 0,
+          "claimed_resolved_role_instances": 0,
+          "instances": [
+            {
+              "claimed": "not found - no caption in the reel names a word the speech does not",
+              "claimed_resolved": false,
+              "evidence": "no_evidence",
+              "premise_feature": "caption_mismatch",
+              "premise_state": "missing",
+              "reason": "the substrate does not carry what the request presupposes: a caption names a word or number the speech does not",
+              "role": "wrong_caption_card",
+              "status": "not_applicable"
+            }
+          ],
+          "not_applicable_role_instances": 1,
+          "recorded_timeline": {
+            "available": true,
+            "note": "2 recorded timelines carry the name 'Reel 13 - the-accounting-firm-ai-called-healthcare' in project Ren Scratch - breaktest (f7d663e7-cd78-419f-ae67-a2ec1c280dd2, fb4134e0-6ab5-49d7-9c18-0801417a631d); the claim was checked against all of them"
+          },
+          "resolved_applicable_role_instances": 0,
+          "resolved_role_instances": 0,
+          "role_instances": 1,
+          "unavailable_role_instances": 0,
+          "unverified_role_instances": 0,
+          "verified_role_instances": 0
+        },
+        "passed": false,
+        "status": "measured"
+      },
       "instruction": "One of the captions says 'revenue' but she is talking about churn. Fix that caption's text and nothing else - not the timing, not the other captions.",
       "premise": {
         "brief_profile": "talking_head_with_graphics",
@@ -2318,6 +3206,27 @@
         "substrate_id": "podcast-reel-13",
         "substrate_profile": "two_camera_interview",
         "unchecked_premises": []
+      },
+      "reading": {
+        "brief_id": "the-wrong-caption",
+        "constraint_reasons": [],
+        "constraints_passed": true,
+        "detail": {
+          "constraints_dropped": [],
+          "intent_problems": [],
+          "intent_request_kinds": [],
+          "missing_operations": [],
+          "reading_surface": "the prose restatement",
+          "restated_outcome": "Fix the one caption whose text names the wrong word, and change nothing else - not its timing, not the other captions.",
+          "selected_operations": [
+            "caption_fix"
+          ],
+          "stated_constraints": [],
+          "unexpected_operations": []
+        },
+        "passed": true,
+        "reasons": [],
+        "status": "measured"
       },
       "record_problems": [],
       "stages": {
@@ -2488,6 +3397,38 @@
         "substrate": "podcast-reel-13",
         "substrate_profile": "two_camera_interview"
       },
+      "grounding": {
+        "brief_id": "two-voices-at-once",
+        "detail": {
+          "applicable_role_instances": 0,
+          "claimed_resolved_role_instances": 0,
+          "instances": [
+            {
+              "claimed": "not found - the reel has no overlapping turn",
+              "claimed_resolved": false,
+              "evidence": "no_evidence",
+              "premise_feature": "overlapping_speech",
+              "premise_state": "missing",
+              "reason": "the substrate does not carry what the request presupposes: two speakers talk over each other",
+              "role": "overlapping_turn",
+              "status": "not_applicable"
+            }
+          ],
+          "not_applicable_role_instances": 1,
+          "recorded_timeline": {
+            "available": true,
+            "note": "2 recorded timelines carry the name 'Reel 13 - the-accounting-firm-ai-called-healthcare' in project Ren Scratch - breaktest (f7d663e7-cd78-419f-ae67-a2ec1c280dd2, fb4134e0-6ab5-49d7-9c18-0801417a631d); the claim was checked against all of them"
+          },
+          "resolved_applicable_role_instances": 0,
+          "resolved_role_instances": 0,
+          "role_instances": 1,
+          "unavailable_role_instances": 0,
+          "unverified_role_instances": 0,
+          "verified_role_instances": 0
+        },
+        "passed": false,
+        "status": "measured"
+      },
       "instruction": "In the middle the two of them talk over each other and you lose the point. I need a viewer to be able to follow who is making the claim, but I do not want either of them cut out of the reel.",
       "premise": {
         "brief_profile": "two_camera_interview",
@@ -2537,6 +3478,27 @@
         "substrate_id": "podcast-reel-13",
         "substrate_profile": "two_camera_interview",
         "unchecked_premises": []
+      },
+      "reading": {
+        "brief_id": "two-voices-at-once",
+        "constraint_reasons": [],
+        "constraints_passed": true,
+        "detail": {
+          "constraints_dropped": [],
+          "intent_problems": [],
+          "intent_request_kinds": [],
+          "missing_operations": [],
+          "reading_surface": "the prose restatement",
+          "restated_outcome": "Make it possible for a viewer to follow who is making the claim where the two of them talk over each other, without cutting either of them out of the reel.",
+          "selected_operations": [
+            "multicam.select_angle"
+          ],
+          "stated_constraints": [],
+          "unexpected_operations": []
+        },
+        "passed": true,
+        "reasons": [],
+        "status": "measured"
       },
       "record_problems": [],
       "stages": {
