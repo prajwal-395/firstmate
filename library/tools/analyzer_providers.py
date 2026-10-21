@@ -324,7 +324,7 @@ def normalize_transcription(
     source = native.get("segments")
     if not isinstance(source, list):
         raise TypeError("transcript provider response requires a segments list")
-    words: list[tuple[str, float, float, str | None]] = []
+    words: list[tuple[str, float, float, str | None, Any]] = []
     for segment in source:
         if not isinstance(segment, Mapping):
             raise TypeError("transcript segment must be a mapping")
@@ -349,7 +349,8 @@ def normalize_transcription(
             if start < 0 or end <= start:
                 raise ValueError("transcript word interval must be positive")
             words.append((text, start, end,
-                          str(segment["speaker"]) if segment.get("speaker") is not None else None))
+                          str(segment["speaker"]) if segment.get("speaker") is not None else None,
+                          word.get("confidence")))
     records: list[evidence.EvidenceRecord] = []
     provenance = evidence.ProvenanceRecord(
         id=f"prov-{source_digest}-transcription-{provider_id}@{provider_version}",
@@ -357,7 +358,7 @@ def normalize_transcription(
         source_digest=source_digest,
         method=f"analyzer-provider/{provider_id}")
     provenance_id = provenance.id
-    for index, (word, start, end, speaker) in enumerate(words):
+    for index, (word, start, end, speaker, confidence) in enumerate(words):
         begin = start_tick + evidence.point_to_tick(start, evidence.TICKS_PER_SECOND)
         finish = start_tick + evidence.point_to_tick(end, evidence.TICKS_PER_SECOND)
         if finish <= begin:
@@ -365,12 +366,13 @@ def normalize_transcription(
         records.append(evidence.EvidenceRecord(
             asset_id=asset_id, clock_id=clock_id, start_tick=begin,
             end_tick=finish, target_entity_id=speaker, target_region=None,
-            evidence_type=evidence.EvidenceType.MEASUREMENT,
+            evidence_type=evidence.EvidenceType.INFERENCE,
             measurement_type="speech.word", value={"word": word,
                 "index": index, "speaker": speaker}, unit="text",
             method=f"analyzer-provider/{provider_id}", sample_resolution=None,
             coverage=evidence.CoverageKind.COMPLETE, coverage_samples=1,
             coverage_sample_rate_hz=0.0, provenance_id=provenance_id,
+            uncertainty=evidence.uncertainty_from_score(confidence),
             producer_version=provider_version,
             source_reference=source_digest,
         ))
@@ -777,12 +779,14 @@ def _detect_object_interval(context: ProducerContext) -> Mapping[str, Any]:
                      "score": detection.score, "detector": detection.detector,
                      "tier_id": detection.tier_id,
                      "frame_time_s": at}
-            record = evidence_contract.new_measurement(
+            record = evidence_contract.new_inference(
                 asset_id=asset["id"], clock_id=clock_id,
                 start_tick=tick,
                 end_tick=tick + max(1, evidence_contract.point_to_tick(
                     period, evidence_contract.TICKS_PER_SECOND)),
                 measurement_type="object.detection", value=value,
+                uncertainty=evidence_contract.uncertainty_from_score(
+                    detection.score),
                 method=f"{detection.detector}-open-vocabulary-detection",
                 provenance_id=provenance_id,
                 sample_resolution=[width, height],

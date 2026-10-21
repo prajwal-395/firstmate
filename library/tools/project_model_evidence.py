@@ -718,18 +718,21 @@ def _migrate_expressions(builder: _Builder, digest: str, asset_id: str,
                         if source_faces is not None
                         and len(faces) >= len(source_faces)
                         else evidence_contract.CoverageKind.SAMPLED)
-            record = evidence_contract.new_measurement(
+            record = evidence_contract.new_inference(
                 asset_id=asset_id, clock_id=clock_id,
                 start_tick=bounds[0], end_tick=bounds[1],
                 measurement_type="image.expression_frame", value=faces,
+                uncertainty=evidence_contract.uncertainty_from_payload(
+                    "image.expression_frame", faces),
                 method=method, provenance_id=_prov_id(digest, "m3c"),
                 coverage=coverage, coverage_samples=len(faces),
                 coverage_sample_rate_hz=0.0)
         elif source_faces == []:
-            record = evidence_contract.new_measurement(
+            record = evidence_contract.new_inference(
                 asset_id=asset_id, clock_id=clock_id,
                 start_tick=bounds[0], end_tick=bounds[1],
                 measurement_type="image.expression_frame", value=[],
+                uncertainty=evidence_contract.UNCERTAINTY_UNSTATED,
                 method=method, provenance_id=_prov_id(digest, "m3c"),
                 coverage=evidence_contract.CoverageKind.COMPLETE,
                 coverage_samples=0, coverage_sample_rate_hz=0.0)
@@ -738,12 +741,13 @@ def _migrate_expressions(builder: _Builder, digest: str, asset_id: str,
                 asset_id=asset_id, clock_id=clock_id,
                 start_tick=bounds[0], end_tick=bounds[1],
                 target_entity_id=None, target_region=None,
-                evidence_type=evidence_contract.EvidenceType.MEASUREMENT,
+                evidence_type=evidence_contract.EvidenceType.INFERENCE,
                 measurement_type="image.expression_frame", value=None,
                 unit="labels", method=method, sample_resolution=None,
                 coverage=evidence_contract.CoverageKind.UNAVAILABLE,
                 coverage_samples=0, coverage_sample_rate_hz=0.0,
                 provenance_id=_prov_id(digest, "m3c"),
+                uncertainty=evidence_contract.UNCERTAINTY_UNSTATED,
                 processing_status=evidence_contract.ProcessingStatus.INCONCLUSIVE)
         record = replace(
             record, freshness="fresh",
@@ -799,12 +803,13 @@ def _migrate_saliency(builder: _Builder, digest: str, asset_id: str,
                 asset_id=asset_id, clock_id=clock_id,
                 start_tick=bounds[0], end_tick=bounds[1],
                 target_entity_id=None, target_region=None,
-                evidence_type=evidence_contract.EvidenceType.MEASUREMENT,
+                evidence_type=evidence_contract.EvidenceType.INFERENCE,
                 measurement_type="image.salient_boxes", value=None,
                 unit="normalized", method=method, sample_resolution=None,
                 coverage=evidence_contract.CoverageKind.UNAVAILABLE,
                 coverage_samples=0, coverage_sample_rate_hz=0.0,
                 provenance_id=_prov_id(digest, "m3e"),
+                uncertainty=evidence_contract.UNCERTAINTY_UNSTATED,
                 processing_status=evidence_contract.ProcessingStatus.UNAVAILABLE,
                 references=({"kind": "source_frame",
                              "stream_id": _stream_id(digest),
@@ -812,10 +817,12 @@ def _migrate_saliency(builder: _Builder, digest: str, asset_id: str,
                 freshness="fresh")
             payload_boxes = None
         else:
-            record = evidence_contract.new_measurement(
+            record = evidence_contract.new_inference(
                 asset_id=asset_id, clock_id=clock_id,
                 start_tick=bounds[0], end_tick=bounds[1],
                 measurement_type="image.salient_boxes", value=boxes,
+                uncertainty=evidence_contract.uncertainty_from_payload(
+                    "image.salient_boxes", boxes),
                 method=method, provenance_id=_prov_id(digest, "m3e"),
                 coverage=evidence_contract.CoverageKind.COMPLETE,
                 coverage_samples=1, coverage_sample_rate_hz=0.0)
@@ -866,10 +873,11 @@ def _migrate_transcript(builder: _Builder, digest: str, asset_id: str,
                 if isinstance(text, str) and text.strip():
                     payload = {"text": text, "utterance_index": u_idx,
                                "word_count": len(words)}
-                    native = evidence_contract.new_measurement(
+                    native = evidence_contract.new_inference(
                         asset_id=asset_id, clock_id=clock_id,
                         start_tick=ticks[0], end_tick=ticks[1],
                         measurement_type="speech.utterance", value=payload,
+                        uncertainty=evidence_contract.UNCERTAINTY_UNSTATED,
                         method=method,
                         provenance_id=_prov_id(digest, "m1"),
                         coverage=evidence_contract.CoverageKind.COMPLETE,
@@ -936,13 +944,22 @@ def _speech_take_native(builder: _Builder, digest: str, asset_id: str,
                                 "reason": "non-positive-interval",
                                 "start": start, "end": end})
         return None
-    record = evidence_contract.new_measurement(
+    record = (evidence_contract.new_inference(
         asset_id=asset_id, clock_id=clock_id,
         start_tick=ticks[0], end_tick=ticks[1],
         measurement_type=measurement_type, value=value,
+        uncertainty=evidence_contract.UNCERTAINTY_UNSTATED,
         method=SPEECH_TAKE_METHOD, provenance_id=_prov_id(digest, "m1"),
         coverage=evidence_contract.CoverageKind.COMPLETE,
         coverage_samples=samples, coverage_sample_rate_hz=0.0)
+        if evidence_contract.is_model_produced(measurement_type)
+        else evidence_contract.new_measurement(
+            asset_id=asset_id, clock_id=clock_id,
+            start_tick=ticks[0], end_tick=ticks[1],
+            measurement_type=measurement_type, value=value,
+            method=SPEECH_TAKE_METHOD, provenance_id=_prov_id(digest, "m1"),
+            coverage=evidence_contract.CoverageKind.COMPLETE,
+            coverage_samples=samples, coverage_sample_rate_hz=0.0))
     return replace(record, freshness="fresh")
 
 
@@ -1187,11 +1204,13 @@ def _migrate_identity(builder: _Builder, digest: str, asset_id: str,
                     "voice_turn", {"voice_track": track_id}, None,
                     "library.tools.person_entity")
                 continue
-            native = (evidence_contract.new_measurement(
+            native = (evidence_contract.new_inference(
                 asset_id=asset_id, clock_id=clock_id,
                 start_tick=ticks[0], end_tick=ticks[1],
                 measurement_type="person.voice_turn",
-                value={"voice_track": track_id}, method=str(method),
+                value={"voice_track": track_id},
+                uncertainty=evidence_contract.UNCERTAINTY_UNSTATED,
+                method=str(method),
                 provenance_id=_prov_id(digest, voice_lane),
                 coverage=evidence_contract.CoverageKind.SAMPLED,
                 coverage_samples=1, coverage_sample_rate_hz=0.0)
@@ -1632,10 +1651,11 @@ def _migrate_scenes(builder: _Builder, digest: str, asset_id: str,
             continue
         version = window["producer_version"]
         window_sampling = _scene_sampling(instrument, start, end)
-        native = evidence_contract.new_measurement(
+        native = evidence_contract.new_inference(
             asset_id=asset_id, clock_id=clock_id,
             start_tick=ticks[0], end_tick=ticks[1],
             measurement_type="video.scene_segment", value=[], method=method,
+            uncertainty=evidence_contract.UNCERTAINTY_UNSTATED,
             provenance_id=_prov_id(digest, "m4"),
             # The model read this window and described nothing in it.
             # That is a reading that came back empty, NOT a measured
@@ -1673,11 +1693,13 @@ def _migrate_scenes(builder: _Builder, digest: str, asset_id: str,
         ticks = sec_to_ticks(0.0, duration)
         if ticks is not None:
             whole_sampling = _scene_sampling(instrument, 0.0, duration)
-            native = evidence_contract.new_measurement(
+            native = evidence_contract.new_inference(
                 asset_id=asset_id, clock_id=clock_id,
                 start_tick=ticks[0], end_tick=ticks[1],
                 measurement_type="video.scene_segment", value=[],
-                method=method, provenance_id=_prov_id(digest, "m4"),
+                method=method,
+                uncertainty=evidence_contract.UNCERTAINTY_UNSTATED,
+                provenance_id=_prov_id(digest, "m4"),
                 coverage=evidence_contract.CoverageKind.SAMPLED,
                 coverage_samples=whole_sampling["frames"],
                 coverage_sample_rate_hz=whole_sampling["effective_fps"])
@@ -1707,11 +1729,12 @@ def _migrate_scenes(builder: _Builder, digest: str, asset_id: str,
                                   if float(scene.get("start", 0)) < float(window["end_s"])
                                   and float(scene.get("end", 0)) > float(window["start_s"])),
                                  None)
-            native = evidence_contract.new_measurement(
+            native = evidence_contract.new_inference(
                 asset_id=asset_id, clock_id=clock_id,
                 start_tick=ticks[0], end_tick=ticks[1],
                 measurement_type="video.scene_segment",
                 value=copy.deepcopy(scene), method=method,
+                uncertainty=evidence_contract.UNCERTAINTY_UNSTATED,
                 provenance_id=_prov_id(digest, "m4"),
                 # A description is read from SAMPLED frames. Claiming
                 # COMPLETE here said the description accounts for the
@@ -2253,12 +2276,13 @@ def _migrate_sound(builder: _Builder, digest: str, asset_id: str,
                 asset_id=asset_id, clock_id=clock_id,
                 start_tick=ticks[0], end_tick=ticks[1],
                 target_entity_id=None, target_region=None,
-                evidence_type=evidence_contract.EvidenceType.MEASUREMENT,
+                evidence_type=evidence_contract.EvidenceType.INFERENCE,
                 measurement_type="audio.sound_event", value=None,
                 unit="record", method=str(method), sample_resolution=None,
                 coverage=evidence_contract.CoverageKind.UNAVAILABLE,
                 coverage_samples=0, coverage_sample_rate_hz=0.0,
                 provenance_id=_prov_id(digest, "m5"),
+                uncertainty=evidence_contract.UNCERTAINTY_UNSTATED,
                 processing_status=evidence_contract.ProcessingStatus.UNAVAILABLE,
                 freshness=freshness)
             builder.observation(
@@ -2267,10 +2291,11 @@ def _migrate_sound(builder: _Builder, digest: str, asset_id: str,
                 None, "library.steps.step_1_04_temporal_index",
                 evidence=native)
         elif ticks is not None and not m5.get("sound_events"):
-            native = evidence_contract.new_measurement(
+            native = evidence_contract.new_inference(
                 asset_id=asset_id, clock_id=clock_id,
                 start_tick=ticks[0], end_tick=ticks[1],
                 measurement_type="audio.sound_event", value=[],
+                uncertainty=evidence_contract.UNCERTAINTY_UNSTATED,
                 method=str(method), provenance_id=_prov_id(digest, "m5"),
                 coverage=evidence_contract.CoverageKind.COMPLETE,
                 coverage_samples=0, coverage_sample_rate_hz=0.0)
@@ -2285,11 +2310,13 @@ def _migrate_sound(builder: _Builder, digest: str, asset_id: str,
         native = None
         ticks = sec_to_ticks(event.get("start"), event.get("end"))
         if method_fresh and freshness != "stale" and ticks is not None:
-            native = evidence_contract.new_measurement(
+            native = evidence_contract.new_inference(
                 asset_id=asset_id, clock_id=clock_id,
                 start_tick=ticks[0], end_tick=ticks[1],
                 measurement_type="audio.sound_event",
                 value=copy.deepcopy(event), method=str(method),
+                uncertainty=evidence_contract.uncertainty_from_payload(
+                    "audio.sound_event", event),
                 provenance_id=_prov_id(digest, "m5"),
                 coverage=evidence_contract.CoverageKind.SAMPLED,
                 coverage_samples=1, coverage_sample_rate_hz=0.0)
@@ -2350,7 +2377,7 @@ def _migrate_sound_classes(builder: _Builder, digest: str, asset_id: str,
                 asset_id=asset_id, clock_id=clock_id,
                 start_tick=ticks[0], end_tick=ticks[1],
                 target_entity_id=None, target_region=None,
-                evidence_type=evidence_contract.EvidenceType.MEASUREMENT,
+                evidence_type=evidence_contract.EvidenceType.INFERENCE,
                 measurement_type="audio.sound_class",
                 value=None,
                 unit="record", method=str(summary_method),
@@ -2358,18 +2385,21 @@ def _migrate_sound_classes(builder: _Builder, digest: str, asset_id: str,
                 coverage=evidence_contract.CoverageKind.UNAVAILABLE,
                 coverage_samples=0, coverage_sample_rate_hz=0.0,
                 provenance_id=_prov_id(digest, "m5"),
+                uncertainty=evidence_contract.UNCERTAINTY_UNSTATED,
                 processing_status=(
                     evidence_contract.ProcessingStatus.UNAVAILABLE),
                 freshness=freshness)
         else:
             samples = len(entry["events"])
-            native = evidence_contract.new_measurement(
+            native = evidence_contract.new_inference(
                 asset_id=asset_id, clock_id=clock_id,
                 start_tick=ticks[0], end_tick=ticks[1],
                 measurement_type="audio.sound_class",
                 value={"sound_class": name, "state": state,
                        "labels": entry["labels"],
                        "seconds": entry["seconds"]},
+                uncertainty=evidence_contract.uncertainty_from_payload(
+                    "audio.sound_class", entry["labels"]),
                 method=str(summary_method),
                 provenance_id=_prov_id(digest, "m5"),
                 coverage=evidence_contract.CoverageKind.COMPLETE,
@@ -2433,11 +2463,12 @@ def _migrate_events(builder: _Builder, digest: str, asset_id: str,
         if not spans and duration:
             ticks = sec_to_ticks(0.0, duration)
             if ticks is not None:
-                native = evidence_contract.new_measurement(
+                native = evidence_contract.new_inference(
                     asset_id=asset_id, clock_id=clock_id,
                     start_tick=ticks[0], end_tick=ticks[1],
                     measurement_type=M7_PREDICATE_TYPES[predicate],
                     value=[], method=M7_METHOD,
+                    uncertainty=evidence_contract.UNCERTAINTY_UNSTATED,
                     provenance_id=_prov_id(digest, "m7"),
                     coverage=evidence_contract.CoverageKind.COMPLETE,
                     coverage_samples=0, coverage_sample_rate_hz=0.0)
@@ -2454,10 +2485,11 @@ def _migrate_events(builder: _Builder, digest: str, asset_id: str,
             native = None
             ticks = sec_to_ticks(span.get("start"), span.get("end"))
             if ticks is not None:
-                native = evidence_contract.new_measurement(
+                native = evidence_contract.new_inference(
                     asset_id=asset_id, clock_id=clock_id,
                     start_tick=ticks[0], end_tick=ticks[1],
                     measurement_type=M7_PREDICATE_TYPES[predicate],
+                    uncertainty=evidence_contract.UNCERTAINTY_UNSTATED,
                     value={"predicate": predicate,
                            "voice_track": span.get("voice_track"),
                            "face_track": span.get("face_track")},
@@ -2483,11 +2515,12 @@ def _migrate_events(builder: _Builder, digest: str, asset_id: str,
     if not candidate_spans and duration:
         ticks = sec_to_ticks(0.0, duration)
         if ticks is not None:
-            native = evidence_contract.new_measurement(
+            native = evidence_contract.new_inference(
                 asset_id=asset_id, clock_id=clock_id,
                 start_tick=ticks[0], end_tick=ticks[1],
                 measurement_type="event.candidate_span",
                 value=[], method=M7_METHOD,
+                uncertainty=evidence_contract.UNCERTAINTY_UNSTATED,
                 provenance_id=_prov_id(digest, "m7"),
                 coverage=evidence_contract.CoverageKind.COMPLETE,
                 coverage_samples=0, coverage_sample_rate_hz=0.0)
@@ -2508,7 +2541,7 @@ def _migrate_events(builder: _Builder, digest: str, asset_id: str,
         native = None
         ticks = sec_to_ticks(span.get("start"), span.get("end"))
         if ticks is not None:
-            native = evidence_contract.new_measurement(
+            native = evidence_contract.new_inference(
                 asset_id=asset_id, clock_id=clock_id,
                 start_tick=ticks[0], end_tick=ticks[1],
                 measurement_type="event.candidate_span",
@@ -2520,6 +2553,8 @@ def _migrate_events(builder: _Builder, digest: str, asset_id: str,
                        "verification_method": (
                            "span-verification-prompt-v"
                            f"{span_verification.PROMPT_VERSION}")},
+                uncertainty=evidence_contract.uncertainty_from_payload(
+                    "event.candidate_span", matched),
                 method=M7_METHOD, provenance_id=_prov_id(digest, "m7"),
                 coverage=evidence_contract.CoverageKind.COMPLETE,
                 coverage_samples=1, coverage_sample_rate_hz=0.0)
@@ -2665,11 +2700,12 @@ def _migrate_relationships(builder: _Builder, digest: str, asset_id: str,
         if not spans and duration:
             ticks = sec_to_ticks(0.0, duration)
             if ticks is not None:
-                native = evidence_contract.new_measurement(
+                native = evidence_contract.new_inference(
                     asset_id=asset_id, clock_id=clock_id,
                     start_tick=ticks[0], end_tick=ticks[1],
                     measurement_type="relation.candidate_span",
                     value=[], method=M10_METHOD,
+                    uncertainty=evidence_contract.UNCERTAINTY_UNSTATED,
                     provenance_id=_prov_id(digest, "m10"),
                     coverage=evidence_contract.CoverageKind.COMPLETE,
                     coverage_samples=0, coverage_sample_rate_hz=0.0)
@@ -2685,12 +2721,13 @@ def _migrate_relationships(builder: _Builder, digest: str, asset_id: str,
             native = None
             ticks = sec_to_ticks(span.get("start"), span.get("end"))
             if ticks is not None:
-                native = evidence_contract.new_measurement(
+                native = evidence_contract.new_inference(
                     asset_id=asset_id, clock_id=clock_id,
                     start_tick=ticks[0], end_tick=ticks[1],
                     measurement_type="relation.candidate_span",
                     value={"relation": name,
                            "owners": copy.deepcopy(span.get("owners"))},
+                    uncertainty=evidence_contract.UNCERTAINTY_UNSTATED,
                     method=M10_METHOD,
                     provenance_id=_prov_id(digest, "m10"),
                     coverage=evidence_contract.CoverageKind.COMPLETE,
@@ -2912,10 +2949,12 @@ def _migrate_m3_frames(builder: _Builder, digest: str, asset_id: str,
         for face_index, face in rows:
             payload = {"face_index": face_index, "face": face,
                        "hands": frame.get("hands") or []}
-            native = evidence_contract.new_measurement(
+            native = evidence_contract.new_inference(
                 asset_id=asset_id, clock_id=clock_id,
                 start_tick=bounds[0], end_tick=bounds[1],
                 measurement_type="person.face_frame", value=payload,
+                uncertainty=evidence_contract.uncertainty_from_payload(
+                    "person.face_frame", payload),
                 method=M3_METHOD, provenance_id=_prov_id(digest, "m3"),
                 sample_resolution=resolution,
                 coverage=evidence_contract.CoverageKind.COMPLETE,
@@ -3063,7 +3102,7 @@ def _migrate_object_detection(builder: _Builder, digest: str,
     sample_ticks = _object_sample_ticks(first_t, period)
     evidence = None
     if sample_ticks is not None:
-        evidence = evidence_contract.new_measurement(
+        evidence = evidence_contract.new_inference(
             asset_id=_asset_id(digest), clock_id=clock_id,
             start_tick=sample_ticks[0], end_tick=sample_ticks[1],
             measurement_type="object.detection",
@@ -3071,6 +3110,8 @@ def _migrate_object_detection(builder: _Builder, digest: str,
                    "object_id": object_id, "detector": detector,
                    "label": obj.get("label"), "category": category,
                    "score": _confidence(obj.get("score"))},
+            uncertainty=evidence_contract.uncertainty_from_score(
+                _confidence(obj.get("score"))),
             method=f"{detector}-open-vocabulary-detection",
             provenance_id=_prov_id(digest, "segmentation"),
             target_entity_id=entity_id,
@@ -3140,10 +3181,11 @@ def _migrate_object_appearance(builder: _Builder, digest: str,
     ticks = sec_to_ticks(first_t, last_t)
     evidence = None
     if ticks is not None:
-        evidence = evidence_contract.new_measurement(
+        evidence = evidence_contract.new_inference(
             asset_id=_asset_id(digest), clock_id=clock_id,
             start_tick=ticks[0], end_tick=ticks[1],
             measurement_type="object.appearance", value=value,
+            uncertainty=evidence_contract.UNCERTAINTY_UNSTATED,
             method=track_method,
             provenance_id=_prov_id(digest, "segmentation"),
             sample_resolution=[frame_width, frame_height],
@@ -3200,10 +3242,11 @@ def _migrate_object_visibility(builder: _Builder, digest: str,
     ticks = sec_to_ticks(first_t, last_t)
     evidence = None
     if ticks is not None:
-        evidence = evidence_contract.new_measurement(
+        evidence = evidence_contract.new_inference(
             asset_id=_asset_id(digest), clock_id=clock_id,
             start_tick=ticks[0], end_tick=ticks[1],
             measurement_type="object.visibility", value=value,
+            uncertainty=evidence_contract.UNCERTAINTY_UNSTATED,
             method="sam2-video-track-v1",
             provenance_id=_prov_id(digest, "segmentation"),
             target_entity_id=entity_id,
@@ -3330,11 +3373,12 @@ def _migrate_segmentation(builder: _Builder, project_folder: str,
                 norm_box = _normalised_object_box(box, frame_width,
                                                   frame_height)
                 if sample_ticks is not None and norm_box is not None:
-                    evidence = evidence_contract.new_measurement(
+                    evidence = evidence_contract.new_inference(
                         asset_id=_asset_id(digest), clock_id=clock_id,
                         start_tick=sample_ticks[0],
                         end_tick=sample_ticks[1],
                         measurement_type="object.track_sample",
+                        uncertainty=evidence_contract.UNCERTAINTY_UNSTATED,
                         value={"track_id": f"track-{clip_id}-{object_id}",
                                "object_id": object_id, "box": norm_box,
                                "coordinate_space":
@@ -3573,18 +3617,21 @@ def _migrate_regions(builder: _Builder, digest: str, asset_id: str,
                 asset_id=asset_id, clock_id=clock_id,
                 start_tick=bounds[0], end_tick=bounds[1],
                 target_entity_id=None, target_region=None,
-                evidence_type=evidence_contract.EvidenceType.MEASUREMENT,
+                evidence_type=evidence_contract.EvidenceType.INFERENCE,
                 measurement_type="person.region_frame", value=None,
                 unit="regions", method=method, sample_resolution=None,
                 coverage=evidence_contract.CoverageKind.UNAVAILABLE,
                 coverage_samples=0, coverage_sample_rate_hz=0.0,
                 provenance_id=_prov_id(digest, "m3d"),
+                uncertainty=evidence_contract.UNCERTAINTY_UNSTATED,
                 processing_status=evidence_contract.ProcessingStatus.UNAVAILABLE)
         elif fresh and method:
-            native = evidence_contract.new_measurement(
+            native = evidence_contract.new_inference(
                 asset_id=asset_id, clock_id=clock_id,
                 start_tick=bounds[0], end_tick=bounds[1],
                 measurement_type="person.region_frame", value=instances,
+                uncertainty=evidence_contract.uncertainty_from_payload(
+                    "person.region_frame", instances),
                 method=method, provenance_id=_prov_id(digest, "m3d"),
                 coverage=evidence_contract.CoverageKind.COMPLETE,
                 coverage_samples=len(instances),
@@ -4059,13 +4106,14 @@ def _migrate_depth(builder: _Builder, digest: str, asset_id: str,
                     asset_id=asset_id, clock_id=clock_id,
                     start_tick=ticks[0], end_tick=ticks[1],
                     target_entity_id=None, target_region=None,
-                    evidence_type=evidence_contract.EvidenceType.MEASUREMENT,
+                    evidence_type=evidence_contract.EvidenceType.INFERENCE,
                     measurement_type="person.region_depth_frame", value=None,
                     unit="regions", method=str(method),
                     sample_resolution=list(grid),
                     coverage=evidence_contract.CoverageKind.UNAVAILABLE,
                     coverage_samples=0, coverage_sample_rate_hz=0.0,
                     provenance_id=_prov_id(digest, "m3g"),
+                    uncertainty=evidence_contract.UNCERTAINTY_UNSTATED,
                     processing_status=evidence_contract.ProcessingStatus.UNAVAILABLE,
                     freshness="fresh",
                     references=({"kind": "source_sample",
@@ -4080,10 +4128,11 @@ def _migrate_depth(builder: _Builder, digest: str, asset_id: str,
         if not regions:
             native = None
             if fresh and ticks is not None:
-                native = evidence_contract.new_measurement(
+                native = evidence_contract.new_inference(
                     asset_id=asset_id, clock_id=clock_id,
                     start_tick=ticks[0], end_tick=ticks[1],
                     measurement_type="person.region_depth_frame", value=[],
+                    uncertainty=evidence_contract.UNCERTAINTY_UNSTATED,
                     method=str(method), provenance_id=_prov_id(digest, "m3g"),
                     sample_resolution=list(grid),
                     coverage=evidence_contract.CoverageKind.COMPLETE,
@@ -4109,23 +4158,25 @@ def _migrate_depth(builder: _Builder, digest: str, asset_id: str,
                         start_tick=ticks[0], end_tick=ticks[1],
                         target_entity_id=None,
                         target_region=str(region["track"]),
-                        evidence_type=evidence_contract.EvidenceType.MEASUREMENT,
+                        evidence_type=evidence_contract.EvidenceType.INFERENCE,
                         measurement_type="image.relative_depth", value=None,
                         unit="normalized", method=str(method),
                         sample_resolution=list(grid),
                         coverage=evidence_contract.CoverageKind.UNAVAILABLE,
                         coverage_samples=0, coverage_sample_rate_hz=0.0,
                         provenance_id=_prov_id(digest, "m3g"),
+                        uncertainty=evidence_contract.UNCERTAINTY_UNSTATED,
                         processing_status=evidence_contract.ProcessingStatus.UNAVAILABLE,
                         freshness="fresh",
                         references=({"kind": "source_sample",
                                      "stream_id": _stream_id(digest),
                                      "sample_index": index},))
                 else:
-                    native = evidence_contract.new_measurement(
+                    native = evidence_contract.new_inference(
                         asset_id=asset_id, clock_id=clock_id,
                         start_tick=ticks[0], end_tick=ticks[1],
                         measurement_type="image.relative_depth",
+                        uncertainty=evidence_contract.UNCERTAINTY_UNSTATED,
                         value=median, method=str(method),
                         provenance_id=_prov_id(digest, "m3g"),
                         sample_resolution=list(grid),

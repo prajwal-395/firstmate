@@ -196,7 +196,11 @@ def test_ocr_tracks_and_masks_migrate_with_content_checked_artifact_refs(tmp_pat
         model[key].extend(builder.model[key])
     validate_project_model(model)
     evidence = builder.model["observations"][0]["payload"]["evidence_contract"]
-    assert evidence["evidence_type"] == "measurement"
+    # OCR is a MODEL's reading of the frame, so the record is an
+    # inference and carries the uncertainty the OCR score earned.
+    assert evidence["evidence_type"] == "inference"
+    assert evidence["certainty"] == "inferred"
+    assert evidence["uncertainty"] is not None
     assert evidence["measurement_type"] == "image.ocr_text_track"
     assert evidence["coverage"] == "sampled"
     assert evidence["references"] == [{

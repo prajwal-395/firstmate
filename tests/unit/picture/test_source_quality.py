@@ -222,13 +222,21 @@ def test_an_empty_span_is_refused_rather_than_read_as_a_clean_profile():
 def test_an_inference_cannot_be_filed_as_a_profile_measure():
     """A defocus LIKELIHOOD is an inference, and the contract types it so.
 
-    The profile carries measurements. A profile that could hold a
-    likelihood would be a place where a guess could pass as evidence.
+    The profile carries the dimensions it declares, and a likelihood
+    belongs to none of them. A profile that could hold a likelihood
+    would be a place where a guess could pass as evidence. A model's
+    READING (the framing dimension reads the detected face) is an
+    inference too, and the profile says so on the measure.
     """
     with pytest.raises(source_quality.SourceQualityError):
         source_quality._measure(
             "image.defocus_likelihood", 0.5, "some-model", "m3",
             start_seconds=0.0, end_seconds=1.0)
+    measure = source_quality._measure(
+        "image.framing.subject_center_x", 0.4, "some-model", "m1",
+        start_seconds=0.0, end_seconds=1.0)
+    assert measure["kind"] == "inference"
+    assert measure["certainty"] == "inferred"
 
 
 # ── The index reads the profile, and publishes the facets from it ────

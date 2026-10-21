@@ -329,11 +329,12 @@ def _compile_measurement(predicate: dict[str, Any]) -> dict[str, Any]:
     except evidence_contract.UnknownMeasurementTypeError:
         raise EvidenceQueryError(
             f"unknown measurement type {measurement_type!r}") from None
-    if entry["kind"] is not evidence_contract.EvidenceType.MEASUREMENT:
+    if entry["kind"] not in (evidence_contract.EvidenceType.MEASUREMENT,
+                             evidence_contract.EvidenceType.INFERENCE):
         raise EvidenceQueryError(
             f"{measurement_type!r} is {entry['kind'].value}, not a "
-            f"measurement: a query is answered by measurements, never "
-            f"by a verdict or taste")
+            f"measurement: a query is answered by measurements and by the "
+            f"inferences a model earned, never by a verdict or taste")
     compiled: dict[str, Any] = {"predicate": "measurement",
                                 "measurement_type": measurement_type,
                                 "unit": entry["unit"]}

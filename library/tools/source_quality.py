@@ -33,15 +33,17 @@ readable reason. It is never ``0.0``, never ``0.5``, never omitted
 without a reason. An absent focus reading and a measured focus reading
 are different facts and a filter must be able to tell them apart.
 
-**Measured and inferred stay apart.** Every measure here is a reduction
-of an instrument's output, so every measure is ``measurement`` kind and
-``measured`` certainty, and it names its registry measurement type: the
-units and kinds come from ``library/tools/evidence_contract.py``'s
-registry, so a profile cannot drift from the contract that governs
-evidence elsewhere. Nothing here is an inference: a defocus LIKELIHOOD
-or a "this shot is unusable" verdict has no home here, and the first
-because the contract types it as an inference with uncertainty, the
-second because it is a policy result.
+**Measured and inferred stay apart.** Every measure here names its
+registry measurement type, and the units and kinds come from
+``library/tools/evidence_contract.py``'s registry, so a profile cannot
+drift from the contract that governs evidence elsewhere. A reduction of
+an instrument's output is ``measurement`` kind and ``measured``
+certainty; a reduction of a MODEL's output - the framing dimension
+reads the detected face - is ``inference`` kind and ``inferred``
+certainty, because that is what the contract says it is. Nothing here is
+a verdict: a defocus LIKELIHOOD or a "this shot is unusable" verdict
+has no home here, the first because the contract types it as an
+inference with uncertainty, the second because it is a policy result.
 
 **Provenance travels with the number.** A profile carries the source
 file, the content digest, the asset and clock it sits on, and every
@@ -132,10 +134,16 @@ def _measure(measurement_type: str, value: float, method: str, lane: str,
              ) -> dict[str, Any]:
     """One measured value, typed by the evidence contract's registry."""
     entry = _entry(measurement_type)
-    if entry["kind"] is not evidence_contract.EvidenceType.MEASUREMENT:
+    if entry["kind"] not in (evidence_contract.EvidenceType.MEASUREMENT,
+                             evidence_contract.EvidenceType.INFERENCE):
         raise SourceQualityError(
             f"{measurement_type} is {entry['kind'].value}; a quality profile "
-            "carries measurements only")
+            "carries measurements and the inferences a model earned, never "
+            "a verdict or taste")
+    # A profile carries its own declared dimensions and nothing else: a
+    # type that belongs to no dimension has no home here, whatever kind
+    # the registry gives it.
+    _dimension_of(measurement_type)
     if not math.isfinite(float(value)):
         raise SourceQualityError(
             f"{measurement_type} carries a non-finite value")
@@ -144,7 +152,9 @@ def _measure(measurement_type: str, value: float, method: str, lane: str,
         "value": round(float(value), 6),
         "unit": entry["unit"],
         "kind": entry["kind"].value,
-        "certainty": evidence_contract.CertaintyState.MEASURED.value,
+        "certainty": (evidence_contract.CertaintyState.MEASURED.value
+                      if entry["kind"] is evidence_contract.EvidenceType.MEASUREMENT
+                      else evidence_contract.CertaintyState.INFERRED.value),
         "method": method,
         "lane": lane,
         "start_seconds": round(float(start_seconds), 6),

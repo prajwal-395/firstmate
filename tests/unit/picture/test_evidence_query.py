@@ -30,13 +30,19 @@ D2 = "digest-fi05-silent"
 def _native(measurement_type, value, *, digest, lane, start_tick=0,
             end_tick=20000, coverage="complete", samples=1,
             freshness="fresh", method="event-spans-v1 over M3+M3b"):
-    record = evidence_contract.new_measurement(
+    build = (evidence_contract.new_inference
+             if evidence_contract.is_model_produced(measurement_type)
+             else evidence_contract.new_measurement)
+    extra = ({"uncertainty": evidence_contract.UNCERTAINTY_UNSTATED}
+             if evidence_contract.is_model_produced(measurement_type)
+             else {})
+    record = build(
         asset_id=f"asset-{digest}", clock_id=f"clock-{digest}",
         start_tick=start_tick, end_tick=end_tick,
         measurement_type=measurement_type, value=value, method=method,
         provenance_id=f"prov-{digest}-{lane}",
         coverage=evidence_contract.CoverageKind(coverage),
-        coverage_samples=samples, coverage_sample_rate_hz=0.0)
+        coverage_samples=samples, coverage_sample_rate_hz=0.0, **extra)
     native = evidence_contract.to_rust_evidence(
         replace(record, freshness=freshness))
     native.update({

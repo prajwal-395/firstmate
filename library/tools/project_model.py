@@ -11,7 +11,7 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 
-from library.tools import protocol_conformance
+from library.tools import evidence_contract, protocol_conformance
 
 SCHEMA_VERSION = 1
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -172,8 +172,9 @@ def validate_project_model(model: dict[str, Any]) -> None:
                         (row.get("evidence") for row in model["observations"]
                          if row["id"] == measurement_id), None)
                     if (not isinstance(measurement, dict)
-                            or measurement.get("evidence_type") != "measurement"
-                            or measurement.get("measurement_type") not in required_measurements):
+                            or measurement.get("measurement_type") not in required_measurements
+                            or measurement.get("evidence_type") != evidence_contract.registry_entry(
+                                measurement.get("measurement_type"))["kind"].value):
                         raise ValueError(
                             "evaluation cites a measurement unrelated to its policy rules")
             if not set(evidence.get("basis_measurement_ids", [])) <= observation_ids:

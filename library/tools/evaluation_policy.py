@@ -136,7 +136,8 @@ def evaluate(policy: EvaluationPolicy | None, *, asset_id: str, clock_id: str,
         for measurement_id, record in matching:
             if not measurement_id:
                 raise EvaluationPolicyError("measurement evidence must have a stable id")
-            if record.evidence_type is not evidence.EvidenceType.MEASUREMENT:
+            if record.evidence_type not in (evidence.EvidenceType.MEASUREMENT,
+                                            evidence.EvidenceType.INFERENCE):
                 raise EvaluationPolicyError(
                     f"rule {rule.id!r} requires measured evidence; "
                     f"{measurement_id!r} is {record.evidence_type.value}")

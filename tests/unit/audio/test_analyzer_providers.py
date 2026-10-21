@@ -69,7 +69,10 @@ def test_normalizes_native_transcripts_to_fi03_records(native, provider):
     assert [row.value["word"] for row in records] == (
         ["hello"] if provider == "ren-voz" else ["hello", "there"])
     assert records[0].measurement_type == "speech.word"
-    assert records[0].evidence_type is evidence.EvidenceType.MEASUREMENT
+    # A transcribed word is a model's reading, not an instrument
+    # reading: the record is an inference and carries an uncertainty.
+    assert records[0].evidence_type is evidence.EvidenceType.INFERENCE
+    assert records[0].uncertainty is not None
     assert records[0].start_tick == 1100
     assert records[0].provenance_id == (
         f"prov-sha256:abc-transcription-{provider}@fixture-1")

@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from library.tools import evidence_contract
 from library.tools import project_model_evidence as evidence
 from library.tools.project_layout import ProjectLayout
 from library.tools.project_model import validate_project_model
@@ -1788,3 +1789,27 @@ def test_a_variable_frame_rate_source_gets_no_frame_grid(tmp_path):
                  if row["domain"]["kind"] == "source")
     assert clock["frame_rate"] is None
     assert any("frame grid" in note for note in report["notes"])
+
+
+def test_a_migrated_model_row_is_an_inference_with_its_uncertainty(
+        fixture_project):
+    """The defect: a detector's box filed as a measurement says an
+    instrument read it. The migration files every model-produced row as
+    an inference and stamps the uncertainty the producer earned."""
+    model, _report = _migrate(fixture_project)
+    by_modality = {}
+    for obs in model["observations"]:
+        by_modality.setdefault(obs["modality"], []).append(obs)
+    face = by_modality["face"][0]["payload"]["evidence_contract"]
+    assert face["measurement_type"] == "person.face_box"
+    assert face["evidence_type"] == "inference"
+    assert face["certainty"] == "inferred"
+    # The M3b span recorded det_score 0.9, so the uncertainty is its
+    # complement and not the unstated maximum.
+    assert face["uncertainty"] == pytest.approx(0.1)
+    voice = by_modality["voice_turn"][0]["payload"]["evidence_contract"]
+    assert voice["evidence_type"] == "inference"
+    # The diarizer recorded no score, so the row says the producer
+    # asserted nothing rather than inventing a confidence.
+    assert voice["uncertainty"] == (
+        evidence_contract.UNCERTAINTY_UNSTATED)

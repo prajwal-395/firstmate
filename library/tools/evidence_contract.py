@@ -40,6 +40,16 @@ non-recorded method raises), ``image.sharpness`` is measured, and
 ``image.defocus_likelihood`` is an inference that must carry
 uncertainty.
 
+Who produced the value (the epistemic axis, B-01/B-03): every
+registry type names its ``producer_kind`` - ``instrument``,
+``model``, ``recorded`` or ``human``. A type a learned model produced
+is an INFERENCE, never a measurement, and its record carries the
+uncertainty the producer earned: ``1 - score`` where the producer
+recorded its own score, and :data:`UNCERTAINTY_UNSTATED` (maximal,
+because the producer asserted nothing) where it recorded none. The
+record refuses a model-produced type filed as a measurement, so the
+distinction cannot rot back into a flat vocabulary.
+
 Storage is deliberately undecided here: records are plain JSON-able
 dicts/dataclasses, so they ride the existing per-lane sidecars.
 Whether dense curves later move to SQLite is the captain's open
@@ -113,6 +123,29 @@ COVERAGE_FRESHNESS = ("fresh", "stale", "unknown")
 #: input observations it was read from, never a bare description.
 EVIDENCE_REFERENCE_KINDS = ("source_sample", "source_frame", "observation")
 
+#: Who produced the value behind a registry type. The epistemic
+#: vocabulary is only honest if it says this: a detector's 0.98 box and
+#: a lens-reported focus distance are both numbers, and only one of them
+#: is an instrument reading.
+#:
+#: ``instrument``  a deterministic measurement of the decoded signal.
+#: ``model``      a learned model asserted about the picture or the
+#:                sound; its value is an INFERENCE and carries an
+#:                uncertainty.
+#: ``recorded``   metadata the capture device recorded.
+#: ``human``      a person authored the rule or made the judgement.
+PRODUCER_KINDS = ("instrument", "model", "recorded", "human")
+
+#: The uncertainty of a model-produced value whose producer recorded no
+#: per-item confidence: maximal, because the producer asserted nothing
+#: about it. Never a default that reads as a measurement.
+UNCERTAINTY_UNSTATED = 1.0
+
+#: Where a model-produced type's uncertainty comes from. ``producer_score``
+#: means the producer recorded its own per-item score and the uncertainty
+#: is read from it; ``unstated`` means it recorded none.
+UNCERTAINTY_SOURCES = ("producer_score", "unstated")
+
 
 class EvidenceContractError(ValueError):
     """Base for every contract refusal."""
@@ -140,42 +173,73 @@ class TemporalAlignmentError(EvidenceContractError):
 # fixed here so two producers cannot silently disagree about what a
 # number means. Thresholds are NOT here: what passes or fails is a
 # versioned evaluation policy (FI-22), never a registry constant.
+#
+# Every type also names its ``producer_kind`` - who produced the value:
+#
+# ``instrument``  a deterministic reduction of the decoded signal, or of
+#                data an instrument already established. A speed over
+#                word timings, a silence gap between two words, a
+#                filler from a fixed vocabulary: these read the
+#                recording, they do not judge it.
+# ``model``      a learned model, or a matcher over words, produced the
+#                value. A detector's box, a segmenter's mask, a
+#                transcriber's word, a VLM's description, a take link
+#                between two utterances: the value is an inference
+#                about the world and carries an uncertainty.
+# ``recorded``   metadata the capture device recorded.
+# ``human``      a person authored the rule or made the judgement.
+#
+# Two edges are worth naming, because they look model-produced and are
+# not. ``image.region_stats`` measures luma, colour and sharpness
+# INSIDE a region a model drew: the statistic is an instrument
+# reading, and the region boundary's own uncertainty is a separate
+# question (BL-5). ``image.motion.camera_translation`` reduces a
+# camera-motion fit to a magnitude: the number is measured, and the
+# registry says in words that it is a separation hypothesis and not a
+# labelled cause.
 
 _REGISTRY: dict[str, dict[str, Any]] = {
     "media.source_metadata": {
         "unit": "record",
         "kind": EvidenceType.MEASUREMENT,
+        "producer_kind": "recorded",
         "requires_resolution": False,
         "description": "M0 source streams, duration and recorded program-track measurements.",
     },
     "image.temporal_noise.residual": {
         "unit": "normalized_luma", "kind": EvidenceType.MEASUREMENT,
+        "producer_kind": "instrument",
         "requires_resolution": True,
         "description": "Mean absolute temporal residual after global luma compensation.",
     },
     "image.compression.blockiness_proxy": {
         "unit": "normalized_luma_difference", "kind": EvidenceType.MEASUREMENT,
+        "producer_kind": "instrument",
         "requires_resolution": True,
         "description": "Excess contrast at 8-pixel boundaries; a compression proxy.",
     },
     "image.frame.black": {
         "unit": "boolean", "kind": EvidenceType.MEASUREMENT,
+        "producer_kind": "instrument",
         "requires_resolution": True,
         "description": "Sampled frame luma below the method's black-frame threshold.",
     },
     "image.frame.frozen": {
         "unit": "boolean", "kind": EvidenceType.MEASUREMENT,
+        "producer_kind": "instrument",
         "requires_resolution": True,
         "description": "Adjacent sampled frames below the method's difference threshold.",
     },
     "image.flicker.alternation": {
         "unit": "boolean", "kind": EvidenceType.MEASUREMENT,
+        "producer_kind": "instrument",
         "requires_resolution": True,
         "description": "Sustained alternating sampled-frame luminance changes.",
     },
     "image.sharpness.laplacian_variance": {
         "unit": "variance",
         "kind": EvidenceType.MEASUREMENT,
+        "producer_kind": "instrument",
         "requires_resolution": True,
         "description": "Variance of the 4-neighbour Laplacian over a "
         "downscaled greyscale frame. Resolution-bound: the same frame "
@@ -183,23 +247,27 @@ _REGISTRY: dict[str, dict[str, Any]] = {
     },
     "image.exposure.underexposed_fraction": {
         "unit": "fraction_0_1", "kind": EvidenceType.MEASUREMENT,
+        "producer_kind": "instrument",
         "requires_resolution": True,
         "description": "Fraction of decoded greyscale pixels at luma <=4; "
         "a shadow-loss proxy, not an exposure recommendation.",
     },
     "image.exposure.overexposed_fraction": {
         "unit": "fraction_0_1", "kind": EvidenceType.MEASUREMENT,
+        "producer_kind": "instrument",
         "requires_resolution": True,
         "description": "Fraction of decoded greyscale pixels at luma >=251; "
         "a highlight-loss proxy, not an exposure recommendation.",
     },
     "image.luma.rec709_p50": {
         "unit": "0_255", "kind": EvidenceType.MEASUREMENT,
+        "producer_kind": "instrument",
         "requires_resolution": True,
         "description": "Median Rec.709 luma over a named image region.",
     },
     "image.motion.camera_translation": {
         "unit": "normalized_displacement", "kind": EvidenceType.MEASUREMENT,
+        "producer_kind": "instrument",
         "requires_resolution": False,
         "description": "Mean global frame shift the camera model explains, "
         "in normalised proxy-frame displacements. A separation hypothesis, "
@@ -207,24 +275,30 @@ _REGISTRY: dict[str, dict[str, Any]] = {
     },
     "image.motion.subject_energy": {
         "unit": "normalized_displacement", "kind": EvidenceType.MEASUREMENT,
+        "producer_kind": "instrument",
         "requires_resolution": False,
         "description": "Mean residual flow the camera model does not "
         "explain, in the same normalised units.",
     },
     "image.framing.subject_center_x": {
-        "unit": "normalized_0_1", "kind": EvidenceType.MEASUREMENT,
+        "unit": "normalized_0_1", "kind": EvidenceType.INFERENCE,
+        "producer_kind": "model",
+        "uncertainty_source": "unstated",
         "requires_resolution": False,
         "description": "Median horizontal centre of the detected face as a "
         "fraction of source width; 0.0 is the left edge.",
     },
     "image.framing.subject_width_fraction": {
-        "unit": "normalized_0_1", "kind": EvidenceType.MEASUREMENT,
+        "unit": "normalized_0_1", "kind": EvidenceType.INFERENCE,
+        "producer_kind": "model",
+        "uncertainty_source": "unstated",
         "requires_resolution": False,
         "description": "The subject's own face width as a fraction of "
         "source width, read off the same track as the centre.",
     },
     "audio.snr_db": {
         "unit": "db", "kind": EvidenceType.MEASUREMENT,
+        "producer_kind": "instrument",
         "requires_resolution": False,
         "description": "Whole-source temporal contrast estimate: p95 minus "
         "p10 of the non-silent 100 ms RMS levels. A source statistic, not a "
@@ -232,6 +306,7 @@ _REGISTRY: dict[str, dict[str, Any]] = {
     },
     "audio.intelligibility.speech_band_energy_fraction": {
         "unit": "fraction_0_1", "kind": EvidenceType.MEASUREMENT,
+        "producer_kind": "instrument",
         "requires_resolution": False,
         "description": "The share of the 300-3400 Hz band carrying energy "
         "over an interval. A frequency coverage proxy only: never "
@@ -239,12 +314,14 @@ _REGISTRY: dict[str, dict[str, Any]] = {
     },
     "image.color.rgb_mean": {
         "unit": "rgb_0_255", "kind": EvidenceType.MEASUREMENT,
+        "producer_kind": "instrument",
         "requires_resolution": True,
         "description": "Mean decoded RGB over a named image region.",
     },
     "lens.focus_distance_m": {
         "unit": "m",
         "kind": EvidenceType.MEASUREMENT,
+        "producer_kind": "recorded",
         "requires_resolution": False,
         "recorded_only": True,
         "description": "Lens-reported focus distance in metres. Recorded "
@@ -253,25 +330,32 @@ _REGISTRY: dict[str, dict[str, Any]] = {
     "image.defocus_likelihood": {
         "unit": "probability",
         "kind": EvidenceType.INFERENCE,
+        "producer_kind": "model",
+        "uncertainty_source": "unstated",
         "requires_resolution": True,
         "description": "Model-derived likelihood the picture is defocused, "
         "with uncertainty. Never a distance, never a verdict.",
     },
     "speech.word": {
         "unit": "text",
-        "kind": EvidenceType.MEASUREMENT,
+        "kind": EvidenceType.INFERENCE,
+        "producer_kind": "model",
+        "uncertainty_source": "producer_score",
         "requires_resolution": False,
         "description": "One transcribed word with MFA boundaries (M1).",
     },
     "speech.utterance": {
         "unit": "text",
-        "kind": EvidenceType.MEASUREMENT,
+        "kind": EvidenceType.INFERENCE,
+        "producer_kind": "model",
+        "uncertainty_source": "producer_score",
         "requires_resolution": False,
         "description": "One transcribed utterance: words plus text (M1).",
     },
     "speech.rate": {
         "unit": "record",
         "kind": EvidenceType.MEASUREMENT,
+        "producer_kind": "instrument",
         "requires_resolution": False,
         "description": "FI-13 words-per-second over one utterance span, "
         "read off M1 word timings. Transcript data only.",
@@ -279,6 +363,7 @@ _REGISTRY: dict[str, dict[str, Any]] = {
     "speech.pause": {
         "unit": "record",
         "kind": EvidenceType.MEASUREMENT,
+        "producer_kind": "instrument",
         "requires_resolution": False,
         "description": "FI-13 one measured silence gap: a positive "
         "inter-word or inter-utterance interval with its duration. "
@@ -291,6 +376,7 @@ _REGISTRY: dict[str, dict[str, Any]] = {
     "speech.disfluency": {
         "unit": "record",
         "kind": EvidenceType.MEASUREMENT,
+        "producer_kind": "instrument",
         "requires_resolution": False,
         "description": "FI-13 fillers and aborted words heard in one "
         "utterance, each with its seconds. An empty list over the "
@@ -299,6 +385,7 @@ _REGISTRY: dict[str, dict[str, Any]] = {
     "speech.repetition": {
         "unit": "record",
         "kind": EvidenceType.MEASUREMENT,
+        "producer_kind": "instrument",
         "requires_resolution": False,
         "description": "FI-13 longest ordered token repeat inside one "
         "utterance. A null repeat over the span is a measured absence.",
@@ -306,6 +393,7 @@ _REGISTRY: dict[str, dict[str, Any]] = {
     "speech.completeness": {
         "unit": "record",
         "kind": EvidenceType.MEASUREMENT,
+        "producer_kind": "instrument",
         "requires_resolution": False,
         "description": "FI-13 whether the transcriber closed one telling "
         "with terminal punctuation. A punctuation reading, never a "
@@ -313,7 +401,9 @@ _REGISTRY: dict[str, dict[str, Any]] = {
     },
     "speech.take_link": {
         "unit": "record",
-        "kind": EvidenceType.MEASUREMENT,
+        "kind": EvidenceType.INFERENCE,
+        "producer_kind": "model",
+        "uncertainty_source": "unstated",
         "requires_resolution": False,
         "description": "FI-13 one identical/rephrased/repeated take "
         "relation between two utterances, both instances preserved. "
@@ -323,69 +413,89 @@ _REGISTRY: dict[str, dict[str, Any]] = {
     },
     "person.face_box": {
         "unit": "normalized",
-        "kind": EvidenceType.MEASUREMENT,
+        "kind": EvidenceType.INFERENCE,
+        "producer_kind": "model",
+        "uncertainty_source": "producer_score",
         "requires_resolution": True,
         "description": "One measured face box, image-normalised top-left "
         "origin (M3/M3b). Resolution names the pixels measured.",
     },
     "person.face_frame": {
         "unit": "normalized",
-        "kind": EvidenceType.MEASUREMENT,
+        "kind": EvidenceType.INFERENCE,
+        "producer_kind": "model",
+        "uncertainty_source": "unstated",
         "requires_resolution": False,
         "description": "A face and hand sample from one M2 frame. "
         "A null face value is a measured absence on that frame.",
     },
     "image.expression_frame": {
         "unit": "labels",
-        "kind": EvidenceType.MEASUREMENT,
+        "kind": EvidenceType.INFERENCE,
+        "producer_kind": "model",
+        "uncertainty_source": "producer_score",
         "requires_resolution": False,
         "description": "Expression labels classified on one M2 frame.",
     },
     "person.region_frame": {
         "unit": "regions",
-        "kind": EvidenceType.MEASUREMENT,
+        "kind": EvidenceType.INFERENCE,
+        "producer_kind": "model",
+        "uncertainty_source": "producer_score",
         "requires_resolution": False,
         "description": "Person regions measured on one M2 frame; an empty list is a measured absence.",
     },
     "image.region_stats": {
         "unit": "record",
         "kind": EvidenceType.MEASUREMENT,
+        "producer_kind": "instrument",
         "requires_resolution": True,
         "description": "M3f luma, colour, skin and sharpness measured inside a person region against outside.",
     },
     "image.relative_depth": {
         "unit": "normalized",
-        "kind": EvidenceType.MEASUREMENT,
+        "kind": EvidenceType.INFERENCE,
+        "producer_kind": "model",
+        "uncertainty_source": "unstated",
         "requires_resolution": True,
         "description": "M3g median relative depth measured within a person region on the declared mask grid.",
     },
     "person.region_depth_frame": {
         "unit": "regions",
-        "kind": EvidenceType.MEASUREMENT,
+        "kind": EvidenceType.INFERENCE,
+        "producer_kind": "model",
+        "uncertainty_source": "unstated",
         "requires_resolution": True,
         "description": "M3g relative-depth coverage for all regions measured on one M2 frame.",
     },
     "video.scene_segment": {
         "unit": "record",
-        "kind": EvidenceType.MEASUREMENT,
+        "kind": EvidenceType.INFERENCE,
+        "producer_kind": "model",
+        "uncertainty_source": "unstated",
         "requires_resolution": False,
         "description": "M4 scene segment and its measured visual descriptors.",
     },
     "video.scene_boundary": {
         "unit": "tick",
         "kind": EvidenceType.MEASUREMENT,
+        "producer_kind": "instrument",
         "requires_resolution": False,
         "description": "M4 ffmpeg scene boundary at a source time.",
     },
     "audio.sound_event": {
         "unit": "record",
-        "kind": EvidenceType.MEASUREMENT,
+        "kind": EvidenceType.INFERENCE,
+        "producer_kind": "model",
+        "uncertainty_source": "producer_score",
         "requires_resolution": False,
         "description": "M5 timed PANNs sound event, or a complete empty event set over the measured source interval.",
     },
     "audio.sound_class": {
         "unit": "record",
-        "kind": EvidenceType.MEASUREMENT,
+        "kind": EvidenceType.INFERENCE,
+        "producer_kind": "model",
+        "uncertainty_source": "unstated",
         "requires_resolution": False,
         "description": "VI-034 what the clip measured of one sound class: "
         "PRESENT when an event of that class was measured, ABSENT when "
@@ -396,30 +506,39 @@ _REGISTRY: dict[str, dict[str, Any]] = {
     },
     "image.salient_boxes": {
         "unit": "normalized",
-        "kind": EvidenceType.MEASUREMENT,
+        "kind": EvidenceType.INFERENCE,
+        "producer_kind": "model",
+        "uncertainty_source": "producer_score",
         "requires_resolution": False,
         "description": "Attention-saliency boxes measured on an M2 frame. "
         "An empty list is a measured absence; unavailable samples carry no value.",
     },
     "image.ocr_text_track": {
-        "unit": "record", "kind": EvidenceType.MEASUREMENT,
+        "unit": "record", "kind": EvidenceType.INFERENCE,
+        "producer_kind": "model",
+        "uncertainty_source": "producer_score",
         "requires_resolution": True,
         "description": "Sampled OCR text track with language evidence, alternative readings, normalized boxes and source-frame references.",
     },
     "image.graphic_region_track": {
-        "unit": "record", "kind": EvidenceType.MEASUREMENT,
+        "unit": "record", "kind": EvidenceType.INFERENCE,
+        "producer_kind": "model",
+        "uncertainty_source": "producer_score",
         "requires_resolution": True,
         "description": "Sampled graphic/UI candidate track with normalized geometry and source-frame references; candidate labels are not semantic verification.",
     },
     "person.voice_turn": {
         "unit": "span",
-        "kind": EvidenceType.MEASUREMENT,
+        "kind": EvidenceType.INFERENCE,
+        "producer_kind": "model",
+        "uncertainty_source": "unstated",
         "requires_resolution": False,
         "description": "One diarized voice turn span (M3b/M1b).",
     },
     "sync.multicam_offset": {
         "unit": "record",
         "kind": EvidenceType.MEASUREMENT,
+        "producer_kind": "instrument",
         "requires_resolution": False,
         "description": "M6 n-gram offset between one source's clock and its "
         "group reference. A null group is a measured absence of group "
@@ -427,7 +546,9 @@ _REGISTRY: dict[str, dict[str, Any]] = {
     },
     "event.speaking_span": {
         "unit": "span",
-        "kind": EvidenceType.MEASUREMENT,
+        "kind": EvidenceType.INFERENCE,
+        "producer_kind": "model",
+        "uncertainty_source": "unstated",
         "requires_resolution": False,
         "description": "One M7 speaking span: a diarized voice turn "
         "attributed to a face by lip motion. An empty span set over the "
@@ -435,7 +556,9 @@ _REGISTRY: dict[str, dict[str, Any]] = {
     },
     "event.visible_span": {
         "unit": "span",
-        "kind": EvidenceType.MEASUREMENT,
+        "kind": EvidenceType.INFERENCE,
+        "producer_kind": "model",
+        "uncertainty_source": "unstated",
         "requires_resolution": False,
         "description": "One M7 on-screen span: a face track visible at the "
         "M2 cadence. An empty span set over the measured source interval "
@@ -443,7 +566,9 @@ _REGISTRY: dict[str, dict[str, Any]] = {
     },
     "event.candidate_span": {
         "unit": "span",
-        "kind": EvidenceType.MEASUREMENT,
+        "kind": EvidenceType.INFERENCE,
+        "producer_kind": "model",
+        "uncertainty_source": "producer_score",
         "requires_resolution": False,
         "description": "One M7 geometric candidate span for VLM "
         "verification, with the M8 verdicts recorded against it and "
@@ -451,7 +576,9 @@ _REGISTRY: dict[str, dict[str, Any]] = {
     },
     "relation.candidate_span": {
         "unit": "span",
-        "kind": EvidenceType.MEASUREMENT,
+        "kind": EvidenceType.INFERENCE,
+        "producer_kind": "model",
+        "uncertainty_source": "producer_score",
         "requires_resolution": False,
         "description": "One M10 geometric relationship candidate span "
         "(holding, pointing, looking-at). Candidates stay observations "
@@ -459,7 +586,9 @@ _REGISTRY: dict[str, dict[str, Any]] = {
     },
     "object.detection": {
         "unit": "record",
-        "kind": EvidenceType.MEASUREMENT,
+        "kind": EvidenceType.INFERENCE,
+        "producer_kind": "model",
+        "uncertainty_source": "producer_score",
         "requires_resolution": False,
         "description": "One open-vocabulary detector answer that seeded "
         "a SAM 2 object track: detector, phrase, category and the "
@@ -469,7 +598,9 @@ _REGISTRY: dict[str, dict[str, Any]] = {
     },
     "object.track_sample": {
         "unit": "record",
-        "kind": EvidenceType.MEASUREMENT,
+        "kind": EvidenceType.INFERENCE,
+        "producer_kind": "model",
+        "uncertainty_source": "unstated",
         "requires_resolution": True,
         "description": "One SAM 2 object-track sample: normalised box, "
         "pixel box with its coordinate space, seed, category and "
@@ -477,7 +608,9 @@ _REGISTRY: dict[str, dict[str, Any]] = {
     },
     "object.appearance": {
         "unit": "record",
-        "kind": EvidenceType.MEASUREMENT,
+        "kind": EvidenceType.INFERENCE,
+        "producer_kind": "model",
+        "uncertainty_source": "unstated",
         "requires_resolution": True,
         "description": "Shape read off one object's stored track geometry "
         "(sample count, aspect range/mean, box and mask area shares). "
@@ -486,7 +619,9 @@ _REGISTRY: dict[str, dict[str, Any]] = {
     },
     "object.visibility": {
         "unit": "record",
-        "kind": EvidenceType.MEASUREMENT,
+        "kind": EvidenceType.INFERENCE,
+        "producer_kind": "model",
+        "uncertainty_source": "unstated",
         "requires_resolution": False,
         "description": "One object's visible sample ticks plus the "
         "explicit gap intervals between its first and last sample where "
@@ -496,6 +631,7 @@ _REGISTRY: dict[str, dict[str, Any]] = {
     "eval.sharpness_pass": {
         "unit": "boolean",
         "kind": EvidenceType.EVALUATION,
+        "producer_kind": "human",
         "requires_resolution": False,
         "description": "A sharpness measurement judged against a versioned "
         "policy. Carries the policy id and the measurement ids it read.",
@@ -503,6 +639,7 @@ _REGISTRY: dict[str, dict[str, Any]] = {
     "eval.dialogue_preserved": {
         "unit": "boolean",
         "kind": EvidenceType.EVALUATION,
+        "producer_kind": "human",
         "requires_resolution": False,
         "description": "Dialogue continuity judged against a versioned "
         "policy, citing the speech evidence it read.",
@@ -510,6 +647,7 @@ _REGISTRY: dict[str, dict[str, Any]] = {
     "eval.policy_rule_pass": {
         "unit": "boolean",
         "kind": EvidenceType.EVALUATION,
+        "producer_kind": "human",
         "requires_resolution": False,
         "description": "One explicit requirement or preference judged "
         "against its versioned policy rule and cited measurements.",
@@ -517,6 +655,7 @@ _REGISTRY: dict[str, dict[str, Any]] = {
     "creative.soft_focus_keep": {
         "unit": "decision",
         "kind": EvidenceType.CREATIVE_JUDGMENT,
+        "producer_kind": "human",
         "requires_resolution": False,
         "description": "A subjective decision to keep soft focus for one "
         "edit. Carries whose brief authorised it, never a measurement.",
@@ -548,10 +687,106 @@ KNOWN_METHODS: tuple[str, ...] = (
 def registry_entry(measurement_type: str) -> dict[str, Any]:
     """The registry row for a type, or raise when unknown."""
     try:
-        return _REGISTRY[measurement_type]
+        entry = _REGISTRY[measurement_type]
     except KeyError:
         raise UnknownMeasurementTypeError(
             f"unknown measurement type {measurement_type!r}") from None
+    producer_kind = entry.get("producer_kind")
+    if producer_kind not in PRODUCER_KINDS:
+        raise UnknownMeasurementTypeError(
+            f"registry type {measurement_type!r} names no producer kind: "
+            f"every type says who produced its value")
+    return entry
+
+
+def producer_kind(measurement_type: str) -> str:
+    """Who produced the value behind a registry type."""
+    return registry_entry(measurement_type)["producer_kind"]
+
+
+def model_produced_types() -> tuple[str, ...]:
+    """Every registry type a learned model produced, in registry order.
+
+    These are the types that may never be filed as a measurement: their
+    value is an inference about the world and carries an uncertainty.
+    """
+    return tuple(
+        name for name in _REGISTRY
+        if _REGISTRY[name].get("producer_kind") == "model")
+
+
+def is_model_produced(measurement_type: str) -> bool:
+    """Whether a learned model produced the value behind a type."""
+    return producer_kind(measurement_type) == "model"
+
+
+#: The payload keys a producer's own score travels under. The score is
+#: the producer's confidence in the value it reported.
+SCORE_KEYS = ("score", "confidence", "det_score")
+
+
+def uncertainty_from_score(score: Any) -> float:
+    """The uncertainty of a model-produced value, from the producer's score.
+
+    The score is the producer's own confidence in [0, 1]; the
+    uncertainty is its complement. A producer that recorded no score
+    carries :data:`UNCERTAINTY_UNSTATED` - maximal, because it asserted
+    nothing about how sure it was.
+    """
+    if isinstance(score, bool) or not isinstance(score, (int, float)):
+        return UNCERTAINTY_UNSTATED
+    number = float(score)
+    if not math.isfinite(number) or not 0.0 <= number <= 1.0:
+        return UNCERTAINTY_UNSTATED
+    return max(0.0, min(1.0, 1.0 - number))
+
+
+def _payload_scores(value: Any, score_keys: tuple[str, ...]) -> list[float]:
+    """Every producer score a payload carries, one level deep."""
+    scores: list[float] = []
+
+    def take(candidate: Any) -> None:
+        if isinstance(candidate, bool) or not isinstance(candidate, (int, float)):
+            return
+        number = float(candidate)
+        if math.isfinite(number) and 0.0 <= number <= 1.0:
+            scores.append(number)
+
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            for key in score_keys:
+                if key in node:
+                    take(node[key])
+            for nested in node.values():
+                if isinstance(nested, (dict, list)):
+                    walk(nested)
+        elif isinstance(node, list):
+            for item in node:
+                if isinstance(item, (dict, list)):
+                    walk(item)
+
+    walk(value)
+    return scores
+
+
+def uncertainty_from_payload(measurement_type: str, value: Any,
+                             score_keys: tuple[str, ...] = SCORE_KEYS) -> float:
+    """The uncertainty a model-produced record carries, from its payload.
+
+    The producer's own score governs, and the least confident item in
+    the payload governs the record: a payload of ten boxes is as
+    uncertain as its worst box. A payload with no score carries
+    :data:`UNCERTAINTY_UNSTATED`. A measurement type raises: only a
+    model-produced value has an epistemic uncertainty.
+    """
+    if not is_model_produced(measurement_type):
+        raise EvidenceContractError(
+            f"{measurement_type} is not model-produced; it carries no "
+            f"epistemic uncertainty")
+    scores = _payload_scores(value, score_keys)
+    if not scores:
+        return UNCERTAINTY_UNSTATED
+    return uncertainty_from_score(min(scores))
 
 
 def method_family(method: str) -> str:
@@ -654,6 +889,12 @@ class EvidenceRecord:
                 f"{self.measurement_type} is {entry['kind'].value}, "
                 f"not {self.evidence_type.value}: a raw instrument value "
                 f"must not inhabit an evaluation field")
+        if entry["producer_kind"] == "model" and self.evidence_type is \
+                EvidenceType.MEASUREMENT:
+            raise EvidenceTypeError(
+                f"{self.measurement_type} is produced by a model: filing it "
+                f"as a measurement says an instrument read it, which nobody "
+                f"did")
         if entry.get("recorded_only") and not self.method.startswith(
                 "recorded"):
             raise EvidenceTypeError(
@@ -755,14 +996,24 @@ def new_measurement(asset_id: str, clock_id: str, start_tick: int,
                     coverage: CoverageKind = CoverageKind.COMPLETE,
                     coverage_samples: int = 1,
                     coverage_sample_rate_hz: float = 0.0) -> EvidenceRecord:
-    """Build a measurement record; raises on any contract violation."""
+    """Build a measurement record; raises on any contract violation.
+
+    A model-produced type is refused here: its value is an inference
+    about the world, so it is built with :func:`new_inference` and
+    carries the uncertainty its producer earned.
+    """
+    entry = registry_entry(measurement_type)
+    if entry["producer_kind"] == "model":
+        raise EvidenceTypeError(
+            f"{measurement_type} is produced by a model: build it with "
+            f"new_inference(..., uncertainty=...)")
     return EvidenceRecord(
         asset_id=asset_id, clock_id=clock_id,
         start_tick=start_tick, end_tick=end_tick,
         target_entity_id=target_entity_id, target_region=target_region,
         evidence_type=EvidenceType.MEASUREMENT,
         measurement_type=measurement_type, value=value,
-        unit=registry_entry(measurement_type)["unit"], method=method,
+        unit=entry["unit"], method=method,
         sample_resolution=sample_resolution, coverage=coverage,
         coverage_samples=coverage_samples,
         coverage_sample_rate_hz=coverage_sample_rate_hz,
@@ -779,13 +1030,14 @@ def new_inference(asset_id: str, clock_id: str, start_tick: int,
                   coverage_samples: int = 1,
                   coverage_sample_rate_hz: float = 0.0) -> EvidenceRecord:
     """Build an inference record; uncertainty is required."""
+    entry = registry_entry(measurement_type)
     return EvidenceRecord(
         asset_id=asset_id, clock_id=clock_id,
         start_tick=start_tick, end_tick=end_tick,
         target_entity_id=target_entity_id, target_region=target_region,
         evidence_type=EvidenceType.INFERENCE,
         measurement_type=measurement_type, value=value,
-        unit=registry_entry(measurement_type)["unit"], method=method,
+        unit=entry["unit"], method=method,
         sample_resolution=sample_resolution, coverage=coverage,
         coverage_samples=coverage_samples,
         coverage_sample_rate_hz=coverage_sample_rate_hz,
@@ -1112,7 +1364,7 @@ def audit_legacy_observation(modality: str, payload: dict[str, Any]) -> str | No
     if measurement_type is None:
         return None
     entry = registry_entry(measurement_type)
-    if entry["kind"] is not EvidenceType.MEASUREMENT:
+    if entry["kind"] not in (EvidenceType.MEASUREMENT, EvidenceType.INFERENCE):
         raise EvidenceTypeError(
             f"modality {modality!r} files a raw value as "
             f"{entry['kind'].value}")
@@ -1143,14 +1395,6 @@ def migrate_m1_word(word: dict[str, Any], asset_id: str, clock_id: str,
     text = word.get("text", word.get("word"))
     if not isinstance(text, str) or not text:
         raise EvidenceContractError("M1 word carries no text")
-    record = new_measurement(
-        asset_id=asset_id, clock_id=clock_id,
-        start_tick=start_tick, end_tick=end_tick,
-        measurement_type="speech.word",
-        value={"text": text, "utterance_index": utterance_index},
-        method=method, provenance_id=provenance_id,
-        coverage=CoverageKind.COMPLETE, coverage_samples=1,
-        coverage_sample_rate_hz=0.0)
     confidence = word.get("confidence")
     if confidence is not None:
         try:
@@ -1160,7 +1404,15 @@ def migrate_m1_word(word: dict[str, Any], asset_id: str, clock_id: str,
         if number is not None and not 0.0 <= number <= 1.0:
             raise EvidenceContractError(
                 "M1 confidence outside 0..1 is not evidence")
-    return record
+    return new_inference(
+        asset_id=asset_id, clock_id=clock_id,
+        start_tick=start_tick, end_tick=end_tick,
+        measurement_type="speech.word",
+        value={"text": text, "utterance_index": utterance_index},
+        uncertainty=uncertainty_from_score(confidence),
+        method=method, provenance_id=provenance_id,
+        coverage=CoverageKind.COMPLETE, coverage_samples=1,
+        coverage_sample_rate_hz=0.0)
 
 
 def migrate_m3_face_span(span: dict[str, Any], track_id: str,
@@ -1185,11 +1437,12 @@ def migrate_m3_face_span(span: dict[str, Any], track_id: str,
         raise EvidenceContractError("M3 face span carries no box")
     if not track_id:
         raise EvidenceContractError("M3 face span names no track")
-    return new_measurement(
+    return new_inference(
         asset_id=asset_id, clock_id=clock_id,
         start_tick=start_tick, end_tick=end_tick,
         measurement_type="person.face_box",
         value={"face_track": track_id, "box": list(box)},
+        uncertainty=uncertainty_from_score(span.get("det_score")),
         method=method, provenance_id=provenance_id,
         sample_resolution=list(sample_resolution),
         target_entity_id=None, target_region="face",
@@ -1295,8 +1548,11 @@ __all__ = [
     "EVIDENCE_REFERENCE_KINDS",
     "KNOWN_METHODS",
     "MODALITY_TO_MEASUREMENT",
+    "PRODUCER_KINDS",
     "RUST_EVIDENCE_KEYS",
     "TICKS_PER_SECOND",
+    "UNCERTAINTY_SOURCES",
+    "UNCERTAINTY_UNSTATED",
     "CertaintyState",
     "CoverageKind",
     "EvidenceContractError",
@@ -1313,18 +1569,23 @@ __all__ = [
     "apply_offset",
     "audit_legacy_observation",
     "derive_second_bins",
+    "is_model_produced",
     "make_provenance",
     "make_provenance_id",
     "method_family",
     "migrate_m1_word",
     "migrate_m3_face_span",
+    "model_produced_types",
     "new_evaluation",
     "new_inference",
     "new_measurement",
+    "producer_kind",
     "registry_entry",
     "same_method",
     "sec_to_ticks",
     "ticks_to_seconds",
     "to_legacy_observation",
     "to_rust_evidence",
+    "uncertainty_from_payload",
+    "uncertainty_from_score",
 ]

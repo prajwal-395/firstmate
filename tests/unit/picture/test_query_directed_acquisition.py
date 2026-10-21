@@ -170,12 +170,13 @@ def test_query_acquires_one_scoped_lane_refreshes_model_and_changes_answer(tmp_p
 
     def producer(*, lane, start_s, end_s, budget_seconds, max_peak_rss_gb):
         calls.append((lane, start_s, end_s))
-        record = evidence_contract.new_measurement(
+        record = evidence_contract.new_inference(
             asset_id="asset-ada", clock_id="clock-ada",
             start_tick=round(start_s * 24), end_tick=round(end_s * 24),
             measurement_type="event.speaking_span",
             value={"predicate": "speaking", "voice_track": "voice-ada",
                    "face_track": "face-ada"},
+            uncertainty=evidence_contract.UNCERTAINTY_UNSTATED,
             method="fixture-event-spans-v1",
             provenance_id="prov-fixture-source-m7",
             target_entity_id="person-ada",

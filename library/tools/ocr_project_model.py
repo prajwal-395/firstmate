@@ -138,12 +138,14 @@ def _add_track(builder, *, digest: str, asset_id: str, clock_id: str,
             "kind": "source_frame", "stream_id": f"stream-{digest}",
             "frame_index": int(row["frame_index"]),
         } for row in scoped_samples if row["frame_index"] is not None)
-        native = evidence_contract.new_measurement(
+        native = evidence_contract.new_inference(
             asset_id=asset_id, clock_id=clock_id,
             start_tick=scope_start, end_tick=scope_end,
             measurement_type=("image.ocr_text_track" if category == "text"
                               else "image.graphic_region_track"),
             value=payload, method="easyocr-ui-contours-v2",
+            uncertainty=evidence_contract.uncertainty_from_score(
+                observation_confidence),
             provenance_id=provenance_id,
             sample_resolution=sample_resolution,
             target_entity_id=entity_id,
@@ -161,7 +163,7 @@ def _add_track(builder, *, digest: str, asset_id: str, clock_id: str,
         if observation_id:
             observation = next(row for row in builder.model["observations"]
                                if row["id"] == observation_id)
-            observation["certainty"] = "measured"
+            observation["certainty"] = "inferred"
             if observation_confidence is not None:
                 observation["confidence_detail"] = {
                     "value": observation_confidence, "kind": "raw_score",

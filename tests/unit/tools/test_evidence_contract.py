@@ -109,7 +109,11 @@ def test_m1_word_migration_preserves_provenance():
     assert record.value == {"text": "hello", "utterance_index": 0}
     assert record.provenance_id == PROV_M1
     assert (record.start_tick, record.end_tick) == (1234, 1500)
-    assert record.evidence_type is contract.EvidenceType.MEASUREMENT
+    # A transcribed word is a MODEL's reading of the speech, not an
+    # instrument reading of it: the record is an inference and carries
+    # the uncertainty the transcriber's own confidence earned.
+    assert record.evidence_type is contract.EvidenceType.INFERENCE
+    assert record.uncertainty == pytest.approx(0.1)
     legacy = contract.to_legacy_observation(record, "obs-1", "speech_word",
                                             confidence=0.9)
     assert legacy["provenance_id"] == PROV_M1
@@ -203,7 +207,7 @@ def test_unavailable_carries_nothing():
     with zero samples instead."""
     absent = contract.new_measurement(
         asset_id=ASSET, clock_id=CLOCK, start_tick=0, end_tick=1000,
-        measurement_type="speech.word", value="",
+        measurement_type="speech.rate", value={},
         method="whisper-mfa-v1", provenance_id="prov-x",
         coverage=contract.CoverageKind.COMPLETE, coverage_samples=0,
         coverage_sample_rate_hz=0.0)
@@ -211,7 +215,7 @@ def test_unavailable_carries_nothing():
     with pytest.raises(contract.EvidenceContractError):
         contract.new_measurement(
             asset_id=ASSET, clock_id=CLOCK, start_tick=0, end_tick=1000,
-            measurement_type="speech.word", value="hello",
+            measurement_type="speech.rate", value={"words_per_second": 3.0},
             method="whisper-mfa-v1", provenance_id="prov-x",
             coverage=contract.CoverageKind.UNAVAILABLE,
             coverage_samples=0, coverage_sample_rate_hz=0.0)
@@ -362,3 +366,91 @@ def test_migration_path_audits_mapped_modalities():
         "video.scene_segment")
     assert contract.audit_legacy_observation("sound_event", {}) == (
         "audio.sound_event")
+
+
+# ── The epistemic axis (B-01 / B-03) ──────────────────────────────
+
+
+def test_every_registry_type_names_who_produced_its_value():
+    """The defect: a type that does not say who produced it cannot be
+    filed honestly. Every registry type names a producer kind, and the
+    kinds are the declared four."""
+    for name in contract._REGISTRY:
+        entry = contract.registry_entry(name)
+        assert entry["producer_kind"] in contract.PRODUCER_KINDS, name
+    assert contract.registry_entry("media.source_metadata")[
+        "producer_kind"] == "recorded"
+    assert contract.registry_entry("image.sharpness.laplacian_variance")[
+        "producer_kind"] == "instrument"
+    assert contract.registry_entry("object.detection")[
+        "producer_kind"] == "model"
+
+
+def test_a_model_produced_type_refuses_to_be_a_measurement():
+    """The defect this lane names: a detector's 0.98 box filed as a
+    measurement says an instrument read it. The contract refuses."""
+    with pytest.raises(contract.EvidenceTypeError):
+        contract.new_measurement(
+            asset_id=ASSET, clock_id=CLOCK, start_tick=0, end_tick=1000,
+            measurement_type="object.detection",
+            value={"score": 0.98}, method="owlv2-detection",
+            provenance_id="prov-x")
+    # And the record itself refuses, whatever built it.
+    with pytest.raises(contract.EvidenceTypeError):
+        contract.EvidenceRecord(
+            asset_id=ASSET, clock_id=CLOCK, start_tick=0, end_tick=1000,
+            target_entity_id=None, target_region=None,
+            evidence_type=contract.EvidenceType.MEASUREMENT,
+            measurement_type="object.detection", value={"score": 0.98},
+            unit="record", method="owlv2-detection", sample_resolution=None,
+            coverage=contract.CoverageKind.SAMPLED, coverage_samples=1,
+            coverage_sample_rate_hz=0.0, provenance_id="prov-x")
+
+
+def test_a_model_produced_type_is_an_inference_and_carries_uncertainty():
+    """A model's value is an inference, and an inference without an
+    uncertainty is a guess, not evidence."""
+    for name in contract.model_produced_types():
+        assert contract.registry_entry(name)["kind"] is (
+            contract.EvidenceType.INFERENCE), name
+    with pytest.raises(contract.EvidenceContractError):
+        contract.new_inference(
+            asset_id=ASSET, clock_id=CLOCK, start_tick=0, end_tick=1000,
+            measurement_type="object.detection", value={"score": 0.98},
+            method="owlv2-detection", provenance_id="prov-x",
+            uncertainty=None)
+    record = contract.new_inference(
+        asset_id=ASSET, clock_id=CLOCK, start_tick=0, end_tick=1000,
+        measurement_type="object.detection", value={"score": 0.98},
+        method="owlv2-detection", provenance_id="prov-x",
+        uncertainty=0.02)
+    assert record.certainty is contract.CertaintyState.INFERRED
+
+
+def test_the_uncertainty_is_the_complement_of_the_producer_score():
+    """The producer's own score is the only thing that may lower the
+    uncertainty; a producer that said nothing carries the maximum,
+    because it asserted nothing."""
+    assert contract.uncertainty_from_score(0.98) == pytest.approx(0.02)
+    assert contract.uncertainty_from_score(0.0) == 1.0
+    assert contract.uncertainty_from_score(None) == (
+        contract.UNCERTAINTY_UNSTATED)
+    assert contract.uncertainty_from_score("0.9") == (
+        contract.UNCERTAINTY_UNSTATED)
+    assert contract.uncertainty_from_score(1.5) == (
+        contract.UNCERTAINTY_UNSTATED)
+    # A payload of ten boxes is as uncertain as its worst box.
+    payload = {"boxes": [{"score": 0.9}, {"score": 0.4}]}
+    assert contract.uncertainty_from_payload(
+        "object.detection", payload) == pytest.approx(0.6)
+    assert contract.uncertainty_from_payload(
+        "object.detection", {"boxes": []}) == (
+        contract.UNCERTAINTY_UNSTATED)
+
+
+def test_only_a_model_produced_value_carries_an_uncertainty():
+    """A measured value has no epistemic uncertainty to carry: the
+    helper refuses to invent one."""
+    with pytest.raises(contract.EvidenceContractError):
+        contract.uncertainty_from_payload(
+            "image.sharpness.laplacian_variance", 142.6)
