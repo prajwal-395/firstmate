@@ -175,6 +175,12 @@ STAGE_LAYERS = {
     "reel_build_prepare": "rendering",
     "reel_build_place": "axi",
     "reel_build_promote": "axi",
+    # The touch path's three phases.  They were ONE unlabelled
+    # `resolve_hold` span, so a profile could say the touch cost 57 s
+    # and not say WHICH of the three to attack.
+    "touchup_duplicate": "axi",
+    "touchup_conform_compose_verify": "axi",
+    "touchup_promote": "axi",
     "version_store": "axi",
     "archive_export": "axi",
     # The OTIO placement pass: the reel being cut and laid onto the
@@ -225,6 +231,14 @@ EXTERNAL_LAYERS = {
     "resolve_render": "resolve_api", "resolve_api_call": "resolve_api",
     "resolve_wait": "resolve_lease_wait",
     "resolve_hold": "resolve_api", "ffmpeg_encode": "ffmpeg",
+    # The touch path's three phases are charged to the SAME engine the
+    # lease's own hold was charged to: the split measures Resolve's cost
+    # inside the hold, it does not re-attribute it to Ren.  Charging
+    # them otherwise would move the run's own/external split for the
+    # seconds that did not move.
+    "touchup_duplicate": "resolve_api",
+    "touchup_conform_compose_verify": "resolve_api",
+    "touchup_promote": "resolve_api",
     "project_switch_load": "resolve_api",
     "project_switch_settle": "resolve_api",
     "project_switch_readback": "resolve_api",

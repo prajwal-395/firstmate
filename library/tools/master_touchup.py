@@ -51,6 +51,7 @@ from typing import Any
 
 from library.tools import composed_edit as _ce
 from library.tools import reel_touchup as _reel_touchup
+from library.tools import touchup_phases
 from library.tools.ren_refusal import RenRefusal
 
 _logger = logging.getLogger(__name__)
@@ -216,17 +217,22 @@ def _apply_master_under_lease(project_folder: str, spec: Mapping,
         # BEFORE the destructive change: the project it reads, and the
         # master timeline it rewrites - WRITE + EXCLUSIVE, so no other
         # agent may move or delete a clip in the master mid-touch-up.
-        with resource_lease(
-            LeaseDeclaration(
-                read=frozenset({ResourceRef("project", resolve_name)}),
-                write=frozenset({ResourceRef("timeline", master)}),
-                exclusive=frozenset({ResourceRef("timeline", master)}),
-            ),
-            purpose=f"touch up {master}",
-        ):
-            return _apply_master_connected(
-                project_folder, spec, master, resolve_name,
-                accept_editor_changes, connect)
+        #
+        # The touch's three phases are measured INSIDE the lease, so the
+        # split is subtracted from the hold it came out of and no second
+        # is counted twice (`touchup_phases`).
+        with touchup_phases.phases("master"):
+            with resource_lease(
+                LeaseDeclaration(
+                    read=frozenset({ResourceRef("project", resolve_name)}),
+                    write=frozenset({ResourceRef("timeline", master)}),
+                    exclusive=frozenset({ResourceRef("timeline", master)}),
+                ),
+                purpose=f"touch up {master}",
+            ):
+                return _apply_master_connected(
+                    project_folder, spec, master, resolve_name,
+                    accept_editor_changes, connect)
 
     return _guarded()
 
@@ -334,7 +340,14 @@ def _apply_master_connected(project_folder: str, spec: Mapping, master: str,
     receipt["timeline_inventory_before"] = inventory_before
 
     stage_started = time.time()
-    staged = source.DuplicateTimeline(staging)
+    # The staging copy is the touch's FIRST phase: the duplicate of the
+    # master timeline that every later phase edits.  Measured, never
+    # assumed (`touchup_phases`).
+    touchup_phases.open_phase("duplicate")
+    try:
+        staged = source.DuplicateTimeline(staging)
+    finally:
+        touchup_phases.close_phase("duplicate")
     if staged is None or staged.GetName() != staging:
         _journal.fail_entry(project_folder, journal,
                              "the staging copy did not land")
@@ -389,8 +402,14 @@ def _edit_staged_master(project_folder: str, project: Any, pool: Any,
     helpers - the composition is timeline-agnostic.  Stops before
     promotion: the master's promotion is `_promote_master`, not the
     reel's sign-off-and-retire path.
+
+    The conform/compose/verify phase opens here and closes when the
+    promotion opens (`touchup_phases`): the two are DISJOINT intervals
+    of one lease, and the profile must be able to tell them apart.
     """
     from library.tools import reel_read as _read
+
+    touchup_phases.open_phase("conform_compose_verify")
 
     source_rows = _reel_touchup._live_rows(source)
     staged_rows = _reel_touchup._live_rows(staged)
@@ -470,6 +489,7 @@ def _edit_staged_master(project_folder: str, project: Any, pool: Any,
                     accept_editor_changes, receipt, journal)
 
 
+@touchup_phases.measured("promote")
 def _promote_master(project_folder: str, project: Any, pool: Any,
                     master: str, staging: str, accept_editor_changes,
                     receipt: dict, journal: dict) -> None:

@@ -194,6 +194,7 @@ from typing import Any
 
 from library.tools import composed_edit as _ce
 from library.tools import dirty_regions as _dirty_regions
+from library.tools import touchup_phases
 from library.tools.ren_refusal import RenRefusal
 
 _logger = logging.getLogger(__name__)
@@ -3491,18 +3492,24 @@ def _apply_under_lease(project_folder: str, spec: Mapping, final: str,
         # no other agent may move or delete a clip in this timeline
         # mid-touch-up. The instance lease above is the coarse fence;
         # this is the fine-grained declaration.
-        with resource_lease(
-            LeaseDeclaration(
-                read=frozenset({ResourceRef("project", resolve_name)}),
-                write=frozenset({ResourceRef("timeline", final)}),
-                exclusive=frozenset({ResourceRef("timeline", final)}),
-            ),
-            purpose=f"touch up {final}",
-        ):
-            return _apply_connected(
-                project_folder, spec, final, resolve_name,
-                declared_drops, declared_supersede, accept_editor_changes,
-                connect, rederiver_override, resolve_app, started)
+        #
+        # The touch's three phases are measured INSIDE the lease, so the
+        # split is subtracted from the hold it came out of and no second
+        # is counted twice (`touchup_phases`).
+        with touchup_phases.phases("reel"):
+            with resource_lease(
+                LeaseDeclaration(
+                    read=frozenset({ResourceRef("project", resolve_name)}),
+                    write=frozenset({ResourceRef("timeline", final)}),
+                    exclusive=frozenset({ResourceRef("timeline", final)}),
+                ),
+                purpose=f"touch up {final}",
+            ):
+                return _apply_connected(
+                    project_folder, spec, final, resolve_name,
+                    declared_drops, declared_supersede,
+                    accept_editor_changes,
+                    connect, rederiver_override, resolve_app, started)
 
     return _guarded()
 
@@ -3752,6 +3759,10 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
 
     stage_started = time.time()
     from library.tools.composed_edit import prepare_candidate
+    # The staging copy is the touch's FIRST phase: the duplicate of the
+    # approved timeline that every later phase edits.  Measured, never
+    # assumed (`touchup_phases`).
+    touchup_phases.open_phase("duplicate")
     try:
         staged = prepare_candidate(source, staging)
     except Exception as candidate_error:
@@ -3763,6 +3774,8 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
             f"the staging copy did not land as {staging!r} "
             f"({candidate_error}) - nothing was edited and the approved "
             f"timeline stands.") from candidate_error
+    finally:
+        touchup_phases.close_phase("duplicate")
     from library.tools.composed_edit import CandidateLifecycle
     candidate_lifecycle = CandidateLifecycle.create(source, staged, final)
     candidate_lifecycle.operations = list(
@@ -4710,8 +4723,14 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
     Runs inside the cursor fence: the staging is the cursor for the
     whole section, and a foreign move fails the touchup rather than
     writing onto the wrong timeline.
+
+    The conform/compose/verify phase opens here and closes when the
+    promotion opens (`touchup_phases`): the two are DISJOINT intervals
+    of one lease, and the profile must be able to tell them apart.
     """
     from library.tools import reel_read as _read
+
+    touchup_phases.open_phase("conform_compose_verify")
 
     source_rows = _live_rows(source)
     source_snapshot_tracks = _read.read_tracks(source)
@@ -5009,6 +5028,7 @@ def _summarise_rows(tracks: Sequence[Mapping]) -> dict:
     return out
 
 
+@touchup_phases.measured("promote")
 def _promote(project_folder: str, project: Any, pool: Any,
              final: str, staging: str, declared_drops,
              declared_supersede, accept_editor_changes, receipt: dict,
