@@ -3526,6 +3526,27 @@ def _overlay_resize_projection(item: Any, timeline: Any, project: Any,
             current_item, source_size[0] * current.anchor_x,
             source_size[1] * current.anchor_y)
         width, height = int(entry["width"]), int(entry["height"])
+        # Resolve holds ONE zoom for both axes: `resolve_transform` calls
+        # it "Resolve's ZoomX/ZoomY, one number for both" and refuses an
+        # independent ZoomX/ZoomY as not qualified.  A requested size
+        # whose aspect differs from the source's therefore cannot be
+        # delivered: the uniform zoom that fits the height draws a
+        # DIFFERENT width, and the caller is answered with a graphic
+        # they did not ask for.  Refused by name, with both aspects
+        # named - the size that CAN be drawn is the size that keeps the
+        # source's aspect.
+        source_w, source_h = float(source_size[0]), float(source_size[1])
+        if source_w > 0 and source_h > 0 and width > 0 and height > 0:
+            source_ratio = source_w / source_h
+            wanted_ratio = float(width) / float(height)
+            if abs(wanted_ratio - source_ratio) > 1e-3 * max(
+                    1.0, abs(source_ratio)):
+                raise ValueError(
+                    f"the requested size {width}x{height} has a different "
+                    f"aspect from the source's {int(source_w)}x"
+                    f"{int(source_h)}, and Resolve holds one zoom for both "
+                    "axes - the overlay would be drawn at a different "
+                    "width than the one requested")
         box = (centre[0] - width / 2, centre[1] - height / 2,
                centre[0] + width / 2, centre[1] + height / 2)
         if (box[0] < 0 or box[1] < 0

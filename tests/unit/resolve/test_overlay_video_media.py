@@ -284,3 +284,43 @@ def test_the_media_kind_is_decided_by_the_media_not_by_its_name(tmp_path):
         {"source_file": path, "media_type": "Still"})
     assert kind is None
     assert "PNG still" in why
+
+
+def test_a_resize_that_changes_the_aspect_is_refused_by_name(tmp_path):
+    """Resolve holds ONE zoom for both axes, so a stretched size cannot
+    be delivered.
+
+    The live measurement (AXI-008, the overlay qualification lane) asked
+    for 160x60 over a 320x90 source: the projection wrote ZoomX 0.5 and
+    ZoomY 0.667, Resolve delivered ONE zoom - 0.667 - and the overlay
+    was drawn 213 px wide instead of the 160 that was requested.  The
+    request was ANSWERED with a graphic nobody asked for.
+
+    The route now refuses that size by name, with both aspects in the
+    refusal, rather than delivering a different width.
+    """
+    path = _png(tmp_path / "bar.png")
+    entry = {"kind": "overlay_resize", "row": "V3", "item_index": 0,
+             "record_frame": 0, "width": 160, "height": 90,
+             "media_kind": "png_still", "source_file": path}
+    with pytest.raises(ValueError) as refused:
+        reel_touchup._overlay_resize_projection(
+            _Item(path, "Still"), _timeline(), _project(), entry)
+    assert "one zoom for both axes" in str(refused.value)
+    assert "160x90" in str(refused.value)
+    assert "320x120" in str(refused.value)
+
+
+def test_a_resize_that_keeps_the_source_aspect_is_delivered(tmp_path):
+    """A size that keeps the source's aspect IS delivered, unchanged."""
+    path = _png(tmp_path / "bar.png")
+    entry = {"kind": "overlay_resize", "row": "V3", "item_index": 0,
+             "record_frame": 0, "width": 160, "height": 60,
+             "media_kind": "png_still", "source_file": path}
+    properties, record = reel_touchup._overlay_resize_projection(
+        _Item(path, "Still"), _timeline(), _project(), entry)
+    assert record["requested_size"] == [160, 60]
+    placed = _placed_box(properties)
+    expected = tuple(map(float, record["absolute_box"]))
+    assert placed[0] == pytest.approx(expected[0], abs=0.5)
+    assert placed[2] == pytest.approx(expected[2], abs=0.5)

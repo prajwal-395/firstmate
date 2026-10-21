@@ -73,18 +73,30 @@ def test_position_is_complex_localized_staged_never_direct():
             == edit_algebra.SAFETY_COMPLEX_LOCALIZED)
 
 
-def test_position_has_a_compilable_but_fail_closed_backend():
-    """Implemented on reel_touchup, with no live qualification evidence."""
+def test_position_is_qualified_on_the_state_the_evidence_was_earned_in():
+    """The live qualification (AXI-008) earned the pair its predicates.
+
+    The overlay geometry routes were implemented but unqualified: their
+    own note said the live Resolve qualification "remains deferred".
+    The AXI-008 lane ran them against a real Resolve on a disposable
+    copy of the private scratch timeline, judged every geometry row on
+    the RENDERED FRAMES, and the evidence was imported through the
+    registry tool.  The pair is now production-ENABLED inside the
+    measured state - and the state is named, not assumed.
+    """
     status = edit_algebra.status("overlay.position")
     assert status is not None
     assert status.compilable is True
-    assert status.production_enabled is False
-    assert status.qualified is False
+    assert status.qualified is True
+    assert status.production_enabled is True
     row = status.for_backend("reel_touchup")
     assert row is not None and row.compilable is True
-    assert row.production_enabled is False
-    assert "live Resolve qualification remains deferred" in " ".join(
-        row.limitations)
+    assert row.production_enabled is True
+    fields = {predicate["field"]: predicate["value"]
+              for predicate in (row.qualification_predicates or [])}
+    assert fields["frame_rate"] == "24"
+    assert "still" in fields["media_type"]
+    assert "video" in fields["media_type"]
 
 
 def test_position_acceptance_needs_rendered_evidence_not_prose():
@@ -201,21 +213,27 @@ def test_position_qualify_must_ride_alone():
         reel_touchup.qualify(tracks, spec)
 
 
-def test_production_routing_refuses_position_without_qualification():
-    """Ordinary production routing fails closed; only the protected
-    experimental route stages it."""
+def test_production_routing_stages_position_where_the_evidence_was_earned():
+    """The qualified pair routes, and it routes STAGED.
+
+    Before the AXI-008 qualification the pair had no evidence and
+    ordinary routing refused it by name.  It is qualified now, inside
+    the state the live run measured, and the route it takes is the
+    staged one - the approved timeline is never edited in place.
+    """
     operations = [{"op": "overlay.position", "unique_id": "ov-1",
                    "dx": 0.0, "dy": -40.0}]
-    with pytest.raises(execution_router.RoutingRefused):
-        execution_router.route_compiled_edit(
-            {"operations": operations}, context={})
     decision = execution_router.route_compiled_edit(
         {"operations": operations},
-        context={"qualification_policy": "protected_experimental",
+        context={"incremental_eligibility": True,
+                 "qualification_policy": "protected_experimental",
                  "protected_staging": True,
                  "preserve_approved_state": True,
                  "verify_after_write": True})
-    assert decision.backend == "reel_touchup"
+    # The qualified pair routes through the incremental STRATEGY, whose
+    # executor is the touch-up path, and it routes STAGED: the approved
+    # timeline is never edited in place.
+    assert decision.backend == "incremental"
     assert decision.mode == "staged"
 
 
