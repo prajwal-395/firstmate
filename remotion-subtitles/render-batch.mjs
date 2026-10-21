@@ -65,6 +65,14 @@ const compositionId = spec.composition;
 const jobs = spec.jobs ?? [];
 const concurrency = spec.concurrency ?? null;
 const cardConcurrency = Math.max(1, Math.floor(spec.cardConcurrency ?? 1));
+// How long a `delayRender()` handle may stay open before the render is
+// declared stuck.  Remotion's own default is 30s, and on a busy machine
+// a LONG scene (hundreds of frames) can reload its page mid-render and
+// re-open the font handle while the box is saturated - the handle then
+// outlives the default and the render dies with a message about a FONT
+// it was never waiting on.  The caller states the budget; absent it
+// Remotion's default stands.
+const timeoutInMilliseconds = spec.timeoutInMilliseconds ?? null;
 // The ENCODER, not the browser, is what costs. Measured on the captain's
 // 10-core machine mid-pass: remotion's bundled ffmpeg at 763% CPU - about
 // 7.6 cores - encoding ProRes 4444, while `concurrency` (which bounds
@@ -99,6 +107,7 @@ const withRenderer = (run) =>
       concurrency,
       encoderThreads,
       boundEncoder,
+      timeoutInMilliseconds,
     },
     run,
   );

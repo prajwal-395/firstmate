@@ -6467,6 +6467,110 @@ def write_reel_asks_for_project(project_folder: str, transcript: dict,
 
 
 
+def _explainer_scene_segments(plan, declaration, *, name, project_folder,
+                              fps, width, height, reel_seconds):
+    """The BEAT route: a SCENE of pictures, each landing on its words.
+
+    The route, in order:
+
+        explainer_plan.plan_beats            the beats, anchored by SEARCH
+        explainer_plan.beat_scene_props      the scene the renderer draws
+        explainer_render.render_scene        the scene renderer
+        explainer_plan.measure_beat_offsets  what it ACTUALLY did
+
+    ONE scene, ONE file, ONE placement.  That is the difference the
+    captain's verdict was about: "there were no pictures or visual
+    elements that actually composed an animation" - a pile of cards
+    that each carry a line of type is not a composition, and a
+    composition is drawn as one thing over one span.
+
+    The scene is ADDITIVE, like every other overlay on a reel: it is
+    laid over picture that keeps playing and moves no frame of it, so
+    no keep range and no caption timing changes because a reel carries
+    one.  A declaration that wants the picture REPLACED says so in the
+    full-frame family (`library/tools/full_frame_element.py`).
+
+    Every refusal is SAID on the run that made it, and every beat's
+    measured offset is printed: a picture that arrives a second away
+    from the word it illustrates is a picture nobody asked for.
+    """
+    import sys
+
+    from library.tools import explainer_plan as ex
+    from library.tools import explainer_render as exr
+    from library.tools.project_layout import Area, ProjectLayout
+
+    beats = list(plan.beats.beats or ())
+    for refusal in (plan.beats.refused or []):
+        print(f"  {name}: EXPLAINER BEAT REFUSED ({refusal['reason']}) "
+              f"{refusal['beat']!r} - {refusal['detail']}", file=sys.stderr)
+    if not beats:
+        print(f"  {name}: NO EXPLAINER - {plan.basis}", file=sys.stderr)
+        plan.basis = ex.NOTHING_TO_DRAW
+        return [], plan
+
+    hold = float(declaration.get("hold_seconds") or 0.0)
+    start_seconds, end_seconds = ex.beat_window(
+        beats, reel_seconds, hold, declaration.get("window"))
+    duration_frames = int(round((end_seconds - start_seconds) * fps))
+    if duration_frames <= 0:
+        print(f"  {name}: explainer scene rounds to {duration_frames} "
+              f"frames - it draws nothing", file=sys.stderr)
+        plan.basis = ex.NOTHING_TO_DRAW
+        return [], plan
+
+    props = ex.beat_scene_props(
+        beats, declaration, width=width, height=height, fps=fps,
+        duration_frames=duration_frames, start_seconds=start_seconds,
+        font_family=str(declaration.get("font_family") or ""))
+    plan.scene = props
+
+    out_dir = str(ProjectLayout(project_folder).write_dir(
+        Area.MOTION_GRAPHICS_SEGMENTS, step="render_motion_graphics"))
+    scene_name = ex.segment_name(name, 0)
+    out_path = os.path.join(out_dir, f"{scene_name}.mov")
+    exr.render_scene(props, out_path, work_dir=out_dir)
+    print(f"  {name}: explainer scene rendered - {len(beats)} beat(s), "
+          f"{duration_frames}f, reel {start_seconds:.2f}-{end_seconds:.2f}s "
+          f"-> {out_path}", file=sys.stderr)
+
+    # WHAT IT ACTUALLY DID, measured off the rendered file rather than
+    # off the plan: a plan says when a picture was supposed to arrive,
+    # and only the picture settles when it did.
+    try:
+        offsets = ex.measure_beat_offsets(
+            out_path, beats, width=width, height=height, fps=fps,
+            start_seconds=start_seconds)
+    except ex.ExplainerError as why:
+        print(f"  {name}: explainer scene could not be measured - {why}",
+              file=sys.stderr)
+        offsets = []
+    plan.offsets = offsets
+    for row in offsets:
+        print(f"  {name}: beat {row['index']} {row['quote']!r}: word at "
+              f"{row['word_seconds']:.2f}s, picture arrives at "
+              f"{row['arrival_seconds']}s "
+              f"({row['arrival_offset_ms']}ms vs the word), complete at "
+              f"{row['landing_seconds']}s "
+              f"({row['landing_offset_ms']}ms vs the word)",
+              file=sys.stderr)
+
+    segment = {
+        "segment_id": scene_name,
+        "placement_label": f"explainer_scene_{scene_name}",
+        "overlay_path": out_path,
+        "media_type": "video",
+        "timeline_start": start_seconds,
+        "timeline_end": end_seconds,
+        "total_frames": duration_frames,
+        "lane": 0,
+        "element_count": len(beats),
+        "elements": [f"beat-{b.index}" for b in beats],
+    }
+    plan.segments = [segment]
+    return [segment], plan
+
+
 def reel_explainer_segments(moment, transcript: dict, ranges,
                             project_folder: str, fps: float, width: int,
                             height: int, judgement=None,
@@ -6512,6 +6616,19 @@ def reel_explainer_segments(moment, transcript: dict, ranges,
         return [], ex.ExplainerPlan(reel_name=name, declared=False,
                                     basis=ex.NOT_DECLARED)
 
+    # The BEAT route's pictures are PROJECT files (AGENTS.md 14: the
+    # engine ships no artwork and states none).  They are staged into
+    # Remotion's `public/brand/` BEFORE anything resolves them, so a
+    # beat whose still is not on disk is refused BY NAME rather than
+    # rendering a hole in the frame.
+    resolver = None
+    if ex.is_beat_declaration(declaration):
+        from library.tools.remotion_brand_linker import (
+            link_brand_assets, project_asset_resolver,
+        )
+        link_brand_assets(project_folder)
+        resolver = project_asset_resolver(project_folder)
+
     # The reel's own lines and its own length, from its own ranges.
     # WITH WORDS: a stage is anchored to the word its quote begins on.
     # Without them six sources enumerated in one breath sit in two
@@ -6530,7 +6647,17 @@ def reel_explainer_segments(moment, transcript: dict, ranges,
     plan = ex.author_explainer(
         reel_name=name, reel_number=int(moment.number),
         reel_seconds=reel_seconds, judgement=judgement,
-        declaration=declaration, lines=lines, bands=bands)
+        declaration=declaration, lines=lines, bands=bands,
+        resolve_asset=resolver, fps=fps)
+
+    # The BEAT route: a SCENE of pictures, each landing on the words it
+    # illustrates.  It is a different shape of explainer from the stage
+    # route below - pictures rather than copy runs - and the two never
+    # mix, so it leaves here.
+    if getattr(plan, "beats", None) is not None:
+        return _explainer_scene_segments(
+            plan, declaration, name=name, project_folder=project_folder,
+            fps=fps, width=width, height=height, reel_seconds=reel_seconds)
 
     # Every refusal is SAID, on the run that made it. A stage silently
     # dropped is a claim the viewer is shown half of.

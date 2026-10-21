@@ -354,7 +354,8 @@ def render_batch(jobs: Sequence[RenderJob],
                  composition: str,
                  work_dir: str,
                  repo_root: Optional[str] = None,
-                 timeout: Optional[int] = None) -> List[dict]:
+                 timeout: Optional[int] = None,
+                 render_timeout_ms: Optional[int] = None) -> List[dict]:
     """Render every job, returning one result dict per job.
 
     A card that fails does NOT fail the batch: its result carries
@@ -362,6 +363,15 @@ def render_batch(jobs: Sequence[RenderJob],
     rendered and report the ones that did not, by name.  A batch that
     could not START - no remotion directory, no script, no node - raises,
     because that is not a property of any card.
+
+    `render_timeout_ms` is how long a `delayRender()` handle may stay
+    open inside the renderer before the render is declared stuck.
+    Remotion's own default is 30 seconds, and on a busy machine a LONG
+    scene can reload its page mid-render and re-open the font handle
+    while the box is saturated - the handle then outlives the default
+    and the render dies with a message about a FONT it was never
+    waiting on.  The caller states the budget; absent it Remotion's
+    default stands.
     """
     if not jobs:
         return []
@@ -389,6 +399,8 @@ def render_batch(jobs: Sequence[RenderJob],
         "concurrency": frames,
         "encoderThreads": encoders,
         "jobs": [job.as_dict() for job in jobs],
+        **({"timeoutInMilliseconds": int(render_timeout_ms)}
+           if render_timeout_ms else {}),
     }), encoding="utf-8")
 
     proc = subprocess.run(

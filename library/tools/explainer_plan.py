@@ -123,6 +123,7 @@ band measurement): docs/evidence/explainer_plan.md.
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -171,6 +172,8 @@ REFUSALS: Tuple[str, ...] = (
     "off_the_end",
     "not_drawable",
     "nothing_to_draw",
+    "no_picture",
+    "asset_not_found",
 )
 
 UNGROUNDED = "ungrounded"
@@ -178,6 +181,8 @@ OUT_OF_ORDER = "out_of_order"
 OFF_THE_END = "off_the_end"
 NOT_DRAWABLE = "not_drawable"
 NOTHING_TO_DRAW = "nothing_to_draw"
+NO_PICTURE = "no_picture"
+ASSET_NOT_FOUND = "asset_not_found"
 
 
 def assert_elements_stage() -> None:
@@ -503,6 +508,127 @@ default: a declaration names one or is refused, because choosing between
 """
 
 
+def is_beat_declaration(raw: Any) -> bool:
+    """Does this declaration ask for the BEAT route?
+
+    True when it carries `beats`.  The two routes never mix: a
+    declaration with `beats` is a scene of PICTURES, and one without is
+    the stage route - one element whose stages are copy runs.
+    """
+    return isinstance(raw, dict) and BEATS_KEY in raw
+
+
+def normalise_beats_declaration(raw: Any) -> dict:
+    """Check a BEAT declaration and fill in nothing.
+
+    Raises `ExplainerError` naming the field, for the same reason
+    `normalise_declaration` does: a declaration that vanishes into a log
+    line is how the 4th Wall end card survived four months.
+
+    What it insists on, and why each is the declaration's:
+
+    - `ground` - the colour the scene is drawn on.  The engine ships no
+      palette (AGENTS.md 10.5).
+    - `font_family` - the type the labels are set in.
+    - `beats` - at least one, each with a `quote`, an `asset` and an
+      absolute `box`.
+    - `hold_seconds` - how long the scene holds after its last beat.
+
+    What it does NOT insist on, because the beat itself carries them:
+    the camera, the label's size, weight and colour.  A declaration
+    that states them uses them; one that does not gets the scene
+    renderer's own drawing of the character (a label at the renderer's
+    default weight is a mechanical default, not a taste).
+    """
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ExplainerError(
+            f"effect.{DECLARATION_KEY} must be a mapping, got "
+            f"{type(raw).__name__}.")
+    beats = raw.get(BEATS_KEY)
+    if not isinstance(beats, list) or not beats:
+        raise ExplainerError(
+            f"effect.{DECLARATION_KEY}.{BEATS_KEY} must be a non-empty "
+            f"list of beats; got {beats!r}. A scene with no beats draws "
+            f"nothing (AGENTS.md 10.2).")
+    ground = str(raw.get("ground") or "").strip()
+    if not ground:
+        raise ExplainerError(
+            f"effect.{DECLARATION_KEY}.ground is {ground!r}. The colour "
+            f"the scene is drawn on is the declaration's; the engine "
+            f"ships no palette (AGENTS.md 10.5).")
+    font = str(raw.get("font_family") or "").strip()
+    if not font:
+        raise ExplainerError(
+            f"effect.{DECLARATION_KEY}.font_family is {font!r}. The "
+            f"typeface the labels are set in is the declaration's.")
+    hold = raw.get("hold_seconds")
+    if hold is None:
+        raise ExplainerError(
+            f"effect.{DECLARATION_KEY} states no `hold_seconds`. How long "
+            f"the scene holds after its last beat is the declaration's.")
+    try:
+        hold = float(hold)
+    except (TypeError, ValueError):
+        raise ExplainerError(
+            f"effect.{DECLARATION_KEY}.hold_seconds is {hold!r}, which is "
+            f"not a number of seconds.")
+    if hold < 0:
+        raise ExplainerError(
+            f"effect.{DECLARATION_KEY}.hold_seconds is {hold}; a hold "
+            f"cannot be negative.")
+    out = {
+        BEATS_KEY: [dict(b) for b in beats if isinstance(b, dict)],
+        "ground": ground,
+        "font_family": font,
+        "hold_seconds": hold,
+    }
+    for position, beat in enumerate(out[BEATS_KEY], start=1):
+        _absolute_box(beat.get("box"), f"beats[{position}].box")
+        if beat.get("label"):
+            _absolute_box(beat.get("label_box"), f"beats[{position}].label_box")
+    if any(str(b.get("label") or "") for b in out[BEATS_KEY]):
+        size = raw.get("label_size")
+        if size is None:
+            raise ExplainerError(
+                f"effect.{DECLARATION_KEY}.label_size is {size!r}. A beat "
+                f"carrying a label needs the label's size; the engine "
+                f"states no size of its own (AGENTS.md 10.5), and a label "
+                f"at no size draws nothing.")
+        try:
+            out["label_size"] = float(size)
+        except (TypeError, ValueError):
+            raise ExplainerError(
+                f"effect.{DECLARATION_KEY}.label_size is {size!r}, which is "
+                f"not a number of pixels.") from None
+        if out["label_size"] <= 0:
+            raise ExplainerError(
+                f"effect.{DECLARATION_KEY}.label_size is {size!r}; a label "
+                f"with no size draws nothing.")
+    window = raw.get("window")
+    if window is not None:
+        if (not isinstance(window, (list, tuple)) or len(window) != 2):
+            raise ExplainerError(
+                f"effect.{DECLARATION_KEY}.window is {window!r}; it must be "
+                f"two numbers, [start, end] in reel seconds.")
+        try:
+            start, end = (float(v) for v in window)
+        except (TypeError, ValueError):
+            raise ExplainerError(
+                f"effect.{DECLARATION_KEY}.window is {window!r}, which does "
+                f"not hold two numbers.") from None
+        if end <= start:
+            raise ExplainerError(
+                f"effect.{DECLARATION_KEY}.window is {window!r}, which has "
+                f"no length; a scene with no length draws nothing.")
+        out["window"] = [start, end]
+    for key in ("camera", "label_weight", "label_colour", "asset_prefix"):
+        if raw.get(key) is not None:
+            out[key] = raw[key]
+    return out
+
+
 def normalise_declaration(raw: Any) -> dict:
     """Check a declaration and fill in nothing.
 
@@ -512,6 +638,8 @@ def normalise_declaration(raw: Any) -> dict:
     vanishes into a log line is how the 4th Wall end card survived four
     months.
     """
+    if is_beat_declaration(raw):
+        return normalise_beats_declaration(raw)
     if raw is None:
         return {}
     if not isinstance(raw, dict):
@@ -667,6 +795,641 @@ def plan_entries(anchored: AnchoredExplainer, declaration: dict) -> List[dict]:
         if key in declaration:
             entry[key] = declaration[key]
     return [entry]
+
+
+# ── The beat: one PICTURE, landing on the words it illustrates ─────────
+#
+# A stage is COPY.  A beat is a PICTURE.
+#
+# The stage route above draws the reel's own words as the thing that
+# appears: `plan_entries` builds ONE entry whose `copy` runs are the
+# stages.  That is a caption rail that arrives in pieces, and the
+# captain's verdict on the first full-screen explainer was exactly that
+# - "it was just the subtitles animated into the screen ... there were
+# no pictures or visual elements that actually composed an animation".
+#
+# A beat is the other thing: a PICTURE (a project-owned still, drawn by
+# the engine's own scene renderer) that arrives on the words it
+# illustrates, with the words themselves reduced to a supporting label.
+# The picture is the idea; the label names it.
+#
+# The rules the beat route keeps, because they are the ones that made
+# the stage route trustworthy:
+#
+# - the beat is put in time by a SEARCH over the reel's own WORD
+#   stream, never by a number the declaration states (AGENTS.md 6);
+# - a beat whose quote the reel does not say is REFUSED, by name;
+# - the picture COMPLETES on the word, it does not begin there - the
+#   measured rule of `docs/ANIMATION_FIRST_REFERENCE.md` §1, where the
+#   reference's illustrations arrive 67-839 ms BEFORE the noun they
+#   illustrate;
+# - the OFFSET between the picture and the word is MEASURED off the
+#   rendered file, per beat, and reported (`measure_beat_offsets`).
+
+BEATS_KEY = "beats"
+"""The declaration key the beat route reads.
+
+`effect.explainer.beats` - an ordered list of beats.  It is the WHOLE
+of the beat route: a declaration that carries it is a scene of pictures,
+and a declaration that does not is the stage route above.  Never both:
+two shapes in one slot is a declaration nobody wrote.
+"""
+
+
+@dataclass(frozen=True)
+class Beat:
+    """One picture, and the words it illustrates.
+
+    `at_seconds` is the reel second of the WORD the beat is anchored to
+    - the picture's LANDING, not its start.  `start_seconds` is when
+    the picture begins to arrive, which is `lead_seconds` earlier: the
+    picture builds INTO the word rather than following it.
+    """
+
+    index: int
+    quote: str
+    at_seconds: float
+    label: str = ""
+    """Supporting text at most.  A label names the picture; it is never
+    the sentence the captions are already drawing."""
+    asset: str = ""
+    """The project-owned still - the picture.  A static graphic IS a
+    still (the captain's rule), and the engine draws no artwork of its
+    own (AGENTS.md 14)."""
+    box: Tuple[int, int, int, int] = ()
+    """The still's ABSOLUTE CANVAS BOX, in delivery-frame pixels:
+    `(left, top, right, bottom)`.  Absolute, because a picture placed
+    by a share of the frame moves when the frame's aspect changes, and
+    a composition that has to be looked at is placed in pixels."""
+    label_box: Tuple[int, int, int, int] = ()
+    """The label's absolute canvas box.  Required when the beat carries
+    a label: the engine does not choose where a label sits."""
+    lead_seconds: float = 0.0
+    """How long BEFORE the word the picture starts arriving."""
+    entrance: str = ""
+    """The character of the arrival.  Its ramp is what the character
+    MEANS in this renderer, the way `RAMP_FRAMES` is what `fade` means
+    in `MotionGraphics`."""
+    exit: str = ""
+    precision: str = ""
+
+    @property
+    def start_seconds(self) -> float:
+        return max(0.0, self.at_seconds - float(self.lead_seconds))
+
+    def as_dict(self) -> dict:
+        return {"index": self.index, "quote": self.quote,
+                "at_seconds": round(self.at_seconds, 3),
+                "start_seconds": round(self.start_seconds, 3),
+                "lead_seconds": round(self.lead_seconds, 3),
+                "label": self.label, "asset": self.asset,
+                "box": list(self.box), "label_box": list(self.label_box),
+                "entrance": self.entrance, "exit": self.exit,
+                "precision": self.precision}
+
+
+@dataclass
+class AnchoredBeats:
+    """What anchoring produced, including everything it refused."""
+
+    beats: List[Beat] = field(default_factory=list)
+    refused: List[dict] = field(default_factory=list)
+    reel_seconds: float = 0.0
+
+    def refuse(self, beat_text: str, reason: str, detail: str = "") -> None:
+        if reason not in REFUSALS:
+            raise ExplainerError(
+                f"{reason!r} is not a reason a beat may be refused for. "
+                f"REFUSALS is the whole of it: {list(REFUSALS)}.")
+        self.refused.append(
+            {"beat": beat_text, "reason": reason, "detail": detail})
+
+    def as_dict(self) -> dict:
+        return {"beats": [b.as_dict() for b in self.beats],
+                "refused": list(self.refused),
+                "reel_seconds": round(self.reel_seconds, 3)}
+
+
+#: How long each entrance CHARACTER takes, in frames.
+#:
+#: A character, not a magnitude: these are the drawing of the words
+#: `fade`, `draw` and `blur` in this renderer, the same reading
+#: `MotionGraphics.RAMP_FRAMES` gets and for the same reason - a
+#: declaration chooses the character and never these numbers.
+BEAT_RAMP_FRAMES: Dict[str, int] = {
+    "cut": 0,
+    "fade": 8,
+    "slide": 8,
+    "scale": 8,
+    "mask": 8,
+    "draw": 12,
+    "blur": 10,
+    "flip": 12,
+    "glitch": 10,
+}
+
+
+def beat_ramp_seconds(entrance: str, fps: float) -> float:
+    """The arrival ramp of one entrance character, in seconds.
+
+    Absent character means no ramp at all: the picture is there when
+    the word is, which is what `cut` means.
+    """
+    frames = BEAT_RAMP_FRAMES.get(str(entrance or "cut").lower())
+    if frames is None:
+        raise ExplainerError(
+            f"{entrance!r} is not an entrance character this renderer "
+            f"draws; known: {sorted(BEAT_RAMP_FRAMES)}.")
+    return frames / float(fps or 0.0)
+
+
+def _absolute_box(raw: Any, label: str) -> Tuple[int, int, int, int]:
+    """One absolute canvas box, or a refusal by name.
+
+    ABSOLUTE, in delivery-frame pixels: `(left, top, right, bottom)`.
+    The captain's rule for this work - a static graphic is a still and
+    its position is an absolute canvas box - and the reason it is not a
+    share of the frame: a picture placed by a share moves when the
+    frame changes, and a composition is looked at.
+    """
+    if not isinstance(raw, (list, tuple)) or len(raw) != 4:
+        raise ExplainerError(
+            f"{label} must be an absolute canvas box - four numbers, "
+            f"[left, top, right, bottom] in delivery-frame pixels - got "
+            f"{raw!r}.")
+    try:
+        left, top, right, bottom = (int(v) for v in raw)
+    except (TypeError, ValueError):
+        raise ExplainerError(
+            f"{label} must be four whole pixels, got {raw!r}.") from None
+    if right <= left or bottom <= top:
+        raise ExplainerError(
+            f"{label} is {raw!r}, which has no area. A box with no area "
+            f"draws nothing, and a picture with no area is a hole in the "
+            f"frame rather than a picture.")
+    return (left, top, right, bottom)
+
+
+def plan_beats(declarations: Sequence[Any], lines: Sequence[dict],
+               reel_seconds: float,
+               resolve_asset=None, fps: Optional[float] = None) -> AnchoredBeats:
+    """Put each declared beat on the word it illustrates.
+
+    `declarations` is the declaration's own `beats` list.  `lines` is
+    the reel's own lines with `at` in REEL seconds and the WORD
+    timings inside them - the same table `anchor_stages` reads, so a
+    quote that grounds for a stage grounds for a beat.
+
+    `resolve_asset` maps a declared asset name to a path on disk (or
+    to nothing).  A beat whose still is not there is REFUSED, because a
+    picture that is not on disk is a hole in the frame, and a hole in
+    the frame is not a picture.
+
+    The refusals are the stage route's three, plus two of its own:
+
+    - the quote is not in the reel's words -> `ungrounded`
+    - the reel says this beat BEFORE the one before it -> `out_of_order`
+    - the beat is anchored at or past the reel's end -> `off_the_end`
+    - the beat names no picture -> `no_picture`
+    - the beat's picture is not on disk -> `asset_not_found`
+
+    `fps` is the reel's own rate, and it is needed only when a beat
+    names an entrance character and no lead: the lead is then the
+    CHARACTER's ramp (`beat_ramp_seconds`), which is what the character
+    means in this renderer and not a number anybody chose.
+    """
+    out = AnchoredBeats(reel_seconds=float(reel_seconds or 0.0))
+    if reel_seconds is None or float(reel_seconds) <= 0:
+        raise ExplainerError(
+            "a reel with no length has no second to anchor a beat at; "
+            "reel_seconds comes from the plan's own ranges, never from a "
+            "default.")
+
+    haystacks: List[Tuple[float, str]] = []
+    for line in lines or []:
+        says = _normalise(line.get("says") or line.get("text"))
+        if not says:
+            continue
+        at = line.get("at", line.get("reel_start"))
+        if at is None:
+            raise ExplainerError(
+                "a line with no `at` cannot anchor anything. `at` is reel "
+                "seconds and is what the build already hands the judge; a "
+                "line without it is a contract break, not a missing "
+                "default.")
+        haystacks.append((float(at), says))
+    if not haystacks:
+        raise ExplainerError(
+            "no lines to anchor against. The reel's own words are the "
+            "only thing a beat can be grounded in.")
+
+    stream = _word_stream(lines)
+    previous = -1.0
+    for index, raw in enumerate(declarations or [], start=1):
+        if not isinstance(raw, dict):
+            raise ExplainerError(
+                f"a beat must be a mapping, got {type(raw).__name__}.")
+        quote = _collapse(str(raw.get("quote") or ""))
+        text = _collapse(str(raw.get("label") or raw.get("text") or quote))
+        if not quote:
+            out.refuse(text, UNGROUNDED,
+                       "the beat carries no quote, so nothing puts it in "
+                       "time. A beat is anchored by the words it "
+                       "illustrates or not at all.")
+            continue
+        asset = str(raw.get("asset") or "").strip()
+        if not asset:
+            out.refuse(text, NO_PICTURE,
+                       "the beat names no asset, so it draws no picture. "
+                       "A beat IS a picture; text that arrives in pieces "
+                       "is a caption rail (the captain's verdict on the "
+                       "first full-screen explainer).")
+            continue
+        if resolve_asset is not None:
+            found = resolve_asset(asset)
+            if not found:
+                out.refuse(text, ASSET_NOT_FOUND,
+                           f"{asset!r} does not resolve to a file on disk. "
+                           f"A picture that is not there is a hole in the "
+                           f"frame.")
+                continue
+        needle = _normalise(quote)
+        at, precision = _anchor_one(needle, stream, haystacks)
+        if at is None:
+            out.refuse(text, UNGROUNDED,
+                       f"{quote!r} is not in the words this reel plays")
+            continue
+        if at >= out.reel_seconds:
+            out.refuse(text, OFF_THE_END,
+                       f"anchored at {at:.2f}s, past the reel's "
+                       f"{out.reel_seconds:.2f}s")
+            continue
+        if at < previous:
+            out.refuse(text, OUT_OF_ORDER,
+                       f"said at {at:.2f}s, before the previous beat at "
+                       f"{previous:.2f}s - the reel says these beats in a "
+                       f"different order than the declaration lists them")
+            continue
+        box = _absolute_box(raw.get("box"), f"beats[{index}].box")
+        label_box: Tuple[int, int, int, int] = ()
+        if raw.get("label"):
+            label_box = _absolute_box(raw.get("label_box"),
+                                      f"beats[{index}].label_box")
+        entrance = str(raw.get("entrance") or "")
+        lead = raw.get("lead_seconds")
+        if lead is None:
+            if entrance:
+                if fps is None:
+                    raise ExplainerError(
+                        f"beats[{index}] names the entrance "
+                        f"{entrance!r} and no `lead_seconds`. How early "
+                        f"the picture starts arriving is the character "
+                        f"the declaration chose, and the character needs "
+                        f"the reel's rate to be drawn - pass `fps`.")
+                lead = beat_ramp_seconds(entrance, fps)
+            else:
+                lead = 0.0
+        previous = at
+        out.beats.append(Beat(
+            index=index, quote=quote, at_seconds=at,
+            label=str(raw.get("label") or ""), asset=asset, box=box,
+            label_box=label_box,
+            lead_seconds=float(lead),
+            entrance=entrance,
+            exit=str(raw.get("exit") or ""), precision=precision))
+    return out
+
+
+def _world_box(box: Sequence[int], width: int, height: int) -> dict:
+    """An absolute canvas box, as the scene renderer's world units.
+
+    ONE world unit is one delivery WIDTH at zoom 1
+    (`remotion-subtitles/src/compositions/StagedScene`), so both axes
+    divide by the width.  The conversion happens here and nowhere else,
+    which is what keeps the DECLARATION in absolute pixels - the unit a
+    person places a picture in - and the renderer in its own units.
+    """
+    left, top, right, bottom = (int(v) for v in box)
+    unit = float(width or 1)
+    return {
+        "x": ((left + right) / 2.0 - unit / 2.0) / unit,
+        "y": ((top + bottom) / 2.0 - float(height or 1) / 2.0) / unit,
+        "width": (right - left) / unit,
+    }
+
+
+def beat_scene_props(beats: Sequence[Beat], declaration: dict, *,
+                     width: int, height: int, fps: float,
+                     duration_frames: int, start_seconds: float = 0.0,
+                     font_family: str = "") -> dict:
+    """The scene props for a beat route, ready to render.
+
+    The scene is a WORLD: a declared ground, an optional declared
+    camera, and one layer per beat.  Each beat contributes
+
+    - an IMAGE layer - the project-owned still, at its ABSOLUTE CANVAS
+      BOX, whose opacity reaches 1 ON the word it illustrates (the
+      picture COMPLETES on the word; it does not begin there);
+    - a TEXT layer - the supporting LABEL, whose run completes on the
+      same word, and which is a label and never a sentence.
+
+    The declaration owns every colour, every size and the camera.  The
+    engine owns the timing arithmetic and the layer shapes, and states
+    no look of its own (AGENTS.md 10.5).
+
+    The props are the scene renderer's own (`StagedScene`), so a beat
+    route is drawn by the SAME renderer the animation IR is lowered
+    into - not by a second one.
+    """
+    layers: List[dict] = []
+    label_size = float(declaration.get("label_size") or 0)
+    label_weight = int(declaration.get("label_weight") or 700)
+    label_colour = str(declaration.get("label_colour") or "#FFFFFF")
+    ordered = list(beats)
+    for position, beat in enumerate(ordered):
+        landing = beat.at_seconds - float(start_seconds)
+        arrival = beat.start_seconds - float(start_seconds)
+        # The EXIT: this picture leaves as the NEXT one arrives, so two
+        # pictures are never on the frame together.  A CUT by default,
+        # because that is what the reference does: "there is no
+        # dissolve, no wipe, no whip, no zoom-transition, no flash. Two
+        # hard cuts and one focus pull"
+        # (`docs/ANIMATION_FIRST_REFERENCE.md` §2).  A declared exit
+        # character fades over its own ramp instead.
+        exit_keys: List[dict] = []
+        if position + 1 < len(ordered):
+            following = ordered[position + 1]
+            next_arrival = following.start_seconds - float(start_seconds)
+            ramp = beat_ramp_seconds(beat.exit or "cut", fps)
+            fade_start = next_arrival if ramp <= 0 else next_arrival - ramp
+            exit_keys = [
+                {"at": max(0.0, fade_start), "value": 1.0},
+                {"at": max(0.0, next_arrival), "value": 0.0},
+            ]
+        opacity = ([{"at": max(0.0, arrival), "value": 0.0},
+                    {"at": max(0.0, landing), "value": 1.0}]
+                   + exit_keys)
+        placement = _world_box(beat.box, width, height)
+        placement["opacity"] = opacity
+        layers.append({
+            "kind": "image",
+            "id": f"beat-{beat.index}",
+            "src": str(declaration.get("asset_prefix") or "brand/")
+            + os.path.basename(beat.asset),
+            "placement": placement,
+        })
+        if beat.label and beat.label_box:
+            label_placement = _world_box(beat.label_box, width, height)
+            label_placement["opacity"] = list(opacity)
+            layers.append({
+                "kind": "text",
+                "id": f"label-{beat.index}",
+                "runs": [{
+                    "text": beat.label,
+                    # World units: the renderer scales type with the
+                    # camera, and the declaration states the size in
+                    # delivery-frame pixels.
+                    "size": label_size / float(width or 1),
+                    "weight": label_weight,
+                    "colour": label_colour,
+                    "revealAt": max(0.0, landing),
+                }],
+                "placement": label_placement,
+            })
+    props: dict = {
+        "ground": {"colour": str(declaration.get("ground") or "#000000")},
+        "layers": layers,
+        "fontFamily": font_family or str(declaration.get("font_family") or ""),
+        "fps": float(fps),
+        "width": int(width),
+        "height": int(height),
+        "durationInFrames": int(duration_frames),
+    }
+    if declaration.get("camera"):
+        props["camera"] = declaration["camera"]
+    return props
+
+
+def beat_window(beats: Sequence[Beat], reel_seconds: float,
+                hold_seconds: float = 0.0,
+                window: Optional[Sequence[float]] = None) -> Tuple[float, float]:
+    """The reel seconds the scene covers: `(start, end)`.
+
+    The WHOLE reel by default: an explainer over a reel's own audio is
+    a full-screen composition, and a scene that started at its first
+    picture would leave the reel's opening on the picture it was
+    supposed to replace.  A declaration may narrow it with `window`,
+    and then the scene is that stretch of the reel.
+
+    The window is the SPAN of the composition: a scene that ended
+    before its last picture would cut it off, so the declared hold
+    after the last beat is inside it.
+    """
+    if window:
+        start = max(0.0, float(window[0]))
+        end = min(float(reel_seconds or 0.0), float(window[1]))
+    else:
+        start, end = 0.0, float(reel_seconds or 0.0)
+    if beats:
+        # The hold is a FLOOR on the end, never a ceiling on the reel:
+        # a window that closed before the last picture would cut it off.
+        end = max(end, min(float(reel_seconds or 0.0),
+                           max(b.at_seconds for b in beats)
+                           + float(hold_seconds or 0.0)))
+    if end <= start:
+        return (0.0, 0.0)
+    return (start, end)
+
+
+# ── Measuring what the render actually did ───────────────────────────
+
+def measure_beat_offsets(rendered_path: str, beats: Sequence[Beat], *,
+                         width: int, height: int, fps: float,
+                         start_seconds: float = 0.0,
+                         ground: str = "") -> List[dict]:
+    """What each beat's picture ACTUALLY did, against the word it illustrates.
+
+    Read off the RENDERED file, not off the plan: a plan says when a
+    picture was SUPPOSED to arrive, and the only thing that settles
+    when it did is the picture itself.  For every beat this returns
+
+    - `arrival_seconds` - the first frame the beat's box carries
+      anything other than the ground, measured by the difference
+      between that frame and the ground's own tone;
+    - `landing_seconds` - the first frame the box is as full as it ever
+      gets, which is the frame the picture is COMPLETE;
+    - `arrival_offset_ms` / `landing_offset_ms` - those two against the
+      word the beat illustrates.  NEGATIVE means the picture led the
+      word, which is what the reference does (67-839 ms ahead of the
+      noun, `docs/ANIMATION_FIRST_REFERENCE.md` §1) and what "the picture
+      completes on the word" means.
+
+    The measurement is deliberately coarse - a quarter-scale luma
+    stream, and a threshold on the deviation from the ground - because
+    it answers "did the picture arrive with the word", not "is the
+    picture beautiful".
+
+    `start_seconds` is the reel second the rendered file's frame 0
+    sits at: the render covers the scene's window, not the reel's
+    first second, and the offsets are measured against the WORD, so
+    the window's own offset has to come back out.
+    """
+    import subprocess
+
+    import numpy as np
+
+    beats = list(beats or ())
+    if not beats:
+        return []
+    if not os.path.isfile(rendered_path):
+        raise ExplainerError(
+            f"cannot measure {rendered_path!r}: it is not on disk.")
+    scale = 4
+    small_w = max(1, int(width) // scale)
+    small_h = max(1, int(height) // scale)
+    result = subprocess.run(
+        ["ffmpeg", "-nostdin", "-v", "error", "-i", rendered_path,
+         "-vf", f"scale={small_w}:{small_h}", "-pix_fmt", "gray",
+         "-f", "rawvideo", "-"],
+        capture_output=True, timeout=600, check=False)
+    if result.returncode != 0 or not result.stdout:
+        raise ExplainerError(
+            f"could not read frames of {rendered_path}: "
+            f"{result.stderr[-200:] if result.stderr else 'no output'}")
+    frame_bytes = small_w * small_h
+    count = len(result.stdout) // frame_bytes
+    if count <= 0:
+        raise ExplainerError(
+            f"{rendered_path} holds no readable frames.")
+    frames = np.frombuffer(result.stdout[:count * frame_bytes],
+                           dtype=np.uint8).reshape(count, small_h, small_w)
+
+    measured: List[dict] = []
+    # ONE deviation curve per DISTINCT box.  Beats that share a box
+    # share a curve - they take turns in the same place - so the curve
+    # is SEGMENTED into the stretches in which something was drawn, and
+    # each beat is matched to the segment that carries it.  A curve per
+    # beat would read the first picture's arrival for every beat, which
+    # is a measurement of nothing.
+    curves: Dict[Tuple[int, int, int, int], Any] = {}
+    for beat in beats:
+        key = tuple(int(v) for v in beat.box)
+        if key in curves:
+            continue
+        left, top, right, bottom = key
+        x0 = max(0, min(small_w - 1, int(left) // scale))
+        x1 = max(x0 + 1, min(small_w, int(right) // scale))
+        y0 = max(0, min(small_h - 1, int(top) // scale))
+        y1 = max(y0 + 1, min(small_h, int(bottom) // scale))
+        region = frames[:, y0:y1, x0:x1].astype(np.int16)
+        # The ground's own tone is what the region holds when no
+        # picture is there: the MODE over the clip - the tone the
+        # region spends most of its pixels on.  The MEDIAN is wrong
+        # here and measurably so: a picture that is on screen for half
+        # the clip puts the median BETWEEN the two tones, so every
+        # frame of bare ground reads as a deviation and the picture
+        # appears to arrive at 0.00s.
+        counts = np.bincount(region.reshape(-1), minlength=256)
+        ground_level = float(int(np.argmax(counts)))
+        deviation = np.abs(region - ground_level).max(axis=(1, 2))
+        peak = float(deviation.max())
+        curves[key] = {"deviation": deviation, "peak": peak,
+                       "segments": _segments(deviation, peak)}
+    for beat in beats:
+        curve = curves[tuple(int(v) for v in beat.box)]
+        deviation = curve["deviation"]
+        peak = float(curve["peak"])
+        word_in_scene = beat.at_seconds - float(start_seconds)
+        if peak < 1.0:
+            measured.append({
+                "index": beat.index, "quote": beat.quote,
+                "word_seconds": round(beat.at_seconds, 3),
+                "arrival_seconds": None, "landing_seconds": None,
+                "arrival_offset_ms": None, "landing_offset_ms": None,
+                "peak_deviation": round(peak, 2),
+                "note": "nothing was drawn in this beat's box",
+            })
+            continue
+        # The segment that carries this beat: the one the word falls
+        # INSIDE, because that is the stretch in which THIS picture was
+        # on the frame.  Nearest by EDGE when the word falls in a gap
+        # between two pictures - the middle of a segment is not a
+        # distance to it, and choosing by the middle picks the wrong
+        # picture whenever one beat is much longer than the one before.
+        segments = curve["segments"]
+        expected = word_in_scene * float(fps)
+        inside = [i for i, s in enumerate(segments)
+                  if s[0] <= expected <= s[1]]
+        if inside:
+            position = inside[0]
+        else:
+            position = min(
+                range(len(segments)),
+                key=lambda i: min(abs(expected - segments[i][0]),
+                                  abs(expected - segments[i][1])))
+        segment = segments[position]
+        # The picture's FIRST ink, which is before the segment's own
+        # start: the segment opens at half the peak, and a picture that
+        # fades in is already on the frame before it is half there.  The
+        # scan may not cross into the PREVIOUS picture's stretch - that
+        # is a different picture, and its ink is not this beat's.
+        first_ink = max(3.0, peak * 0.03)
+        lower = (segments[position - 1][1] + 1) if position else 0
+        back = int(segment[0])
+        while back > lower and deviation[back - 1] >= first_ink:
+            back -= 1
+        arrival_frame = back
+        # The picture's OWN peak, not the clip's: a dark picture on a
+        # dark ground never reaches the brightness of a white one, and
+        # a landing measured against another beat's peak is never
+        # reached at all.
+        seg_peak = float(deviation[segment[0]:segment[1] + 1].max())
+        landed = np.where(deviation[arrival_frame:segment[1] + 1]
+                          >= max(3.0, seg_peak * 0.90))[0]
+        landing_frame = (arrival_frame + int(landed[0])) if len(landed) \
+            else None
+        arrival_seconds = arrival_frame / float(fps)
+        landing_seconds = (landing_frame / float(fps)
+                            if landing_frame is not None else None)
+        measured.append({
+            "index": beat.index,
+            "quote": beat.quote,
+            "word_seconds": round(beat.at_seconds, 3),
+            "arrival_seconds": round(arrival_seconds, 3),
+            "landing_seconds": (round(landing_seconds, 3)
+                                if landing_seconds is not None else None),
+            "arrival_offset_ms": round(
+                (arrival_seconds - word_in_scene) * 1000.0, 1),
+            "landing_offset_ms": (
+                round((landing_seconds - word_in_scene) * 1000.0, 1)
+                if landing_seconds is not None else None),
+            "peak_deviation": round(peak, 2),
+        })
+    return measured
+
+
+def _segments(deviation, peak: float) -> List[Tuple[int, int]]:
+    """The stretches of the clip in which something was drawn.
+
+    A segment is a run of frames whose deviation from the ground is at
+    least half the peak - half, because a picture arriving is not the
+    same as a picture complete, and the two are measured apart.
+    """
+    if peak < 1.0:
+        return []
+    threshold = max(3.0, peak * 0.5)
+    runs: List[Tuple[int, int]] = []
+    start = None
+    for index, value in enumerate(deviation):
+        if value >= threshold:
+            if start is None:
+                start = index
+        elif start is not None:
+            runs.append((start, index - 1))
+            start = None
+    if start is not None:
+        runs.append((start, len(deviation) - 1))
+    return runs
 
 
 # ── The picture-area enumeration ─────────────────────────────────────
@@ -997,6 +1760,15 @@ class ExplainerPlan:
     anchored: Optional[AnchoredExplainer] = None
     basis: str = ""
     band: Optional[dict] = None
+    beats: Optional[AnchoredBeats] = None
+    """The BEAT route's anchored beats, when the declaration asked for
+    one.  Empty for the stage route, which is a different shape of
+    explainer and never both."""
+    scene: Optional[dict] = None
+    """The scene props the beat route renders, when they were built."""
+    offsets: List[dict] = field(default_factory=list)
+    """What each beat's picture ACTUALLY did against the word it
+    illustrates, measured off the rendered file."""
     segments: List[dict] = field(default_factory=list)
     """What was really RENDERED and placed: `timeline_start`,
     `total_frames`, `overlay_path`.  This is what F21 grades the
@@ -1011,6 +1783,9 @@ class ExplainerPlan:
             "basis": self.basis,
             "entries": list(self.entries),
             "anchored": self.anchored.as_dict() if self.anchored else None,
+            "beats": self.beats.as_dict() if self.beats else None,
+            "scene": self.scene,
+            "offsets": list(self.offsets),
             "band": self.band,
             "segments": [
                 {"overlay_path": s.get("overlay_path"),
@@ -1044,11 +1819,18 @@ def author_explainer(reel_name: str, reel_number: int, reel_seconds: float,
                      judgement: Optional[dict],
                      declaration: Any,
                      lines: Optional[Sequence[dict]] = None,
-                     bands: Optional[PictureBands] = None) -> ExplainerPlan:
+                     bands: Optional[PictureBands] = None,
+                     resolve_asset=None,
+                     fps: Optional[float] = None) -> ExplainerPlan:
     """Author one reel's explainer from that reel's own data.
 
     Everything here is the reel's: its judgement, its lines, its length.
     Nothing is carried over from another reel and nothing is invented.
+
+    Two routes, never both: a declaration carrying `beats` is the BEAT
+    route - a scene of PICTURES, each landing on the words it
+    illustrates - and a declaration without is the STAGE route, whose
+    stages are copy runs.
     """
     if declaration is None:
         return ExplainerPlan(reel_name=reel_name, declared=False,
@@ -1057,6 +1839,16 @@ def author_explainer(reel_name: str, reel_number: int, reel_seconds: float,
     if not declared:
         return ExplainerPlan(reel_name=reel_name, declared=False,
                              basis=NOT_DECLARED)
+
+    if BEATS_KEY in declared:
+        rows = list(lines or lines_for_reel(judgement, reel_number))
+        anchored = plan_beats(declared[BEATS_KEY], rows, reel_seconds,
+                              resolve_asset=resolve_asset, fps=fps)
+        if not anchored.beats:
+            return ExplainerPlan(reel_name=reel_name, declared=True,
+                                 beats=anchored, basis=ALL_REFUSED)
+        return ExplainerPlan(reel_name=reel_name, declared=True,
+                             beats=anchored, basis=PLANNED)
 
     band = band_report(bands, declared) if bands is not None else None
     parts = parts_for_reel(judgement, reel_number)

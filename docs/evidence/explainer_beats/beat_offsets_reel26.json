@@ -1,0 +1,80 @@
+{
+  "reel": 26,
+  "window": [
+    0.0,
+    39.629999999999995
+  ],
+  "reel_seconds": 39.629999999999995,
+  "offsets": [
+    {
+      "index": 1,
+      "quote": "kind of content",
+      "word_seconds": 0.12,
+      "arrival_seconds": 0.042,
+      "landing_seconds": 0.125,
+      "arrival_offset_ms": -78.3,
+      "landing_offset_ms": 5.1,
+      "peak_deviation": 231.0
+    },
+    {
+      "index": 2,
+      "quote": "answers specific questions",
+      "word_seconds": 7.16,
+      "arrival_seconds": 6.84,
+      "landing_seconds": 7.132,
+      "arrival_offset_ms": -319.8,
+      "landing_offset_ms": -27.9,
+      "peak_deviation": 231.0
+    },
+    {
+      "index": 3,
+      "quote": "your customer comes up to you",
+      "word_seconds": 11.4,
+      "arrival_seconds": 11.094,
+      "landing_seconds": 11.386,
+      "arrival_offset_ms": -305.6,
+      "landing_offset_ms": -13.6,
+      "peak_deviation": 231.0
+    },
+    {
+      "index": 4,
+      "quote": "you make content based on that",
+      "word_seconds": 17.39,
+      "arrival_seconds": 17.1,
+      "landing_seconds": 17.351,
+      "arrival_offset_ms": -289.6,
+      "landing_offset_ms": -39.3,
+      "peak_deviation": 231.0
+    },
+    {
+      "index": 5,
+      "quote": "good for Google but not for AI",
+      "word_seconds": 23.94,
+      "arrival_seconds": 23.649,
+      "landing_seconds": 23.941,
+      "arrival_offset_ms": -291.4,
+      "landing_offset_ms": 0.6,
+      "peak_deviation": 231.0
+    },
+    {
+      "index": 6,
+      "quote": "very interesting niche",
+      "word_seconds": 26.69,
+      "arrival_seconds": 26.401,
+      "landing_seconds": 26.652,
+      "arrival_offset_ms": -288.6,
+      "landing_offset_ms": -38.3,
+      "peak_deviation": 231.0
+    },
+    {
+      "index": 7,
+      "quote": "AI really likes that",
+      "word_seconds": 32.08,
+      "arrival_seconds": 31.782,
+      "landing_seconds": 32.074,
+      "arrival_offset_ms": -298.2,
+      "landing_offset_ms": -6.3,
+      "peak_deviation": 231.0
+    }
+  ]
+}

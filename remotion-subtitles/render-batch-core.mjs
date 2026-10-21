@@ -9,6 +9,7 @@ export async function withBatchRenderer(
     concurrency,
     encoderThreads,
     boundEncoder,
+    timeoutInMilliseconds,
   },
   run,
 ) {
@@ -41,6 +42,7 @@ export async function withBatchRenderer(
       puppeteerInstance: sharedBrowser,
       ...(concurrency ? { concurrency } : {}),
       ...(encoderThreads ? { ffmpegOverride: boundEncoder } : {}),
+      ...(timeoutInMilliseconds ? { timeoutInMilliseconds } : {}),
     });
   };
 

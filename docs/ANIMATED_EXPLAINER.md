@@ -448,3 +448,74 @@ error refuses the segment. **Both directions on real renders, not on fixtures.**
   said in a different order than the reading lists them, the stage is REFUSED
   rather than reordered: reordering would be the engine deciding what the reel
   meant.
+
+## 9. The BEAT route: a picture, not a caption
+
+*Added 2026-10-21, after the captain's verdict on the first full-screen
+explainer over Reel 26: "it was just the subtitles animated into the screen
+but it wasn't even times. there were no pictures or visual elements that
+actually composed an animation".*
+
+Section 4's route builds ONE entry whose copy runs are the stages, so the
+thing that appears IS the caption, in pieces.  That is a caption rail that
+arrives in pieces, and it is not an explainer.
+
+**A BEAT is the other thing: a PICTURE, with the words reduced to a
+supporting label.**  The declaration is `effect.explainer.beats`:
+
+```yaml
+effect:
+  explainer:
+    ground: "#0B1B2B"          # the scene's ground - the project's
+    font_family: Montserrat     # the labels' typeface - the project's
+    label_size: 58              # in delivery-frame pixels
+    hold_seconds: 1.2
+    camera: {zoom: [{at: 0.0, value: 1.0}, {at: 39.7, value: 1.05}]}
+    beats:
+      - quote: "answers specific questions"   # the WORDS it illustrates
+        asset: brand_assets/beat_question.svg  # the PICTURE - a project still
+        box: [90, 380, 990, 1280]              # its ABSOLUTE CANVAS BOX
+        label: "answers a specific question"   # a supporting label, at most
+        label_box: [60, 1330, 1020, 1450]
+        entrance: fade                         # the character of the arrival
+```
+
+Four things are the engine's and four are the project's:
+
+| | the engine | the project |
+|---|---|---|
+| WHAT | the composition - ground, camera, timing, reveals | the picture, its box, its label, its words |
+| WHEN | the word the beat is anchored to, by SEARCH | the quote, and which words it is |
+| HOW | the arrival and the exit, as CHARACTERS | the characters, the lead, the camera |
+| WHAT IT DRAWS | the layer shapes | every colour, size and typeface |
+
+The rules the beat route keeps, because they are the ones that made the
+stage route trustworthy:
+
+- the beat is put in time by a SEARCH over the reel's own WORD stream,
+  never by a number the declaration states (AGENTS.md 6);
+- the picture COMPLETES on the word, it does not begin there - the
+  measured rule of `docs/ANIMATION_FIRST_REFERENCE.md` §1, where the
+  reference's illustrations arrive 67-839 ms BEFORE the noun they
+  illustrate;
+- the OFFSET between the picture and the word is MEASURED off the
+  rendered file, per beat, and reported - not asserted by the plan;
+- one picture leaves as the next arrives, by a CUT, because that is what
+  the reference does ("no dissolve, no wipe, no whip, no zoom-transition,
+  no flash. Two hard cuts and one focus pull", §2).
+
+The refusals are the stage route's three - `ungrounded`, `out_of_order`,
+`off_the_end` - plus two of its own: `no_picture` (a beat with no asset
+draws no picture, and a beat IS a picture) and `asset_not_found` (a
+picture that is not on disk is a hole in the frame).
+
+**Where it is drawn.** `library/tools/explainer_render.py`, through the
+SAME composition the animation IR is lowered into (`StagedScene`) and the
+shared batch (`library/tools/remotion_batch.py`).  There is no second
+scene renderer: a scene is a world with a camera and layers, and that
+composition already owns both.
+
+**What it measured.**  Over Reel 26's own audio, seven beats, every
+picture leading its word by 289-320 ms and every picture complete within
+40 ms of it.  The contact sheet and the raw numbers:
+`docs/evidence/explainer_beats.md`.
