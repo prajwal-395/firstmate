@@ -619,6 +619,7 @@ fn schedule_loop(state: Arc<(Mutex<State>, Condvar)>, store: Arc<JobStore>) {
             drop(state);
             continue;
         }
+        reap_dead_grants(&mut state, &store);
         let now = crate::store::now();
         let running: Vec<Pending> = state.running.values().cloned().collect();
         let queued: Vec<Pending> = state.queued.values().cloned().collect();
@@ -765,6 +766,116 @@ fn run_job(
     (state, result, error)
 }
 
+/// Cancel a queued grant whose owner is gone.
+///
+/// A GRANT is a client's own turn: the client asked for it on the
+/// connection that holds it. A client that dies while waiting leaves its
+/// grant queued, and the daemon's own connection thread is still blocked
+/// waiting for that turn - so the grant sits in the queue for the whole
+/// lease timeout (900 s by default) with nobody waiting for it, holding
+/// a place every other lane waits behind (measured 2026-10-21: eight such
+/// grants sat in the queue of a busy machine, two of them past 600 s).
+///
+/// The owner is the process that asked, and the pid is in the owner's
+/// name, so the daemon can CHECK whether it is gone rather than guess.
+///
+/// Only GRANTS are reaped. An executed job's submitter may legitimately
+/// exit after submitting - `ren resolved submit` prints the id and
+/// returns - and that job is still wanted.
+fn reap_dead_grants(state: &mut State, store: &JobStore) {
+    let dead: Vec<String> = state
+        .queued
+        .keys()
+        .filter(|id| match store.get(id) {
+            Some(receipt) => receipt.kind == "lease" && owner_is_gone(&receipt.owner),
+            None => false,
+        })
+        .cloned()
+        .collect();
+    for id in dead {
+        state.queued.remove(&id);
+        state.started.remove(&id);
+        if let Some(job) = store.get(&id) {
+            if let Some(key) = &job.coalesce_key {
+                if state.coalesce.get(key).map(|held| *held == id).unwrap_or(false) {
+                    state.coalesce.remove(key);
+                }
+            }
+        }
+        store
+            .update(
+                &id,
+                &[
+                    ("state", json!("cancelled")),
+                    ("finished", json!(crate::store::now())),
+                    ("error", json!("the owner of this grant is gone")),
+                ],
+            )
+            .ok();
+    }
+}
+
+/// Whether the owner names a process that is gone.
+///
+/// A name that is not a pid at all (a lane's task name on its own)
+/// yields None, and the job is left alone: absence is not death.
+fn owner_is_gone(owner: &str) -> bool {
+    match owner_pid(owner) {
+        Some(pid) => !process_alive(pid),
+        None => false,
+    }
+}
+
+/// The pid the owner names, or None where it names none.
+///
+/// A process is `pid-1234`; a lane that names itself carries the pid
+/// beside its name (`lane-3 (pid-1234)`).
+fn owner_pid(owner: &str) -> Option<i32> {
+    let chars: Vec<char> = owner.chars().collect();
+    let mut index = 0;
+    while index + 3 <= chars.len() {
+        if chars[index] == 'p' && chars[index + 1] == 'i' && chars[index + 2] == 'd' {
+            let mut cursor = index + 3;
+            if cursor < chars.len()
+                && (chars[cursor] == '-' || chars[cursor] == '=' || chars[cursor] == ' ')
+            {
+                cursor += 1;
+            }
+            let start = cursor;
+            while cursor < chars.len() && chars[cursor].is_ascii_digit() {
+                cursor += 1;
+            }
+            if cursor > start {
+                let digits: String = chars[start..cursor].iter().collect();
+                if let Ok(pid) = digits.parse::<i32>() {
+                    if pid > 0 {
+                        return Some(pid);
+                    }
+                }
+            }
+            index = cursor;
+        } else {
+            index += 1;
+        }
+    }
+    None
+}
+
+/// Whether the process is still there.
+///
+/// A pid this daemon cannot signal belongs to somebody else and is
+/// alive; a pid nobody answers for is gone.
+fn process_alive(pid: i32) -> bool {
+    if pid <= 0 {
+        return false;
+    }
+    // SAFETY: kill(pid, 0) only checks for the process's existence.
+    if unsafe { libc::kill(pid, 0) } == 0 {
+        return true;
+    }
+    std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
 fn uuid() -> String {
     let mut bytes = [0u8; 8];
     if let Ok(mut file) = std::fs::File::open("/dev/urandom") {
@@ -907,6 +1018,195 @@ fn sha256(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// A pid that cannot exist: the default pid ceiling on the machines
+    /// this runs on is well below it, so `kill` answers "no such
+    /// process" every time.
+    const DEAD_PID: i32 = 4_194_303;
+
+    fn scratch_dir(tag: &str) -> std::path::PathBuf {
+        let scratch = std::env::temp_dir().join(format!(
+            "ren-resolved-{tag}-{}-{}",
+            std::process::id(),
+            crate::store::now().to_bits()
+        ));
+        std::fs::create_dir_all(&scratch).unwrap();
+        scratch
+    }
+
+    fn queued_grant(store: &JobStore, id: &str, owner: &str) {
+        store
+            .insert(&JobRecord {
+                id: id.to_string(),
+                kind: "lease".to_string(),
+                priority: "mutation".to_string(),
+                mode: "exclusive".to_string(),
+                executed: false,
+                params: json!({}),
+                project: String::new(),
+                timeline: String::new(),
+                qualification: false,
+                coalesce_key: None,
+                interrupt_policy: String::new(),
+                owner: owner.to_string(),
+                description: "abandoned".to_string(),
+                progress: String::new(),
+                state: "queued".to_string(),
+                subscribers: 1,
+                submitted: crate::store::now(),
+            })
+            .unwrap();
+    }
+
+    /// The defect, measured 2026-10-21: a client that dies while
+    /// waiting for its turn leaves its grant queued, and the daemon's
+    /// own connection thread stays blocked on that turn for the whole
+    /// lease timeout (900 s). The grant holds a place every other lane
+    /// waits behind, and nobody is waiting for it.
+    #[test]
+    fn a_queued_grant_whose_owner_is_gone_is_reaped() {
+        let scratch = scratch_dir("reap");
+        let db = scratch.join("jobs.sqlite3");
+        let store = Arc::new(JobStore::open(&db).unwrap());
+        queued_grant(&store, "abandoned", &format!("pid-{DEAD_PID}"));
+        let broker = Broker::new(Arc::clone(&store));
+        {
+            let (lock, _) = &*broker.state;
+            let mut state = lock.lock().unwrap();
+            state.queued.insert(
+                "abandoned".to_string(),
+                Pending {
+                    id: "abandoned".to_string(),
+                    priority: "mutation".to_string(),
+                    mode: "exclusive".to_string(),
+                    submitted: crate::store::now(),
+                    project: String::new(),
+                    timeline: String::new(),
+                    executed: false,
+                    qualification: false,
+                    locality: "none".to_string(),
+                },
+            );
+            reap_dead_grants(&mut state, &store);
+            assert!(
+                !state.queued.contains_key("abandoned"),
+                "the dead owner's grant stayed in the queue"
+            );
+        }
+        let receipt = store.get("abandoned").unwrap();
+        assert_eq!(receipt.state, "cancelled");
+        assert!(
+            receipt.error.contains("owner"),
+            "the reason did not name the owner: {}",
+            receipt.error
+        );
+        drop(broker);
+        drop(store);
+        std::fs::remove_dir_all(scratch).ok();
+    }
+
+    /// A live lane's grant is nobody's to cancel.
+    #[test]
+    fn a_queued_grant_whose_owner_is_alive_is_kept() {
+        let scratch = scratch_dir("reap-live");
+        let db = scratch.join("jobs.sqlite3");
+        let store = Arc::new(JobStore::open(&db).unwrap());
+        let owner = format!("pid-{}", std::process::id());
+        queued_grant(&store, "live", &owner);
+        let broker = Broker::new(Arc::clone(&store));
+        {
+            let (lock, _) = &*broker.state;
+            let mut state = lock.lock().unwrap();
+            state.queued.insert(
+                "live".to_string(),
+                Pending {
+                    id: "live".to_string(),
+                    priority: "mutation".to_string(),
+                    mode: "exclusive".to_string(),
+                    submitted: crate::store::now(),
+                    project: String::new(),
+                    timeline: String::new(),
+                    executed: false,
+                    qualification: false,
+                    locality: "none".to_string(),
+                },
+            );
+            reap_dead_grants(&mut state, &store);
+            assert!(state.queued.contains_key("live"));
+        }
+        assert_eq!(store.get("live").unwrap().state, "queued");
+        drop(broker);
+        drop(store);
+        std::fs::remove_dir_all(scratch).ok();
+    }
+
+    /// An executed job's submitter may legitimately exit after
+    /// submitting - `ren resolved submit` prints the id and returns -
+    /// so a dead owner never reaps one.
+    #[test]
+    fn an_executed_job_is_never_reaped_on_a_dead_owner() {
+        let scratch = scratch_dir("reap-executed");
+        let db = scratch.join("jobs.sqlite3");
+        let store = Arc::new(JobStore::open(&db).unwrap());
+        store
+            .insert(&JobRecord {
+                id: "executed".to_string(),
+                kind: "resolve_axi".to_string(),
+                priority: "mutation".to_string(),
+                mode: "exclusive".to_string(),
+                executed: true,
+                params: json!({}),
+                project: String::new(),
+                timeline: String::new(),
+                qualification: false,
+                coalesce_key: None,
+                interrupt_policy: String::new(),
+                owner: format!("pid-{DEAD_PID}"),
+                description: "submitted".to_string(),
+                progress: String::new(),
+                state: "queued".to_string(),
+                subscribers: 1,
+                submitted: crate::store::now(),
+            })
+            .unwrap();
+        let broker = Broker::new(Arc::clone(&store));
+        {
+            let (lock, _) = &*broker.state;
+            let mut state = lock.lock().unwrap();
+            state.queued.insert(
+                "executed".to_string(),
+                Pending {
+                    id: "executed".to_string(),
+                    priority: "mutation".to_string(),
+                    mode: "exclusive".to_string(),
+                    submitted: crate::store::now(),
+                    project: String::new(),
+                    timeline: String::new(),
+                    executed: true,
+                    qualification: false,
+                    locality: "none".to_string(),
+                },
+            );
+            reap_dead_grants(&mut state, &store);
+            assert!(state.queued.contains_key("executed"));
+        }
+        assert_eq!(store.get("executed").unwrap().state, "queued");
+        drop(broker);
+        drop(store);
+        std::fs::remove_dir_all(scratch).ok();
+    }
+
+    /// The pid is the only part of an owner a broker can CHECK.
+    #[test]
+    fn the_owner_s_pid_is_read_out_of_its_name() {
+        assert_eq!(owner_pid("pid-1234"), Some(1234));
+        assert_eq!(owner_pid("lane-3 (pid-1234)"), Some(1234));
+        assert_eq!(owner_pid("axi001"), None);
+        assert_eq!(owner_pid(""), None);
+        assert!(owner_is_gone(&format!("pid-{DEAD_PID}")));
+        assert!(!owner_is_gone(&format!("pid-{}", std::process::id())));
+        assert!(!owner_is_gone("axi001"));
+    }
 
     #[test]
     fn running_stop_uses_the_persisted_runner_policy() {

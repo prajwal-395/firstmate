@@ -15,6 +15,10 @@ Unix-socket daemon that owns the QUEUE in front of that engine:
   not repeated, and its receipt counts who joined (`jobs.coalesce_key`).
 * A RECEIPT per job - who asked, what, how long it waited, how long it
   held Resolve, what it returned or why it was refused (`store.py`).
+* A LEGIBLE queue - every waiting job's position, how long it has
+  waited, and WHAT it is waiting for: the job holding Resolve, or the
+  fact that nothing holds it (`queue_status.py`). A wait explained is
+  a wait a lane can act on.
 * QUALIFICATION is fenced: a job marked as a test may only target the
   dedicated `jobs.QUALIFICATION_PROJECT`, and the broker checks the OPEN
   project before it runs one (`jobs.refuse_qualification`).
@@ -50,6 +54,9 @@ exclusive section, through `resolve_lock.cursor_fence`.
     ren resolved serve            # foreground daemon
     ren resolved ensure           # start it detached if none serves
     ren resolved status|list|stop
+    ren resolved list --text      # the queue: every waiting job's
+                                       # position, how long it has waited
+                                       # and what it is waiting for
     ren resolved kpi [--hours N | --since EPOCH] [--until EPOCH]
                                        # what Resolve cost (`kpi.py`)
     ren resolved submit <kind> '<json params>' [--wait SECONDS]

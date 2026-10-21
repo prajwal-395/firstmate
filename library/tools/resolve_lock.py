@@ -351,17 +351,25 @@ class Lease:
 
 
 def default_owner() -> str:
-    """A name a waiter can act on.
+    """A name a waiter can act on, and the process to look for.
 
     `FIRSTMATE_TASK` is the lane name when a crewmate is driving, which
     is the case a waiter most needs to read back; otherwise the process
     name and pid, which at least says it is not the captain.
+
+    The pid is ALWAYS in the name, beside the lane's own: the broker
+    reaps a grant whose owner is gone, and it can only tell that from
+    the pid. A lane name alone left the broker unable to tell a live
+    holder from a dead one, so an abandoned grant sat in the queue for
+    the whole lease timeout (measured 2026-10-21: eight such grants
+    waited out a 900 s timeout on a busy machine).
     """
+    pid = os.getpid()
     for variable in ("FIRSTMATE_TASK", "PIPELINE_RUN_OWNER"):
         value = os.environ.get(variable)
         if value:
-            return value
-    return f"pid-{os.getpid()}"
+            return f"{value} (pid-{pid})"
+    return f"pid-{pid}"
 
 
 # ── The captain's signal ────────────────────────────────────────────
@@ -944,6 +952,7 @@ def resolve_lease(purpose: str, exclusive: bool = True,
     qualification project and is the one open.
     """
     global _cursor_switches, _last_set_id
+    from library.tools import resolve_session
     _edit_fields, locality = perf_ledger.resolve_lease_context(edit_ids, timeline, project)
     if capability:
         from library.tools import capabilities
@@ -1045,6 +1054,24 @@ def resolve_lease(purpose: str, exclusive: bool = True,
                 wait_seconds = max(0.0, time.time() - acquire_start)
                 if not waited_on and _entry_captain is not None:
                     waited_on = _entry_captain.describe()
+                # A session that names a project verifies it BY EXACT
+                # NAME before this section runs: the session holds the
+                # broker's turn, so no other lane can move the cursor to
+                # its own project - but the project the session opened
+                # is the one every write inside it belongs in, and a
+                # project that is not it is refused by name rather than
+                # written into (measured 2026-10-21: four lanes failed
+                # on a project another lane had left open).
+                session = resolve_session.current_session()
+                if session is not None:
+                    if session.opened_project:
+                        resolve_session.verify_project(session)
+                    elif project:
+                        # The session is about the project the first
+                        # section inside it names: it opens that project
+                        # and reads it back by exact name, and every
+                        # section after this one verifies the name.
+                        resolve_session.adopt_project(session, project)
                 lease = Lease(owner=owner or default_owner(), purpose=purpose,
                               pid=os.getpid(), host=socket.gethostname(),
                               since=time.time(),

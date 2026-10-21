@@ -380,6 +380,7 @@ class Broker:
                 if resolve_lock.read_handoff_fence() is not None:
                     self._cond.wait(0.5)
                     continue
+                self._reap_dead_grants()
                 job = scheduler.next_job(self._queued.values(),
                                          self._running.values(),
                                          self._cursor, time.time())
@@ -404,6 +405,45 @@ class Broker:
                 else:
                     self._started[job.id].set()
                 self._cond.notify_all()
+
+    def _reap_dead_grants(self) -> None:
+        """Cancel a queued grant whose owner is gone.
+
+        A GRANT is a client's own turn: the client asked for it on the
+        connection that holds it. A client that dies while waiting
+        leaves its grant queued, and the broker's own connection thread
+        is still blocked waiting for that turn - so the grant sits in
+        the queue for the whole lease timeout (900 s by default) with
+        nobody waiting for it, holding a place every other lane waits
+        behind (measured 2026-10-21: eight such grants sat in the
+        queue of a busy machine, two of them past 600 s).
+
+        The owner is the process that asked, and the pid is in the
+        owner's name (`library/tools/resolved/job_owner`), so the broker
+        can CHECK whether it is gone rather than guess.
+
+        Only GRANTS are reaped. An executed job's submitter may
+        legitimately exit after submitting - `ren resolved submit` prints
+        the id and returns - and that job is still wanted.
+        """
+        from library.tools.resolved.job_owner import owner_alive
+
+        dead = []
+        for job_id, job in self._queued.items():
+            receipt = self.store.get(job_id)
+            if receipt is None or receipt["kind"] != "lease":
+                continue
+            if owner_alive(receipt["owner"]) is False:
+                dead.append(job_id)
+        for job_id in dead:
+            self._queued.pop(job_id, None)
+            self._started.pop(job_id, None)
+            self._forget(job_id)
+            self.store.update(
+                job_id, state="cancelled", finished=time.time(),
+                error="the owner of this grant is gone")
+        if dead:
+            self._cond.notify_all()
 
     def _execute_loop(self) -> None:
         from library.tools.resolved import client
@@ -778,11 +818,22 @@ def serve(path: Path | None = None, connect=None) -> None:
                 # A read of Resolve, so under a shared instance lease like the
                 # watchdog's probe: without one the handshake is refused, and a
                 # handle another job opened would be read outside any lease.
+                # The read itself is BOUNDED: a shared lease blocks every
+                # exclusive job, so a Resolve that stopped answering would
+                # hold the one Resolve against every writer until it was
+                # given up (measured 2026-10-21: a watcher lease held it for
+                # 6982 s).
                 try:
                     with resolve_lease("shadow watcher: open project",
                                        exclusive=False, honor_captain=False,
                                        timeout=10.0):
-                        return broker_jobs.open_project_name(broker._resolve_handle())
+                        from library.tools.resolve_deadline import deadline_proxy
+                        handle = broker._resolve_handle()
+                        if handle is None:
+                            return None
+                        return broker_jobs.open_project_name(deadline_proxy(
+                            handle, label="shadow watcher: open project",
+                            timeout_s=5.0))
                 except Exception:  # noqa: BLE001 - watcher fails closed to unknown
                     return None
 

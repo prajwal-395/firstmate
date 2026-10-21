@@ -575,6 +575,10 @@ def submit(kind: str, params: dict, owner: str = "",
            idempotency_key: str | None = None) -> dict:
     """Queue one broker job.
 
+    The owner is the CALLER, so a waiter can see who is ahead of it and
+    a job whose submitter is gone can be told apart from a job nobody
+    wants. A caller that names its own owner keeps it.
+
     REFUSED inside a Resolve session (`library.tools.resolve_session`):
     the session holds the broker's turn for its whole operation, so the
     job would queue behind the very session that is waiting for it -
@@ -582,10 +586,21 @@ def submit(kind: str, params: dict, owner: str = "",
     session, so the caller can say what it would have to give up.
     """
     request = {"op": "submit", "kind": kind, "params": params,
-               "owner": owner, "qualification": qualification}
+               "owner": owner or _caller_owner(), "qualification": qualification}
     if idempotency_key is not None:
         request["idempotency_key"] = idempotency_key
     return call(request, path)
+
+
+def _caller_owner() -> str:
+    """The calling process's name, with its pid.
+
+    `resolve_lock.default_owner` names the lane when a crewmate is
+    driving and the pid either way - the broker reads the pid to tell
+    a live owner from a dead one.
+    """
+    from library.tools.resolve_lock import default_owner
+    return default_owner()
 
 
 def report_progress(job_id: str, progress: str, path=None) -> dict:

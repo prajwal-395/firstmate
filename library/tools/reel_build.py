@@ -15415,7 +15415,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # any in-progress placement rather than contended inside it. The
     # section is milliseconds long: the recovery reads a journal
     # directory and the cleanup enumerates one project.
-    with resolve_lease("build reels open project", exclusive=True):
+    with resolve_lease("build reels open project", exclusive=True,
+                       project=resolve_name):
         resolve = _connect_resolve()
         project = _open_project(resolve, resolve_name)
         project_default_resolution = None

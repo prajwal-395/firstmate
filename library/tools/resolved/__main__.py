@@ -8,7 +8,12 @@ import os
 import sys
 import time
 
-from library.tools.resolved import client
+from library.tools.resolved import client, queue_status
+
+#: How many recent jobs the queue report reads. The queued jobs are the
+#: ones still waiting, so they must all be inside the window - a short
+#: one would leave the queue looking empty while jobs sit in it.
+QUEUE_LOOKBACK = 500
 
 
 def main(argv=None) -> int:
@@ -33,6 +38,10 @@ def main(argv=None) -> int:
     verbs.add_parser("status", help="is a broker serving, and what lease it holds")
     listing = verbs.add_parser("list", help="recent jobs and their receipts")
     listing.add_argument("--limit", type=int, default=20)
+    listing.add_argument(
+        "--text", action="store_true",
+        help="print the queue as text: every waiting job's position, how "
+             "long it has waited and what it is waiting for")
     verbs.add_parser("stop", help="ask the serving broker to exit")
     verbs.add_parser("return-to-ren",
                      help="clear the human Resolve handoff fence")
@@ -75,16 +84,31 @@ def main(argv=None) -> int:
         return kpi_report.main(args.hours, args.json, args.since, args.until)
     if args.verb == "status":
         answer = client.ping()
-        print(json.dumps(_status(answer)))
+        payload = _status(answer)
+        if answer is not None:
+            payload["queue"] = _queue_report()
+        print(json.dumps(payload))
         return 0 if answer is not None else 1
+    if args.verb == "list" and args.text:
+        report = _queue_report()
+        if not report.get("available", True):
+            print(f"ren resolved: the queue could not be read: "
+                  f"{report.get('error', 'unknown')}", file=sys.stderr)
+            return 1
+        print(queue_status.render(report))
+        return 0
     if args.verb == "ensure":
         answer = client.ensure()
         print(json.dumps(_status(answer)))
         return 0 if answer is not None else 1
     try:
         if args.verb == "list":
-            print(json.dumps(client.call({"op": "list",
-                                           "limit": args.limit}), indent=2))
+            reply = client.call({"op": "list", "limit": args.limit})
+            reply["queue"] = queue_status.queue_report(
+                {"jobs": reply.get("jobs") or [],
+                 "running": reply.get("running") or []},
+                lease=_active_lease())
+            print(json.dumps(reply, indent=2))
         elif args.verb == "stop":
             # The production broker is one instance serving every lane:
             # a linked worktree must never stop it (a broker started
@@ -135,6 +159,45 @@ def main(argv=None) -> int:
         print(f"ren resolved: {exc}", file=sys.stderr)
         return 1
     return 0
+
+
+def _active_lease() -> dict | None:
+    """The instance lease's holder, or None where nothing holds it.
+
+    Read by the FLOCK, not by the record: a record with no flock behind
+    it names a holder that is gone.
+    """
+    from dataclasses import asdict
+
+    from library.tools.resolve_lock import lease_status
+
+    lease = lease_status()
+    return asdict(lease.active) if lease.active is not None else None
+
+
+def _queue_report() -> dict:
+    """The broker's queue: positions, wait causes, blocked resources.
+
+    Read from the broker's own `list` reply, over a window wide enough
+    to hold every job still waiting - a queued job that fell outside it
+    would make the queue look emptier than it is.
+
+    A broker that cannot be asked is reported, never raised: the queue
+    is extra information about a broker that IS serving, and a status
+    that failed to print it would fail to print the status.
+    """
+    from library.tools.resolved import queue_status
+    try:
+        reply = client.call({"op": "list", "limit": QUEUE_LOOKBACK},
+                             timeout=5.0)
+    except (ConnectionError, client.BrokerError, OSError) as exc:
+        return {"available": False, "error": str(exc)}
+    report = queue_status.queue_report(
+        {"jobs": reply.get("jobs") or [],
+         "running": reply.get("running") or []},
+        lease=_active_lease())
+    report["available"] = True
+    return report
 
 
 def _status(answer: dict | None) -> dict:

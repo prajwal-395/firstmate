@@ -66,6 +66,39 @@ from dataclasses import dataclass, replace
 from typing import Iterator, List, Optional
 
 from library.tools import resolve_lock
+from library.tools.ren_refusal import RenRefusal
+
+
+class SessionProjectRefused(RenRefusal):
+    """The project a session is for is not the one Resolve has open.
+
+    A session holds the broker's turn, so no other lane can be granted
+    a turn while it runs - and no other lane can move the cursor to its
+    own project. What the session finds instead is a project left open
+    by whoever ran before it: the session writes into a project it never
+    opened, and the edit lands in the wrong place (measured 2026-10-21:
+    four lanes failed on exactly this - a scratch project another lane
+    had left open).
+
+    So a session that names a project OPENS it, reads it back by exact
+    name, and refuses by name if the open project is ever something
+    else.
+    """
+
+    CODE = "REN_SESSION_PROJECT_MISMATCH"
+    RECOVERY_CLASS = "needs_question"
+    ASK_REASON = "insufficient_evidence"
+    USER_MESSAGE = ("Resolve has a different project open than the one "
+                    "this work is for, so I changed nothing. Open the "
+                    "right project and run the step again.")
+
+    def __init__(self, what: str, why: str = "", fix: str = ""):
+        super().__init__(
+            what,
+            why or ("the open project is not the one this session is "
+                   "for, so a write here would land in the wrong place"),
+            fix or (f"open the project by hand and run the command again; "
+                    f"the session refuses to write into {what}"))
 
 
 @dataclass(frozen=True)
@@ -81,6 +114,12 @@ class Session:
     claimed: bool = False
     claim_job_id: str = ""
     joined: bool = False
+    opened_project: str = ""
+    """The project this session OPENED and verified, by exact name.
+
+    Empty where the session names no project: a session with no target
+    keeps whatever project is open, and says nothing about it.
+    """
 
     def held_for(self) -> float:
         return max(0.0, time.time() - self.started_at)
@@ -106,8 +145,16 @@ class Session:
             "claimed": self.claimed,
             "claim_job_id": self.claim_job_id,
             "joined": self.joined,
+            "opened_project": self.opened_project,
             "held_seconds": round(self.held_for(), 3),
         }
+
+
+#: The Resolve handle each session opened its project with, by session
+#: id. Nothing is kept there on purpose: a handle taken at the start
+#: goes stale the moment the cursor moves, and a stale handle is how a
+#: write lands in a project nobody can name.
+_SESSION_RESOLVE: dict = {}
 
 
 #: The sessions live in THIS process. The claim is the process's, so
@@ -253,6 +300,128 @@ def _claim(session: Session, *, description: str, timeout: float,
             "same command") from gone
 
 
+def _session_handle(session: Session):
+    """The Resolve handle this session opened its project with."""
+    handle = _SESSION_RESOLVE.get(session.id)
+    if handle is None:
+        from library.tools.marker_feedback import connect_resolve
+        handle = connect_resolve()
+        _SESSION_RESOLVE[session.id] = handle
+    return handle
+
+
+def _open_project_name(resolve) -> str:
+    """The name of the project Resolve has OPEN, or "" where it cannot say."""
+    try:
+        manager = resolve.GetProjectManager()
+    except Exception:  # noqa: BLE001 - a dead handle answers nothing
+        return ""
+    if manager is None:
+        return ""
+    try:
+        current = manager.GetCurrentProject()
+    except Exception:  # noqa: BLE001 - a stale handle answers nothing
+        return ""
+    if not current:
+        return ""
+    try:
+        return current.GetName() or ""
+    except Exception:  # noqa: BLE001 - a stale handle answers nothing
+        return ""
+
+
+def open_project(session: Session, timeout: float) -> Session:
+    """Open the project the session is for, and read it back by exact name.
+
+    A session holds the broker's turn, so no other lane can be granted a
+    turn while it runs - and no other lane can move the cursor to its
+    own project. What the session finds instead is whatever project the
+    last lane left open, and a write inside it lands in the wrong place
+    (measured 2026-10-21: four lanes failed on exactly this).
+
+    So the session opens ITS project, under its own exclusive lease, and
+    reads the open project back by exact name. A project that is already
+    open is not loaded again (`switch_project` counts the switch it
+    avoided), so this costs nothing when the session's project is
+    already there.
+
+    A session that names no project opens nothing and verifies nothing:
+    it is not about a project, and it says so.
+    """
+    name = (session.project or "").strip()
+    if not name:
+        return session
+    from library.tools.marker_feedback import connect_resolve
+    from library.tools.qualification_project import switch_project
+    from library.tools.resolve_switch_guard import wait_for_settle
+
+    with resolve_lock.resolve_lease(f"resolve session: open {name!r}",
+                                    exclusive=True, timeout=timeout):
+        wait_for_settle()
+        resolve = connect_resolve()
+        manager = resolve.GetProjectManager()
+        if manager is None:
+            raise SessionProjectRefused(
+                f"{name!r} (Resolve's project manager is not available)")
+        switch_project(manager, name)
+        found = _open_project_name(resolve)
+        if found != name:
+            raise SessionProjectRefused(
+                f"{name!r} (Resolve has {found or 'no project'!r})")
+    return replace(session, opened_project=name)
+
+
+def adopt_project(session: Session, name: str) -> Session:
+    """The session's project, learned from a section that names one.
+
+    The session is about a project the moment a section inside it names
+    one: that IS the project the session is for. So the session opens
+    it, reads it back by exact name, and refuses by name if it is not
+    there - and every later section inside it verifies the name before
+    it writes.
+
+    A session that already opened a project keeps it: the first section
+    that named one is the session's project, and a later section that
+    names another one is that section's business, not the session's.
+    """
+    name = (name or "").strip()
+    if not name or session.opened_project:
+        return session
+    opened = open_project(replace(session, project=name),
+                          timeout=resolve_lock.default_timeout())
+    _register(opened)
+    stack = _stack()
+    if stack and stack[-1].id == session.id:
+        stack[-1] = opened
+    return opened
+
+
+def verify_project(session: Session) -> str:
+    """The open project must still be the session's project, by exact name.
+
+    Called before every write inside a session: a session that names a
+    project refuses by name if the open project is anything else, rather
+    than writing into it.
+
+    The read is FRESH - a handle taken at the session's start goes stale
+    the moment the cursor moves (measured 2026-10-21: "Resolve returned
+    no timeline count"), and a stale handle answers nothing, which is
+    not evidence of a change but is exactly the state a write must not
+    happen in. So the name is read through a new handle, and a project
+    that cannot be named at all refuses too.
+    """
+    expected = (session.opened_project or "").strip()
+    if not expected:
+        return ""
+    from library.tools.marker_feedback import connect_resolve
+
+    found = _open_project_name(connect_resolve())
+    if found != expected:
+        raise SessionProjectRefused(
+            f"{expected!r} (Resolve has {found or 'no project'!r})")
+    return found
+
+
 @contextmanager
 def resolve_session(purpose: str, *, project: str = "", timeline: str = "",
                     description: str = "", owner: str = "",
@@ -264,6 +433,11 @@ def resolve_session(purpose: str, *, project: str = "", timeline: str = "",
     build"), so a lane waiting on the session can see what it is
     waiting for. `project` and `timeline` name what the session is
     about, which is what the broker's locality ordering reads.
+
+    A session that names a project OPENS it when the session starts and
+    reads it back by exact name (`open_project`), and every write inside
+    it verifies the open project by exact name (`verify_project`). A
+    session that names no project does neither.
 
     The session is released at the end of the block, and a client that
     dies inside it releases the claim by closing its socket.
@@ -294,13 +468,24 @@ def resolve_session(purpose: str, *, project: str = "", timeline: str = "",
                 qualification_project=qualification_project) as job_id:
         claimed = replace(session, claimed=job_id is not None,
                           claim_job_id=job_id or "")
+        # The session is REGISTERED before its project is opened: the
+        # open takes a lease, and a lease inside a session is served by
+        # the session's own claim - asking for a second turn would wait
+        # for the turn that is waiting for it.
         _register(claimed)
         stack.append(claimed)
+        opened = claimed
         try:
-            yield claimed
+            opened = open_project(claimed, wait)
+            if opened is not claimed:
+                _unregister(claimed)
+                _register(opened)
+                stack[-1] = opened
+            yield opened
         finally:
             stack.pop()
-            _unregister(claimed)
+            _unregister(opened)
+            _SESSION_RESOLVE.pop(opened.id, None)
 
 
 def session_scope(purpose: str, *, description: str = "",
