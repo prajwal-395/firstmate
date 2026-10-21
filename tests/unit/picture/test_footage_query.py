@@ -1307,9 +1307,10 @@ def test_adjacent_hits_merge_and_distant_ones_do_not(frame_index):
     ranges = report["ranges"]
     assert [(r["clip_id"], r["start"], r["end"]) for r in ranges] == [
         ("clip_001", 0.0, 20.0),
-        ("clip_001", 100.0, 100.0),
         ("other_002", 5.0, 5.0),
-    ], "adjacent pool hits merge per clip; anything else stays split"
+    ], ("adjacent pool hits merge per clip; anything else stays split, and "
+        "a clip contributes ONE range, so clip_001's second sighting at "
+        "t=100 does not take a second slot")
     head = ranges[0]
     assert head["n_frames"] == 3
     assert head["timecode"] == "00:00.000-00:20.000"
@@ -1322,8 +1323,10 @@ def test_adjacent_hits_merge_and_distant_ones_do_not(frame_index):
                                        merge_gap_s=5.0)
     clips = [(r["clip_id"], r["start"], r["end"]) for r in report["ranges"]]
     assert ("clip_001", 0.0, 0.0) in clips
-    assert ("clip_001", 10.0, 10.0) in clips, (
-        "a 10 s gap with a 5 s merger must not merge")
+    assert ("other_002", 5.0, 5.0) in clips
+    assert not [c for c in clips if c[0] == "clip_001" and c[1] == 10.0], (
+        "a 10 s gap with a 5 s merger must not merge, and the second range "
+        "of a clip that already has one does not take a slot")
 
 
 # ─── Honesty: ranked, unverified, never absence ─────────────────────
@@ -1355,6 +1358,232 @@ def test_hits_are_ranked_unverified_and_never_claim_absence(
     assert report["refused"] is None
     assert len(report["results"]) == 3, (
         "all-zero scores still return top-k: ranking is the answer")
+
+
+# ─── The pool, the diversity, and the floor ──────────────────────────
+#
+# Three defects the frame lane carried, each measured on the editorial
+# retrieval corpus (2026-10-20):
+#
+#   * the candidate pool was 40 frames of a 1092-frame index, and the
+#     frames the editor wants sit at a median rank of 396-696 - below
+#     the pool, so the lane could not see them at all;
+#   * the five windows were the five best ranges of WHICHEVER camera
+#     scored well, so one camera could take all five and the other
+#     assets were never shown;
+#   * the lane could not abstain, so an absent picture was handed to the
+#     editor as five wrong windows (10 of the 41 false-positive windows
+#     and 44 % of the false-positive seconds of the merged set).
+
+
+def _hand_written_index(tmp_path, monkeypatch, frames, matrix, vector):
+    """A frame index written by hand: no model, no ffmpeg, no project."""
+    index_dir = tmp_path / "handwritten"
+    index_dir.mkdir()
+    _write(index_dir / footage_frames.FRAME_INDEX_FILE, {
+        "clip_model": "test-stub", "embed_backend": "test-stub",
+        "frames": frames})
+    np.save(index_dir / footage_frames.FRAME_EMBEDDINGS_FILE, matrix)
+    monkeypatch.setattr(FrameIndex, "_encode_text",
+                        lambda self, query: vector)
+    return FrameIndex(tmp_path / "proj", index_dir=index_dir)
+
+
+def _crowded_index(tmp_path, monkeypatch):
+    """One busy camera and one quiet one.
+
+    `clip_a` holds 150 frames that all score 0.9 and sit 60 s apart,
+    so each is its own range; `clip_b` holds the frame the editor
+    wants, at 0.5 - ranked below every one of clip_a's.  The wanted
+    frame is at RANK 151 of 151, so a pool of 40 cannot see it.
+    """
+    frames = []
+    matrix = np.zeros((151, 4), dtype="float32")
+    for i in range(150):
+        frames.append({"clip_id": "clip_a", "filename": "A.MOV",
+                       "t": float(i * 60)})
+        matrix[i, 0] = 0.9
+    frames.append({"clip_id": "clip_b", "filename": "B.MOV", "t": 3000.0})
+    matrix[150, 0] = 0.5
+    index = _hand_written_index(
+        tmp_path, monkeypatch, frames, matrix,
+        np.array([1.0, 0.0, 0.0, 0.0], dtype="float32"))
+    return index
+
+
+def test_the_pool_reaches_a_frame_ranked_below_the_old_forty(
+        tmp_path, monkeypatch):
+    """The wanted frame was in the index and RANKED, not missing - the
+    pool of 40 was what kept it out of the answer."""
+    index = _crowded_index(tmp_path, monkeypatch)
+
+    short_pool = index.search_ranges("the wanted thing", top_ranges=5,
+                                      pool=40)
+    assert "clip_b" not in {r["clip_id"] for r in short_pool["ranges"]}, (
+        "a pool of 40 cannot reach a frame ranked 151st")
+
+    report = index.search_ranges("the wanted thing", top_ranges=5)
+    assert "clip_b" in {r["clip_id"] for r in report["ranges"]}, (
+        "the shipped pool must reach the frames the editor wants")
+    assert report["search_policy"]["candidate_pool_size"] == 200
+
+
+def test_five_windows_do_not_all_come_from_one_camera(tmp_path, monkeypatch):
+    """One camera must not take every slot: the editor is shown the
+    same angle five times and never sees the other assets."""
+    frames = []
+    matrix = np.zeros((11, 4), dtype="float32")
+    for i in range(10):
+        frames.append({"clip_id": "clip_a", "filename": "A.MOV",
+                       "t": float(i * 60)})
+        matrix[i, 0] = 0.9 - i * 0.01
+    frames.append({"clip_id": "clip_b", "filename": "B.MOV", "t": 3000.0})
+    matrix[10, 0] = 0.5
+    index = _hand_written_index(
+        tmp_path, monkeypatch, frames, matrix,
+        np.array([1.0, 0.0, 0.0, 0.0], dtype="float32"))
+
+    report = index.search_ranges("the wanted thing", top_ranges=5)
+    clips = [r["clip_id"] for r in report["ranges"]]
+    assert "clip_b" in clips, (
+        "the quiet camera's best range must reach the answer")
+    assert len(clips) == len(set(clips)), (
+        f"a clip must not take two slots: {clips}")
+
+
+def test_a_query_below_the_floor_abstains_and_names_its_near_miss(
+        tmp_path, monkeypatch):
+    """An absent picture must not be handed over as five wrong windows.
+    The lane abstains below the floor - and an abstain that cannot name
+    its near miss reads as a broken search."""
+    frames = [{"clip_id": "clip_a", "filename": "A.MOV", "t": 0.0},
+              {"clip_id": "clip_a", "filename": "A.MOV", "t": 600.0}]
+    matrix = np.zeros((2, 4), dtype="float32")
+    matrix[0, 0] = 0.12
+    matrix[1, 0] = 0.05
+    index = _hand_written_index(
+        tmp_path, monkeypatch, frames, matrix,
+        np.array([1.0, 0.0, 0.0, 0.0], dtype="float32"))
+
+    report = index.search_ranges("a birthday cake with candles")
+    assert report["abstained"] is True
+    assert report["ranges"] == []
+    assert report["answer_status"] == "abstained"
+    assert report["near_miss"] is not None
+    assert report["near_miss"]["score"] == pytest.approx(0.12)
+    assert "not a claim" in report["notice"], (
+        "an abstain must not claim the subject is absent from the footage")
+
+
+def test_no_floor_ranks_whatever_the_frames_scored(tmp_path, monkeypatch):
+    """`floor=None` turns the floor off: the lane ranks rather than goes
+    silent, which is what a caller without a negative corpus needs."""
+    frames = [{"clip_id": "clip_a", "filename": "A.MOV", "t": 0.0},
+              {"clip_id": "clip_a", "filename": "A.MOV", "t": 600.0}]
+    matrix = np.zeros((2, 4), dtype="float32")
+    matrix[0, 0] = 0.12
+    matrix[1, 0] = 0.05
+    index = _hand_written_index(
+        tmp_path, monkeypatch, frames, matrix,
+        np.array([1.0, 0.0, 0.0, 0.0], dtype="float32"))
+
+    report = index.search_ranges("a birthday cake with candles", floor=None)
+    assert report["abstained"] is False
+    assert len(report["ranges"]) == 1
+    assert report["search_policy"]["query_floor"] is None
+
+
+def test_the_measured_floor_is_the_shipped_default(tmp_path, monkeypatch):
+    """The lane abstains at the MEASURED cutoff, and the cutoff is the
+    one the editorial retrieval corpus measured."""
+    assert footage_frames.MEASURED_QUERY_FLOOR == 0.15
+    frames = [{"clip_id": "clip_a", "filename": "A.MOV", "t": 0.0}]
+    matrix = np.zeros((1, 4), dtype="float32")
+    matrix[0, 0] = 0.1499
+    index = _hand_written_index(
+        tmp_path, monkeypatch, frames, matrix,
+        np.array([1.0, 0.0, 0.0, 0.0], dtype="float32"))
+    report = index.search_ranges("a birthday cake with candles")
+    assert report["abstained"] is True
+    assert report["search_policy"]["query_floor"] == 0.15
+
+
+def test_the_window_floor_drops_a_weak_window_and_keeps_the_query(
+        tmp_path, monkeypatch):
+    frames = [{"clip_id": "clip_a", "filename": "A.MOV", "t": 0.0},
+              {"clip_id": "clip_b", "filename": "B.MOV", "t": 600.0}]
+    matrix = np.zeros((2, 4), dtype="float32")
+    matrix[0, 0] = 0.30
+    matrix[1, 0] = 0.10
+    index = _hand_written_index(
+        tmp_path, monkeypatch, frames, matrix,
+        np.array([1.0, 0.0, 0.0, 0.0], dtype="float32"))
+
+    report = index.search_ranges("a thing", window_floor=0.2)
+    assert [r["clip_id"] for r in report["ranges"]] == ["clip_a"]
+    assert report["abstained"] is False
+
+
+def test_a_chain_of_sightings_is_not_one_moment(tmp_path, monkeypatch):
+    """The merge gap is the tolerance for ONE missed extraction, not a
+    licence to chain sightings across the recording: a run of hits 10 s
+    apart walked the whole clip and became one range of minutes, and a
+    range that claims more time than the evidence carries is charged for
+    it."""
+    frames = [{"clip_id": "clip_a", "filename": "A.MOV", "t": float(t)}
+              for t in (0.0, 10.0, 20.0, 30.0, 40.0, 50.0)]
+    matrix = np.zeros((6, 4), dtype="float32")
+    for i in range(6):
+        matrix[i, 0] = 0.5 - i * 0.01
+    index = _hand_written_index(
+        tmp_path, monkeypatch, frames, matrix,
+        np.array([1.0, 0.0, 0.0, 0.0], dtype="float32"))
+
+    report = index.search_ranges("a thing", top_ranges=5)
+    spans = [(r["start"], r["end"]) for r in report["ranges"]]
+    assert spans == [(0.0, 30.0)], (
+        f"a run may not span more than the merge gap: {spans}")
+
+    # The cap is the caller's to lift.
+    report = index.search_ranges("a thing", top_ranges=5, max_range_s=None)
+    spans = [(r["start"], r["end"]) for r in report["ranges"]]
+    assert spans == [(0.0, 50.0)], (
+        f"with the cap off the run is one range again: {spans}")
+
+
+def test_the_visual_floor_reaches_the_lane_from_the_cli(
+        project_2, tmp_path, monkeypatch, capsys):
+    """`--visual-floor` names the floor and `--no-visual-floor` turns it
+    off: a caller with no negative corpus to measure a cutoff against
+    must be able to ask for the ranking anyway."""
+    root, _digest_1, _digest_2 = project_2
+    index_dir = tmp_path / "vindex"
+    index_dir.mkdir()
+    _write(index_dir / footage_frames.FRAME_INDEX_FILE, {
+        "clip_model": "test-stub", "embed_backend": "test-stub",
+        "frames": [{"clip_id": "clip_001", "filename": "IMG_0001.MOV",
+                    "t": 2.0}]})
+    matrix = np.zeros((1, 4), dtype="float32")
+    matrix[0, 0] = 0.12
+    np.save(index_dir / footage_frames.FRAME_EMBEDDINGS_FILE, matrix)
+    monkeypatch.setattr(
+        FrameIndex, "_encode_text",
+        lambda self, query: np.array([1.0, 0.0, 0.0, 0.0], dtype="float32"))
+
+    assert footage_query.main(
+        ["search", str(root), "a birthday cake", "--visual", "--json",
+         "--index-dir", str(index_dir)]) == 0
+    answer = json.loads(capsys.readouterr().out)
+    assert answer["abstained"] is True, (
+        "the measured floor is the shipped default: a query below it "
+        "abstains instead of returning a wrong window")
+
+    assert footage_query.main(
+        ["search", str(root), "a birthday cake", "--visual", "--json",
+         "--no-visual-floor", "--index-dir", str(index_dir)]) == 0
+    answer = json.loads(capsys.readouterr().out)
+    assert answer["abstained"] is False
+    assert answer["hits"], "with the floor off the lane ranks anyway"
 
 
 # ─── Scope: actions belong to the event pipeline ────────────────────

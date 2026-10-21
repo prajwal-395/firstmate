@@ -556,6 +556,22 @@ def score_editorial(query: dict, report: dict, corpus: Corpus,
     return out
 
 
+def _floor_kwargs(rules: dict, floor_key: str, window_key: str) -> dict:
+    """The floor arguments a set declares, and nothing else.
+
+    A set that declares no floor measures the lane AS IT SHIPS, floor
+    and all: passing `floor=None` would silently turn the lane's own
+    measured cutoff off, and the benchmark would then report a policy
+    nobody runs.
+    """
+    kwargs = {}
+    if floor_key in rules:
+        kwargs["floor"] = rules[floor_key]
+    if window_key in rules:
+        kwargs["window_floor"] = rules[window_key]
+    return kwargs
+
+
 def _editorial_rows(report: dict) -> list:
     """The frame lane's RANGES as the window rows the scorer reads.
 
@@ -673,8 +689,9 @@ def run(project: str, eval_set: dict, families: Sequence[str] = FAMILIES,
             if frame_index is None:
                 from library.tools.analysis.footage_frames import FrameIndex
                 frame_index = FrameIndex(project)
-            report = frame_index.search_ranges(query["query"],
-                                               top_ranges=rules["visual"]["top_k"])
+            report = frame_index.search_ranges(
+                query["query"], top_ranges=rules["visual"]["top_k"],
+                **_floor_kwargs(rules["visual"], "floor", "window_floor"))
             scored = score_visual(query, report, corpus, rules["visual"])
         elif family == "editorial":
             editorial_rules = dict(rules.get("editorial", EDITORIAL_RULES))
@@ -691,7 +708,9 @@ def run(project: str, eval_set: dict, families: Sequence[str] = FAMILIES,
                     frame_index = FrameIndex(project)
                 visual_report = frame_index.search_ranges(
                     query["query"],
-                    top_ranges=editorial_rules["top_k"])
+                    top_ranges=editorial_rules["top_k"],
+                    **_floor_kwargs(editorial_rules, "visual_floor",
+                                    "visual_window_floor"))
                 report = {
                     "results": _editorial_rows(visual_report),
                     "refused": visual_report.get("refused"),

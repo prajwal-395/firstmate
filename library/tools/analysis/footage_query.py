@@ -215,6 +215,14 @@ DENSE_WEAK_FLOOR = 0.28
 # starts there.
 NEIGHBOUR_SEGMENTS = 1
 
+# The frame lane's floor is its OWN score space (CLIP cosine, not the
+# text lane's dense cosine), so it is named separately: `LANE_FLOOR`
+# means "the frame lane's own measured cutoff", `None` turns it off and
+# a number is that floor.  The frame lane's constant lives with the
+# lane (`library.tools.analysis.footage_frames.MEASURED_QUERY_FLOOR`);
+# it is read there, never copied here.
+LANE_FLOOR = "measured"
+
 # ─── Floors per embedding backend ─────────────────────────────────
 #
 # One global floor cannot serve two encoders.  EmbeddingGemma 2 scores
@@ -4271,7 +4279,10 @@ def _print_frame_report(report):
         return
     print(f"NOTICE: {report['notice']}")
     if not report["ranges"]:
-        print("\nNo ranges - the frame index holds nothing to rank.")
+        if report.get("abstained"):
+            print(f"\nAbstained - {report.get('abstention_reason', '')}")
+        else:
+            print("\nNo ranges - the frame index holds nothing to rank.")
         return
     for i, span in enumerate(report["ranges"]):
         print(f"\n{i + 1}. {span['clip_id']} ({span['filename']}) "
@@ -4573,7 +4584,7 @@ def _unified_json_hits(report, sources) -> list:
 
 def _frame_json_hits(report, sources) -> list:
     """Frame-index ranges as stable hits.  The frame lane has no floor
-    and no abstain - it ranks whatever stills it holds, every range
+    BY DEFAULT - it ranks whatever stills it holds, every range
     unverified - so every row is unverified, scored by its best CLIP
     cosine.  A range is picture evidence with no text; `text` is empty
     rather than invented."""
@@ -4616,7 +4627,8 @@ def json_answer(*, query, mode, floor=None, weak_floor=None, abstained=False,
 def search_json(project_folder, query, *, mode="hybrid", top_k=5, floor=None,
                 signal_merge=False, person=None, lane="text",
                 include_actions=False, index_dir=None,
-                external_hits=None, filters=None, quality=False) -> dict:
+                external_hits=None, filters=None, quality=False,
+                visual_floor=LANE_FLOOR) -> dict:
     """One machine-readable answer for every `ren search` lane.
 
     `lane` is `text` (the default index), `sound`, `ocr`, `visual`
@@ -4624,6 +4636,11 @@ def search_json(project_folder, query, *, mode="hybrid", top_k=5, floor=None,
     not here: it already prints its own JSON.  A refused visual query
     (an action the frame signal cannot resolve) raises `RenRefusal`
     the same way the human path does - a refusal is not an answer.
+
+    `visual_floor` is the frame lane's own floor, in the frame lane's
+    own score space (CLIP cosine, not the text lane's dense cosine):
+    `LANE_FLOOR` (the default) means the lane's own measured cutoff,
+    `None` turns the floor off, a number is that floor.
     """
     sources = clip_sources(project_folder)
     if lane == "sound":
@@ -4645,8 +4662,11 @@ def search_json(project_folder, query, *, mode="hybrid", top_k=5, floor=None,
     if lane == "visual":
         from library.tools.analysis import footage_frames
         vidx = footage_frames.FrameIndex(project_folder, index_dir=index_dir)
+        if visual_floor == LANE_FLOOR:
+            visual_floor = footage_frames.MEASURED_QUERY_FLOOR
         report = vidx.search_ranges(query, top_ranges=top_k,
-                                    include_actions=include_actions)
+                                    include_actions=include_actions,
+                                    floor=visual_floor)
         if report["refused"] is not None:
             raise RenRefusal(
                 f"frame search refused {report['query']!r}",
@@ -4918,6 +4938,14 @@ def main(argv=None):
                           help="Rank even an action/gesture query against the frames "
                                "(the frame index refuses those by default: it cannot "
                                "resolve them)")
+    p_search.add_argument("--visual-floor", type=float, default=None,
+                           help="with --visual: the frame lane's own floor, in CLIP "
+                                "cosine (the measured query-level cutoff is 0.15). "
+                                "Below it the lane abstains instead of ranking a "
+                                "candidate it cannot stand behind")
+    p_search.add_argument("--no-visual-floor", action="store_true",
+                           help="with --visual: rank the frame candidates whatever "
+                                "they score, with no abstention floor at all")
     p_search.add_argument("--mode", choices=["hybrid", "dense", "lexical"], default="hybrid")
     p_search.add_argument("--signal-merge", action="store_true",
                           help="opt in to direct shot-facet and precise OCR-span "
@@ -5337,16 +5365,26 @@ def main(argv=None):
 
     if args.command == "search" and args.visual:
         started = time.perf_counter()
+        if args.no_visual_floor:
+            visual_floor = None
+        elif args.visual_floor is not None:
+            visual_floor = args.visual_floor
+        else:
+            visual_floor = LANE_FLOOR
         if args.json:
             answer = search_json(args.project, args.query, top_k=args.top_k,
                                  include_actions=args.include_actions,
-                                 index_dir=args.index_dir, lane="visual")
+                                 index_dir=args.index_dir, lane="visual",
+                                 visual_floor=visual_floor)
             print(json.dumps(answer, indent=2))
             return 0
         from library.tools.analysis import footage_frames
         vidx = footage_frames.FrameIndex(args.project, index_dir=args.index_dir)
+        if visual_floor == LANE_FLOOR:
+            visual_floor = footage_frames.MEASURED_QUERY_FLOOR
         report = vidx.search_ranges(args.query, top_ranges=args.top_k,
-                                    include_actions=args.include_actions)
+                                    include_actions=args.include_actions,
+                                    floor=visual_floor)
         elapsed = time.perf_counter() - started
         if report["refused"] is not None:
             raise RenRefusal(

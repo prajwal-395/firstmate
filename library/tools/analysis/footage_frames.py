@@ -17,10 +17,35 @@ the VLM verifier disposes instead of ranking pixels.
 Ranked candidates only.  The same eval found NO abstention floor that
 separates present from absent (absent max 0.191 inside the present band
 0.197-0.232; an all-miss query topped every query at 0.232), so this index
-never abstains and never claims absence: every answer is top-k with scores,
-every hit is labelled unverified, and the report says absence cannot be
-concluded.  Adding a floor here would repeat the failure the text index's
-floor was built to fix.
+never claims absence: every answer is top-k with scores, every hit is
+labelled unverified, and the report says absence cannot be concluded.
+
+A floor is here, and it is MEASURED rather than guessed.  The 2026-10-20
+editorial retrieval measurement (docs/benchmarks/2026-10-20-editorial-
+retrieval-benchmark.md) found a query-level cutoff that separates present
+from absent picture queries on the corpus it could measure - present min
+0.1652, absent max 0.1447 - and the lane's own window-level calibration
+reads 0.22195 (balanced accuracy 0.9565).  The query floor ships ON at
+`MEASURED_QUERY_FLOOR` because the lane has to abstain SOMEWHERE: without
+it an absent picture is handed to the editor as five wrong windows.  It
+is a narrow gate (0.0152 below the weakest present query on that corpus)
+and its risk is real - a floor that is too high turns a present moment
+into "not found", a silent recall loss - so `floor=None` turns it off,
+and the abstention names its near miss rather than going silent.  The
+window-level floor is measured too, and ships OFF: it prices the wrong
+seconds down but costs recall.  Neither floor ever claims absence - an
+abstain says the signal could not resolve the query, not that the subject
+is not in the footage.
+
+A range is ONE sighting.  The merge gap (30 s) is the tolerance for one
+missed extraction - it says two sightings this close are the same
+sighting - so a run of sightings that spans more than the gap is not
+one sighting, however close its neighbours are.  Without that rule the
+merge chained across the recording and a range claimed minutes of
+footage the evidence never covered (measured 2026-10-21 with the
+corrected retrieval metric: the merged set's false-positive seconds
+went 561.16 -> 1030.13 and the held-out wrong seconds 125.07 -> 204.65
+when the pool and the floor shipped without the cap).
 
 Frames come from the per-source memory's shared I-frame sample (M2,
 `library/tools/source_memory.py`), never from a decode of its own: the
@@ -69,10 +94,51 @@ EMBED_BATCH = 16
 # two genuinely separate sightings stay separate.
 MERGE_GAP_S = 30.0
 
+# The longest run of sightings that is still ONE range.  The merge gap
+# above is a TOLERANCE for one missed extraction - it says two sightings
+# this close are the same sighting - so a run of sightings that spans
+# more than the gap is not one sighting any more, however close its
+# neighbours are.  Without this the chain walked the whole recording: a
+# pool of 200 merged hits 30 s apart into ranges of minutes, and a range
+# that claims more time than the evidence carries is charged for it
+# (measured 2026-10-21 with the corrected retrieval metric: the ranges
+# grew the false-positive seconds of the merged set from 561.16 to
+# 1030.13 and the held-out wrong seconds from 125.07 to 204.65).
+MAX_RANGE_S = MERGE_GAP_S
+
 # How many top frames the range merger reads.  Ranges are for a person to
 # scrub, not for exhaustive recall - forty frames at 10 s spacing cover
-# almost seven minutes of sightings per query.
-SEARCH_POOL = 40
+# almost seven minutes of sightings per query, but they are also 3.7 % of
+# a 1092-frame index, and the frames the editor wants are simply RANKED
+# BELOW them: measured on the editorial retrieval corpus, the wanted
+# frames of a present query sit at a median rank of 396-696 of 1092, so
+# a pool of 40 could not see them at all.  Raising the pool to 200
+# (measured: held-out macro recall 0.1095 -> 0.4316) costs one matmul
+# over 1092x768 - negligible - and the merge is O(pool).
+SEARCH_POOL = 200
+
+# The measured cutoffs.  A query-level floor abstains on the whole query
+# when its best frame scores below it; a window-level floor drops a
+# WINDOW below it.  Both numbers come from the 2026-10-20 editorial
+# retrieval measurement on one corpus: present queries' top-1 scores run
+# 0.1652-0.2724, absent ones 0.1237-0.1447, and the lane's own
+# calibration puts the window-level cutoff at 0.22195 (balanced accuracy
+# 0.9565).
+#
+# The QUERY floor is the one that ships ON, because the lane has to
+# abstain somewhere: without it an absent picture is handed to the
+# editor as five wrong windows (measured: 10 of the 41 false-positive
+# windows and 44 % of the false-positive seconds of the merged set).  It
+# is a narrow gate - the weakest present query on the corpus scores
+# 0.1652, so the floor sits 0.0152 below it - and the risk is stated:
+# a floor that is too high turns a present moment into "not found",
+# which is a silent recall loss.  `floor=None` turns it off.
+#
+# The WINDOW floor ships OFF: measured, it prices the wrong seconds well
+# down (merged 93.01 -> 22.94) but it costs recall (held-out 0.4316 ->
+# 0.3371), because it drops present windows whose best frame scores low.
+MEASURED_QUERY_FLOOR = 0.15
+MEASURED_WINDOW_FLOOR = 0.22195
 
 FRAME_INDEX_FILE = "frame_index.json"
 FRAME_EMBEDDINGS_FILE = "frame_embeddings.npy"
@@ -82,8 +148,17 @@ FRAME_EMBEDDINGS_FILE = "frame_embeddings.npy"
 SCOPE = "objects, people and scenes"
 UNVERIFIED_NOTICE = (
     "Ranked candidates, not verified finds: every hit below is UNVERIFIED, "
-    "and absence cannot be concluded from this list - no abstention floor "
-    "separates present from absent subjects for this signal."
+    "and absence cannot be concluded from this list - a candidate is a "
+    "place to look, not a find."
+)
+# What an answer carries when a floor WAS given and the query fell below
+# it.  It still does not claim absence: it says the lane abstained
+# because nothing in the pool cleared the floor.
+FLOOR_NOTICE = (
+    "Abstained below the floor: nothing in the candidate pool scored high "
+    "enough to stand behind, so no candidate is offered. This is not a "
+    "claim that the subject is absent from the footage - it is a claim "
+    "that this signal could not resolve the query."
 )
 
 # Action and gesture queries, refused rather than ranked.  Each pattern is
@@ -342,9 +417,10 @@ class FrameIndex:
     """Ranked CLIP search over one project's sampled frames.
 
     Every loader is lazy, so constructing this is free and a caller that
-    only wants staleness never pays for the CLIP weights.  There is no
-    floor and no abstain: `search_frames` always returns the top-k with
-    their scores, each labelled unverified.
+    only wants staleness never pays for the CLIP weights.  `search_frames`
+    always returns the top-k with their scores, each labelled unverified;
+    `search_ranges` adds the measured query floor (on by default, off
+    with `floor=None`).
     """
 
     def __init__(self, project_folder, index_dir=None):
@@ -471,13 +547,38 @@ class FrameIndex:
     def search_ranges(self, query: str, top_ranges: int = 5,
                       pool: int = SEARCH_POOL,
                       merge_gap_s: float = MERGE_GAP_S,
-                      include_actions: bool = False) -> dict:
+                      include_actions: bool = False,
+                      floor: float | None = MEASURED_QUERY_FLOOR,
+                      window_floor: float | None = None,
+                      max_range_s: float | None = MAX_RANGE_S) -> dict:
         """Top frame hits merged into time ranges per clip.
 
         The range is the unit a person scrubs: adjacent pool hits on one
         clip within `merge_gap_s` become one `{start, end}` span ranked by
-        its best frame score.  Same no-floor, no-abstain, unverified terms
-        as `search_frames`.
+        its best frame score.  Same unverified terms as `search_frames`.
+
+        A range is ONE sighting: the run of hits that forms it may not
+        span more than `max_range_s` (the merge gap), because the merge
+        gap is the tolerance for ONE missed extraction and not a licence
+        to chain sightings across the recording.  `max_range_s=None`
+        turns the cap off.
+
+        `floor` is the QUERY-level cutoff: when the best frame in the
+        whole pool scores below it, the lane abstains instead of ranking
+        noise - which is what makes an absent picture abstain rather
+        than return five wrong windows.  It defaults to the measured
+        cutoff (`MEASURED_QUERY_FLOOR`); `floor=None` turns it off.
+        `window_floor` is the WINDOW-level cutoff: a window whose best
+        frame scores below it is dropped, and the query keeps the windows
+        that clear it.  It is measured (`MEASURED_WINDOW_FLOOR`) and it
+        ships OFF, because measured it costs recall.
+
+        The returned windows are DIVERSIFIED across clips: at most ONE
+        range per clip, in rank order.  Five windows from one camera
+        starve the other assets - the editor is shown the same angle
+        five times - so the slots are filled with the other cameras'
+        best ranges, and a clip with no range of its own does not appear
+        twice.
         """
         report = self.search_frames(query, top_k=pool,
                                     include_actions=include_actions)
@@ -485,9 +586,28 @@ class FrameIndex:
             "candidate_pool_size": max(0, pool),
             "merge_gap_seconds": float(merge_gap_s),
             "top_interval_limit": max(0, top_ranges),
+            "query_floor": floor,
+            "window_floor": window_floor,
+            "max_range_seconds": max_range_s,
         }
+        report["abstained"] = False
         if report["refused"] is not None or report.get("error"):
             report["ranges"] = []
+            return report
+        best_score = max((hit["score"] for hit in report["results"]),
+                         default=None)
+        if floor is not None and best_score is not None and best_score < floor:
+            report["ranges"] = []
+            report["abstained"] = True
+            report["answer_status"] = "abstained"
+            report["abstention_reason"] = (
+                f"the best frame in the pool scored {best_score:.4f}, below "
+                f"the floor {floor}: the lane abstains rather than rank a "
+                "candidate it cannot stand behind")
+            # An abstain that cannot name its near miss reads as a broken
+            # search: the reviewer needs to see what came closest.
+            report["near_miss"] = report["results"][0] if report["results"] else None
+            report["notice"] = FLOOR_NOTICE
             return report
         by_clip: dict = {}
         for hit in report["results"]:
@@ -499,7 +619,9 @@ class FrameIndex:
             best = hits[0]["score"]
             members = [hits[0]]
             for hit in hits[1:]:
-                if hit["t"] - current_end <= merge_gap_s:
+                if (hit["t"] - current_end <= merge_gap_s
+                        and (max_range_s is None
+                             or hit["t"] - start <= max_range_s)):
                     current_end = hit["t"]
                     members.append(hit)
                     best = max(best, hit["score"])
@@ -511,8 +633,32 @@ class FrameIndex:
             ranges.append(self._range(clip_id, hits[0]["filename"],
                                       start, current_end, best, members))
         ranges.sort(key=lambda r: -r["best_score"])
-        report["ranges"] = ranges[:max(0, top_ranges)]
+        if window_floor is not None:
+            ranges = [r for r in ranges if r["best_score"] >= window_floor]
+        report["ranges"] = self._one_per_clip(ranges, top_ranges)
         return report
+
+    @staticmethod
+    def _one_per_clip(ranges: list, top_ranges: int) -> list:
+        """At most one range per clip, in rank order.
+
+        Without this the five windows are the five best ranges of ONE
+        camera whenever one camera scores well: the editor is handed the
+        same angle five times and never sees the other assets.  So each
+        clip contributes its single best range, and the slots are filled
+        with the other clips' best ranges - a clip that is already in the
+        list does not get a second window.
+        """
+        limit = max(0, top_ranges)
+        picked, seen = [], set()
+        for entry in ranges:
+            if entry["clip_id"] in seen:
+                continue
+            seen.add(entry["clip_id"])
+            picked.append(entry)
+            if len(picked) >= limit:
+                break
+        return picked
 
     def _range(self, clip_id, filename, start, end, best, members) -> dict:
         return {

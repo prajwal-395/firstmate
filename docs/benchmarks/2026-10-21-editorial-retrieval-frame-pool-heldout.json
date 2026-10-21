@@ -1,0 +1,1980 @@
+{
+ "eval_set": "editorial-retrieval-held-out-2026-10-20",
+ "ran_at": "2026-10-21T02:01:35+00:00",
+ "code_revision": "3ba4e5dd5870c291b637937b62e736ab44f639a6",
+ "project": "ren-scratch-retrieval-bench",
+ "assets_missing_from_project": [],
+ "sealed_labels_applied": [],
+ "summary": {
+  "editorial": {
+   "queries_present": 9,
+   "queries_absent": 3,
+   "queries_unlabelled": 5,
+   "queries_refused": 1,
+   "refusals_correct": 1,
+   "macro_recall": 0.3541,
+   "macro_precision": 0.2815,
+   "macro_recall_uncredited": 0.38,
+   "macro_region_recall": 0.8889,
+   "credit_cap": "one credit per window per region",
+   "excess_seconds": 24.08,
+   "by_lane": {
+    "text": {
+     "queries_present": 3,
+     "queries_absent": 1,
+     "queries_unlabelled": 1,
+     "queries_refused": 0,
+     "macro_recall": 1.0,
+     "macro_recall_uncredited": 1.0,
+     "macro_precision": 0.4,
+     "absent_abstained": 1
+    },
+    "visual": {
+     "queries_present": 6,
+     "queries_absent": 2,
+     "queries_unlabelled": 4,
+     "queries_refused": 1,
+     "macro_recall": 0.0312,
+     "macro_recall_uncredited": 0.07,
+     "macro_precision": 0.2222,
+     "absent_abstained": 2
+    }
+   },
+   "absent_abstained": 3,
+   "requirement_recall": 1.0,
+   "requirement_agreement": 18,
+   "requirement_queries": 18,
+   "declared_modalities_missed": [],
+   "false_positive_consequence": {
+    "queries": 12,
+    "wrong_seconds_selected": 75.02,
+    "missing_seconds": 1781.98,
+    "ground_truth_seconds": 1821.01,
+    "coverage_fraction": 0.0214,
+    "shadowing_queries": 5,
+    "false_positive_windows": 29,
+    "false_positive_seconds": 267.66
+   }
+  },
+  "calibration": {
+   "visual": {
+    "reliability": {
+     "bins": [
+      {
+       "low": 0.0,
+       "high": 0.1,
+       "count": 0,
+       "mean_score": null,
+       "observed": null
+      },
+      {
+       "low": 0.1,
+       "high": 0.2,
+       "count": 6,
+       "mean_score": 0.1844,
+       "observed": 0.1667
+      },
+      {
+       "low": 0.2,
+       "high": 0.3,
+       "count": 22,
+       "mean_score": 0.2332,
+       "observed": 0.2273
+      },
+      {
+       "low": 0.3,
+       "high": 0.4,
+       "count": 0,
+       "mean_score": null,
+       "observed": null
+      },
+      {
+       "low": 0.4,
+       "high": 0.5,
+       "count": 0,
+       "mean_score": null,
+       "observed": null
+      },
+      {
+       "low": 0.5,
+       "high": 0.6,
+       "count": 0,
+       "mean_score": null,
+       "observed": null
+      },
+      {
+       "low": 0.6,
+       "high": 0.7,
+       "count": 0,
+       "mean_score": null,
+       "observed": null
+      },
+      {
+       "low": 0.7,
+       "high": 0.8,
+       "count": 0,
+       "mean_score": null,
+       "observed": null
+      },
+      {
+       "low": 0.8,
+       "high": 0.9,
+       "count": 0,
+       "mean_score": null,
+       "observed": null
+      },
+      {
+       "low": 0.9,
+       "high": 1.0,
+       "count": 0,
+       "mean_score": null,
+       "observed": null
+      }
+     ],
+     "samples": 28,
+     "positives": 6,
+     "negatives": 22,
+     "expected_calibration_error": 0.0084,
+     "uncalibratable": [],
+     "status": "measured",
+     "note": "the score is the RAW signal the floor judged on, not the fused rank; a fused score is not on a probability scale and cannot be calibrated"
+    },
+    "abstention": {
+     "cutoff": 0.2297,
+     "balanced_accuracy": 0.6515,
+     "present_retained_rate": 0.6667,
+     "absent_abstained_rate": 0.6364,
+     "not_found_precision": 0.875,
+     "not_found_recall": 0.6364,
+     "not_found_true_positives": 14,
+     "not_found_false_positives": 2,
+     "status": "measured candidate; requires review before policy change",
+     "samples": 28,
+     "positives": 6,
+     "negatives": 22,
+     "method": "balanced accuracy over labelled windows",
+     "uncalibratable": []
+    },
+    "expected_calibration_error": 0.0084,
+    "verdict": "calibrated: the score reads as a probability",
+    "note": "calibration says how well the score reads; the threshold says whether it separates.  Both are needed and neither is the other"
+   },
+   "text": {
+    "reliability": {
+     "bins": [
+      {
+       "low": 0.0,
+       "high": 0.1,
+       "count": 0,
+       "mean_score": null,
+       "observed": null
+      },
+      {
+       "low": 0.1,
+       "high": 0.2,
+       "count": 0,
+       "mean_score": null,
+       "observed": null
+      },
+      {
+       "low": 0.2,
+       "high": 0.3,
+       "count": 0,
+       "mean_score": null,
+       "observed": null
+      },
+      {
+       "low": 0.3,
+       "high": 0.4,
+       "count": 0,
+       "mean_score": null,
+       "observed": null
+      },
+      {
+       "low": 0.4,
+       "high": 0.5,
+       "count": 2,
+       "mean_score": 0.4183,
+       "observed": 0.5
+      },
+      {
+       "low": 0.5,
+       "high": 0.6,
+       "count": 4,
+       "mean_score": 0.5358,
+       "observed": 0.0
+      },
+      {
+       "low": 0.6,
+       "high": 0.7,
+       "count": 3,
+       "mean_score": 0.6663,
+       "observed": 0.3333
+      },
+      {
+       "low": 0.7,
+       "high": 0.8,
+       "count": 2,
+       "mean_score": 0.7579,
+       "observed": 1.0
+      },
+      {
+       "low": 0.8,
+       "high": 0.9,
+       "count": 0,
+       "mean_score": null,
+       "observed": null
+      },
+      {
+       "low": 0.9,
+       "high": 1.0,
+       "count": 0,
+       "mean_score": null,
+       "observed": null
+      }
+     ],
+     "samples": 11,
+     "positives": 4,
+     "negatives": 7,
+     "expected_calibration_error": 0.3445,
+     "uncalibratable": [],
+     "status": "measured",
+     "note": "the score is the RAW signal the floor judged on, not the fused rank; a fused score is not on a probability scale and cannot be calibrated"
+    },
+    "abstention": {
+     "cutoff": 0.71225,
+     "balanced_accuracy": 0.75,
+     "present_retained_rate": 0.5,
+     "absent_abstained_rate": 1.0,
+     "not_found_precision": 0.7778,
+     "not_found_recall": 1.0,
+     "not_found_true_positives": 7,
+     "not_found_false_positives": 2,
+     "status": "measured candidate; requires review before policy change",
+     "samples": 11,
+     "positives": 4,
+     "negatives": 7,
+     "method": "balanced accuracy over labelled windows",
+     "uncalibratable": []
+    },
+    "expected_calibration_error": 0.3445,
+    "verdict": "miscalibrated: the score does not read as a probability",
+    "note": "calibration says how well the score reads; the threshold says whether it separates.  Both are needed and neither is the other"
+   }
+  },
+  "latency_seconds": {
+   "editorial": {
+    "median": 0.017,
+    "max": 2.669,
+    "n": 18
+   }
+  }
+ },
+ "coverage": {
+  "assets": 7,
+  "video_minutes": 181.58,
+  "asset_status": {
+   "partial": 7
+  },
+  "lanes_present": {
+   "media": 7,
+   "transcript": 7,
+   "frames": 7,
+   "persons": 7,
+   "identity": 7,
+   "clock": 7,
+   "events": 7,
+   "verdicts": 6
+  },
+  "speech_seconds": 8020.7,
+  "speech_fraction_of_footage": 0.7362,
+  "frames_with_face_fraction": {
+   "LCATL0011.MXF": 0.9837,
+   "LCATL0012.MXF": 1.0,
+   "LCATL0013.MXF": 0.9999,
+   "LCATL0014.MXF": 0.9964,
+   "LC4930.MXF": 0.9978,
+   "LC4931.MXF": 0.9965,
+   "LC4932.MXF": 0.9993
+  },
+  "frame_sample_max_gap_seconds": {
+   "LCATL0011.MXF": 0.501,
+   "LCATL0012.MXF": 0.501,
+   "LCATL0013.MXF": 0.501,
+   "LCATL0014.MXF": 0.501,
+   "LC4930.MXF": 0.501,
+   "LC4931.MXF": 0.501,
+   "LC4932.MXF": 0.501
+  },
+  "per_asset_status": {
+   "LCATL0011.MXF": {
+    "status": "partial",
+    "missing": [
+     "expressions"
+    ],
+    "failure_reason": null
+   },
+   "LCATL0012.MXF": {
+    "status": "partial",
+    "missing": [
+     "expressions"
+    ],
+    "failure_reason": null
+   },
+   "LCATL0013.MXF": {
+    "status": "partial",
+    "missing": [
+     "expressions"
+    ],
+    "failure_reason": null
+   },
+   "LCATL0014.MXF": {
+    "status": "partial",
+    "missing": [
+     "expressions"
+    ],
+    "failure_reason": null
+   },
+   "LC4930.MXF": {
+    "status": "partial",
+    "missing": [
+     "expressions"
+    ],
+    "failure_reason": null
+   },
+   "LC4931.MXF": {
+    "status": "partial",
+    "missing": [
+     "expressions"
+    ],
+    "failure_reason": null
+   },
+   "LC4932.MXF": {
+    "status": "partial",
+    "missing": [
+     "expressions"
+    ],
+    "failure_reason": null
+   }
+  }
+ },
+ "processing_time": [],
+ "results": [
+  {
+   "id": "H01",
+   "family": "editorial",
+   "query": "a shot of the open laptop on the desk",
+   "editorial_need": "the picture that goes under the pricing line",
+   "lane": "visual",
+   "category": "object",
+   "returned": 5,
+   "rows": [
+    {
+     "asset": "LCATL0011",
+     "start": 199.783,
+     "end": 209.793,
+     "score": 0.2507,
+     "dense": null,
+     "text": "",
+     "hit": true
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 30.113,
+     "end": 30.113,
+     "score": 0.2413,
+     "dense": null,
+     "text": "",
+     "hit": false
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2879.96,
+     "end": 2889.97,
+     "score": 0.2378,
+     "dense": null,
+     "text": "",
+     "hit": false
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 540.123,
+     "end": 560.143,
+     "score": 0.2286,
+     "dense": null,
+     "text": "",
+     "hit": false
+    },
+    {
+     "asset": "LC4932",
+     "start": 4660.239,
+     "end": 4660.239,
+     "score": 0.2122,
+     "dense": null,
+     "text": "",
+     "hit": false
+    }
+   ],
+   "requirements": {
+    "declared": [
+     "visual"
+    ],
+    "decomposed": [
+     "visual"
+    ],
+    "missing": [],
+    "extra": [],
+    "unambiguous_extra": [],
+    "ambiguous_requirements": 0,
+    "requirement_recall": 1.0,
+    "agrees": true
+   },
+   "refused": null,
+   "error": null,
+   "degraded": null,
+   "kind": "present",
+   "moments": 43,
+   "moments_found": 1,
+   "recall": 0.0233,
+   "recall_uncredited": 0.0465,
+   "moments_overlapped": 2,
+   "regions": 1,
+   "regions_found": 1,
+   "region_recall": 1.0,
+   "credit_cap": "one credit per window per region",
+   "excess_seconds": 0.0,
+   "precision": 0.2,
+   "first_hit_rank": 1,
+   "consequence": {
+    "selection_k": 1,
+    "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+    "selected": 1,
+    "wrong_windows_selected": 0,
+    "wrong_seconds_selected": 0.0,
+    "excess_seconds_selected": 0.0,
+    "right_windows_selected": 1,
+    "ground_truth_seconds": 449.02,
+    "covered_seconds": 12.0,
+    "missing_seconds": 437.02,
+    "coverage_fraction": 0.0267,
+    "shadowing": false,
+    "false_positive_windows": 4,
+    "false_positive_seconds": 30.03,
+    "excess_seconds": 0.0,
+    "excess_seconds_note": "the seconds a window that holds something the editor asked for covers OUTSIDE the wanted span: footage nobody asked for, carried by a window that also holds something they did.  A window that holds nothing wanted is charged in full as a false-positive window, and is not charged twice",
+    "notes": [
+     "the selection leaves part of the wanted moment out"
+    ]
+   },
+   "calibration_samples": [
+    {
+     "query_id": "H01",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.2507,
+     "hit": true
+    },
+    {
+     "query_id": "H01",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.2413,
+     "hit": false
+    },
+    {
+     "query_id": "H01",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.2378,
+     "hit": false
+    },
+    {
+     "query_id": "H01",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.2286,
+     "hit": false
+    },
+    {
+     "query_id": "H01",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.2122,
+     "hit": false
+    }
+   ],
+   "seconds": 2.669
+  },
+  {
+   "id": "H02",
+   "family": "editorial",
+   "query": "the laptop with its lid up",
+   "editorial_need": "the open state, not merely the object",
+   "lane": "visual",
+   "category": "object_state",
+   "returned": 5,
+   "rows": [
+    {
+     "asset": "LCATL0011",
+     "start": 199.783,
+     "end": 209.793,
+     "score": 0.2375,
+     "dense": null,
+     "text": "",
+     "hit": true
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2889.97,
+     "end": 2889.97,
+     "score": 0.231,
+     "dense": null,
+     "text": "",
+     "hit": false
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 30.113,
+     "end": 30.113,
+     "score": 0.2295,
+     "dense": null,
+     "text": "",
+     "hit": false
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 560.143,
+     "end": 580.163,
+     "score": 0.2122,
+     "dense": null,
+     "text": "",
+     "hit": false
+    },
+    {
+     "asset": "LC4932",
+     "start": 4660.239,
+     "end": 4660.239,
+     "score": 0.1897,
+     "dense": null,
+     "text": "",
+     "hit": false
+    }
+   ],
+   "requirements": {
+    "declared": [
+     "visual"
+    ],
+    "decomposed": [
+     "textual",
+     "visual"
+    ],
+    "missing": [],
+    "extra": [
+     "textual"
+    ],
+    "unambiguous_extra": [],
+    "ambiguous_requirements": 2,
+    "requirement_recall": 1.0,
+    "agrees": true
+   },
+   "refused": null,
+   "error": null,
+   "degraded": null,
+   "kind": "present",
+   "moments": 43,
+   "moments_found": 1,
+   "recall": 0.0233,
+   "recall_uncredited": 0.0465,
+   "moments_overlapped": 2,
+   "regions": 1,
+   "regions_found": 1,
+   "region_recall": 1.0,
+   "credit_cap": "one credit per window per region",
+   "excess_seconds": 0.0,
+   "precision": 0.2,
+   "first_hit_rank": 1,
+   "consequence": {
+    "selection_k": 1,
+    "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+    "selected": 1,
+    "wrong_windows_selected": 0,
+    "wrong_seconds_selected": 0.0,
+    "excess_seconds_selected": 0.0,
+    "right_windows_selected": 1,
+    "ground_truth_seconds": 449.02,
+    "covered_seconds": 12.0,
+    "missing_seconds": 437.02,
+    "coverage_fraction": 0.0267,
+    "shadowing": false,
+    "false_positive_windows": 4,
+    "false_positive_seconds": 20.02,
+    "excess_seconds": 0.0,
+    "excess_seconds_note": "the seconds a window that holds something the editor asked for covers OUTSIDE the wanted span: footage nobody asked for, carried by a window that also holds something they did.  A window that holds nothing wanted is charged in full as a false-positive window, and is not charged twice",
+    "notes": [
+     "the selection leaves part of the wanted moment out"
+    ]
+   },
+   "calibration_samples": [
+    {
+     "query_id": "H02",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.2375,
+     "hit": true
+    },
+    {
+     "query_id": "H02",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.231,
+     "hit": false
+    },
+    {
+     "query_id": "H02",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.2295,
+     "hit": false
+    },
+    {
+     "query_id": "H02",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.2122,
+     "hit": false
+    },
+    {
+     "query_id": "H02",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.1897,
+     "hit": false
+    }
+   ],
+   "seconds": 0.016
+  },
+  {
+   "id": "H03",
+   "family": "editorial",
+   "query": "the shot of the woman wearing glasses, the host",
+   "editorial_need": "the host's camera, for a two-shot edit",
+   "lane": "visual",
+   "category": "identity",
+   "returned": 3,
+   "rows": [
+    {
+     "asset": "LC4932",
+     "start": 3620.2,
+     "end": 3620.2,
+     "score": 0.2565,
+     "dense": null,
+     "text": "",
+     "hit": false
+    },
+    {
+     "asset": "LC4931",
+     "start": 10.093,
+     "end": 30.113,
+     "score": 0.2473,
+     "dense": null,
+     "text": "",
+     "hit": false
+    },
+    {
+     "asset": "LC4930",
+     "start": 20.103,
+     "end": 20.103,
+     "score": 0.2299,
+     "dense": null,
+     "text": "",
+     "hit": true
+    }
+   ],
+   "requirements": {
+    "declared": [
+     "visual"
+    ],
+    "decomposed": [
+     "textual",
+     "visual"
+    ],
+    "missing": [],
+    "extra": [
+     "textual"
+    ],
+    "unambiguous_extra": [],
+    "ambiguous_requirements": 1,
+    "requirement_recall": 1.0,
+    "agrees": true
+   },
+   "refused": null,
+   "error": null,
+   "degraded": null,
+   "kind": "present",
+   "moments": 22,
+   "moments_found": 0,
+   "recall": 0.0,
+   "recall_uncredited": 0.0455,
+   "moments_overlapped": 1,
+   "regions": 1,
+   "regions_found": 0,
+   "region_recall": 0.0,
+   "credit_cap": "one credit per window per region",
+   "excess_seconds": 0.0,
+   "precision": 0.3333,
+   "first_hit_rank": 3,
+   "consequence": {
+    "selection_k": 1,
+    "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+    "selected": 1,
+    "wrong_windows_selected": 1,
+    "wrong_seconds_selected": 0.0,
+    "excess_seconds_selected": 0.0,
+    "right_windows_selected": 0,
+    "ground_truth_seconds": 229.51,
+    "covered_seconds": 0.0,
+    "missing_seconds": 229.51,
+    "coverage_fraction": 0.0,
+    "shadowing": true,
+    "false_positive_windows": 2,
+    "false_positive_seconds": 20.02,
+    "excess_seconds": 0.0,
+    "excess_seconds_note": "the seconds a window that holds something the editor asked for covers OUTSIDE the wanted span: footage nobody asked for, carried by a window that also holds something they did.  A window that holds nothing wanted is charged in full as a false-positive window, and is not charged twice",
+    "notes": [
+     "a wrong window outranks every right one, so the first pick is the wrong one",
+     "the selection leaves part of the wanted moment out"
+    ]
+   },
+   "calibration_samples": [
+    {
+     "query_id": "H03",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.2565,
+     "hit": false
+    },
+    {
+     "query_id": "H03",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.2473,
+     "hit": false
+    },
+    {
+     "query_id": "H03",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.2299,
+     "hit": true
+    }
+   ],
+   "seconds": 0.015
+  },
+  {
+   "id": "H04",
+   "family": "editorial",
+   "query": "the shot of the man behind the laptop in the studio",
+   "editorial_need": "the guest's camera, to cut against the host",
+   "lane": "visual",
+   "category": "identity",
+   "returned": 5,
+   "rows": [
+    {
+     "asset": "LCATL0011",
+     "start": 199.783,
+     "end": 209.793,
+     "score": 0.2724,
+     "dense": null,
+     "text": "",
+     "hit": true
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 30.113,
+     "end": 30.113,
+     "score": 0.2631,
+     "dense": null,
+     "text": "",
+     "hit": false
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 60.143,
+     "end": 80.163,
+     "score": 0.2501,
+     "dense": null,
+     "text": "",
+     "hit": false
+    },
+    {
+     "asset": "LC4932",
+     "start": 4660.239,
+     "end": 4660.239,
+     "score": 0.2246,
+     "dense": null,
+     "text": "",
+     "hit": false
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 560.143,
+     "end": 560.143,
+     "score": 0.2184,
+     "dense": null,
+     "text": "",
+     "hit": false
+    }
+   ],
+   "requirements": {
+    "declared": [
+     "visual"
+    ],
+    "decomposed": [
+     "visual"
+    ],
+    "missing": [],
+    "extra": [],
+    "unambiguous_extra": [],
+    "ambiguous_requirements": 0,
+    "requirement_recall": 1.0,
+    "agrees": true
+   },
+   "refused": null,
+   "error": null,
+   "degraded": null,
+   "kind": "present",
+   "moments": 21,
+   "moments_found": 1,
+   "recall": 0.0476,
+   "recall_uncredited": 0.0952,
+   "moments_overlapped": 2,
+   "regions": 1,
+   "regions_found": 1,
+   "region_recall": 1.0,
+   "credit_cap": "one credit per window per region",
+   "excess_seconds": 0.0,
+   "precision": 0.2,
+   "first_hit_rank": 1,
+   "consequence": {
+    "selection_k": 1,
+    "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+    "selected": 1,
+    "wrong_windows_selected": 0,
+    "wrong_seconds_selected": 0.0,
+    "excess_seconds_selected": 0.0,
+    "right_windows_selected": 1,
+    "ground_truth_seconds": 219.51,
+    "covered_seconds": 12.0,
+    "missing_seconds": 207.51,
+    "coverage_fraction": 0.0547,
+    "shadowing": false,
+    "false_positive_windows": 4,
+    "false_positive_seconds": 20.02,
+    "excess_seconds": 0.0,
+    "excess_seconds_note": "the seconds a window that holds something the editor asked for covers OUTSIDE the wanted span: footage nobody asked for, carried by a window that also holds something they did.  A window that holds nothing wanted is charged in full as a false-positive window, and is not charged twice",
+    "notes": [
+     "the selection leaves part of the wanted moment out"
+    ]
+   },
+   "calibration_samples": [
+    {
+     "query_id": "H04",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.2724,
+     "hit": true
+    },
+    {
+     "query_id": "H04",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.2631,
+     "hit": false
+    },
+    {
+     "query_id": "H04",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.2501,
+     "hit": false
+    },
+    {
+     "query_id": "H04",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.2246,
+     "hit": false
+    },
+    {
+     "query_id": "H04",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.2184,
+     "hit": false
+    }
+   ],
+   "seconds": 0.014
+  },
+  {
+   "id": "H05",
+   "family": "editorial",
+   "query": "the dark geometric studio set behind the speaker",
+   "editorial_need": "the location, for an establishing shot",
+   "lane": "visual",
+   "category": "location",
+   "returned": 5,
+   "rows": [
+    {
+     "asset": "LCATL0013",
+     "start": 3289.87,
+     "end": 3299.88,
+     "score": 0.196,
+     "dense": null,
+     "text": "",
+     "hit": false
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 540.123,
+     "end": 560.143,
+     "score": 0.1836,
+     "dense": null,
+     "text": "",
+     "hit": false
+    },
+    {
+     "asset": "LC4932",
+     "start": 1950.031,
+     "end": 1970.051,
+     "score": 0.1794,
+     "dense": null,
+     "text": "",
+     "hit": false
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 0.083,
+     "end": 10.093,
+     "score": 0.1792,
+     "dense": null,
+     "text": "",
+     "hit": false
+    },
+    {
+     "asset": "LCATL0011",
+     "start": 179.763,
+     "end": 189.773,
+     "score": 0.1782,
+     "dense": null,
+     "text": "",
+     "hit": true
+    }
+   ],
+   "requirements": {
+    "declared": [
+     "visual"
+    ],
+    "decomposed": [
+     "textual",
+     "visual"
+    ],
+    "missing": [],
+    "extra": [
+     "textual"
+    ],
+    "unambiguous_extra": [],
+    "ambiguous_requirements": 3,
+    "requirement_recall": 1.0,
+    "agrees": true
+   },
+   "refused": null,
+   "error": null,
+   "degraded": null,
+   "kind": "present",
+   "moments": 21,
+   "moments_found": 1,
+   "recall": 0.0476,
+   "recall_uncredited": 0.0952,
+   "moments_overlapped": 2,
+   "regions": 1,
+   "regions_found": 1,
+   "region_recall": 1.0,
+   "credit_cap": "one credit per window per region",
+   "excess_seconds": 0.0,
+   "precision": 0.2,
+   "first_hit_rank": 5,
+   "consequence": {
+    "selection_k": 1,
+    "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+    "selected": 1,
+    "wrong_windows_selected": 1,
+    "wrong_seconds_selected": 10.01,
+    "excess_seconds_selected": 0.0,
+    "right_windows_selected": 0,
+    "ground_truth_seconds": 219.51,
+    "covered_seconds": 0.0,
+    "missing_seconds": 219.51,
+    "coverage_fraction": 0.0,
+    "shadowing": true,
+    "false_positive_windows": 4,
+    "false_positive_seconds": 60.06,
+    "excess_seconds": 0.0,
+    "excess_seconds_note": "the seconds a window that holds something the editor asked for covers OUTSIDE the wanted span: footage nobody asked for, carried by a window that also holds something they did.  A window that holds nothing wanted is charged in full as a false-positive window, and is not charged twice",
+    "notes": [
+     "a wrong window outranks every right one, so the first pick is the wrong one",
+     "the selection leaves part of the wanted moment out"
+    ]
+   },
+   "calibration_samples": [
+    {
+     "query_id": "H05",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.196,
+     "hit": false
+    },
+    {
+     "query_id": "H05",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.1836,
+     "hit": false
+    },
+    {
+     "query_id": "H05",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.1794,
+     "hit": false
+    },
+    {
+     "query_id": "H05",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.1792,
+     "hit": false
+    },
+    {
+     "query_id": "H05",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.1782,
+     "hit": true
+    }
+   ],
+   "seconds": 0.019
+  },
+  {
+   "id": "H06",
+   "family": "editorial",
+   "query": "the table with the plant behind it in the host's shot",
+   "editorial_need": "the other location, in the host's camera",
+   "lane": "visual",
+   "category": "location",
+   "returned": 5,
+   "rows": [
+    {
+     "asset": "LC4932",
+     "start": 1729.811,
+     "end": 1749.831,
+     "score": 0.2388,
+     "dense": null,
+     "text": "",
+     "hit": false
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 610.193,
+     "end": 610.193,
+     "score": 0.2182,
+     "dense": null,
+     "text": "",
+     "hit": false
+    },
+    {
+     "asset": "LC4930",
+     "start": 179.763,
+     "end": 189.773,
+     "score": 0.2129,
+     "dense": null,
+     "text": "",
+     "hit": true
+    },
+    {
+     "asset": "LC4931",
+     "start": 269.853,
+     "end": 269.853,
+     "score": 0.2112,
+     "dense": null,
+     "text": "",
+     "hit": false
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 540.123,
+     "end": 540.123,
+     "score": 0.2057,
+     "dense": null,
+     "text": "",
+     "hit": false
+    }
+   ],
+   "requirements": {
+    "declared": [
+     "visual"
+    ],
+    "decomposed": [
+     "textual",
+     "visual"
+    ],
+    "missing": [],
+    "extra": [
+     "textual"
+    ],
+    "unambiguous_extra": [],
+    "ambiguous_requirements": 1,
+    "requirement_recall": 1.0,
+    "agrees": true
+   },
+   "refused": null,
+   "error": null,
+   "degraded": null,
+   "kind": "present",
+   "moments": 22,
+   "moments_found": 1,
+   "recall": 0.0455,
+   "recall_uncredited": 0.0909,
+   "moments_overlapped": 2,
+   "regions": 1,
+   "regions_found": 1,
+   "region_recall": 1.0,
+   "credit_cap": "one credit per window per region",
+   "excess_seconds": 0.0,
+   "precision": 0.2,
+   "first_hit_rank": 3,
+   "consequence": {
+    "selection_k": 1,
+    "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+    "selected": 1,
+    "wrong_windows_selected": 1,
+    "wrong_seconds_selected": 20.02,
+    "excess_seconds_selected": 0.0,
+    "right_windows_selected": 0,
+    "ground_truth_seconds": 229.51,
+    "covered_seconds": 0.0,
+    "missing_seconds": 229.51,
+    "coverage_fraction": 0.0,
+    "shadowing": true,
+    "false_positive_windows": 4,
+    "false_positive_seconds": 20.02,
+    "excess_seconds": 0.0,
+    "excess_seconds_note": "the seconds a window that holds something the editor asked for covers OUTSIDE the wanted span: footage nobody asked for, carried by a window that also holds something they did.  A window that holds nothing wanted is charged in full as a false-positive window, and is not charged twice",
+    "notes": [
+     "a wrong window outranks every right one, so the first pick is the wrong one",
+     "the selection leaves part of the wanted moment out"
+    ]
+   },
+   "calibration_samples": [
+    {
+     "query_id": "H06",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.2388,
+     "hit": false
+    },
+    {
+     "query_id": "H06",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.2182,
+     "hit": false
+    },
+    {
+     "query_id": "H06",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.2129,
+     "hit": true
+    },
+    {
+     "query_id": "H06",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.2112,
+     "hit": false
+    },
+    {
+     "query_id": "H06",
+     "family": "editorial",
+     "lane": "visual",
+     "signal": "frame_cosine",
+     "score": 0.2057,
+     "hit": false
+    }
+   ],
+   "seconds": 0.016
+  },
+  {
+   "id": "H07",
+   "family": "editorial",
+   "query": "a shot of a dog lying on the floor",
+   "editorial_need": "a cutaway that this corpus does not contain",
+   "lane": "visual",
+   "category": "absent_event",
+   "returned": 0,
+   "rows": [],
+   "requirements": {
+    "declared": [
+     "visual"
+    ],
+    "decomposed": [
+     "visual"
+    ],
+    "missing": [],
+    "extra": [],
+    "unambiguous_extra": [],
+    "ambiguous_requirements": 0,
+    "requirement_recall": 1.0,
+    "agrees": true
+   },
+   "refused": null,
+   "error": null,
+   "degraded": null,
+   "kind": "absent",
+   "abstained": true,
+   "consequence": {
+    "selection_k": 1,
+    "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+    "selected": 0,
+    "wrong_windows_selected": 0,
+    "wrong_seconds_selected": 0,
+    "excess_seconds_selected": 0,
+    "right_windows_selected": 0,
+    "ground_truth_seconds": 0,
+    "covered_seconds": 0,
+    "missing_seconds": 0.0,
+    "coverage_fraction": null,
+    "shadowing": false,
+    "false_positive_windows": 0,
+    "false_positive_seconds": 0,
+    "excess_seconds": 0,
+    "excess_seconds_note": "the seconds a window that holds something the editor asked for covers OUTSIDE the wanted span: footage nobody asked for, carried by a window that also holds something they did.  A window that holds nothing wanted is charged in full as a false-positive window, and is not charged twice",
+    "notes": [
+     "nothing was wanted here; every window is a false positive",
+     "every returned window holds something that was asked for"
+    ]
+   },
+   "calibration_samples": [],
+   "seconds": 0.013
+  },
+  {
+   "id": "H08",
+   "family": "editorial",
+   "query": "a shot of a whiteboard covered in handwriting",
+   "editorial_need": "a cutaway that this corpus does not contain",
+   "lane": "visual",
+   "category": "absent_event",
+   "returned": 0,
+   "rows": [],
+   "requirements": {
+    "declared": [
+     "visual"
+    ],
+    "decomposed": [
+     "visual"
+    ],
+    "missing": [],
+    "extra": [],
+    "unambiguous_extra": [],
+    "ambiguous_requirements": 0,
+    "requirement_recall": 1.0,
+    "agrees": true
+   },
+   "refused": null,
+   "error": null,
+   "degraded": null,
+   "kind": "absent",
+   "abstained": true,
+   "consequence": {
+    "selection_k": 1,
+    "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+    "selected": 0,
+    "wrong_windows_selected": 0,
+    "wrong_seconds_selected": 0,
+    "excess_seconds_selected": 0,
+    "right_windows_selected": 0,
+    "ground_truth_seconds": 0,
+    "covered_seconds": 0,
+    "missing_seconds": 0.0,
+    "coverage_fraction": null,
+    "shadowing": false,
+    "false_positive_windows": 0,
+    "false_positive_seconds": 0,
+    "excess_seconds": 0,
+    "excess_seconds_note": "the seconds a window that holds something the editor asked for covers OUTSIDE the wanted span: footage nobody asked for, carried by a window that also holds something they did.  A window that holds nothing wanted is charged in full as a false-positive window, and is not charged twice",
+    "notes": [
+     "nothing was wanted here; every window is a false positive",
+     "every returned window holds something that was asked for"
+    ]
+   },
+   "calibration_samples": [],
+   "seconds": 0.016
+  },
+  {
+   "id": "H09",
+   "family": "editorial",
+   "query": "the part where he explains how to train a puppy to sit",
+   "editorial_need": "a warm-up line this episode does not have",
+   "lane": "text",
+   "category": "absent_event",
+   "returned": 0,
+   "rows": [],
+   "requirements": {
+    "declared": [
+     "textual"
+    ],
+    "decomposed": [
+     "textual"
+    ],
+    "missing": [],
+    "extra": [],
+    "unambiguous_extra": [],
+    "ambiguous_requirements": 0,
+    "requirement_recall": 1.0,
+    "agrees": true
+   },
+   "refused": null,
+   "error": null,
+   "degraded": null,
+   "kind": "absent",
+   "abstained": true,
+   "consequence": {
+    "selection_k": 1,
+    "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+    "selected": 0,
+    "wrong_windows_selected": 0,
+    "wrong_seconds_selected": 0,
+    "excess_seconds_selected": 0,
+    "right_windows_selected": 0,
+    "ground_truth_seconds": 0,
+    "covered_seconds": 0,
+    "missing_seconds": 0.0,
+    "coverage_fraction": null,
+    "shadowing": false,
+    "false_positive_windows": 0,
+    "false_positive_seconds": 0,
+    "excess_seconds": 0,
+    "excess_seconds_note": "the seconds a window that holds something the editor asked for covers OUTSIDE the wanted span: footage nobody asked for, carried by a window that also holds something they did.  A window that holds nothing wanted is charged in full as a false-positive window, and is not charged twice",
+    "notes": [
+     "nothing was wanted here; every window is a false positive",
+     "every returned window holds something that was asked for"
+    ]
+   },
+   "calibration_samples": [],
+   "seconds": 0.252
+  },
+  {
+   "id": "H10",
+   "family": "editorial",
+   "query": "a person gesturing with both hands",
+   "editorial_need": "an action, which this lane answers by refusing",
+   "lane": "visual",
+   "category": "action",
+   "kind": "refusal",
+   "refused": true,
+   "abstained": true,
+   "returned": 0,
+   "rows": [],
+   "requirements": {
+    "declared": [
+     "visual"
+    ],
+    "decomposed": [
+     "textual",
+     "visual"
+    ],
+    "missing": [],
+    "extra": [
+     "textual"
+    ],
+    "unambiguous_extra": [],
+    "ambiguous_requirements": 3,
+    "requirement_recall": 1.0,
+    "agrees": true
+   },
+   "reason": "frame search covers objects, people and scenes; 'gesturing' is an action/gesture query, which this signal does not resolve (measured at chance)",
+   "seconds": 0.002
+  },
+  {
+   "id": "H11",
+   "family": "editorial",
+   "query": "the moment she reaches for the laptop",
+   "editorial_need": "an action with a real interval, for a cutaway",
+   "lane": "visual",
+   "category": "action",
+   "kind": "unlabelled",
+   "scored": false,
+   "abstained": null,
+   "returned": 0,
+   "rows": [],
+   "requirements": {
+    "declared": [
+     "visual"
+    ],
+    "decomposed": [
+     "textual",
+     "visual"
+    ],
+    "missing": [],
+    "extra": [
+     "textual"
+    ],
+    "unambiguous_extra": [],
+    "ambiguous_requirements": 3,
+    "requirement_recall": 1.0,
+    "agrees": true
+   },
+   "reason": "no ground truth exists for this category yet; the entry is reported and NOT scored, because an unscored query must never be counted as a miss",
+   "seconds": 0.017
+  },
+  {
+   "id": "H12",
+   "family": "editorial",
+   "query": "the cup that has been emptied",
+   "editorial_need": "a state change with a real interval",
+   "lane": "visual",
+   "category": "object_state",
+   "kind": "unlabelled",
+   "scored": false,
+   "abstained": null,
+   "returned": 0,
+   "rows": [],
+   "requirements": {
+    "declared": [
+     "visual"
+    ],
+    "decomposed": [
+     "textual",
+     "visual"
+    ],
+    "missing": [],
+    "extra": [
+     "textual"
+    ],
+    "unambiguous_extra": [],
+    "ambiguous_requirements": 2,
+    "requirement_recall": 1.0,
+    "agrees": true
+   },
+   "reason": "no ground truth exists for this category yet; the entry is reported and NOT scored, because an unscored query must never be counted as a miss",
+   "seconds": 0.017
+  },
+  {
+   "id": "H13",
+   "family": "editorial",
+   "query": "the shot where Akshita is speaking and Craig is off camera",
+   "editorial_need": "a per-moment identity, not a per-asset one",
+   "lane": "visual",
+   "category": "identity",
+   "kind": "unlabelled",
+   "scored": false,
+   "abstained": null,
+   "returned": 0,
+   "rows": [],
+   "requirements": {
+    "declared": [
+     "visual"
+    ],
+    "decomposed": [
+     "textual",
+     "visual"
+    ],
+    "missing": [],
+    "extra": [
+     "textual"
+    ],
+    "unambiguous_extra": [],
+    "ambiguous_requirements": 0,
+    "requirement_recall": 1.0,
+    "agrees": true
+   },
+   "reason": "no ground truth exists for this category yet; the entry is reported and NOT scored, because an unscored query must never be counted as a miss",
+   "seconds": 0.016
+  },
+  {
+   "id": "H14",
+   "family": "editorial",
+   "query": "the moment the scene changes to a different room",
+   "editorial_need": "a location CHANGE, with intervals",
+   "lane": "visual",
+   "category": "location",
+   "kind": "unlabelled",
+   "scored": false,
+   "abstained": null,
+   "returned": 0,
+   "rows": [],
+   "requirements": {
+    "declared": [
+     "visual"
+    ],
+    "decomposed": [
+     "textual",
+     "visual"
+    ],
+    "missing": [],
+    "extra": [
+     "textual"
+    ],
+    "unambiguous_extra": [],
+    "ambiguous_requirements": 2,
+    "requirement_recall": 1.0,
+    "agrees": true
+   },
+   "reason": "no ground truth exists for this category yet; the entry is reported and NOT scored, because an unscored query must never be counted as a miss",
+   "seconds": 0.016
+  },
+  {
+   "id": "H15",
+   "family": "editorial",
+   "query": "the moment where nobody speaks for a full minute",
+   "editorial_need": "an absent event with an explicit negative assertion",
+   "lane": "text",
+   "category": "absent_event",
+   "kind": "unlabelled",
+   "scored": false,
+   "abstained": null,
+   "returned": 0,
+   "rows": [],
+   "requirements": {
+    "declared": [
+     "textual"
+    ],
+    "decomposed": [
+     "textual",
+     "visual"
+    ],
+    "missing": [],
+    "extra": [
+     "visual"
+    ],
+    "unambiguous_extra": [],
+    "ambiguous_requirements": 1,
+    "requirement_recall": 1.0,
+    "agrees": true
+   },
+   "reason": "no ground truth exists for this category yet; the entry is reported and NOT scored, because an unscored query must never be counted as a miss",
+   "seconds": 0.149
+  },
+  {
+   "id": "H16",
+   "family": "editorial",
+   "query": "the line where she says seo convinces an algorithm to rank you and geo is about ai understanding the company",
+   "editorial_need": "the definition of geo, to sit under the explainer",
+   "lane": "text",
+   "category": null,
+   "returned": 5,
+   "rows": [
+    {
+     "asset": "LCATL0012",
+     "start": 65.67,
+     "end": 77.6,
+     "score": 0.0306,
+     "dense": 0.568,
+     "text": "seo is about really convincing an algorithm to rank your page higher on google, while for geo it's really about understa",
+     "hit": false
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1293.23,
+     "end": 1303.09,
+     "score": 0.0297,
+     "dense": 0.6666,
+     "text": "geo tells ai what you actually are, who you actually are, and what your company does.",
+     "hit": false
+    },
+    {
+     "asset": "LCATL0011",
+     "start": 123.1,
+     "end": 134.51,
+     "score": 0.0294,
+     "dense": 0.6657,
+     "text": "geo is about making ai actually understand what your company does.",
+     "hit": true
+    },
+    {
+     "asset": "LC4931",
+     "start": 66.13,
+     "end": 77.77,
+     "score": 0.0291,
+     "dense": 0.5616,
+     "text": "seo is by really convincing an algorithm to rank your page higher on google while for geo, it's really about understandi",
+     "hit": false
+    },
+    {
+     "asset": "LC4932",
+     "start": 1297.02,
+     "end": 1306.91,
+     "score": 0.0291,
+     "dense": 0.6666,
+     "text": "geo tells ai what you actually are, who you actually are, and what your company does.",
+     "hit": false
+    }
+   ],
+   "requirements": {
+    "declared": [
+     "textual"
+    ],
+    "decomposed": [
+     "textual"
+    ],
+    "missing": [],
+    "extra": [],
+    "unambiguous_extra": [],
+    "ambiguous_requirements": 0,
+    "requirement_recall": 1.0,
+    "agrees": true
+   },
+   "refused": null,
+   "error": null,
+   "degraded": null,
+   "kind": "present",
+   "moments": 1,
+   "moments_found": 1,
+   "recall": 1.0,
+   "recall_uncredited": 1.0,
+   "moments_overlapped": 1,
+   "regions": 1,
+   "regions_found": 1,
+   "region_recall": 1.0,
+   "credit_cap": "one credit per window per region",
+   "excess_seconds": 0.0,
+   "precision": 0.2,
+   "first_hit_rank": 3,
+   "consequence": {
+    "selection_k": 1,
+    "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+    "selected": 1,
+    "wrong_windows_selected": 1,
+    "wrong_seconds_selected": 11.93,
+    "excess_seconds_selected": 0.0,
+    "right_windows_selected": 0,
+    "ground_truth_seconds": 17.11,
+    "covered_seconds": 0.0,
+    "missing_seconds": 17.11,
+    "coverage_fraction": 0.0,
+    "shadowing": true,
+    "false_positive_windows": 4,
+    "false_positive_seconds": 43.32,
+    "excess_seconds": 0.0,
+    "excess_seconds_note": "the seconds a window that holds something the editor asked for covers OUTSIDE the wanted span: footage nobody asked for, carried by a window that also holds something they did.  A window that holds nothing wanted is charged in full as a false-positive window, and is not charged twice",
+    "notes": [
+     "a wrong window outranks every right one, so the first pick is the wrong one",
+     "the selection leaves part of the wanted moment out"
+    ]
+   },
+   "calibration_samples": [
+    {
+     "query_id": "H16",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.568,
+     "hit": false
+    },
+    {
+     "query_id": "H16",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.6666,
+     "hit": false
+    },
+    {
+     "query_id": "H16",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.6657,
+     "hit": true
+    },
+    {
+     "query_id": "H16",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.5616,
+     "hit": false
+    },
+    {
+     "query_id": "H16",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.6666,
+     "hit": false
+    }
+   ],
+   "seconds": 0.162
+  },
+  {
+   "id": "H17",
+   "family": "editorial",
+   "query": "the moment they say to check the audio levels from craig",
+   "editorial_need": "the production aside, for a cutaway while the setup is explained",
+   "lane": "text",
+   "category": null,
+   "returned": 4,
+   "rows": [
+    {
+     "asset": "LCATL0011",
+     "start": 29.88,
+     "end": 51.35,
+     "score": 0.0328,
+     "dense": 0.7579,
+     "text": "and just make sure you see the levels, audio levels from craig.",
+     "hit": true
+    },
+    {
+     "asset": "LC4930",
+     "start": 47.55,
+     "end": 60.22,
+     "score": 0.0323,
+     "dense": 0.7579,
+     "text": "and just make sure you see the levels, audio levels from craig.",
+     "hit": true
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 46.46,
+     "end": 52.42,
+     "score": 0.0317,
+     "dense": 0.5069,
+     "text": "how would you explain the same thing to craig?",
+     "hit": false
+    },
+    {
+     "asset": "LC4932",
+     "start": 52.61,
+     "end": 60.12,
+     "score": 0.0312,
+     "dense": 0.5069,
+     "text": "how would you explain the same thing to craig?",
+     "hit": false
+    }
+   ],
+   "requirements": {
+    "declared": [
+     "textual"
+    ],
+    "decomposed": [
+     "textual"
+    ],
+    "missing": [],
+    "extra": [],
+    "unambiguous_extra": [],
+    "ambiguous_requirements": 0,
+    "requirement_recall": 1.0,
+    "agrees": true
+   },
+   "refused": null,
+   "error": null,
+   "degraded": null,
+   "kind": "present",
+   "moments": 1,
+   "moments_found": 1,
+   "recall": 1.0,
+   "recall_uncredited": 1.0,
+   "moments_overlapped": 1,
+   "regions": 1,
+   "regions_found": 1,
+   "region_recall": 1.0,
+   "credit_cap": "one credit per window per region",
+   "excess_seconds": 24.08,
+   "precision": 0.5,
+   "first_hit_rank": 1,
+   "consequence": {
+    "selection_k": 1,
+    "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+    "selected": 1,
+    "wrong_windows_selected": 0,
+    "wrong_seconds_selected": 16.44,
+    "excess_seconds_selected": 16.44,
+    "right_windows_selected": 1,
+    "ground_truth_seconds": 3.03,
+    "covered_seconds": 3.03,
+    "missing_seconds": 0.0,
+    "coverage_fraction": 1.0,
+    "shadowing": false,
+    "false_positive_windows": 2,
+    "false_positive_seconds": 37.55,
+    "excess_seconds": 24.08,
+    "excess_seconds_note": "the seconds a window that holds something the editor asked for covers OUTSIDE the wanted span: footage nobody asked for, carried by a window that also holds something they did.  A window that holds nothing wanted is charged in full as a false-positive window, and is not charged twice",
+    "notes": [
+     "the returned windows carry footage outside the wanted moment, and that footage is charged"
+    ]
+   },
+   "calibration_samples": [
+    {
+     "query_id": "H17",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.7579,
+     "hit": true
+    },
+    {
+     "query_id": "H17",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.7579,
+     "hit": true
+    },
+    {
+     "query_id": "H17",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.5069,
+     "hit": false
+    },
+    {
+     "query_id": "H17",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.5069,
+     "hit": false
+    }
+   ],
+   "seconds": 0.143
+  },
+  {
+   "id": "H18",
+   "family": "editorial",
+   "query": "the moment where one of them says she would just read it from there",
+   "editorial_need": "the aside about reading from the card, for the setup beat",
+   "lane": "text",
+   "category": null,
+   "returned": 2,
+   "rows": [
+    {
+     "asset": "LCATL0013",
+     "start": 1264.49,
+     "end": 1281.11,
+     "score": 0.0174,
+     "dense": 0.4033,
+     "text": "i could kind of see it in their faces like what is going on here?",
+     "hit": false
+    },
+    {
+     "asset": "LC4930",
+     "start": 181.11,
+     "end": 186.6,
+     "score": 0.0168,
+     "dense": 0.4333,
+     "text": "i mean i could just commit to reading this from there.",
+     "hit": true
+    }
+   ],
+   "requirements": {
+    "declared": [
+     "textual"
+    ],
+    "decomposed": [
+     "textual"
+    ],
+    "missing": [],
+    "extra": [],
+    "unambiguous_extra": [],
+    "ambiguous_requirements": 0,
+    "requirement_recall": 1.0,
+    "agrees": true
+   },
+   "refused": null,
+   "error": null,
+   "degraded": null,
+   "kind": "present",
+   "moments": 1,
+   "moments_found": 1,
+   "recall": 1.0,
+   "recall_uncredited": 1.0,
+   "moments_overlapped": 1,
+   "regions": 1,
+   "regions_found": 1,
+   "region_recall": 1.0,
+   "credit_cap": "one credit per window per region",
+   "excess_seconds": 0.0,
+   "precision": 0.5,
+   "first_hit_rank": 2,
+   "consequence": {
+    "selection_k": 1,
+    "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+    "selected": 1,
+    "wrong_windows_selected": 1,
+    "wrong_seconds_selected": 16.62,
+    "excess_seconds_selected": 0.0,
+    "right_windows_selected": 0,
+    "ground_truth_seconds": 4.79,
+    "covered_seconds": 0.0,
+    "missing_seconds": 4.79,
+    "coverage_fraction": 0.0,
+    "shadowing": true,
+    "false_positive_windows": 1,
+    "false_positive_seconds": 16.62,
+    "excess_seconds": 0.0,
+    "excess_seconds_note": "the seconds a window that holds something the editor asked for covers OUTSIDE the wanted span: footage nobody asked for, carried by a window that also holds something they did.  A window that holds nothing wanted is charged in full as a false-positive window, and is not charged twice",
+    "notes": [
+     "a wrong window outranks every right one, so the first pick is the wrong one",
+     "the selection leaves part of the wanted moment out"
+    ]
+   },
+   "calibration_samples": [
+    {
+     "query_id": "H18",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.4033,
+     "hit": false
+    },
+    {
+     "query_id": "H18",
+     "family": "editorial",
+     "lane": "text",
+     "signal": "dense",
+     "score": 0.4333,
+     "hit": true
+    }
+   ],
+   "seconds": 0.212
+  }
+ ]
+}
