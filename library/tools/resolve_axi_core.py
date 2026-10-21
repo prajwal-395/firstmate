@@ -1832,9 +1832,12 @@ def _prepare_request_plan(request, *, resolve=None):
         feasibility = _feasibility_of(request, compiled, snapshot,
                                        route_context)
         if feasibility.infeasible:
-            raise ValueError(
-                "the plan is infeasible before staging: "
-                + "; ".join(feasibility.reasons()))
+            # PLAN-007: the refusal carries the narrow revision, so the
+            # planner can revise the affected part of the plan instead
+            # of the whole of it.
+            from library.tools import plan_feasibility as _feasibility
+
+            raise _feasibility.PlanInfeasible(_feasibility.refusal(feasibility))
         routing = route_request(compiled, context=route_context)
         backend = routing["backend"]
         backend_reason = "; ".join(routing.get("reasons", ()))

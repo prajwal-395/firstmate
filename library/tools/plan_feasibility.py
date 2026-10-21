@@ -840,6 +840,27 @@ def items_from_rows(rows: Sequence[Mapping[str, Any]]) -> dict:
     return items
 
 
+def items_from_clips(clips: Sequence[Mapping[str, Any]]) -> dict:
+    """The measured items of RECORDED clip records, by stable identity.
+
+    The grounding stage reads the recorded timeline's clip records, and
+    the replanning loop re-targets an operation at one of their
+    identities.  This is the state those identities are checked
+    against, and it carries the same rule as the other two: a field the
+    recording does not carry is left out, so the check that needs it
+    reports UNDETERMINED rather than reading a default.
+    """
+    items: dict[str, Any] = {}
+    for clip in clips or ():
+        if not isinstance(clip, Mapping):
+            continue
+        uid = str(clip.get("unique_id") or "")
+        if not uid:
+            continue
+        items[uid] = _item(clip)
+    return items
+
+
 def tracks_from_snapshot(snapshot: Mapping[str, Any] | None) -> tuple[str, ...]:
     """The rows a RECORDED generation has, by name."""
     names: list[str] = []
@@ -968,3 +989,37 @@ def refusal(verdict: FeasibilityVerdict) -> dict[str, Any]:
         "revision": (dict(verdict.revision)
                      if verdict.revision is not None else None),
     }
+
+
+class PlanInfeasible(ValueError):
+    """The plan cannot run here, and the refusal carries the revision.
+
+    PLAN-007: the gate refused a plan and stopped there, and the
+    planner was never told what a NARROWER plan would have been.  The
+    refusal now carries the revision - the operations that survive, the
+    ones dropped, and what the drop no longer covers - so the planner
+    can revise the affected part instead of the whole plan.
+
+    The exception stays a ``ValueError`` because that is what the front
+    door already catches, and it keeps the same words: the message
+    still says the plan is infeasible before staging, and it now also
+    says what a revision would leave.
+    """
+
+    def __init__(self, payload: Mapping[str, Any]) -> None:
+        revision = payload.get("revision")
+        revision = revision if isinstance(revision, Mapping) else {}
+        kept = [str(operation.get("op") or "")
+                for operation in (revision.get("operations") or ())
+                if isinstance(operation, Mapping)]
+        if kept:
+            detail = (f"; a narrow revision survives: {', '.join(kept)}"
+                      " - the refused operations are dropped, and what they"
+                      " covered is no longer covered")
+        elif str(revision.get("status") or "") == "rejected":
+            detail = ("; every operation in the plan was refused, so there"
+                      " is no plan left to revise")
+        else:
+            detail = ""
+        super().__init__(str(payload.get("reason") or "") + detail)
+        self.refusal = dict(payload)

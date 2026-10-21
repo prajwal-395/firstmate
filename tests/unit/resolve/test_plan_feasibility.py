@@ -479,3 +479,26 @@ def test_the_gate_admits_the_operation_the_protected_policy_names(
     assert plan["feasibility"]["status"] in (
         plan_feasibility.FEASIBLE, plan_feasibility.UNDETERMINED)
     assert "infeasible" not in plan["backend_reason"]
+
+
+def test_the_refusal_carries_the_narrow_revision_back_to_the_planner(
+        tmp_path, monkeypatch):
+    # Defect: the gate refused a plan and stopped there, so the planner
+    # was never told what a narrower plan would have been, and it
+    # re-planned the whole plan - or nothing.
+    from library.tools import resolve_axi_core
+
+    _recorded_base(tmp_path, monkeypatch)
+    request = _request("clip.set_enabled",
+                       {"unique_id": "clip-1", "enabled": False},
+                       originator="ren touch")
+
+    with pytest.raises(ValueError) as raised:
+        resolve_axi_core._prepare_request_plan(request)
+
+    refusal = getattr(raised.value, "refusal", None)
+    assert refusal is not None
+    assert refusal["category"] == "unsupported"
+    assert "infeasible before staging" in refusal["reason"]
+    assert refusal["revision"]["status"] == "rejected"
+    assert refusal["revision"]["operations"] == []

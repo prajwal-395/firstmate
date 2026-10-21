@@ -27,6 +27,12 @@ recorded in the receipt, so a reader can see what was asked and what
 came back.  A role that is still ambiguous afterwards is ``observed``,
 never ``verified``.
 
+**A surface that was ASKED is not a surface that was READ.**  The
+evidence attempt records whether a model was there to answer, because
+the two states are different questions: a surface that answered "no"
+says the thing is not there, and a surface nobody could read says
+nothing was looked for.
+
 **A destructive change needs a verified target.**  An operation that
 removes, replaces or rewrites material is refused when the role it
 names is not ``verified``: the plan says which thing, and the thing
@@ -440,7 +446,8 @@ def ground_role(role: str, claim: Mapping[str, Any] | None, *,
         return _row(role, claim, VERIFIED, candidates, attempts, "")
     second, note = _evidence_candidates(claim, model)
     if len(candidates) > 1 or second:
-        attempts.append({"surface": "evidence", "candidates": len(second)})
+        attempts.append({"surface": "evidence", "candidates": len(second),
+                         "model_read": bool(model)})
     if len(candidates) > 1:
         if len(second) == 1:
             return _row(role, claim, VERIFIED, second, attempts, "")
