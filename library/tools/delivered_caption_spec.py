@@ -251,6 +251,9 @@ class CaptionVerdict:
     frames_measured: int = 0
     captions_measured: int = 0
     duration_seconds: float = 0.0
+    fps: float = 0.0
+    """The rate the measurements are in, so a finding's FRAMES can be
+    read as the SECONDS a revision has to scope itself to."""
 
     @property
     def failures(self) -> Tuple[CaptionFinding, ...]:
@@ -265,6 +268,7 @@ class CaptionVerdict:
             "frames_measured": int(self.frames_measured),
             "captions_measured": int(self.captions_measured),
             "duration_seconds": round(self.duration_seconds, 3),
+            "fps": float(self.fps),
             "seconds_per_minute": (
                 round(self.seconds * 60.0 / self.duration_seconds, 2)
                 if self.duration_seconds > 0 else None),
@@ -535,6 +539,14 @@ class _Observation:
     y0: float
     x1: float
     y1: float
+    frame: int = -1
+    """The delivered frame this text was read at, when it is known.
+
+    A COLLISION is only actionable if the reader can say WHERE it
+    happened: the frame it was seen at, and the box the other graphic
+    drew in.  A collision that names neither is a fact nobody can
+    turn into an edit, which is the shape QA-009 removes.
+    """
 
     @property
     def width(self) -> float:
@@ -550,12 +562,14 @@ class _Observation:
 
 
 def _observations(docs: Sequence[Sequence[dict]], width: int, height: int,
-                  origin: Tuple[int, int] = (0, 0)) -> List[_Observation]:
+                  origin: Tuple[int, int] = (0, 0),
+                  frame: int = -1) -> List[_Observation]:
     """The helper's readings as frame-pixel observations.
 
     `origin` is the top-left of the image the helper read, in frame
     pixels: a cropped probe reads its own box, and the box is put back
-    into the frame's coordinates here.
+    into the frame's coordinates here.  `frame` is the delivered frame
+    the reading came from, so a collision can name WHERE it happened.
     """
     out: List[_Observation] = []
     for texts in docs or ():
@@ -570,7 +584,8 @@ def _observations(docs: Sequence[Sequence[dict]], width: int, height: int,
                 x0=origin[0] + float(x) * width,
                 y0=origin[1] + float(y) * height,
                 x1=origin[0] + (float(x) + float(w)) * width,
-                y1=origin[1] + (float(y) + float(h)) * height))
+                y1=origin[1] + (float(y) + float(h)) * height,
+                frame=int(frame)))
     return out
 
 
@@ -704,7 +719,7 @@ def verify_delivered_captions(video_path: str,
                         break
                     scan[index] = _observations(
                         [docs[position]], row[2] - row[0], row[3] - row[1],
-                        origin=row[:2])
+                        origin=row[:2], frame=index)
             except Exception as exc:  # noqa: BLE001 - an absence, not a failure
                 scan = {}
                 ocr_reason = f"the delivered frames could not be read: {exc}"
@@ -757,6 +772,7 @@ def verify_delivered_captions(video_path: str,
         frames_measured=len(scan),
         captions_measured=len(intents),
         duration_seconds=float(facts["duration"] or 0.0),
+        fps=float(rate),
     )
 
 
@@ -957,7 +973,8 @@ def _check_intent(entry: dict,
                "caption does not go")),
         measured={"box": [round(value, 1) for value in measured_box],
                   "intended_box": list(intent.box) if intent.box else None,
-                  "offset_px": None if offset is None else round(offset, 1)}))
+                  "offset_px": None if offset is None else round(offset, 1),
+                  "frame": [0, 0, int(width), int(height)]}))
 
     # 4. THE READABILITY.
     floor = height * _render_qa_legibility_floor()
@@ -1051,10 +1068,23 @@ def _check_intent(entry: dict,
             "the caption collides with "
             + ", ".join(repr(observation.text) for observation in colliding)
             + " - another graphic is drawn over the caption's own box"
+            + (f", first seen at frame {colliding[0].frame}"
+               if colliding and colliding[0].frame >= 0 else "")
             if colliding else
             "nothing else is drawn over the caption's box"),
         measured={"collisions": [observation.text
-                                 for observation in colliding]}))
+                                 for observation in colliding],
+                  "collision_boxes": [
+                      [round(observation.x0, 1), round(observation.y0, 1),
+                       round(observation.x1, 1), round(observation.y1, 1)]
+                      for observation in colliding],
+                  "collision_frames": sorted({
+                      observation.frame for observation in colliding
+                      if observation.frame >= 0}),
+                  "caption_box": [round(value, 1) for value in measured_box],
+                  "frame": [0, 0, int(width), int(height)],
+                  "intended_first_frame": first,
+                  "intended_last_frame": last}))
 
     if ocr_reason:
         findings.append(CaptionFinding(

@@ -164,6 +164,56 @@ def _spans(text: str | None) -> list[tuple[float, float]]:
     return spans
 
 
+def _timeline_view(path: str | None):
+    """The timeline VIEW a targeted revision is planned against.
+
+    A revision names the ITEM it changes, and an item is a thing on a
+    timeline.  The view is the caller's account of that timeline: the
+    items, their rows, their spans and their boxes.  Without one, the
+    planner can still say what it cannot do - and says it by name
+    rather than guessing an item.
+    """
+    if not path:
+        return None
+    from library.tools.targeted_revision import RevisionContext
+
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise SystemExit(f"{path} does not hold a timeline view")
+    return RevisionContext.from_dict(data)
+
+
+def _targeted_revisions(qc: Any, view: Any) -> list[dict[str, Any]]:
+    """The narrow revision for each objective failure, or why there is none.
+
+    QA-009: a failure that names its property becomes a NARROW edit
+    request for just that property, and the parts of the work that were
+    already accepted are declared unchanged.  A failure with no narrow
+    revision is reported with the reason, and a failure that is a
+    judgement rather than a measurement is handed to a person.
+    """
+    from library.tools import targeted_revision
+
+    checks = targeted_revision.objective_checks(qc)
+    revisions = []
+    for check in checks:
+        if check.passed:
+            continue
+        if view is None:
+            revisions.append({
+                "check": check.as_dict(),
+                "status": "no_timeline_view",
+                "reason": ("no timeline view was supplied, so no item on "
+                           "the timeline can be named and no narrow edit "
+                           "can be planned"),
+                "next_action": "supply_the_timeline_view",
+            })
+            continue
+        revisions.append(
+            targeted_revision.plan_revision(check, view).as_dict())
+    return revisions
+
+
 def _review(args: argparse.Namespace, brief_set: dict[str, Any]) -> int:
     """One structured editorial review of one delivered file.
 
@@ -172,6 +222,10 @@ def _review(args: argparse.Namespace, brief_set: dict[str, Any]) -> int:
     from the evidence packet and carried in a file. The two are printed
     apart, because a subjective score must never be read as clearing an
     objective failure.
+
+    The review also carries the TARGETED REVISIONS (QA-009): for each
+    objective failure, the narrow edit request that would fix that one
+    property, with the accepted parts of the work declared unchanged.
     """
     from library.tools import delivery_spec
 
@@ -192,13 +246,21 @@ def _review(args: argparse.Namespace, brief_set: dict[str, Any]) -> int:
         target_lufs=spec.loudness_target_lufs,
         lufs_tolerance=spec.loudness_tolerance_lufs,
         true_peak_ceiling=spec.true_peak_ceiling_dbtp)
-    objective = judgement.objective_legs(
+    qc = judgement.objective_verdict(
         str(video), spec=spec,
         expected_duration=args.expected_duration
         or render.get("duration_seconds"),
         caption_intents=_caption_intents(args.caption_intents),
         declared_silence_spans=list(declared_silence),
         declared_black_spans=list(declared_black))
+    objective = judgement.objective_legs(
+        str(video), spec=spec,
+        expected_duration=args.expected_duration
+        or render.get("duration_seconds"),
+        caption_intents=_caption_intents(args.caption_intents),
+        declared_silence_spans=list(declared_silence),
+        declared_black_spans=list(declared_black),
+        qc=qc)
     judgments = None
     if args.judgments:
         judgments = json.loads(Path(args.judgments).read_text(encoding="utf-8"))
@@ -209,6 +271,8 @@ def _review(args: argparse.Namespace, brief_set: dict[str, Any]) -> int:
         brief=brief, render=render, judgments=judgments,
         judge=None if judgments is not None else _load_factory(args.judge)(),
         objective=objective)
+    record["targeted_revisions"] = _targeted_revisions(
+        qc, _timeline_view(args.timeline_view))
     out = runner.write_report(record, args.report)
     print(json.dumps({
         "verdict": record["verdict"],
@@ -219,6 +283,11 @@ def _review(args: argparse.Namespace, brief_set: dict[str, Any]) -> int:
         "subjective_failures": [row["leg"]
                                 for row in record["subjective_failures"]],
         "counts": record["counts"],
+        "targeted_revisions": [
+            {"check": row["check"]["property"],
+             "status": row["status"],
+             "reason": row["reason"]}
+            for row in record["targeted_revisions"]],
     }, indent=2))
     print(f"wrote {out}")
     return 0
@@ -266,6 +335,11 @@ def main(argv: list[str] | None = None) -> int:
                         help="a JSON file holding the caption intents the "
                              "delivered file's captions are compared "
                              "against")
+    parser.add_argument("--timeline-view", default=None,
+                        help="a JSON file holding the timeline view the "
+                             "targeted revisions are planned against - "
+                             "the items, their rows, their spans and "
+                             "their boxes")
     parser.add_argument("--declared-silence", default=None,
                         help="the seconds of the delivered file that are "
                              "DECLARED silent, as start:end pairs")

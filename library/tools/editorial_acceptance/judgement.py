@@ -506,6 +506,38 @@ def _unmeasured(name: str, citation: str, reason: str) -> dict[str, Any]:
             "detail": reason}
 
 
+def objective_verdict(video_path: str, *, spec: Any,
+                      expected_duration: float | None = None,
+                      caption_intents: Sequence[Any] | None = None,
+                      caption_spans: Sequence[tuple[float, float]] | None = None,
+                      declared_silence_spans: Sequence[tuple[float, float]]
+                      | None = None,
+                      declared_black_spans: Sequence[tuple[float, float]]
+                      | None = None,
+                      ) -> Any:
+    """The delivered file's QC verdict: the ONE measurement of the file.
+
+    The review reads this, and so does the TARGETED REVISION planner
+    (QA-009, `library/tools/targeted_revision.py`): the failure a
+    revision is planned from is the same measurement the review reports,
+    measured once.  A second measurement of the same file could
+    disagree with the first, and a revision planned from the other one
+    would be planned from a number nobody saw.
+    """
+    from library.tools import deliverable_qc
+
+    return deliverable_qc.run_deliverable_qc(
+        video_path, spec,
+        expected_duration if expected_duration is not None else 0.0,
+        declared_black_beats=list(declared_black_spans or ()),
+        declared_silence_spans=list(declared_silence_spans or ()),
+        caption_intents=list(caption_intents)
+        if caption_intents is not None else None,
+        caption_spans=list(caption_spans or ()),
+        expected_width=int(getattr(spec, "width", 0) or 0) or None,
+        expected_height=int(getattr(spec, "height", 0) or 0) or None)
+
+
 def objective_legs(video_path: str, *, spec: Any,
                    expected_duration: float | None = None,
                    caption_intents: Sequence[Any] | None = None,
@@ -514,6 +546,7 @@ def objective_legs(video_path: str, *, spec: Any,
                    | None = None,
                    declared_black_spans: Sequence[tuple[float, float]]
                    | None = None,
+                   qc: Any = None,
                    ) -> list[dict[str, Any]]:
     """The delivered file's OBJECTIVE legs, from the engine's own gates.
 
@@ -529,18 +562,14 @@ def objective_legs(video_path: str, *, spec: Any,
     with the measurement that WOULD speak to the leg cited beside the
     ones that ran.
     """
-    from library.tools import deliverable_qc
-
-    qc = deliverable_qc.run_deliverable_qc(
-        video_path, spec,
-        expected_duration if expected_duration is not None else 0.0,
-        declared_black_beats=list(declared_black_spans or ()),
-        declared_silence_spans=list(declared_silence_spans or ()),
-        caption_intents=list(caption_intents)
-        if caption_intents is not None else None,
-        caption_spans=list(caption_spans or ()),
-        expected_width=int(getattr(spec, "width", 0) or 0) or None,
-        expected_height=int(getattr(spec, "height", 0) or 0) or None)
+    if qc is None:
+        qc = objective_verdict(
+            video_path, spec=spec,
+            expected_duration=expected_duration,
+            caption_intents=caption_intents,
+            caption_spans=caption_spans,
+            declared_silence_spans=declared_silence_spans,
+            declared_black_spans=declared_black_spans)
 
     picture = getattr(qc, "picture", None)
     if picture is None:

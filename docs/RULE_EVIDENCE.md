@@ -9536,3 +9536,80 @@ uses of ONE media pool item on ONE row, replace one, and read the
 other back.  `tests/unit/resolve/test_scoped_replacement.py` names the
 defect on doubles, and `tests/unit/resolve/test_preservation_invariant.py`
 names the id mapping.
+
+## the-failure-nobody-could-act-on
+
+**The rule:** A quality failure that names its property becomes a NARROW edit
+request for just that property, the parts of the work that were already
+accepted are declared unchanged, the fix AND the previously satisfied
+constraints are verified separately, and the engine stops when a revision stops
+improving the file. `library/tools/targeted_revision.py` owns the contract.
+[why](docs/TARGETED_REVISION.md)
+
+**What happened.** The captain's punch list (2026-10-20, QA-009) asks for
+"targeted quality-driven revisions": identify the precise interval, decision or
+property behind a quality failure; create a narrow new edit request; preserve
+previously accepted portions of the work; verify both the corrected issue and
+the previously satisfied constraints; stop retrying if the result is not
+improving or the remaining decision is subjective.
+
+The engine had the first half by then, and had it well. The delivered-file
+checks NAME their failures: the audio spec (QA-004, PR 3046), the caption spec
+(QA-003, PR 3082) and the picture spec (QA-002, PR 3071) each say which
+property failed, over which interval, with the number they measured, and the
+editorial review (QA-006, PR 3088) keeps an objective failure apart from a
+subjective preference so the two are never confused.
+
+What was missing was the turn. A failure that says "the caption's box is
+collided at 47.2s" is a fact, and a fact nobody can turn into an edit is a
+report nobody acts on: the only way to act on a delivered file that failed a
+check was to rebuild the timeline, and a rebuild throws away every part of the
+work that was already accepted. That is the whole defect - not that the
+failure was unnamed, but that a name could not become an edit.
+
+**What it enforces.** One failing check in, one `EditRequest` out, whose
+operations touch only the item the failure implicates and whose parameters are
+read off the measurement (the loudness gain is the spec's target minus the
+file's own integrated loudness; the graphic's displacement is the overlap the
+file's own boxes measure). Every request carries preservation requirements for
+the rows, clips and markers it does not touch, so the read-back judges them
+rather than the requester hoping for them. The verification answers the
+corrected issue and the previously satisfied constraints SEPARATELY, so a
+revision that fixes the caption and breaks the loudness is a regression rather
+than a fix. A subjective failure is handed to a person, and a check whose last
+attempt did not improve is not attempted again.
+
+**What it does not do.** It does not invent taste, and it does not choose what
+goes into a gap: a picture that went black and a dialogue that was lost are
+reported as `needs_source`, because covering a gap needs material the timeline
+does not carry and choosing it is an editorial decision. It does not touch
+Resolve - the planner reads a timeline VIEW and writes a request, and the
+request goes to the same execution path every other edit goes to. And it does
+not measure anything: every number it uses was measured by the product's own
+gates.
+
+**MEASURED on a synthetic scratch file** (90 frames at 15 fps, 540x960;
+synthetic because the captain's media is read-only; 2026-10-21) with two
+seeded defects: a lower third drawn over the caption's own box, and an audio
+track 5.15 dB under the delivery spec's target. The engine's own
+delivered-file checks read 14 checks, 12 passing, 2 failing - the loudness and
+the collision, and nothing else.
+
+| | before | the narrow revision | after |
+|---|---|---|---|
+| integrated loudness | -19.15 LUFS (5.15 dB off the -14.0 target) | `audio.gain` +5.15 dB on the one audio item | -14.0 LUFS, inside the +/-1.0 tolerance |
+| caption collision | the lower third over the caption's box | `overlay.position` -32 px on the lower third; the caption's row declared unchanged | no collision |
+| the other 12 checks | passing | - | passing |
+
+"Nothing else changed" is measured on the seed's own frames: outside the
+graphic's old and new boxes the frames are identical, pixel for pixel, and the
+preservation invariant over a before/after snapshot pair reports `preserved`
+with no unrelated change.
+
+**What the collision's clearance is.** The graphic is moved a full
+CAPTION-INK-HEIGHT clear, not merely far enough for the two boxes not to
+overlap. A graphic left a couple of pixels from a caption is READ as part of
+it - the caption's own measured box grows to cover the neighbour - so the
+collision would be measured again after the move and the revision would have
+changed nothing the check can see. That was measured, not assumed: with a
+two-pixel clearance the seeded collision survived its own revision.
