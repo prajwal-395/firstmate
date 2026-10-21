@@ -107,6 +107,11 @@
         "description": "Prompt-only audit of the explicit B-roll evaluation policy and the number of candidates removed by each requirement; empty when no policy was selected."
       },
       {
+        "name": "broll_technical_leg",
+        "type": "string",
+        "description": "Bridge output: what the candidate table's tech_leg column measures, how to read its coverage and confidence, and the rule that keeps the technical reading a LEG of the choice rather than a preference - the technically sharpest candidate is not automatically the right one. The numbers themselves travel in broll_candidates_toon; this states the vocabulary they are read with. Declared here because the bridge emits it on every run and validate_step_output otherwise reports it as an unexpected extra field."
+      },
+      {
         "name": "footage_analysis_reference",
         "type": "string",
         "required": true,
@@ -174,6 +179,7 @@
   },
   "context_fields": [
     "broll_candidates_toon",
+    "broll_technical_leg",
     "footage_analysis_reference",
     "broll_window_frames",
     "broll_search_hints",

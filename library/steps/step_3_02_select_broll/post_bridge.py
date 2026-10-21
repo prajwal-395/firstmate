@@ -32,6 +32,7 @@ import sys
 
 from library.tools.semantic_index import build_semantic_lookup
 from library.tools import asset_transformations
+from library.tools import media_quality
 from library.tools.asset_transformations import check_needs_conform
 from library.tools.delivery_format import resolve_delivery_format
 from library.tools.cutaway_window import choose_window
@@ -300,6 +301,33 @@ def _search_provenance(clip_id: str, preferred_moment: str,
             "search_evidence": None}
 
 
+def _technical_leg_for_window(project_folder, clip, video_in, video_out,
+                               temporal_index):
+    """The measured media quality of the window that will actually play.
+
+    The candidate table measured the clip; the window is the interval
+    that reaches the timeline, so the leg is measured over THAT
+    interval. It is a measurement beside the decision, and it never
+    changes the decision: the clip was chosen on editorial grounds and
+    the leg says what the chosen window measures, not that it should
+    have been another one.
+    """
+    if not project_folder or video_out <= video_in:
+        return None
+    try:
+        leg = media_quality.technical_leg_for_clip(
+            project_folder, clip,
+            start_seconds=video_in, end_seconds=video_out,
+            temporal_index=temporal_index)
+    except Exception as exc:  # noqa: BLE001 - a measurement, never a gate
+        print(f"  Technical leg unavailable for {clip.get('clip_id')}: {exc}",
+              file=sys.stderr)
+        return None
+    if not leg.get("measured_indicators"):
+        return None
+    return media_quality.compact_leg(leg)
+
+
 def resolve_broll(
     broll_creative: list,
     broll_interjections: list,
@@ -545,6 +573,13 @@ def resolve_broll(
             # The stated slip this window carries (0.0 unstated) - the
             # E3 receipt beside the shifted seconds above.
             "slip_seconds": round(slip, 3),
+            # What the window that plays MEASURES: the technical leg of
+            # this interval, with its coverage and confidence. A receipt
+            # beside the choice, never a second choice - it does not say
+            # the window should have been another one.
+            "technical_leg": _technical_leg_for_window(
+                project_folder, clip, video_in, video_out,
+                index_lookup.get(clip_id)),
             "video_only": True,  # B-roll audio should NOT be linked
         })
         covered_positions.add(str(spine_pos))

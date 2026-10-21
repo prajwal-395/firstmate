@@ -76,6 +76,10 @@ VI-03    `image_defects.json`          sampled temporal noise,       `library/to
                                        blockiness, frozen/black      image_defects.py`
                                        samples, flicker, sharpness
                                        proxy (not focus/blur cause)
+PQ       `picture_quality.json`         the picture sampler's per-    `library/tools/analysis/
+                                       sample focus, luma, clipping, picture_quality.py`
+                                       residual noise and frame
+                                       difference readings
 ======== ============================ ============================= ==========
 
 A slot a lane has not written yet is ABSENT, never a default: an
@@ -199,6 +203,7 @@ SLOT_WORLD_MODEL = "world_model.json"          # M9 - written by world_model.py
 SLOT_RELATIONSHIPS = "relationships.json"       # M10 - written by relationships.py
 SLOT_AUDIO_QUALITY = "audio_quality.json"       # M11 - written by audio_quality.py
 SLOT_IMAGE_DEFECTS = "image_defects.json"        # VI-03 - image_defects.py
+SLOT_PICTURE_QUALITY = "picture_quality.json"    # picture_quality.py
 
 SLOT_BY_LANE = {
     "m0": SLOT_SOURCE, "m1": SLOT_TRANSCRIPT, "m1b": SLOT_SPEAKERS,
@@ -1956,6 +1961,21 @@ def read_image_defects(content_digest: str,
                        root: Optional[Path] = None) -> Optional[dict]:
     """VI-03 measurements, or None when image quality was not measured."""
     doc = _load_json(source_dir(content_digest, root) / SLOT_IMAGE_DEFECTS)
+    return doc if isinstance(doc, dict) else None
+
+
+def write_picture_quality(content_digest: str, record: dict,
+                           root: Optional[Path] = None) -> None:
+    """Write the picture sampler's per-sample track for one source."""
+    if record["content_digest"] != content_digest:
+        raise ValueError("picture quality digest does not match its slot")
+    write_json(source_dir(content_digest, root) / SLOT_PICTURE_QUALITY, record)
+
+
+def read_picture_quality(content_digest: str,
+                         root: Optional[Path] = None) -> Optional[dict]:
+    """The picture sampler's per-sample track, or None when never written."""
+    doc = _load_json(source_dir(content_digest, root) / SLOT_PICTURE_QUALITY)
     return doc if isinstance(doc, dict) else None
 
 

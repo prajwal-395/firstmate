@@ -49,6 +49,7 @@ from library.tools.footage_reference import (
     REFERENCE_WHY,
     footage_document,
 )
+from library.tools import media_quality
 from library.tools.pipeline_validation import require_keys
 from library.tools.project_layout import Area, ProjectLayout, layout_for
 from library.tools.semantic_index import build_semantic_lookup, clip_observations
@@ -72,7 +73,35 @@ MAX_CELL_CHARS = 200
 CANDIDATE_HEADERS = [
     "clip_id", "duration_s", "used_as_aroll", "framing", "stability",
     "camera_move", "content_type", "usable_range", "subjects", "description",
+    "tech_leg",
 ]
+
+#: The block that tells the model what the technical column is and what
+#: it is not. It is the ONLY place the rule is stated, so the numbers in
+#: the table cannot be read as a preference.
+TECHNICAL_LEG_BLOCK = """\
+## Technical leg (measured, per candidate)
+
+The `tech_leg` column carries the media-quality measurements over the
+candidate's usable range: focus, blur, exposure, motion, clipping,
+noise and usable speech. Each value is `value[measured/expected
+samples, confidence]`.
+
+- `samples/expected` is the COVERAGE: how many samples covered the
+  interval out of how many it needs. A half-measured candidate says so.
+- `confidence` is `full` (every sample the interval needs), `partial`
+  (some of them), `single_sample` (one sample stands for it) or `none`.
+- `-` means the lane that measures this indicator never ran. It is not a
+  zero and not a bad value: nobody looked.
+- Sharpness is a PROXY: it cannot separate defocus, motion blur and low
+  texture. The speech figure is a frequency-coverage proxy, never
+  intelligibility.
+
+This column is ONE LEG of the choice, beside what the shot shows and
+who is in it. It is not a ranking, and it does not make a candidate
+better: the technically sharpest shot is not automatically the right
+shot. Choose on the editorial grounds, and use these numbers to say
+which candidate is technically preferable and why."""
 
 
 def format_toon(headers, rows):
@@ -245,6 +274,75 @@ def build_search_hints(data: dict, catalog_entries: list) -> str:
     return sip.format_hints_block(hints)
 
 
+def _temporal_lookup(data) -> dict:
+    """The temporal index of every clip, keyed by clip id."""
+    raw = data.get("temporal_event_indices") or []
+    if isinstance(raw, dict):
+        raw = raw.get("temporal_event_indices", [])
+    return {row.get("clip_id"): row for row in raw if isinstance(row, dict)}
+
+
+def _technical_interval(assessment, duration):
+    """The interval a candidate's technical leg covers.
+
+    The candidate's USABLE range is the relevant interval: it is the
+    stretch the vision pass says may be cut from, so a measurement over
+    the whole clip would average in the parts nobody may use. A clip
+    with no measured usable range falls back to its own extent, and the
+    leg says which interval it covered.
+    """
+    ranges = (assessment or {}).get("usable_ranges")
+    if isinstance(ranges, list):
+        for entry in ranges:
+            if isinstance(entry, (list, tuple)) and len(entry) >= 2:
+                start, end = float(entry[0]), float(entry[1])
+            elif isinstance(entry, dict) and "start" in entry and "end" in entry:
+                start, end = float(entry["start"]), float(entry["end"])
+            else:
+                continue
+            if end > start >= 0:
+                return start, end
+    if duration and duration > 0:
+        return 0.0, float(duration)
+    return None
+
+
+def build_technical_legs(data, catalog, documents, temporal_lookup):
+    """The technical leg of every candidate, over its relevant interval.
+
+    A leg is a MEASUREMENT over an interval, with its coverage and its
+    confidence stated; it is never a score and never a preference (see
+    `library/tools/media_quality.py`). A candidate nobody measured is
+    reported as unmeasured, never as a clean one.
+
+    A lane that cannot answer never fails the step: an absent
+    measurement is the honest answer, and the step's own choice is not
+    the measurement's to gate.
+    """
+    project_folder = data.get("project_folder") or ""
+    legs = {}
+    if not project_folder:
+        return legs
+    for clip_id, clip_info in catalog.items():
+        doc = (documents or {}).get(clip_id) or {}
+        assessment = adapt_semantic_document(doc).get("assessment") or {}
+        duration = float(clip_info.get("duration_seconds") or 0.0)
+        interval = _technical_interval(assessment, duration)
+        if interval is None:
+            continue
+        try:
+            leg = media_quality.technical_leg_for_clip(
+                project_folder, clip_info,
+                start_seconds=interval[0], end_seconds=interval[1],
+                temporal_index=(temporal_lookup or {}).get(clip_id))
+        except Exception as exc:  # noqa: BLE001 - a measurement, never a gate
+            print(f"  Technical leg for {clip_id} unavailable: {exc}",
+                  file=sys.stderr)
+            continue
+        legs[clip_id] = leg
+    return legs
+
+
 def main():
     try:
         data = json.loads(sys.stdin.read())
@@ -310,6 +408,8 @@ def main():
     candidate_facets = {}
     clips_without_description = []
 
+    temporal_lookup = _temporal_lookup(data)
+
     for clip_id, clip_info in catalog.items():
         doc = semantic.get(clip_id, {})
         observed = clip_observations(doc)
@@ -343,6 +443,19 @@ def main():
         if "primary_subject_visible" in assessment:
             candidate_facets[clip_id]["subject_visible"] = bool(
                 assessment["primary_subject_visible"])
+
+    # The technical leg of every candidate: the measured media quality
+    # over the interval the candidate may be cut from. It is ONE LEG of
+    # the choice and never a ranking (see TECHNICAL_LEG_BLOCK).
+    technical_legs = build_technical_legs(
+        data, catalog, semantic, temporal_lookup)
+    for candidate_row in candidates_rows:
+        leg = technical_legs.get(candidate_row["clip_id"])
+        if not leg or not leg.get("measured_indicators"):
+            candidate_row["tech_leg"] = "not measured"
+            continue
+        candidate_row["tech_leg"] = _cell(
+            media_quality.render_leg_cell(leg), MAX_CELL_CHARS)
 
     # A policy is opt-in by exact reference from project_config. The Project
     # Model is the authority; never synthesize a default or pick a policy.
@@ -416,6 +529,7 @@ def main():
     out = {
         "broll_candidates_toon": candidates_toon,
         "broll_policy_filter_report": broll_policy_report,
+        "broll_technical_leg": TECHNICAL_LEG_BLOCK,
         "footage_analysis_reference": write_footage_reference(
             project_folder,
             data.get("semantic_analysis_documents", {}),

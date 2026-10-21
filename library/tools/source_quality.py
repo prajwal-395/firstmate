@@ -6,10 +6,13 @@ measurements were already there and had no name:
 
 - VI-03 (``image_defects.json``) measured sharpness, temporal noise,
   compression blockiness and the two clipping fractions;
+- the picture-quality lane (``picture_quality.json``) measured the
+  per-sample focus, luma, clipping, residual-noise and frame-difference
+  readings the picture sampler already takes;
 - step 1.04's temporal index measured camera translation, subject energy
   and the face track that carries the subject's position and width;
-- M11 (``audio_quality.json``) measured SNR and the speech-band energy
-  fraction.
+- M11 (``audio_quality.json``) measured SNR, the speech-band energy
+  fraction and the silence intervals.
 
 Every one of those numbers was reachable, but a reader had to know which
 lane produced it, at what resolution, over which interval, and what its
@@ -26,6 +29,14 @@ punch list's dimensions are focus, exposure, motion, framing, noise and
 intelligibility; ``compression`` is the seventh because VI-03 already
 measured blockiness and the search index already filters on it, so
 dropping it would lose a measurement that exists.
+
+**Coverage and confidence are stated, not implied.** Every dimension
+carries how much of the requested span the samples behind it actually
+covered - how many samples, at what rate, out of how many the span
+needs - and a confidence that says whether an instrument or a model
+produced the number. A dimension measured over half the span is not the
+same reading as one measured over all of it, and a reader has to be
+able to tell them apart.
 
 **Absence is never a default.** A dimension whose lane never ran, or
 whose samples do not cover the span, is ``absent`` with a machine-
@@ -92,6 +103,7 @@ ABSENT = "absent"
 #: it. The 1.04 temporal index is a project-side step output, not a
 #: source-memory slot, so it is named by its step.
 LANE_VI03 = "vi-03"
+LANE_PICTURE = "picture_quality"
 LANE_TEMPORAL = "1_04_temporal_index"
 LANE_M11 = "m11"
 
@@ -104,6 +116,11 @@ VI03_METHOD = "image_defects_v1@180px"
 #: 480 px short side (`capabilities/temporal/index.FACE_SAMPLE_SHORT_SIDE`),
 #: so the method names that geometry.
 FRAMING_METHOD = "haar-face-presence-v1@480px"
+
+#: The picture-quality lane's own geometry: 180 px on the short side,
+#: 5 Hz - the same frames VI-03 samples, so the two lanes' numbers are
+#: comparable and only one of them needs to answer a dimension.
+PICTURE_METHOD = "picture_quality_pixels_v1@180px"
 
 #: The VI-03 signal blocks this profile reads, in the order they are
 #: reduced. Every one of them is a registry measurement type.
@@ -130,7 +147,8 @@ def _entry(measurement_type: str) -> dict[str, Any]:
 
 def _measure(measurement_type: str, value: float, method: str, lane: str,
              *, start_seconds: float, end_seconds: float,
-             samples: int | None = None, note: str | None = None
+             samples: int | None = None, note: str | None = None,
+             sample_rate_hz: float | None = None
              ) -> dict[str, Any]:
     """One measured value, typed by the evidence contract's registry."""
     entry = _entry(measurement_type)
@@ -161,6 +179,10 @@ def _measure(measurement_type: str, value: float, method: str, lane: str,
         "end_seconds": round(float(end_seconds), 6),
         "samples": samples,
     }
+    if sample_rate_hz is not None:
+        # The rate the samples were taken at. Coverage is computed from
+        # it, so a reader can tell a full reading from a partial one.
+        measure["sample_rate_hz"] = float(sample_rate_hz)
     if note:
         measure["note"] = note
     return measure
@@ -228,8 +250,92 @@ def _vi03_measures(image_defects: dict | None, start: float, end: float
         measures.append(_measure(
             measurement_type, sum(measured) / len(measured), method,
             LANE_VI03, start_seconds=start, end_seconds=end,
-            samples=len(measured),
+            samples=len(measured), sample_rate_hz=rate,
             note=_VI03_NOTE.get(measurement_type)))
+    return measures
+
+
+#: Which picture-quality sample each measurement type is read from.
+#: The picture sampler already measures every one of them per sample,
+#: so the lane adds no decode: it records what the sampler read.
+_PICTURE_SIGNAL = {
+    "image.sharpness.laplacian_variance": "focus_laplacian_variance",
+    "image.exposure.luma_mean": "luma_mean",
+    "image.exposure.underexposed_fraction": "underexposed_pixel_fraction",
+    "image.exposure.overexposed_fraction": "overexposed_pixel_fraction",
+    "image.temporal_noise.residual": "low_gradient_residual_sigma_luma",
+    "image.motion.frame_difference_luma_fraction":
+        "frame_difference_luma_fraction",
+    "image.motion.blur_proxy": "motion_blur_proxy",
+}
+
+#: Every picture measurement type the picture-quality lane answers.
+_PICTURE_MEASUREMENTS = tuple(_PICTURE_SIGNAL)
+
+_PICTURE_NOTE = {
+    "image.sharpness.laplacian_variance":
+        "a sharpness proxy: it cannot separate defocus, motion blur and "
+        "low texture, and it is never a focus verdict",
+    "image.exposure.luma_mean":
+        "the mean luma of the decoded greyscale frame: a brightness "
+        "reading, not an exposure verdict",
+    "image.exposure.underexposed_fraction":
+        "a shadow-loss proxy over decoded pixels, not an exposure "
+        "recommendation",
+    "image.exposure.overexposed_fraction":
+        "a highlight-loss proxy over decoded pixels, not an exposure "
+        "recommendation",
+    "image.temporal_noise.residual":
+        "a low-gradient high-pass residual in decoded pixels, not a "
+        "sensor-noise diagnosis",
+    "image.motion.frame_difference_luma_fraction":
+        "the mean absolute luma difference from the preceding sampled "
+        "frame: how much the picture changed, never why",
+    "image.motion.blur_proxy":
+        "frame difference paired with how far the frame sits below its "
+        "own clip's sharpness threshold: how soft a moving frame is, "
+        "not the optical cause",
+}
+
+
+def _picture_measures(picture_quality: dict | None, start: float,
+                      end: float) -> list[dict[str, Any]]:
+    """The picture-quality lane's per-sample readings reduced over a span.
+
+    The lane's record is one row per sample, each with the sample's own
+    timestamp, so the reduction selects the rows the span covers and
+    averages them. A row whose reading is absent (the first frame has
+    no frame difference to compare with) is skipped, never read as zero.
+    """
+    if not isinstance(picture_quality, dict):
+        return []
+    rows = picture_quality.get("measurements")
+    if not isinstance(rows, list):
+        return []
+    rate = picture_quality.get("sample_rate_hz")
+    rate = float(rate) if isinstance(rate, (int, float)) and rate > 0 else None
+    method = picture_quality.get("method") or "picture_quality_pixels_v1"
+    size = picture_quality.get("sample_short_side_px")
+    if isinstance(size, int) and size > 0:
+        method = f"{method}@{size}px"
+    selected = [row for row in rows
+                if isinstance(row, dict)
+                and isinstance(row.get("time_s"), (int, float))
+                and start <= float(row["time_s"]) < end]
+    if not selected:
+        return []
+    measures = []
+    for measurement_type, key in _PICTURE_SIGNAL.items():
+        values = [float(row[key]) for row in selected
+                  if isinstance(row.get(key), (int, float))
+                  and not isinstance(row.get(key), bool)]
+        if not values:
+            continue
+        measures.append(_measure(
+            measurement_type, sum(values) / len(values), method,
+            LANE_PICTURE, start_seconds=start, end_seconds=end,
+            samples=len(values), sample_rate_hz=rate,
+            note=_PICTURE_NOTE.get(measurement_type)))
     return measures
 
 
@@ -384,11 +490,14 @@ def _intelligibility_measures(audio_quality: dict | None, start: float,
         method = "unrecorded"
     measures = []
     fractions: list[float] = []
+    channel_samples: list[int] = []
+    non_silent: list[float] = []
     for channel in channels:
         if not isinstance(channel, dict):
             continue
         rows = channel.get("intervals")
         if isinstance(rows, list):
+            per_channel: list[float] = []
             for row in rows:
                 if not isinstance(row, dict):
                     continue
@@ -401,7 +510,17 @@ def _intelligibility_measures(audio_quality: dict | None, start: float,
                     continue
                 if row_end <= start or row_start >= end:
                     continue
-                fractions.append(float(fraction))
+                per_channel.append(float(fraction))
+            if per_channel:
+                # One mean per channel, then the mean of the channels:
+                # the channels are alternatives, not more samples of one
+                # timeline, so adding them up would overstate the
+                # coverage of the span.
+                fractions.append(sum(per_channel) / len(per_channel))
+                channel_samples.append(len(per_channel))
+        share = _non_silent_share(channel, start, end)
+        if share is not None:
+            non_silent.append(share)
         snr = channel.get("snr_db")
         if isinstance(snr, (int, float)) and not isinstance(snr, bool):
             span_end = float(source_duration) if isinstance(
@@ -416,31 +535,156 @@ def _intelligibility_measures(audio_quality: dict | None, start: float,
         measures.append(_measure(
             "audio.intelligibility.speech_band_energy_fraction",
             sum(fractions) / len(fractions), method, LANE_M11,
-            start_seconds=start, end_seconds=end, samples=len(fractions),
+            start_seconds=start, end_seconds=end,
+            samples=max(channel_samples) if channel_samples else None,
+            sample_rate_hz=1.0,
             note="the share of the 300-3400 Hz band that carries energy: a "
                  "frequency coverage proxy only, not intelligibility and "
                  "not word recognition"))
+    if non_silent:
+        measures.append(_measure(
+            "audio.speech.non_silent_fraction",
+            sum(non_silent) / len(non_silent), method, LANE_M11,
+            start_seconds=start, end_seconds=end,
+            note="the share of the span that is not silent: whether the "
+                 "sound is there at all, never what was said"))
     if not measures:
         return [], "no_audio_quality"
     return measures, None
 
 
+def _non_silent_share(channel: dict, start: float, end: float) -> float | None:
+    """The share of the span the lane did not measure as silent.
+
+    The lane's silence intervals are resolved at 100 ms and the silence
+    threshold is its own; the share says whether there is sound in the
+    span at all, and says nothing about what was said.
+    """
+    intervals = channel.get("silence_intervals")
+    if not isinstance(intervals, list):
+        return None
+    span = max(0.0, float(end) - float(start))
+    if span <= 0:
+        return None
+    silent = 0.0
+    for interval in intervals:
+        if not isinstance(interval, dict):
+            continue
+        interval_start = interval.get("start_seconds")
+        interval_end = interval.get("end_seconds")
+        if not isinstance(interval_start, (int, float)) or \
+                not isinstance(interval_end, (int, float)):
+            continue
+        overlap = min(float(end), float(interval_end)) - max(
+            float(start), float(interval_start))
+        if overlap > 0:
+            silent += overlap
+    return round(max(0.0, min(1.0, 1.0 - silent / span)), 6)
+
+
 # ── The profile ─────────────────────────────────────────────────────
+
+#: The confidence levels a dimension can state. ``full`` means every
+#: sample the span needs was measured; ``partial`` means some of them
+#: were; ``single_sample`` means one sample stands for the span;
+#: ``none`` means nothing was measured. The level describes COVERAGE;
+#: the basis says whether an instrument or a model produced the number.
+CONFIDENCE_FULL = "full"
+CONFIDENCE_PARTIAL = "partial"
+CONFIDENCE_SINGLE = "single_sample"
+CONFIDENCE_NONE = "none"
+
+BASIS_INSTRUMENT = "instrument_reading"
+BASIS_MODEL = "model_reading"
+BASIS_ABSENT = "absent"
 
 
 def _absent_dimension(reason: str) -> dict[str, Any]:
-    return {"status": ABSENT, "measures": [], "absent_reason": reason}
+    return {"status": ABSENT, "measures": [], "absent_reason": reason,
+            "coverage": {"kind": "unavailable", "samples": 0,
+                         "expected_samples": None, "covered_fraction": None,
+                         "sample_rate_hz": None, "interval_s": None},
+            "confidence": {"level": CONFIDENCE_NONE, "basis": BASIS_ABSENT,
+                           "because": "no lane measured this dimension over "
+                                      "the requested span"}}
+
+
+def _coverage_of(measures: list[dict[str, Any]], span: tuple[float, float]
+                 ) -> dict[str, Any]:
+    """How much of the span the samples behind these measures covered.
+
+    The coverage is DURATION: the samples stand for
+    ``samples / rate`` seconds of the span, and the fraction is that
+    share of the span. A span covered to within half a sampling period
+    is complete - the half period is the gap the sample grid cannot
+    see, not a gap in the measurement.
+    """
+    best: tuple[int, float] | None = None
+    for measure in measures:
+        samples = measure.get("samples")
+        rate = measure.get("sample_rate_hz")
+        if not isinstance(samples, int) or samples <= 0:
+            continue
+        if not isinstance(rate, (int, float)) or rate <= 0:
+            continue
+        if best is None or samples > best[0]:
+            best = (samples, float(rate))
+    if best is None:
+        return {"kind": "unavailable", "samples": 0, "sample_rate_hz": None,
+                "covered_seconds": 0.0, "covered_fraction": None,
+                "interval_s": [span[0], span[1]]}
+    samples, rate = best
+    width = max(0.0, span[1] - span[0])
+    covered_seconds = samples / rate
+    fraction = None
+    if width > 0:
+        fraction = round(min(1.0, covered_seconds / width), 4)
+    tolerance = 0.5 / rate
+    kind = ("complete" if width <= 0 or (width - covered_seconds) <= tolerance
+            else "sampled")
+    return {"kind": kind, "samples": samples, "sample_rate_hz": rate,
+            "covered_seconds": round(covered_seconds, 3),
+            "covered_fraction": fraction, "interval_s": [span[0], span[1]]}
+
+
+def _confidence_of(measures: list[dict[str, Any]],
+                   coverage: dict[str, Any]) -> dict[str, Any]:
+    """The confidence the measures earn, and what produced them."""
+    kinds = {measure.get("certainty") for measure in measures}
+    basis = BASIS_MODEL if "inferred" in kinds else BASIS_INSTRUMENT
+    samples = coverage.get("samples") or 0
+    fraction = coverage.get("covered_fraction")
+    if samples <= 0:
+        level = CONFIDENCE_NONE
+        because = "no sample of the requested span was measured"
+    elif samples == 1:
+        level = CONFIDENCE_SINGLE
+        because = "one sample stands for the requested span"
+    elif coverage.get("kind") == "complete":
+        level = CONFIDENCE_FULL
+        because = (f"the samples cover the span ({samples} at "
+                   f"{coverage.get('sample_rate_hz')} Hz)")
+    else:
+        level = CONFIDENCE_PARTIAL
+        because = (f"the samples cover {coverage.get('covered_fraction')} of "
+                   f"the span ({samples} at "
+                   f"{coverage.get('sample_rate_hz')} Hz)")
+    return {"level": level, "basis": basis, "because": because}
 
 
 def _dimension(measures: list[dict[str, Any]],
-               absent_reason: str | None) -> dict[str, Any]:
+               absent_reason: str | None,
+               span: tuple[float, float] = (0.0, 0.0)) -> dict[str, Any]:
     if measures:
+        coverage = _coverage_of(measures, span)
         return {"status": MEASURED, "measures": measures,
-                "absent_reason": None}
+                "absent_reason": None, "coverage": coverage,
+                "confidence": _confidence_of(measures, coverage)}
     return _absent_dimension(absent_reason or "not_measured")
 
 
 def profile_over_span(*, image_defects: dict | None = None,
+                      picture_quality: dict | None = None,
                       temporal_index: dict | None = None,
                       audio_quality: dict | None = None,
                       start_seconds: float = 0.0,
@@ -452,9 +696,10 @@ def profile_over_span(*, image_defects: dict | None = None,
                       ) -> dict[str, Any]:
     """The quality profile of one span, reduced from measured records.
 
-    The three inputs are the records the lanes own: VI-03's image
-    defects, step 1.04's temporal index and M11's audio quality. Nothing
-    here re-measures anything and nothing here decodes a frame.
+    The inputs are the records the lanes own: VI-03's image defects, the
+    picture-quality lane's per-sample track, step 1.04's temporal index
+    and M11's audio quality. Nothing here re-measures anything and
+    nothing here decodes a frame.
 
     A span that no lane covers produces a profile whose every dimension
     is ``absent`` with the reason each one is missing. That is the
@@ -470,18 +715,29 @@ def profile_over_span(*, image_defects: dict | None = None,
             "a quality profile needs a non-empty half-open span")
     if start < 0:
         raise SourceQualityError("a quality profile cannot start before zero")
+    span = (start, end)
 
     by_dimension: dict[str, list[dict[str, Any]]] = {
         name: [] for name in DIMENSIONS}
     reasons: dict[str, str] = {}
 
+    # The picture-quality lane answers the picture dimensions the
+    # pipeline measures on every run; VI-03 answers the rest and fills
+    # a gap the picture lane did not measure. One measurement type is
+    # filed once, by the lane that produced it.
+    picture_measures = _picture_measures(picture_quality, start, end)
+    answered = {measure["measurement_type"] for measure in picture_measures}
+    for measure in picture_measures:
+        by_dimension[_dimension_of(measure["measurement_type"])].append(measure)
     for measure in _vi03_measures(image_defects, start, end):
+        if measure["measurement_type"] in answered:
+            continue
         by_dimension[_dimension_of(measure["measurement_type"])].append(measure)
     if not by_dimension["focus"] and not by_dimension["exposure"] \
             and not by_dimension["noise"] and not by_dimension["compression"]:
-        reasons.setdefault("focus", "no_image_defects_record")
-        reasons.setdefault("exposure", "no_image_defects_record")
-        reasons.setdefault("noise", "no_image_defects_record")
+        reasons.setdefault("focus", "no_picture_measurement_record")
+        reasons.setdefault("exposure", "no_picture_measurement_record")
+        reasons.setdefault("noise", "no_picture_measurement_record")
         reasons.setdefault("compression", "no_image_defects_record")
 
     motion = _motion_measures(temporal_index, start, end)
@@ -501,7 +757,7 @@ def profile_over_span(*, image_defects: dict | None = None,
         reasons.setdefault("intelligibility", intelligibility_reason)
 
     dimensions = {
-        name: _dimension(by_dimension[name], reasons.get(name))
+        name: _dimension(by_dimension[name], reasons.get(name), span)
         for name in DIMENSIONS
     }
     measured = [name for name in DIMENSIONS
@@ -525,17 +781,33 @@ def profile_over_span(*, image_defects: dict | None = None,
 #: Which dimension each registry measurement type belongs to.
 _DIMENSION_OF = {
     "image.sharpness.laplacian_variance": "focus",
+    "image.motion.blur_proxy": "focus",
+    "image.exposure.luma_mean": "exposure",
     "image.exposure.underexposed_fraction": "exposure",
     "image.exposure.overexposed_fraction": "exposure",
     "image.temporal_noise.residual": "noise",
     "image.compression.blockiness_proxy": "compression",
+    "image.motion.frame_difference_luma_fraction": "motion",
     "image.motion.camera_translation": "motion",
     "image.motion.subject_energy": "motion",
     "image.framing.subject_center_x": "framing",
     "image.framing.subject_width_fraction": "framing",
     "audio.snr_db": "intelligibility",
     "audio.intelligibility.speech_band_energy_fraction": "intelligibility",
+    "audio.speech.non_silent_fraction": "intelligibility",
 }
+
+
+def coverage_of(measures: list[dict[str, Any]],
+                span: tuple[float, float]) -> dict[str, Any]:
+    """The public face of the coverage rule, so a reader cannot drift."""
+    return _coverage_of(measures, span)
+
+
+def confidence_of(measures: list[dict[str, Any]],
+                  coverage: dict[str, Any]) -> dict[str, Any]:
+    """The public face of the confidence rule."""
+    return _confidence_of(measures, coverage)
 
 
 def _dimension_of(measurement_type: str) -> str:
@@ -544,6 +816,16 @@ def _dimension_of(measurement_type: str) -> str:
     except KeyError:
         raise SourceQualityError(
             f"{measurement_type} belongs to no quality dimension") from None
+
+
+def dimension_of(measurement_type: str) -> str:
+    """The dimension a measurement type belongs to.
+
+    The public face of the enumeration, so a reader that wants to know
+    which dimension answers a measurement does not reach into the
+    private map.
+    """
+    return _dimension_of(measurement_type)
 
 
 def facets_of(profile: dict[str, Any]) -> dict[str, float]:
@@ -614,10 +896,11 @@ def profile_for_clip(project_folder, clip: dict, *,
                      root=None) -> dict[str, Any]:
     """The quality profile of one clip, or of a span of it.
 
-    Reads the three lanes' own records: VI-03's image defects and M11's
-    audio quality out of the per-source memory, and step 1.04's temporal
-    index out of the project's step output. A lane that never ran
-    contributes an absent dimension with a reason, never a default.
+    Reads the lanes' own records: VI-03's image defects, the
+    picture-quality lane's per-sample track and M11's audio quality out
+    of the per-source memory, and step 1.04's temporal index out of the
+    project's step output. A lane that never ran contributes an absent
+    dimension with a reason, never a default.
     """
     from library.tools import source_memory
     from library.tools.analysis import footage_segments
@@ -627,6 +910,8 @@ def profile_for_clip(project_folder, clip: dict, *,
         project_folder, clip, recorded)
     image_defects = (source_memory.read_image_defects(digest, root)
                      if digest else None)
+    picture_quality = (source_memory.read_picture_quality(digest, root)
+                       if digest else None)
     audio_quality = (source_memory.read_audio_quality(digest, root)
                      if digest else None)
     if temporal_index is None:
@@ -637,6 +922,11 @@ def profile_for_clip(project_folder, clip: dict, *,
         end = float(clip.get("duration_seconds") or 0.0)
         if end <= start:
             end = start + 1.0
+    else:
+        # An explicit span is the caller's: it names the interval the
+        # measurement is about (a cutaway window, a line), and it is
+        # never widened to the clip's own length.
+        end = float(end_seconds)
     source_file = clip.get("source_file") or clip.get("path") or None
     asset_id = clock_id = None
     if digest:
@@ -645,6 +935,7 @@ def profile_for_clip(project_folder, clip: dict, *,
         clock_id = model_link.clock_id_for_digest(digest)
     return profile_over_span(
         image_defects=image_defects,
+        picture_quality=picture_quality,
         temporal_index=temporal_index,
         audio_quality=audio_quality,
         start_seconds=start, end_seconds=end,

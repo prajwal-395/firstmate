@@ -84,6 +84,7 @@ and points here.
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 
@@ -424,6 +425,53 @@ def measure_soft_picture(video_path, duration):
     except (OSError, subprocess.SubprocessError):
         return None
     return soft_picture_ranges(track, duration)
+
+
+def persist_source_track(video_path, root=None, content_digest=None):
+    """Measure one source's picture track and file it in the source memory.
+
+    The track is what the sampler already reads per sample - focus,
+    luma, the two clipping fractions, the residual noise proxy and the
+    frame difference - kept so the technical leg
+    (``library/tools/media_quality.py``) can read numbers over an
+    interval instead of decoding the footage again.
+
+    The frames come from the shared decode, so a clip whose softness
+    was just measured reuses those frames: this call adds the
+    measurements, not a second decode.
+
+    Returns the stored record, or ``None`` when the source could not be
+    measured or written. Nothing here refuses a run: an unstored track
+    is an absent measurement, and the reader says so.
+    """
+    from library.tools import footage_identity, source_memory
+
+    try:
+        quality = sample_picture_quality(video_path)
+    except (PictureQualityUnavailable, OSError, subprocess.SubprocessError):
+        return None
+    try:
+        fingerprint = footage_identity.fingerprint(video_path)
+    except OSError:
+        return None
+    digest = content_digest or fingerprint["content_digest"]
+    record = {
+        "schema_version": 1,
+        "content_digest": digest,
+        "size_bytes": fingerprint.get("size_bytes"),
+        "source_file": os.path.abspath(video_path),
+        "method": quality["method"],
+        "sample_rate_hz": quality["sample_rate_hz"],
+        "sample_short_side_px": quality["sample_short_side_px"],
+        "display_width_px": quality["display_width_px"],
+        "display_height_px": quality["display_height_px"],
+        "measurements": quality["measurements"],
+    }
+    try:
+        source_memory.write_picture_quality(digest, record, root)
+    except (OSError, ValueError):
+        return None
+    return record
 
 
 def _main(argv=None):

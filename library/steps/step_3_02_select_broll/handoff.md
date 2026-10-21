@@ -25,6 +25,14 @@ that do (speech and picture blocks). You have access to:
   vision analysis measured: `framing`, `stability`, `camera_move`,
   `content_type`, `usable_range`, `subjects` and a time-bounded
   `description`. This is the primary source of WHAT is in each clip.
+  The row's `tech_leg` carries the MEASURED media quality of that
+  candidate over its usable range - focus, blur, exposure, motion,
+  clipping, noise and usable speech - each with the coverage of the
+  samples behind it and how sure the reading is.
+- **`broll_technical_leg`** — what the `tech_leg` column means, how to
+  read its coverage and confidence, and the rule that keeps it a leg
+  rather than a preference: the technically sharpest candidate is not
+  automatically the right one.
 - **`broll_policy_filter_report`** — the exact project policy version and
   per-requirement removal counts. Requirements are applied before creative
   selection; a missing or unknown facet cannot satisfy a requirement.

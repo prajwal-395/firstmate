@@ -3820,6 +3820,18 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
         # again rather than carrying the absence forward.
         if layer_cache and soft_ranges is not None:
             layer_cache.put("picture", {"soft_ranges": soft_ranges})
+    # The same pass measured more than the soft ranges: its per-sample
+    # focus, luma, clipping, noise and frame-difference readings are
+    # filed in the source memory, so the technical leg
+    # (library/tools/media_quality.py) can read numbers over an interval
+    # instead of decoding the footage again. The frames come from the
+    # shared decode, so this adds the measurements rather than a second
+    # decode. An unstored track is an absent measurement and never fails
+    # the clip.
+    try:
+        picture_quality.persist_source_track(video_path)
+    except Exception as exc:  # noqa: BLE001 - a measurement, never a gate
+        print(f"  (picture track not stored: {exc})", file=sys.stderr)
     t_pic = clock() - t_pic
     if soft_ranges is None:
         print(f"({t_pic:.1f}s) → unmeasured")

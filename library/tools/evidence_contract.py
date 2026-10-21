@@ -259,6 +259,29 @@ _REGISTRY: dict[str, dict[str, Any]] = {
         "description": "Fraction of decoded greyscale pixels at luma >=251; "
         "a highlight-loss proxy, not an exposure recommendation.",
     },
+    "image.exposure.luma_mean": {
+        "unit": "0_255", "kind": EvidenceType.MEASUREMENT,
+        "producer_kind": "instrument",
+        "requires_resolution": True,
+        "description": "Mean luma of the decoded greyscale frame: a "
+        "brightness reading, not an exposure verdict and not a "
+        "correction.",
+    },
+    "image.motion.frame_difference_luma_fraction": {
+        "unit": "fraction_0_1", "kind": EvidenceType.MEASUREMENT,
+        "producer_kind": "instrument",
+        "requires_resolution": True,
+        "description": "Mean absolute luma difference from the preceding "
+        "sampled frame: how much the picture changed, never why.",
+    },
+    "image.motion.blur_proxy": {
+        "unit": "fraction_0_1", "kind": EvidenceType.MEASUREMENT,
+        "producer_kind": "instrument",
+        "requires_resolution": True,
+        "description": "Frame difference paired with how far the frame sits "
+        "below its own clip's sharpness threshold: how soft a moving "
+        "frame is, never the optical cause.",
+    },
     "image.luma.rec709_p50": {
         "unit": "0_255", "kind": EvidenceType.MEASUREMENT,
         "producer_kind": "instrument",
@@ -311,6 +334,13 @@ _REGISTRY: dict[str, dict[str, Any]] = {
         "description": "The share of the 300-3400 Hz band carrying energy "
         "over an interval. A frequency coverage proxy only: never "
         "intelligibility, never word recognition.",
+    },
+    "audio.speech.non_silent_fraction": {
+        "unit": "fraction_0_1", "kind": EvidenceType.MEASUREMENT,
+        "producer_kind": "instrument",
+        "requires_resolution": False,
+        "description": "The share of an interval that is not silent: "
+        "whether sound is there at all, never what was said.",
     },
     "image.color.rgb_mean": {
         "unit": "rgb_0_255", "kind": EvidenceType.MEASUREMENT,
