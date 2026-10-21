@@ -1,0 +1,66 @@
+{
+  "note": "The two-camera podcast corpus, labelled. The source media is the captain's own footage and is read in place; nothing here names a path to it. The labels are: 'person' = the camera's own person (who is ON SCREEN; LC49xx is Akshita's camera, LCATL00xx is Craig's - the file-level labelling the person-entity-store FAR/FRR study used), and 'voices' = who is SPEAKING in each diarized track. A track labelled 'uncertain' matches no speaker above VOICE_MATCH_THRESHOLD (0.45): LCATL0012/voice_002 sits at 0.31 to its camera's dominant voice and LCATL0013/voice_002 at 0.16. The remaining tracks are labelled by their cross-angle ECAPA agreement (0.86-0.97 with the same speaker's own-camera voice).",
+  "sources": [
+    {
+      "content_digest": "d19007c31379d0706cfff08b90777227acddb40c48a1971ba70da680c93db5a4",
+      "source_name": "LCATL0011.MXF",
+      "person": "Craig",
+      "voices": {
+        "voice_001": "Craig"
+      }
+    },
+    {
+      "content_digest": "4fa282cea14702c4883091dfa5a326e183b8f283b50510c9df81f5ab50695049",
+      "source_name": "LCATL0012.MXF",
+      "person": "Craig",
+      "voices": {
+        "voice_001": "Craig",
+        "voice_002": "uncertain"
+      }
+    },
+    {
+      "content_digest": "157522998320e9352229df48c41722da817438bae118534410cb7d7411bb1c7c",
+      "source_name": "LCATL0013.MXF",
+      "person": "Craig",
+      "voices": {
+        "voice_001": "Craig",
+        "voice_002": "uncertain"
+      }
+    },
+    {
+      "content_digest": "f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1",
+      "source_name": "LCATL0014.MXF",
+      "person": "Craig",
+      "voices": {
+        "voice_001": "Craig"
+      }
+    },
+    {
+      "content_digest": "9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+      "source_name": "LC4930.MXF",
+      "person": "Akshita",
+      "voices": {
+        "voice_001": "Craig",
+        "voice_002": "Akshita"
+      }
+    },
+    {
+      "content_digest": "c11218156a07c8cb4d3666c29f7d80c7ebd13e49e27765ff5d73dd4e7ff66d73",
+      "source_name": "LC4931.MXF",
+      "person": "Akshita",
+      "voices": {
+        "voice_001": "Craig",
+        "voice_002": "Akshita"
+      }
+    },
+    {
+      "content_digest": "dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea",
+      "source_name": "LC4932.MXF",
+      "person": "Akshita",
+      "voices": {
+        "voice_001": "Akshita",
+        "voice_002": "Craig"
+      }
+    }
+  ]
+}

@@ -15,6 +15,14 @@ buffalo_l also reports sex/age; the scout measured those WRONG (Akshita
 read as M 34-43) and this module never reads them. A face's identity is
 its 512-d ArcFace embedding and nothing else.
 
+**Who a voice belongs to is the MEASURED voice, not whoever is on
+screen.** The person on screen is not always the person talking: a
+camera picks up the other speaker, and the roster used to file that
+speech under the person in shot, so one speaker resolved to two people
+depending on the angle. The rules and the measurement are in
+`docs/IDENTITY_CONTINUITY.md`; the measurement itself is
+`library/tools/identity_continuity.py`.
+
 **What this module measures, per source file:**
 
 - Face tracks: sampled frames decoded from the SOURCE - at the shared M2
@@ -465,6 +473,76 @@ def _cosine(a, b) -> float:
     return float(np.dot(va, vb) / (np.linalg.norm(va) * np.linalg.norm(vb)))
 
 
+AMBIGUITY_MARGIN = 0.05
+"""How far a face match must beat the runner-up candidate to be taken.
+
+Two candidates closer together than this are the same measurement to the
+face study (`face_identity_study.THRESHOLD_GRID` steps by 0.02-0.05), so
+a match that does not clear the runner-up by this margin is NOT decidable
+by what was measured. Such a track starts its own group and is recorded as
+uncertain - never merged into the nearest candidate, because a wrong merge
+corrupts both people's history while an unresolved track stays visible and
+recoverable."""
+
+
+def cluster_face_tracks(embeddings: List[list],
+                        threshold: float = FACE_MATCH_THRESHOLD,
+                        ambiguity_margin: float = AMBIGUITY_MARGIN) -> dict:
+    """Group face embeddings into people, refusing an undecidable match.
+
+    **Complete linkage.** A track joins a group only when its similarity to
+    EVERY member of that group clears `threshold`. The running centroid this
+    replaced drifts as members join it, so a face whose appearance changes
+    falls out of its own group (one person, two ids) and a second person can
+    be pulled into it (two people, one id). Complete linkage cannot do
+    either: a group is only as strong as its weakest pair.
+
+    **The margin.** The group a track joins must beat the runner-up group by
+    `ambiguity_margin`. When it does not, the placement is not decidable: the
+    track starts its own group and is reported in `uncertain` with both
+    candidate similarities, so a reader sees the doubt instead of a merge.
+
+    Returns `{"groups": [[index, ...], ...], "uncertain": [row, ...]}`.
+    `uncertain` rows carry `index`, `reason`, `best` and `runner_up`.
+    """
+    count = len(embeddings)
+    if count == 0:
+        return {"groups": [], "uncertain": []}
+
+    sims = [[1.0] * count for _ in range(count)]
+    for i in range(count):
+        for j in range(i + 1, count):
+            value = _cosine(embeddings[i], embeddings[j])
+            sims[i][j] = sims[j][i] = value
+
+    groups: List[List[int]] = []
+    uncertain: List[dict] = []
+    for index in range(count):
+        scored = []
+        for position, group in enumerate(groups):
+            scored.append((min(sims[index][member] for member in group),
+                           position))
+        scored.sort(key=lambda row: (-row[0], row[1]))
+        best_value, best_position = scored[0] if scored else (-2.0, -1)
+        runner_up = scored[1][0] if len(scored) > 1 else None
+        if (best_position >= 0 and best_value >= threshold
+                and (runner_up is None
+                     or best_value - runner_up >= ambiguity_margin)):
+            groups[best_position].append(index)
+            continue
+        if best_position >= 0 and best_value >= threshold:
+            # It WOULD have merged, and the runner-up is too close to
+            # tell the candidates apart. It stays on its own.
+            uncertain.append({
+                "index": index,
+                "reason": "ambiguous-between-persons",
+                "best": round(best_value, 6),
+                "runner_up": round(runner_up, 6),
+            })
+        groups.append([index])
+    return {"groups": groups, "uncertain": uncertain}
+
+
 def cluster_face_observations(observations: List[FaceObservation],
                               threshold: float = FACE_MATCH_THRESHOLD
                               ) -> List[dict]:
@@ -654,32 +732,24 @@ def match_voices_across_sources(voice_tracks_by_source: dict,
     return matches
 
 
-def join_voices_across_sources(voices_by_digest: Dict[str, List[dict]],
-                               attached: Dict[Tuple[str, str], set],
-                               threshold: Optional[float] = None
-                               ) -> Tuple[dict, List[dict]]:
-    """Which unlinked voice tracks join which person, by voice alone.
+def _speech_seconds(voice: dict) -> float:
+    """How much speech a voice track carries, in seconds."""
+    return sum(end - start for start, end in voice.get("spans") or [])
 
-    `attached` maps `(digest, track_id)` to the persons a within-source
-    speech-face link already gave that voice. Matches at `threshold`
-    (default `VOICE_MATCH_THRESHOLD`) are grouped transitively; a group
-    whose linked members all belong to ONE person brings its unlinked
-    members to that person. Returns `({(digest, track_id): (person,
-    matched)}, conflicts)`.
 
-    A voice match never MERGES two persons and never moves a linked
-    voice: face identity is the stronger measurement, and a false voice
-    merge would corrupt both persons' histories. A group touching two
-    persons joins nobody and is returned as a conflict; a group touching
-    none has no person to join and stays out of the roster, as before.
+def voice_components(voices_by_digest: Dict[str, List[dict]],
+                     threshold: float) -> List[List[Tuple[str, str]]]:
+    """The cross-source voice components: one entry per measured voice.
+
+    A component is a set of voice tracks from DIFFERENT sources whose ECAPA
+    cosine clears `threshold`, grouped transitively. A component is one
+    speaker's voice as the measurement sees it - across cameras, across
+    takes, across a cut. Only tracks carrying at least
+    `VOICE_MATCH_MIN_SECONDS` of speech take part: the study's every false
+    reject was a diarizer fragment of 4-6 s.
     """
-    if threshold is None:
-        threshold = VOICE_MATCH_THRESHOLD
-    if threshold is None:
-        return {}, []
     eligible = {digest: [v for v in voices
-                         if sum(e - s for s, e in v["spans"])
-                         >= VOICE_MATCH_MIN_SECONDS]
+                         if _speech_seconds(v) >= VOICE_MATCH_MIN_SECONDS]
                 for digest, voices in voices_by_digest.items()}
     matches = match_voices_across_sources(eligible, threshold)
     parent: Dict[Tuple[str, str], Tuple[str, str]] = {}
@@ -698,32 +768,199 @@ def join_voices_across_sources(voices_by_digest: Dict[str, List[dict]],
     groups: Dict[Tuple[str, str], list] = {}
     for node in list(parent):
         groups.setdefault(find(node), []).append(node)
+    return [sorted(members) for members in groups.values()]
 
-    joins, conflicts = {}, []
-    for members in groups.values():
-        owners = set().union(*(attached.get(m, set()) for m in members))
-        unlinked = sorted(m for m in members if m not in attached)
-        if not unlinked:
-            continue
-        if len(owners) > 1:
-            conflicts.append({
+
+def attribute_voice_components(voices_by_digest: Dict[str, List[dict]],
+                               attached: Dict[Tuple[str, str], set],
+                               threshold: Optional[float] = None) -> dict:
+    """Which person each voice track belongs to, by measured voice identity.
+
+    `attached` maps `(digest, track_id)` to the persons a within-source
+    speech-face link already gave that voice.
+
+    **A component's owner.** A component (see `voice_components`) is one
+    speaker's voice as measured. Its owner is the person holding a MAJORITY
+    of the component's speech duration among the members whose
+    co-occurrence names exactly one person. A member whose co-occurrence
+    names a DIFFERENT person is RE-ATTRIBUTED to the owner and the
+    contradiction is recorded: the person on screen is not always the one
+    talking, and the measured voice outranks the co-occurrence. A member
+    whose co-occurrence names nobody joins the owner.
+
+    **A contested component.** A component with no majority is a doubt: two
+    people each claiming a voice the measurement cannot separate. Nothing in
+    it is joined and nothing in it is moved; it is returned as a conflict.
+
+    **A contradicted voice.** Two voice tracks of ONE source that the
+    co-occurrence gave to the same person, and whose ECAPA similarity is
+    below the threshold, cannot both be that person's voice. The one that
+    matches that person's other voices keeps the person; the other is left
+    UNRESOLVED, with the measurement that refutes it recorded. A voice the
+    measurement contradicts is never force-attached.
+
+    Returns `{"owner", "matched", "contradictions", "contested",
+    "unresolved"}`. `owner` maps `(digest, track_id)` to the person index.
+    """
+    if threshold is None:
+        threshold = VOICE_MATCH_THRESHOLD
+    voices: Dict[Tuple[str, str], dict] = {}
+    for digest, rows in voices_by_digest.items():
+        for voice in rows:
+            voices[(digest, voice["track_id"])] = voice
+
+    owner: Dict[Tuple[str, str], int] = {}
+    matched: Dict[Tuple[str, str], list] = {}
+    contradictions: List[dict] = []
+    contested: List[dict] = []
+
+    components = voice_components(voices_by_digest, threshold)
+    for members in components:
+        votes: Dict[int, float] = {}
+        for member in members:
+            holders = attached.get(member) or set()
+            if len(holders) != 1:
+                continue
+            holder = next(iter(holders))
+            votes[holder] = votes.get(holder, 0.0) + _speech_seconds(
+                voices[member])
+        total = sum(votes.values())
+        decided = None
+        if total > 0:
+            for holder, weight in sorted(votes.items()):
+                if weight * 2 > total:
+                    decided = holder
+                    break
+        if decided is None:
+            contested.append({
                 "voice_tracks": [{"content_digest": d, "voice_track": t}
-                                 for d, t in sorted(members)],
-                "persons": sorted(owners)})
+                                 for d, t in members],
+                "persons": sorted({owner_index
+                                   for member in members
+                                   for owner_index in (attached.get(member)
+                                                       or set())}),
+                "votes": {str(holder): round(weight, 3)
+                          for holder, weight in sorted(votes.items())},
+                "reason": "no-majority-owner",
+            })
             continue
-        if not owners:
+        for member in members:
+            owner[member] = decided
+            matched[member] = [
+                {"content_digest": other[0], "voice_track": other[1],
+                 "similarity": round(_cosine(voices[member]["embedding"],
+                                             voices[other]["embedding"]), 6)}
+                for other in members if other != member]
+            for holder in (attached.get(member) or set()):
+                if holder == decided:
+                    continue
+                contradictions.append({
+                    "content_digest": member[0],
+                    "voice_track": member[1],
+                    "from_person": holder,
+                    "to_person": decided,
+                    "basis": "cross-source voice identity: this voice's "
+                             "measured component is owned by another person",
+                    "similarity": round(max(
+                        (row["similarity"] for row in matched[member]),
+                        default=0.0), 6),
+                })
+
+    # A voice the measurement CONTRADICTS: one source, two voices, one
+    # claimed owner, and the two are not the same voice.
+    resolved: Dict[Tuple[str, str], set] = {key: {owner_index}
+                                            for key, owner_index
+                                            in owner.items()}
+    for key in voices:
+        if key in resolved:
             continue
-        owner = next(iter(owners))
-        for member in unlinked:
-            matched = [{"content_digest": m[side_b], "voice_track": m[voice_b],
-                        "similarity": m["similarity"]}
-                       for m in matches
-                       for side_a, voice_a, side_b, voice_b in (
-                           ("source_a", "voice_a", "source_b", "voice_b"),
-                           ("source_b", "voice_b", "source_a", "voice_a"))
-                       if (m[side_a], m[voice_a]) == member]
-            joins[member] = (owner, matched)
-    return joins, conflicts
+        holders = attached.get(key) or set()
+        if holders:
+            resolved[key] = set(holders)
+    unresolved: List[dict] = []
+    for digest, rows in voices_by_digest.items():
+        for index, voice in enumerate(rows):
+            for other in rows[index + 1:]:
+                key = (digest, voice["track_id"])
+                other_key = (digest, other["track_id"])
+                holders = resolved.get(key, set())
+                if len(holders) != 1 or resolved.get(other_key) != holders:
+                    continue
+                holder = next(iter(holders))
+                similarity = _cosine(voice["embedding"], other["embedding"])
+                if similarity >= threshold:
+                    continue
+                elsewhere = [
+                    candidate for candidate_key, candidate in voices.items()
+                    if candidate_key[0] != digest
+                    and resolved.get(candidate_key) == holders]
+                if not elsewhere:
+                    continue
+                support = {
+                    voice["track_id"]: max(
+                        _cosine(voice["embedding"], candidate["embedding"])
+                        for candidate in elsewhere),
+                    other["track_id"]: max(
+                        _cosine(other["embedding"], candidate["embedding"])
+                        for candidate in elsewhere),
+                }
+                if max(support.values()) < threshold:
+                    continue
+                loser_name = min(support, key=lambda name: support[name])
+                loser = (digest, loser_name)
+                keeper = other_key if loser_name == voice["track_id"] else key
+                resolved.pop(loser, None)
+                owner.pop(loser, None)
+                matched.pop(loser, None)
+                unresolved.append({
+                    "content_digest": digest,
+                    "voice_track": loser_name,
+                    "claimed_person": holder,
+                    "basis": "measured voice identity contradicts the "
+                             "co-occurrence: this voice does not match "
+                             "that person's other voices",
+                    "similarity_to_claimed_person": round(
+                        support[loser_name], 6),
+                    "kept_voice_track": keeper[1],
+                })
+
+    return {"owner": owner, "matched": matched,
+            "contradictions": contradictions, "contested": contested,
+            "unresolved": unresolved, "resolved": resolved}
+
+
+def join_voices_across_sources(voices_by_digest: Dict[str, List[dict]],
+                               attached: Dict[Tuple[str, str], set],
+                               threshold: Optional[float] = None,
+                               attribution: Optional[dict] = None
+                               ) -> Tuple[dict, List[dict]]:
+    """Which unlinked voice tracks join which person, by voice alone.
+
+    `attached` maps `(digest, track_id)` to the persons a within-source
+    speech-face link already gave that voice. Matches at `threshold`
+    (default `VOICE_MATCH_THRESHOLD`) are grouped transitively; a component
+    whose linked members all belong to ONE person brings its unlinked
+    members to that person. Returns `({(digest, track_id): (person,
+    matched)}, conflicts)`.
+
+    A voice match never MERGES two persons. A component whose members were
+    given to TWO persons is a conflict and joins nobody. What the measured
+    identity may DO is move a voice that the co-occurrence gave to the wrong
+    person - see `attribute_voice_components`, which is the whole account;
+    this function is the join-only view of it. `attribution` is that
+    account, when the caller already has it.
+    """
+    if threshold is None:
+        threshold = VOICE_MATCH_THRESHOLD
+    if attribution is None:
+        attribution = attribute_voice_components(voices_by_digest, attached,
+                                                 threshold)
+    joins = {}
+    for member, owner_index in attribution["owner"].items():
+        if member in attached:
+            continue
+        joins[member] = (owner_index, attribution["matched"][member])
+    return joins, attribution["contested"]
 
 
 # ── speech-face linking ───────────────────────────────────────────────
@@ -1007,13 +1244,26 @@ def declared_person_names(project_folder: str) -> Dict[str, str]:
 def resolve_person_tracks(project_folder: str,
                           root: Optional[Path] = None) -> dict:
     """The project's person roster: face tracks unified across every
-    source digest its catalog references, by cosine >=
-    `FACE_MATCH_THRESHOLD` (face-only - voice never merges two persons).
-    Each person's spans are clip-scoped for the project doing the asking;
-    voice spans and speech-face links travel along from whichever source
-    produced them, and a voice no face in its own source claims joins
-    the person whose linked voice it matches across sources
-    (`voice_matches`; ambiguous groups in `voice_match_conflicts`).
+    source digest its catalog references.
+
+    **Faces.** Tracks are grouped by COMPLETE LINKAGE on the measured
+    ArcFace cosine (`FACE_MATCH_THRESHOLD`): a track joins a person only
+    when it matches every track already in that person, and only when it
+    beats the runner-up candidate by `AMBIGUITY_MARGIN`. A placement that
+    is not decidable starts its own person and is reported in
+    `uncertain_persons` - never a forced merge.
+
+    **Voices.** A voice track belongs to the person its MEASURED voice
+    says it is. The cross-source ECAPA components are the measurement
+    (`attribute_voice_components`): a component is one speaker's voice
+    across cameras and takes, its owner is the person holding a majority
+    of its speech duration, and a voice the co-occurrence gave to somebody
+    else is re-attributed to that owner. A voice the measurement
+    CONTRADICTS is left unresolved (`voice_unresolved`), never attached.
+
+    Every person's spans are clip-scoped for the project doing the asking.
+    The roster is PROJECT-LOCAL: it is built from this project's own
+    sources, and nothing in it links to another project.
     """
     catalog = source_memory.load_catalog(project_folder)
     recorded = source_memory.load_recorded_fingerprints(project_folder)
@@ -1022,6 +1272,7 @@ def resolve_person_tracks(project_folder: str,
     nodes = []  # one per (clip, face_track)
     voices_by_digest: Dict[str, List[dict]] = {}
     clips_by_digest: Dict[str, List[str]] = {}
+    unmeasured: List[dict] = []
     for clip in catalog:
         digest, _basis = source_memory.digest_for_clip(
             project_folder, clip, recorded)
@@ -1029,6 +1280,9 @@ def resolve_person_tracks(project_folder: str,
             continue
         identity = read_identity(digest, root)
         if not identity:
+            unmeasured.append({"clip_id": clip.get("clip_id"),
+                               "content_digest": digest,
+                               "reason": "no-identity-measurement"})
             continue
         clips_by_digest.setdefault(digest, []).append(clip.get("clip_id"))
         voices_by_digest.setdefault(digest, identity.get("voices", []))
@@ -1045,23 +1299,26 @@ def resolve_person_tracks(project_folder: str,
                 "voice_by_id": voice_by_id,
             })
 
+    clustering = cluster_face_tracks(
+        [node["face_track"]["embedding"] for node in nodes])
+    uncertain_rows = {row["index"]: row for row in clustering["uncertain"]}
+
     persons: List[dict] = []
     attached: Dict[Tuple[str, str], set] = {}
-    for node in nodes:
+    person_of_node: Dict[int, int] = {}
+    for group in clustering["groups"]:
+        index = len(persons)
+        for member in group:
+            person_of_node[member] = index
+        persons.append({"_members": [], "face_spans": [],
+                        "face_tracks": [], "voice_spans": [],
+                        "speech_face_links": [], "voice_matches": [],
+                        "voice_reassignments": [], "uncertain": []})
+
+    for position, node in enumerate(nodes):
+        index = person_of_node[position]
+        person = persons[index]
         emb = node["face_track"]["embedding"]
-        best_idx, best_sim = None, -2.0
-        for idx, person in enumerate(persons):
-            sim = _cosine(emb, person["_centroid"])
-            if sim > best_sim:
-                best_idx, best_sim = idx, sim
-        if best_idx is not None and best_sim >= FACE_MATCH_THRESHOLD:
-            person = persons[best_idx]
-        else:
-            person = {"_centroid": emb, "_members": [], "face_spans": [],
-                      "face_tracks": [], "voice_spans": [],
-                      "speech_face_links": [], "voice_matches": []}
-            persons.append(person)
-            best_idx = len(persons) - 1
         person["_members"].append(emb)
         import numpy as np
         mean = np.mean(np.asarray(person["_members"]), axis=0)
@@ -1076,37 +1333,56 @@ def resolve_person_tracks(project_folder: str,
                 "clip_id": node["clip_id"],
                 "content_digest": node["content_digest"],
                 **span})
+        if position in uncertain_rows:
+            person["uncertain"].append(dict(
+                uncertain_rows[position],
+                clip_id=node["clip_id"],
+                content_digest=node["content_digest"],
+                track_id=node["face_track"]["track_id"]))
         for link in node["links"]:
             attached.setdefault((node["content_digest"], link["voice_track"]),
-                                set()).add(best_idx)
-            voice = node["voice_by_id"].get(link["voice_track"])
+                                set()).add(index)
             person["speech_face_links"].append({
                 "clip_id": node["clip_id"], **link})
-            if voice:
-                for start, end in voice["spans"]:
-                    entry = {"clip_id": node["clip_id"],
-                            "content_digest": node["content_digest"],
-                            "start": start, "end": end}
-                    if entry not in person["voice_spans"]:
-                        person["voice_spans"].append(entry)
 
-    joins, conflicts = join_voices_across_sources(voices_by_digest, attached)
-    for (digest, track_id), (owner, matched) in sorted(joins.items()):
-        person = persons[owner]
-        voice = next(v for v in voices_by_digest[digest]
-                     if v["track_id"] == track_id)
-        person["voice_matches"].append({
+    attribution = attribute_voice_components(voices_by_digest, attached)
+    joins, _conflicts = join_voices_across_sources(
+        voices_by_digest, attached, attribution=attribution)
+    for (digest, track_id), (index, matched) in sorted(joins.items()):
+        voice = next((v for v in voices_by_digest.get(digest, [])
+                      if v["track_id"] == track_id), None)
+        if voice is None:
+            continue
+        persons[index]["voice_matches"].append({
             "content_digest": digest, "voice_track": track_id,
             "matched": matched,
             "basis": "cross-source voice match: ECAPA cosine >= "
                      "VOICE_MATCH_THRESHOLD to a voice this person's "
                      "face is linked to"})
-        for clip_id in clips_by_digest[digest]:
-            for start, end in voice["spans"]:
-                entry = {"clip_id": clip_id, "content_digest": digest,
-                         "start": start, "end": end}
-                if entry not in person["voice_spans"]:
-                    person["voice_spans"].append(entry)
+    for (digest, track_id), holders in sorted(attribution["resolved"].items()):
+        voice = next((v for v in voices_by_digest.get(digest, [])
+                      if v["track_id"] == track_id), None)
+        if voice is None:
+            continue
+        for index in sorted(holders):
+            person = persons[index]
+            for clip_id in clips_by_digest.get(digest, []):
+                for start, end in voice["spans"]:
+                    entry = {"clip_id": clip_id, "content_digest": digest,
+                             "start": start, "end": end}
+                    if entry not in person["voice_spans"]:
+                        person["voice_spans"].append(entry)
+
+    for contradiction in attribution["contradictions"]:
+        index = contradiction["to_person"]
+        if index < 0 or index >= len(persons):
+            continue
+        persons[index]["voice_reassignments"].append({
+            "content_digest": contradiction["content_digest"],
+            "voice_track": contradiction["voice_track"],
+            "from_person": contradiction["from_person"],
+            "similarity": contradiction["similarity"],
+            "basis": contradiction["basis"]})
 
     def person_id_of(index: int) -> str:
         return f"person_{index + 1:03d}"
@@ -1123,10 +1399,32 @@ def resolve_person_tracks(project_folder: str,
             "voice_spans": person["voice_spans"],
             "speech_face_links": person["speech_face_links"],
             "voice_matches": person["voice_matches"],
+            "voice_reassignments": [
+                {**row, "from_person": person_id_of(row["from_person"])}
+                for row in person["voice_reassignments"]],
+            "uncertain": person["uncertain"],
         })
+    conflicts = list(attribution["contested"])
+    conflicts.extend({
+        "kind": "within-source-contradiction",
+        "content_digest": row["content_digest"],
+        "voice_track": row["voice_track"],
+        "persons": [row["claimed_person"]],
+        "basis": row["basis"],
+    } for row in attribution["unresolved"])
     return {"project_folder": os.path.abspath(project_folder),
+           "identity_scope": "project",
            "face_match_threshold": FACE_MATCH_THRESHOLD,
            "voice_match_threshold": VOICE_MATCH_THRESHOLD,
+           "ambiguity_margin": AMBIGUITY_MARGIN,
+           "uncertain_persons": [
+               {"person_id": person_id_of(i),
+                "rows": person["uncertain"]}
+               for i, person in enumerate(persons) if person["uncertain"]],
+           "voice_unresolved": [
+               {**row, "claimed_person": person_id_of(row["claimed_person"])}
+               for row in attribution["unresolved"]],
+           "sources_without_identity_measurement": unmeasured,
            "voice_match_conflicts": [
                {**conflict, "persons": [person_id_of(i)
                                         for i in conflict["persons"]]}
