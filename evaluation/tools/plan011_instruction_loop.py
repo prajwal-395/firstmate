@@ -290,7 +290,8 @@ def measure_corpus() -> dict:
 # ── the eight-brief set, on real records ─────────────────────────────
 
 
-def measure_records() -> dict:
+def measure_records(records_dir: Path | None = None,
+                    brief_set: dict | None = None) -> dict:
     """The eight-brief set, over the records the live run left.
 
     BEFORE is the plan's own declaration - the only account the engine
@@ -299,9 +300,11 @@ def measure_records() -> dict:
     one the run's own evidence settled (a refusal, a collateral check),
     reaches a verdict either way.
     """
+    records_dir = records_dir or RECORDS
+    brief_set = brief_set or json.loads(
+        EIGHT_BRIEF_SET.read_text(encoding="utf-8"))
     from library.tools.editorial_acceptance import briefs as brief_module
 
-    brief_set = json.loads(EIGHT_BRIEF_SET.read_text(encoding="utf-8"))
     brief_by_id = {str(brief["id"]): brief for brief in brief_set["briefs"]}
     def _total(rows_: list[dict], field: str) -> int:
         return sum(int(row[field]) for row in rows_)
@@ -312,7 +315,7 @@ def measure_records() -> dict:
                 for name in ("met", "refused", "failed", "unaccounted")}
 
     rows: list[dict] = []
-    for path in sorted(RECORDS.glob("*.json")):
+    for path in sorted(records_dir.glob("*.json")):
         record = json.loads(path.read_text(encoding="utf-8"))
         brief_id = str(record.get("brief_id") or path.stem)
         brief = brief_by_id.get(brief_id, {})
@@ -461,14 +464,56 @@ def render(report: dict) -> str:
     return "\n".join(lines)
 
 
+def planning_benchmark(records_dir: Path) -> dict:
+    """The harness's own planning benchmark over a set of records.
+
+    The harness is the engine's acceptance yardstick, so the benchmark
+    is read with the harness's own runner and the harness's own writer -
+    never with a second opinion about what a plan covered.
+    """
+    from library.tools.editorial_acceptance import runner
+
+    report = runner.run_acceptance(
+        runner.read_records(str(records_dir)),
+        brief_set=json.loads(EIGHT_BRIEF_SET.read_text(encoding="utf-8")))
+    stages = (report.get("stage_metrics") or {}).get("stages") or {}
+    planning = stages.get("planning") or {}
+    coverage = report.get("criteria_coverage") or {}
+    return {
+        "briefs": report.get("task_count"),
+        "planning_passed": planning.get("passed"),
+        "planning_measured": planning.get("measured"),
+        "planning_value": planning.get("value"),
+        "criteria": coverage.get("acceptance_criteria"),
+        "briefs_covered": {name: row.get("declared_covered")
+                           for name, row in (coverage.get("briefs") or {}).items()},
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="plan011_instruction_loop.py",
         description="Measure the instruction loop on the corpus briefs.")
     parser.add_argument("--json", default=None,
                         help="write the whole measurement as JSON")
+    parser.add_argument("--live-corpus-records", default=None,
+                        help="the corpus records the live run left")
+    parser.add_argument("--live-records", default=None,
+                        help="the records the live run left, to measure "
+                             "beside the ones on main")
     args = parser.parse_args(argv)
     report = {"corpus": measure_corpus(), "records": measure_records()}
+    if args.live_records:
+        live = Path(args.live_records)
+        corpus_live = Path(args.live_corpus_records) if args.live_corpus_records else None
+        report["live"] = {
+            "records": measure_records(live),
+            "planning": planning_benchmark(live),
+            "planning_before": planning_benchmark(RECORDS),
+        }
+        if corpus_live is not None:
+            report["live"]["corpus"] = measure_records(
+                corpus_live, load_sealed_briefs())
     print(render(report))
     if args.json:
         Path(args.json).write_text(json.dumps(report, indent=2) + "\n",

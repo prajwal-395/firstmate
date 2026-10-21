@@ -1,0 +1,120 @@
+{
+  "schema": "ren-editorial-task-record/1",
+  "task_id": "there-is-no-music-under-this",
+  "brief_id": "there-is-no-music-under-this",
+  "instruction": "The music under the opening is too loud, it fights her voice. Take the music out from under the first ten seconds and leave her voice alone.",
+  "interpretation": {
+    "restated_outcome": "Take the music out from under the opening and leave her voice alone - or say that there is no music there.",
+    "selected_operations": [
+      "audio.gain"
+    ],
+    "resolved_targets": [
+      {
+        "role": "music_bed",
+        "resolved": false,
+        "target": "not found - the reel carries no music bed",
+        "evidence": [
+          "readback:reel13",
+          "pool:scratch"
+        ]
+      }
+    ],
+    "intent": {
+      "version": 1,
+      "intent_id": "intent:there-is-no-music-under-this",
+      "desired_outcome": "The music under the opening is too loud, it fights her voice. Take the music out from under the first ten seconds and leave her voice alone.",
+      "brief_ref": "",
+      "requirements": [],
+      "preferences": [],
+      "inferred_preferences": [],
+      "requests": [
+        {
+          "request_id": "request:0",
+          "kind": "strengthen_opening",
+          "statement": "The music under the opening is too loud, it fights her voice. Take the music out from under the first ten seconds and leave her voice alone.",
+          "explicit": true,
+          "objective": false,
+          "source": "",
+          "autonomy": "needs_approval",
+          "autonomy_basis": "the declared default for strengthen_opening",
+          "evidence_bar": [
+            "m1",
+            "m3"
+          ],
+          "evidence_lanes": [],
+          "missing_evidence": [
+            {
+              "lane": "m1",
+              "status": "not_yet_analysed"
+            },
+            {
+              "lane": "m3",
+              "status": "not_yet_analysed"
+            }
+          ],
+          "uncertainty": null,
+          "question": ""
+        }
+      ],
+      "references": [],
+      "constraints": [],
+      "unresolved": [],
+      "evidence_links": []
+    }
+  },
+  "retrieval": {
+    "abstained": false,
+    "moments": [],
+    "unavailable": [
+      "The reel's rows are the two cameras, the caption cards, the graphics and the two audio rows of the speakers; no music clip is on the timeline, and the pool's 56 items hold no music file."
+    ]
+  },
+  "planning": {
+    "operations": [
+      {
+        "op": "audio.gain",
+        "target_role": "music_bed"
+      }
+    ],
+    "requirements_covered": [
+      "absence-reported",
+      "nothing-changed"
+    ]
+  },
+  "execution": {
+    "attempts": 1,
+    "checks": {},
+    "collateral_changes": [],
+    "route": "audio.gain -> no production route",
+    "receipt": {
+      "status": "refused"
+    },
+    "refusal": {
+      "reason": "there is no music bed in this project to take out.",
+      "recovery_class": "auto_recoverable"
+    }
+  },
+  "delivery": {},
+  "project": {
+    "resolve_project": "Ren Scratch - breaktest",
+    "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare",
+    "footage": "the scratch copy's own recorded media pool"
+  },
+  "evidence": {
+    "readback:reel13": {
+      "kind": "timeline_readback",
+      "source": "the scratch copy's own recorded read-back of Reel 13",
+      "locator": "project_model/snapshot.json: edits[-1].after.resolve_readback"
+    },
+    "pool:scratch": {
+      "kind": "media_pool",
+      "source": "the scratch copy's recorded media pool",
+      "locator": "project_model/snapshot.json: edits[-1].after.resolve_readback.bin"
+    },
+    "transcript:master": {
+      "kind": "transcript",
+      "source": "the master's word-timed transcript",
+      "locator": "the session transcript, 477 segments, each naming its file"
+    }
+  }
+}

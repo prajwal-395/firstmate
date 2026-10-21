@@ -1,0 +1,92 @@
+{
+  "schema": "ren-editorial-task-record/1",
+  "task_id": "use-the-other-camera-on-that-answer",
+  "brief_id": "use-the-other-camera-on-that-answer",
+  "instruction": "She gives that explanation of SEO a second time further in and it lands much better the second time. For that stretch only, put his camera up instead of hers, and come back to her straight afterwards. Her voice stays exactly as it is.",
+  "interpretation": {
+    "restated_outcome": "For that stretch of her answer, put his camera up instead of hers, and put hers back immediately after.",
+    "selected_operations": [
+      "multicam.select_angle"
+    ],
+    "resolved_targets": [
+      {
+        "role": "second_angle",
+        "resolved": false,
+        "target": "not found - the reel has no second angle of one moment",
+        "evidence": [
+          "readback:reel13"
+        ]
+      }
+    ],
+    "intent": {
+      "version": 1,
+      "intent_id": "intent:use-the-other-camera-on-that-answer",
+      "desired_outcome": "She gives that explanation of SEO a second time further in and it lands much better the second time. For that stretch only, put his camera up instead of hers, and come back to her straight afterwards. Her voice stays exactly as it is.",
+      "brief_ref": "",
+      "requirements": [],
+      "preferences": [],
+      "inferred_preferences": [],
+      "requests": [],
+      "references": [],
+      "constraints": [],
+      "unresolved": [],
+      "evidence_links": []
+    }
+  },
+  "retrieval": {
+    "abstained": false,
+    "moments": [],
+    "unavailable": [
+      "The reel's two camera rows are the two SPEAKERS - Akshita on one row, Craig on the other - and each row carries one source file, so there is no second angle of the same moment to cut to."
+    ]
+  },
+  "planning": {
+    "operations": [
+      {
+        "op": "multicam.select_angle",
+        "target_role": "second_angle"
+      }
+    ],
+    "requirements_covered": [
+      "other-angle",
+      "back-again",
+      "audio-untouched"
+    ]
+  },
+  "execution": {
+    "attempts": 1,
+    "checks": {},
+    "collateral_changes": [],
+    "route": "multicam.select_angle -> no production route",
+    "receipt": {
+      "status": "refused"
+    },
+    "refusal": {
+      "reason": "the reel has no second angle of that moment, and multicam.select_angle has no production route.",
+      "recovery_class": "auto_recoverable"
+    }
+  },
+  "delivery": {},
+  "project": {
+    "resolve_project": "Ren Scratch - breaktest",
+    "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare",
+    "footage": "the scratch copy's own recorded media pool"
+  },
+  "evidence": {
+    "readback:reel13": {
+      "kind": "timeline_readback",
+      "source": "the scratch copy's own recorded read-back of Reel 13",
+      "locator": "project_model/snapshot.json: edits[-1].after.resolve_readback"
+    },
+    "pool:scratch": {
+      "kind": "media_pool",
+      "source": "the scratch copy's recorded media pool",
+      "locator": "project_model/snapshot.json: edits[-1].after.resolve_readback.bin"
+    },
+    "transcript:master": {
+      "kind": "transcript",
+      "source": "the master's word-timed transcript",
+      "locator": "the session transcript, 477 segments, each naming its file"
+    }
+  }
+}

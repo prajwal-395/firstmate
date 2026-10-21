@@ -1,0 +1,92 @@
+{
+  "schema": "ren-editorial-task-record/1",
+  "task_id": "cut-the-bit-where-she-reads-out-the-numbers",
+  "brief_id": "cut-the-bit-where-she-reads-out-the-numbers",
+  "instruction": "Cut the bit where she reads out the numbers. You know the one, it is the part with the percentages in it.",
+  "interpretation": {
+    "restated_outcome": "Cut the bit where she reads out the numbers - or name every passage where she does and ask which one.",
+    "selected_operations": [
+      "clip.trim"
+    ],
+    "resolved_targets": [
+      {
+        "role": "the_numbers",
+        "resolved": false,
+        "target": "not found - this reel carries no such passage",
+        "evidence": [
+          "transcript:master",
+          "readback:reel13"
+        ]
+      }
+    ],
+    "intent": {
+      "version": 1,
+      "intent_id": "intent:cut-the-bit-where-she-reads-out-the-numbers",
+      "desired_outcome": "Cut the bit where she reads out the numbers. You know the one, it is the part with the percentages in it.",
+      "brief_ref": "",
+      "requirements": [],
+      "preferences": [],
+      "inferred_preferences": [],
+      "requests": [],
+      "references": [],
+      "constraints": [],
+      "unresolved": [],
+      "evidence_links": []
+    }
+  },
+  "retrieval": {
+    "abstained": false,
+    "moments": [],
+    "unavailable": [
+      "The master's transcript carries the numbers - 'At the time only about twenty percent' in LCATL0013 among them - and this reel is cut from LC4932 and LCATL0013, so the passage the request means is not settled by the footage."
+    ]
+  },
+  "planning": {
+    "operations": [
+      {
+        "op": "clip.trim",
+        "target_role": "the_numbers"
+      }
+    ],
+    "requirements_covered": [
+      "candidates-reported",
+      "nothing-changed"
+    ]
+  },
+  "execution": {
+    "attempts": 1,
+    "checks": {},
+    "collateral_changes": [],
+    "route": "clip.trim -> no production route",
+    "receipt": {
+      "status": "refused"
+    },
+    "refusal": {
+      "reason": "the passage the request names is not settled by the footage, so the run names what it found and asks.",
+      "recovery_class": "auto_recoverable"
+    }
+  },
+  "delivery": {},
+  "project": {
+    "resolve_project": "Ren Scratch - breaktest",
+    "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare",
+    "footage": "the scratch copy's own recorded media pool"
+  },
+  "evidence": {
+    "readback:reel13": {
+      "kind": "timeline_readback",
+      "source": "the scratch copy's own recorded read-back of Reel 13",
+      "locator": "project_model/snapshot.json: edits[-1].after.resolve_readback"
+    },
+    "pool:scratch": {
+      "kind": "media_pool",
+      "source": "the scratch copy's recorded media pool",
+      "locator": "project_model/snapshot.json: edits[-1].after.resolve_readback.bin"
+    },
+    "transcript:master": {
+      "kind": "transcript",
+      "source": "the master's word-timed transcript",
+      "locator": "the session transcript, 477 segments, each naming its file"
+    }
+  }
+}

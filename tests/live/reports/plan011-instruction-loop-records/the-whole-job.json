@@ -1,0 +1,234 @@
+{
+  "schema": "ren-editorial-task-record/1",
+  "task_id": "the-whole-job",
+  "brief_id": "the-whole-job",
+  "instruction": "This is the launch reel and it is not finished. Please do the whole job on it: find the most engaging moment we could open on, take out the pauses and the places she says the same thing twice, swap the one camera angle that is doing nothing for the other angle we shot of the same moment, put in the cutaway that actually matches what she is saying, fix the caption that gets the number wrong, move the name bar so it stops fighting the captions, and get the levels so her voice sits on top of the music. Leave the grade, the transitions, the framing, the linked audio and everything the human already changed exactly as it is. Then export it, and check the export rather than the timeline.",
+  "interpretation": {
+    "restated_outcome": "Do the whole job on the launch reel: open on the strongest moment, take out the pauses, replace the weak angle, cover a line with a cutaway, correct the caption, fix the name bar, balance the levels, keep the human work, and export.",
+    "selected_operations": [
+      "reel.opening",
+      "clip.trim",
+      "multicam.select_angle",
+      "broll.insert",
+      "caption_fix",
+      "overlay.position",
+      "audio.gain"
+    ],
+    "resolved_targets": [
+      {
+        "role": "opening_section",
+        "resolved": true,
+        "target": "the reel's first picture",
+        "evidence": [
+          "readback:reel13"
+        ]
+      },
+      {
+        "role": "repeated_passages",
+        "resolved": false,
+        "target": "not found - this reel carries no repeated passage",
+        "evidence": [
+          "readback:reel13",
+          "transcript:master"
+        ]
+      },
+      {
+        "role": "weak_angle_turn",
+        "resolved": false,
+        "target": "not found - the reel's two camera rows are two speakers, not two angles",
+        "evidence": [
+          "readback:reel13"
+        ]
+      },
+      {
+        "role": "broll_cover_range",
+        "resolved": false,
+        "target": "not found - the pool holds no cutaway footage",
+        "evidence": [
+          "pool:scratch"
+        ]
+      },
+      {
+        "role": "wrong_caption_card",
+        "resolved": false,
+        "target": "not found - no caption names a word the speech does not",
+        "evidence": [
+          "readback:reel13"
+        ]
+      },
+      {
+        "role": "name_lower_third",
+        "resolved": true,
+        "target": "the lower third b-soft-focus-craig.mov, frames 0-84",
+        "evidence": [
+          "readback:reel13"
+        ]
+      },
+      {
+        "role": "music_bed",
+        "resolved": false,
+        "target": "not found - the reel carries no music bed",
+        "evidence": [
+          "readback:reel13",
+          "pool:scratch"
+        ]
+      }
+    ],
+    "intent": {
+      "version": 1,
+      "intent_id": "intent:the-whole-job",
+      "desired_outcome": "This is the launch reel and it is not finished. Please do the whole job on it: find the most engaging moment we could open on, take out the pauses and the places she says the same thing twice, swap the one camera angle that is doing nothing for the other angle we shot of the same moment, put in the cutaway that actually matches what she is saying, fix the caption that gets the number wrong, move the name bar so it stops fighting the captions, and get the levels so her voice sits on top of the music. Leave the grade, the transitions, the framing, the linked audio and everything the human already changed exactly as it is. Then export it, and check the export rather than the timeline.",
+      "brief_ref": "",
+      "requirements": [],
+      "preferences": [],
+      "inferred_preferences": [],
+      "requests": [
+        {
+          "request_id": "request:0",
+          "kind": "choose_better_angle",
+          "statement": "This is the launch reel and it is not finished. Please do the whole job on it: find the most engaging moment we could open on, take out the pauses and the places she says the same thing twice, swap the one camera angle that is doing nothing for the other angle we shot of the same moment, put in the cutaway that actually matches what she is saying, fix the caption that gets the number wrong, move the name bar so it stops fighting the captions, and get the levels so her voice sits on top of the music. Leave the grade, the transitions, the framing, the linked audio and everything the human already changed exactly as it is. Then export it, and check the export rather than the timeline.",
+          "explicit": true,
+          "objective": false,
+          "source": "",
+          "autonomy": "needs_approval",
+          "autonomy_basis": "the declared default for choose_better_angle",
+          "evidence_bar": [
+            "m6",
+            "m3b"
+          ],
+          "evidence_lanes": [],
+          "missing_evidence": [
+            {
+              "lane": "m6",
+              "status": "not_yet_analysed"
+            },
+            {
+              "lane": "m3b",
+              "status": "not_yet_analysed"
+            }
+          ],
+          "uncertainty": null,
+          "question": ""
+        },
+        {
+          "request_id": "request:1",
+          "kind": "replace_broll",
+          "statement": "This is the launch reel and it is not finished. Please do the whole job on it: find the most engaging moment we could open on, take out the pauses and the places she says the same thing twice, swap the one camera angle that is doing nothing for the other angle we shot of the same moment, put in the cutaway that actually matches what she is saying, fix the caption that gets the number wrong, move the name bar so it stops fighting the captions, and get the levels so her voice sits on top of the music. Leave the grade, the transitions, the framing, the linked audio and everything the human already changed exactly as it is. Then export it, and check the export rather than the timeline.",
+          "explicit": true,
+          "objective": false,
+          "source": "",
+          "autonomy": "needs_approval",
+          "autonomy_basis": "the declared default for replace_broll",
+          "evidence_bar": [
+            "m3",
+            "m4"
+          ],
+          "evidence_lanes": [],
+          "missing_evidence": [
+            {
+              "lane": "m3",
+              "status": "not_yet_analysed"
+            },
+            {
+              "lane": "m4",
+              "status": "not_yet_analysed"
+            }
+          ],
+          "uncertainty": null,
+          "question": ""
+        }
+      ],
+      "references": [],
+      "constraints": [],
+      "unresolved": [],
+      "evidence_links": []
+    }
+  },
+  "retrieval": {
+    "abstained": false,
+    "moments": [],
+    "unavailable": [
+      "The reel carries no cutaway footage, no music bed, no repeated passage and no second angle of one moment; four of the seven obligations have nothing in this reel to act on."
+    ]
+  },
+  "planning": {
+    "operations": [
+      {
+        "op": "reel.opening",
+        "target_role": "opening_section"
+      },
+      {
+        "op": "clip.trim",
+        "target_role": "repeated_passages"
+      },
+      {
+        "op": "multicam.select_angle",
+        "target_role": "weak_angle_turn"
+      },
+      {
+        "op": "broll.insert",
+        "target_role": "broll_cover_range"
+      },
+      {
+        "op": "caption_fix",
+        "target_role": "wrong_caption_card"
+      },
+      {
+        "op": "overlay.position",
+        "target_role": "name_lower_third"
+      },
+      {
+        "op": "audio.gain",
+        "target_role": "music_bed"
+      }
+    ],
+    "requirements_covered": [
+      "hook-chosen",
+      "pauses-removed",
+      "angle-replaced",
+      "broll-chosen",
+      "caption-corrected",
+      "lower-third-adjusted",
+      "levels-balanced",
+      "human-work-preserved",
+      "exported",
+      "export-verified"
+    ]
+  },
+  "execution": {
+    "attempts": 0,
+    "checks": {},
+    "collateral_changes": [],
+    "route": "reel.opening -> resolve_axi, clip.trim -> no production route, multicam.select_angle -> no production route, broll.insert -> resolve_axi, caption_fix -> no production route, overlay.position -> reel_touchup, audio.gain -> no production route",
+    "receipt": {
+      "status": "not_run"
+    },
+    "refusal": {
+      "reason": "the serving broker's queue is held by another lane's qualification session, so the mutation did not run in this lane's window",
+      "recovery_class": "blocked"
+    }
+  },
+  "delivery": {},
+  "project": {
+    "resolve_project": "Ren Scratch - breaktest",
+    "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare",
+    "footage": "the scratch copy's own recorded media pool"
+  },
+  "evidence": {
+    "readback:reel13": {
+      "kind": "timeline_readback",
+      "source": "the scratch copy's own recorded read-back of Reel 13",
+      "locator": "project_model/snapshot.json: edits[-1].after.resolve_readback"
+    },
+    "pool:scratch": {
+      "kind": "media_pool",
+      "source": "the scratch copy's recorded media pool",
+      "locator": "project_model/snapshot.json: edits[-1].after.resolve_readback.bin"
+    },
+    "transcript:master": {
+      "kind": "transcript",
+      "source": "the master's word-timed transcript",
+      "locator": "the session transcript, 477 segments, each naming its file"
+    }
+  }
+}

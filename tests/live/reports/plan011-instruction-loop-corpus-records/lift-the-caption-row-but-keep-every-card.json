@@ -1,0 +1,90 @@
+{
+  "schema": "ren-editorial-task-record/1",
+  "task_id": "lift-the-caption-row-but-keep-every-card",
+  "brief_id": "lift-the-caption-row-but-keep-every-card",
+  "instruction": "On this one the captions sit too low, they are touching the bottom edge of the frame. Bring the caption row up so it is clear of the edge. Keep every caption that is already on there, and do not lose a word of what she says.",
+  "interpretation": {
+    "restated_outcome": "Bring the caption row up so it is clear of the bottom edge, and keep every caption card.",
+    "selected_operations": [
+      "clip.move"
+    ],
+    "resolved_targets": [
+      {
+        "role": "caption_row",
+        "resolved": true,
+        "target": "the 45 caption cards on the Subtitles row",
+        "evidence": [
+          "readback:reel13"
+        ]
+      }
+    ],
+    "intent": {
+      "version": 1,
+      "intent_id": "intent:lift-the-caption-row-but-keep-every-card",
+      "desired_outcome": "On this one the captions sit too low, they are touching the bottom edge of the frame. Bring the caption row up so it is clear of the edge. Keep every caption that is already on there, and do not lose a word of what she says.",
+      "brief_ref": "",
+      "requirements": [],
+      "preferences": [],
+      "inferred_preferences": [],
+      "requests": [],
+      "references": [],
+      "constraints": [],
+      "unresolved": [],
+      "evidence_links": []
+    }
+  },
+  "retrieval": {
+    "abstained": false,
+    "moments": [],
+    "unavailable": []
+  },
+  "planning": {
+    "operations": [
+      {
+        "op": "clip.move",
+        "target_role": "caption_row"
+      }
+    ],
+    "requirements_covered": [
+      "every-card-kept",
+      "row-moved",
+      "words-kept"
+    ]
+  },
+  "execution": {
+    "attempts": 0,
+    "checks": {},
+    "collateral_changes": [],
+    "route": "clip.move -> no production route",
+    "receipt": {
+      "status": "not_run"
+    },
+    "refusal": {
+      "reason": "the serving broker's queue is held by another lane's qualification session, so the mutation did not run in this lane's window",
+      "recovery_class": "blocked"
+    }
+  },
+  "delivery": {},
+  "project": {
+    "resolve_project": "Ren Scratch - breaktest",
+    "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare",
+    "footage": "the scratch copy's own recorded media pool"
+  },
+  "evidence": {
+    "readback:reel13": {
+      "kind": "timeline_readback",
+      "source": "the scratch copy's own recorded read-back of Reel 13",
+      "locator": "project_model/snapshot.json: edits[-1].after.resolve_readback"
+    },
+    "pool:scratch": {
+      "kind": "media_pool",
+      "source": "the scratch copy's recorded media pool",
+      "locator": "project_model/snapshot.json: edits[-1].after.resolve_readback.bin"
+    },
+    "transcript:master": {
+      "kind": "transcript",
+      "source": "the master's word-timed transcript",
+      "locator": "the session transcript, 477 segments, each naming its file"
+    }
+  }
+}

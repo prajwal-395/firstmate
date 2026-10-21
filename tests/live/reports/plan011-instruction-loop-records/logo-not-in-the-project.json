@@ -1,0 +1,99 @@
+{
+  "schema": "ren-editorial-task-record/1",
+  "task_id": "logo-not-in-the-project",
+  "brief_id": "logo-not-in-the-project",
+  "instruction": "Swap the end card for the new logo - the one I sent you this morning.",
+  "interpretation": {
+    "restated_outcome": "Swap the end card for the new logo, and say so if the named logo is not in the project.",
+    "selected_operations": [],
+    "resolved_targets": [],
+    "intent": {
+      "version": 1,
+      "intent_id": "intent:logo-not-in-the-project",
+      "desired_outcome": "Swap the end card for the new logo - the one I sent you this morning.",
+      "brief_ref": "",
+      "requirements": [],
+      "preferences": [],
+      "inferred_preferences": [],
+      "requests": [
+        {
+          "request_id": "request:0",
+          "kind": "revise_graphics",
+          "statement": "Swap the end card for the new logo - the one I sent you this morning.",
+          "explicit": true,
+          "objective": true,
+          "source": "",
+          "autonomy": "needs_approval",
+          "autonomy_basis": "the declared default for revise_graphics",
+          "evidence_bar": [
+            "m3"
+          ],
+          "evidence_lanes": [],
+          "missing_evidence": [
+            {
+              "lane": "m3",
+              "status": "not_yet_analysed"
+            }
+          ],
+          "uncertainty": null,
+          "question": ""
+        }
+      ],
+      "references": [],
+      "constraints": [],
+      "unresolved": [],
+      "evidence_links": []
+    }
+  },
+  "retrieval": {
+    "abstained": false,
+    "moments": [],
+    "unavailable": [
+      "The pool holds one logo - logo_bulb_lines_safe_23976.mov, the corner mark's sibling on the Motion Graphics row at 1834-1906 - and the requested 'new logo sent this morning' is not among the pool's 56 items."
+    ]
+  },
+  "planning": {
+    "operations": [],
+    "requirements_covered": [
+      "named-asset-only",
+      "says-so",
+      "end-card-intact"
+    ]
+  },
+  "execution": {
+    "attempts": 1,
+    "checks": {},
+    "collateral_changes": [],
+    "route": "",
+    "receipt": {
+      "status": "refused"
+    },
+    "refusal": {
+      "reason": "the named logo is not in the project.",
+      "recovery_class": "auto_recoverable"
+    }
+  },
+  "delivery": {},
+  "project": {
+    "resolve_project": "Ren Scratch - breaktest",
+    "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare",
+    "footage": "the scratch copy's own recorded media pool"
+  },
+  "evidence": {
+    "readback:reel13": {
+      "kind": "timeline_readback",
+      "source": "the scratch copy's own recorded read-back of Reel 13",
+      "locator": "project_model/snapshot.json: edits[-1].after.resolve_readback"
+    },
+    "pool:scratch": {
+      "kind": "media_pool",
+      "source": "the scratch copy's recorded media pool",
+      "locator": "project_model/snapshot.json: edits[-1].after.resolve_readback.bin"
+    },
+    "transcript:master": {
+      "kind": "transcript",
+      "source": "the master's word-timed transcript",
+      "locator": "the session transcript, 477 segments, each naming its file"
+    }
+  }
+}

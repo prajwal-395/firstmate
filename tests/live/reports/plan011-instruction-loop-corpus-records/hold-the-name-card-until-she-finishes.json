@@ -1,0 +1,89 @@
+{
+  "schema": "ren-editorial-task-record/1",
+  "task_id": "hold-the-name-card-until-she-finishes",
+  "brief_id": "hold-the-name-card-until-she-finishes",
+  "instruction": "Her name card comes off about three and a half seconds in, right while she is still answering. Hold it on the screen until she has finished that answer. Leave the corner mark and the header exactly where they are.",
+  "interpretation": {
+    "restated_outcome": "Hold the name card on screen until she has finished that answer, and leave the corner mark and the header alone.",
+    "selected_operations": [
+      "clip.set_property"
+    ],
+    "resolved_targets": [
+      {
+        "role": "name_card",
+        "resolved": true,
+        "target": "the lower third b-soft-focus-craig.mov, frames 0-84",
+        "evidence": [
+          "readback:reel13"
+        ]
+      }
+    ],
+    "intent": {
+      "version": 1,
+      "intent_id": "intent:hold-the-name-card-until-she-finishes",
+      "desired_outcome": "Her name card comes off about three and a half seconds in, right while she is still answering. Hold it on the screen until she has finished that answer. Leave the corner mark and the header exactly where they are.",
+      "brief_ref": "",
+      "requirements": [],
+      "preferences": [],
+      "inferred_preferences": [],
+      "requests": [],
+      "references": [],
+      "constraints": [],
+      "unresolved": [],
+      "evidence_links": []
+    }
+  },
+  "retrieval": {
+    "abstained": false,
+    "moments": [],
+    "unavailable": []
+  },
+  "planning": {
+    "operations": [
+      {
+        "op": "clip.set_property",
+        "target_role": "name_card"
+      }
+    ],
+    "requirements_covered": [
+      "card-held",
+      "mark-untouched"
+    ]
+  },
+  "execution": {
+    "attempts": 0,
+    "checks": {},
+    "collateral_changes": [],
+    "route": "clip.set_property -> edit_patch",
+    "receipt": {
+      "status": "not_run"
+    },
+    "refusal": {
+      "reason": "the serving broker's queue is held by another lane's qualification session, so the mutation did not run in this lane's window",
+      "recovery_class": "blocked"
+    }
+  },
+  "delivery": {},
+  "project": {
+    "resolve_project": "Ren Scratch - breaktest",
+    "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare",
+    "footage": "the scratch copy's own recorded media pool"
+  },
+  "evidence": {
+    "readback:reel13": {
+      "kind": "timeline_readback",
+      "source": "the scratch copy's own recorded read-back of Reel 13",
+      "locator": "project_model/snapshot.json: edits[-1].after.resolve_readback"
+    },
+    "pool:scratch": {
+      "kind": "media_pool",
+      "source": "the scratch copy's recorded media pool",
+      "locator": "project_model/snapshot.json: edits[-1].after.resolve_readback.bin"
+    },
+    "transcript:master": {
+      "kind": "transcript",
+      "source": "the master's word-timed transcript",
+      "locator": "the session transcript, 477 segments, each naming its file"
+    }
+  }
+}

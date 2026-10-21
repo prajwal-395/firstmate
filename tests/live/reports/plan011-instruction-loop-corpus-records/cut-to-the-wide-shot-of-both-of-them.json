@@ -1,0 +1,92 @@
+{
+  "schema": "ren-editorial-task-record/1",
+  "task_id": "cut-to-the-wide-shot-of-both-of-them",
+  "brief_id": "cut-to-the-wide-shot-of-both-of-them",
+  "instruction": "While she is explaining that part, cut to the wide shot of the room, the one where you can see both of them at the table.",
+  "interpretation": {
+    "restated_outcome": "Cut to the wide shot of the room while she explains that part, or say that the footage has no such shot.",
+    "selected_operations": [
+      "multicam.select_angle"
+    ],
+    "resolved_targets": [
+      {
+        "role": "wide_shot",
+        "resolved": false,
+        "target": "not found - the reel has no wide shot",
+        "evidence": [
+          "readback:reel13",
+          "pool:scratch"
+        ]
+      }
+    ],
+    "intent": {
+      "version": 1,
+      "intent_id": "intent:cut-to-the-wide-shot-of-both-of-them",
+      "desired_outcome": "While she is explaining that part, cut to the wide shot of the room, the one where you can see both of them at the table.",
+      "brief_ref": "",
+      "requirements": [],
+      "preferences": [],
+      "inferred_preferences": [],
+      "requests": [],
+      "references": [],
+      "constraints": [],
+      "unresolved": [],
+      "evidence_links": []
+    }
+  },
+  "retrieval": {
+    "abstained": false,
+    "moments": [],
+    "unavailable": [
+      "The reel's rows are the two cameras, the caption cards, the graphics and the two speaker rows; nothing in the read-back or in the pool's 56 items is a wide shot of the room."
+    ]
+  },
+  "planning": {
+    "operations": [
+      {
+        "op": "multicam.select_angle",
+        "target_role": "wide_shot"
+      }
+    ],
+    "requirements_covered": [
+      "no-second-angle-reported",
+      "nothing-changed"
+    ]
+  },
+  "execution": {
+    "attempts": 1,
+    "checks": {},
+    "collateral_changes": [],
+    "route": "multicam.select_angle -> no production route",
+    "receipt": {
+      "status": "refused"
+    },
+    "refusal": {
+      "reason": "the footage has no second angle to cut to.",
+      "recovery_class": "auto_recoverable"
+    }
+  },
+  "delivery": {},
+  "project": {
+    "resolve_project": "Ren Scratch - breaktest",
+    "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare",
+    "footage": "the scratch copy's own recorded media pool"
+  },
+  "evidence": {
+    "readback:reel13": {
+      "kind": "timeline_readback",
+      "source": "the scratch copy's own recorded read-back of Reel 13",
+      "locator": "project_model/snapshot.json: edits[-1].after.resolve_readback"
+    },
+    "pool:scratch": {
+      "kind": "media_pool",
+      "source": "the scratch copy's recorded media pool",
+      "locator": "project_model/snapshot.json: edits[-1].after.resolve_readback.bin"
+    },
+    "transcript:master": {
+      "kind": "transcript",
+      "source": "the master's word-timed transcript",
+      "locator": "the session transcript, 477 segments, each naming its file"
+    }
+  }
+}

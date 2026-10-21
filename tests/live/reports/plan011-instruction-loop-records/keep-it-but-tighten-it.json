@@ -1,0 +1,73 @@
+{
+  "schema": "ren-editorial-task-record/1",
+  "task_id": "keep-it-but-tighten-it",
+  "brief_id": "keep-it-but-tighten-it",
+  "instruction": "Leave the interview exactly as it is, word for word, but tighten it up so it holds attention.",
+  "interpretation": {
+    "restated_outcome": "Leave the interview word for word as it is, and tighten it so it holds attention - or say which of the two was asked for.",
+    "selected_operations": [],
+    "resolved_targets": [],
+    "intent": {
+      "version": 1,
+      "intent_id": "intent:keep-it-but-tighten-it",
+      "desired_outcome": "Leave the interview exactly as it is, word for word, but tighten it up so it holds attention.",
+      "brief_ref": "",
+      "requirements": [],
+      "preferences": [],
+      "inferred_preferences": [],
+      "requests": [],
+      "references": [],
+      "constraints": [],
+      "unresolved": [],
+      "evidence_links": []
+    }
+  },
+  "retrieval": {
+    "abstained": false,
+    "moments": [],
+    "unavailable": []
+  },
+  "planning": {
+    "operations": [],
+    "requirements_covered": [
+      "conflict-surfaced",
+      "nothing-changed"
+    ]
+  },
+  "execution": {
+    "attempts": 1,
+    "checks": {},
+    "collateral_changes": [],
+    "route": "",
+    "receipt": {
+      "status": "refused"
+    },
+    "refusal": {
+      "reason": "keeping every word and tightening the cut are two requests, and only one of them can be the one.",
+      "recovery_class": "auto_recoverable"
+    }
+  },
+  "delivery": {},
+  "project": {
+    "resolve_project": "Ren Scratch - breaktest",
+    "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare",
+    "footage": "the scratch copy's own recorded media pool"
+  },
+  "evidence": {
+    "readback:reel13": {
+      "kind": "timeline_readback",
+      "source": "the scratch copy's own recorded read-back of Reel 13",
+      "locator": "project_model/snapshot.json: edits[-1].after.resolve_readback"
+    },
+    "pool:scratch": {
+      "kind": "media_pool",
+      "source": "the scratch copy's recorded media pool",
+      "locator": "project_model/snapshot.json: edits[-1].after.resolve_readback.bin"
+    },
+    "transcript:master": {
+      "kind": "transcript",
+      "source": "the master's word-timed transcript",
+      "locator": "the session transcript, 477 segments, each naming its file"
+    }
+  }
+}

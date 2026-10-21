@@ -1,0 +1,118 @@
+{
+  "schema": "ren-editorial-task-record/1",
+  "task_id": "take-out-the-soft-focus-card-i-asked-about",
+  "brief_id": "take-out-the-soft-focus-card-i-asked-about",
+  "instruction": "I left a note on this timeline about the soft focus card that sits over the opening. Do what the note says: take that card out and close the gap it leaves. Do not touch anything else on the reel.",
+  "interpretation": {
+    "restated_outcome": "Take the soft focus card out of the opening and close the gap it leaves, and do not touch anything else.",
+    "selected_operations": [
+      "clip.remove"
+    ],
+    "resolved_targets": [
+      {
+        "role": "soft_focus_card",
+        "resolved": true,
+        "target": "the lower third b-soft-focus-craig.mov on the Motion Graphics row, frames 0-84",
+        "evidence": [
+          "readback:reel13"
+        ]
+      }
+    ],
+    "intent": {
+      "version": 1,
+      "intent_id": "intent:take-out-the-soft-focus-card-i-asked-about",
+      "desired_outcome": "I left a note on this timeline about the soft focus card that sits over the opening. Do what the note says: take that card out and close the gap it leaves. Do not touch anything else on the reel.",
+      "brief_ref": "",
+      "requirements": [],
+      "preferences": [],
+      "inferred_preferences": [],
+      "requests": [
+        {
+          "request_id": "request:0",
+          "kind": "strengthen_opening",
+          "statement": "I left a note on this timeline about the soft focus card that sits over the opening. Do what the note says: take that card out and close the gap it leaves. Do not touch anything else on the reel.",
+          "explicit": true,
+          "objective": false,
+          "source": "",
+          "autonomy": "needs_approval",
+          "autonomy_basis": "the declared default for strengthen_opening",
+          "evidence_bar": [
+            "m1",
+            "m3"
+          ],
+          "evidence_lanes": [],
+          "missing_evidence": [
+            {
+              "lane": "m1",
+              "status": "not_yet_analysed"
+            },
+            {
+              "lane": "m3",
+              "status": "not_yet_analysed"
+            }
+          ],
+          "uncertainty": null,
+          "question": ""
+        }
+      ],
+      "references": [],
+      "constraints": [],
+      "unresolved": [],
+      "evidence_links": []
+    }
+  },
+  "retrieval": {
+    "abstained": false,
+    "moments": [],
+    "unavailable": []
+  },
+  "planning": {
+    "operations": [
+      {
+        "op": "clip.remove",
+        "target_role": "soft_focus_card"
+      }
+    ],
+    "requirements_covered": [
+      "card-gone",
+      "gap-closed",
+      "rest-untouched"
+    ]
+  },
+  "execution": {
+    "attempts": 0,
+    "checks": {},
+    "collateral_changes": [],
+    "route": "clip.remove -> resolve_axi",
+    "receipt": {
+      "status": "not_run"
+    },
+    "refusal": {
+      "reason": "the serving broker's queue is held by another lane's qualification session, so the mutation did not run in this lane's window",
+      "recovery_class": "blocked"
+    }
+  },
+  "delivery": {},
+  "project": {
+    "resolve_project": "Ren Scratch - breaktest",
+    "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare",
+    "footage": "the scratch copy's own recorded media pool"
+  },
+  "evidence": {
+    "readback:reel13": {
+      "kind": "timeline_readback",
+      "source": "the scratch copy's own recorded read-back of Reel 13",
+      "locator": "project_model/snapshot.json: edits[-1].after.resolve_readback"
+    },
+    "pool:scratch": {
+      "kind": "media_pool",
+      "source": "the scratch copy's recorded media pool",
+      "locator": "project_model/snapshot.json: edits[-1].after.resolve_readback.bin"
+    },
+    "transcript:master": {
+      "kind": "transcript",
+      "source": "the master's word-timed transcript",
+      "locator": "the session transcript, 477 segments, each naming its file"
+    }
+  }
+}

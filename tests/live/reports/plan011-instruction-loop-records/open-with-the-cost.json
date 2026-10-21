@@ -1,0 +1,92 @@
+{
+  "schema": "ren-editorial-task-record/1",
+  "task_id": "open-with-the-cost",
+  "brief_id": "open-with-the-cost",
+  "instruction": "The first half-minute is all throat-clearing. I want the reel to open on the moment she says what it actually costs us, then let her argument run from there. Don't lose a word she says, and leave the grade and her framing exactly as they are.",
+  "interpretation": {
+    "restated_outcome": "Open the reel on the moment she names what it actually costs, let her argument run from there, lose no word, and leave the grade and her framing exactly as they are.",
+    "selected_operations": [
+      "reel.opening"
+    ],
+    "resolved_targets": [
+      {
+        "role": "opening_section",
+        "resolved": true,
+        "target": "the reel's first picture - the Craig row 0-75 and the Akshita row 75-129 of Reel 13",
+        "evidence": [
+          "readback:reel13"
+        ]
+      }
+    ],
+    "intent": {
+      "version": 1,
+      "intent_id": "intent:open-with-the-cost",
+      "desired_outcome": "The first half-minute is all throat-clearing. I want the reel to open on the moment she says what it actually costs us, then let her argument run from there. Don't lose a word she says, and leave the grade and her framing exactly as they are.",
+      "brief_ref": "",
+      "requirements": [],
+      "preferences": [],
+      "inferred_preferences": [],
+      "requests": [],
+      "references": [],
+      "constraints": [],
+      "unresolved": [],
+      "evidence_links": []
+    }
+  },
+  "retrieval": {
+    "abstained": false,
+    "moments": [],
+    "unavailable": [
+      "The reel's own footage carries no statement of what it costs: it is cut from LC4932 and LCATL0013, and the cost line is Craig's 'It's something that's going to continually eat into their budget' in LCATL0011, a different recording."
+    ]
+  },
+  "planning": {
+    "operations": [
+      {
+        "op": "reel.opening",
+        "target_role": "opening_section"
+      }
+    ],
+    "requirements_covered": [
+      "hook-first",
+      "nothing-lost",
+      "grade-untouched"
+    ]
+  },
+  "execution": {
+    "attempts": 1,
+    "checks": {},
+    "collateral_changes": [],
+    "route": "reel.opening -> resolve_axi",
+    "receipt": {
+      "status": "refused"
+    },
+    "refusal": {
+      "reason": "the moment the request names is not in this reel's footage, so there is nothing to open on.",
+      "recovery_class": "auto_recoverable"
+    }
+  },
+  "delivery": {},
+  "project": {
+    "resolve_project": "Ren Scratch - breaktest",
+    "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare",
+    "footage": "the scratch copy's own recorded media pool"
+  },
+  "evidence": {
+    "readback:reel13": {
+      "kind": "timeline_readback",
+      "source": "the scratch copy's own recorded read-back of Reel 13",
+      "locator": "project_model/snapshot.json: edits[-1].after.resolve_readback"
+    },
+    "pool:scratch": {
+      "kind": "media_pool",
+      "source": "the scratch copy's recorded media pool",
+      "locator": "project_model/snapshot.json: edits[-1].after.resolve_readback.bin"
+    },
+    "transcript:master": {
+      "kind": "transcript",
+      "source": "the master's word-timed transcript",
+      "locator": "the session transcript, 477 segments, each naming its file"
+    }
+  }
+}

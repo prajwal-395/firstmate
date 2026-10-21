@@ -1,0 +1,93 @@
+{
+  "schema": "ren-editorial-task-record/1",
+  "task_id": "cut-the-repeated-definition",
+  "brief_id": "cut-the-repeated-definition",
+  "instruction": "About a minute in, she explains what SEO is twice in a row, in nearly the same words. Cut the first of the two and keep the second one whole. Leave everything else alone, and do not take any of her other sentences with it.",
+  "interpretation": {
+    "restated_outcome": "Cut the first of the two times she explains what SEO is, and keep the second one whole.",
+    "selected_operations": [
+      "clip.trim"
+    ],
+    "resolved_targets": [
+      {
+        "role": "repeated_passages",
+        "resolved": false,
+        "target": "not found - this reel carries no repeated passage",
+        "evidence": [
+          "transcript:master",
+          "readback:reel13"
+        ]
+      }
+    ],
+    "intent": {
+      "version": 1,
+      "intent_id": "intent:cut-the-repeated-definition",
+      "desired_outcome": "About a minute in, she explains what SEO is twice in a row, in nearly the same words. Cut the first of the two and keep the second one whole. Leave everything else alone, and do not take any of her other sentences with it.",
+      "brief_ref": "",
+      "requirements": [],
+      "preferences": [],
+      "inferred_preferences": [],
+      "requests": [],
+      "references": [],
+      "constraints": [],
+      "unresolved": [],
+      "evidence_links": []
+    }
+  },
+  "retrieval": {
+    "abstained": false,
+    "moments": [],
+    "unavailable": [
+      "The master carries both tellings - 'SEO is about convincing an algorithm to rank your page higher' in LC4930 and its second telling in LC4931 - and this reel is cut from LC4932 and LCATL0013, so neither telling is in it."
+    ]
+  },
+  "planning": {
+    "operations": [
+      {
+        "op": "clip.trim",
+        "target_role": "repeated_passages"
+      }
+    ],
+    "requirements_covered": [
+      "repeat-removed",
+      "nothing-else-lost",
+      "gap-closed"
+    ]
+  },
+  "execution": {
+    "attempts": 1,
+    "checks": {},
+    "collateral_changes": [],
+    "route": "clip.trim -> no production route",
+    "receipt": {
+      "status": "refused"
+    },
+    "refusal": {
+      "reason": "neither telling of the definition is in this reel, and clip.trim has no production route on its own.",
+      "recovery_class": "auto_recoverable"
+    }
+  },
+  "delivery": {},
+  "project": {
+    "resolve_project": "Ren Scratch - breaktest",
+    "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare",
+    "footage": "the scratch copy's own recorded media pool"
+  },
+  "evidence": {
+    "readback:reel13": {
+      "kind": "timeline_readback",
+      "source": "the scratch copy's own recorded read-back of Reel 13",
+      "locator": "project_model/snapshot.json: edits[-1].after.resolve_readback"
+    },
+    "pool:scratch": {
+      "kind": "media_pool",
+      "source": "the scratch copy's recorded media pool",
+      "locator": "project_model/snapshot.json: edits[-1].after.resolve_readback.bin"
+    },
+    "transcript:master": {
+      "kind": "transcript",
+      "source": "the master's word-timed transcript",
+      "locator": "the session transcript, 477 segments, each naming its file"
+    }
+  }
+}

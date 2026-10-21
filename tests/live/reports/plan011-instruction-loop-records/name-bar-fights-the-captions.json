@@ -1,0 +1,113 @@
+{
+  "schema": "ren-editorial-task-record/1",
+  "task_id": "name-bar-fights-the-captions",
+  "brief_id": "name-bar-fights-the-captions",
+  "instruction": "The name bar is sitting too high and it is fighting the captions. Move it down so the two stop colliding, and leave the rest of the graphics alone.",
+  "interpretation": {
+    "restated_outcome": "Move the name bar down so it stops colliding with the captions, and leave the rest of the graphics alone.",
+    "selected_operations": [
+      "overlay.position"
+    ],
+    "resolved_targets": [
+      {
+        "role": "name_lower_third",
+        "resolved": true,
+        "target": "the lower third b-soft-focus-craig.mov on the Motion Graphics row, frames 0-84",
+        "evidence": [
+          "readback:reel13"
+        ]
+      }
+    ],
+    "intent": {
+      "version": 1,
+      "intent_id": "intent:name-bar-fights-the-captions",
+      "desired_outcome": "The name bar is sitting too high and it is fighting the captions. Move it down so the two stop colliding, and leave the rest of the graphics alone.",
+      "brief_ref": "",
+      "requirements": [],
+      "preferences": [],
+      "inferred_preferences": [],
+      "requests": [
+        {
+          "request_id": "request:0",
+          "kind": "revise_graphics",
+          "statement": "The name bar is sitting too high and it is fighting the captions. Move it down so the two stop colliding, and leave the rest of the graphics alone.",
+          "explicit": true,
+          "objective": true,
+          "source": "",
+          "autonomy": "needs_approval",
+          "autonomy_basis": "the declared default for revise_graphics",
+          "evidence_bar": [
+            "m3"
+          ],
+          "evidence_lanes": [],
+          "missing_evidence": [
+            {
+              "lane": "m3",
+              "status": "not_yet_analysed"
+            }
+          ],
+          "uncertainty": null,
+          "question": ""
+        }
+      ],
+      "references": [],
+      "constraints": [],
+      "unresolved": [],
+      "evidence_links": []
+    }
+  },
+  "retrieval": {
+    "abstained": false,
+    "moments": [],
+    "unavailable": []
+  },
+  "planning": {
+    "operations": [
+      {
+        "op": "overlay.position",
+        "target_role": "name_lower_third"
+      }
+    ],
+    "requirements_covered": [
+      "collision-gone",
+      "inside-safe-area",
+      "others-untouched"
+    ]
+  },
+  "execution": {
+    "attempts": 0,
+    "checks": {},
+    "collateral_changes": [],
+    "route": "overlay.position -> reel_touchup",
+    "receipt": {
+      "status": "not_run"
+    },
+    "refusal": {
+      "reason": "the serving broker's queue is held by another lane's qualification session, so the mutation did not run in this lane's window",
+      "recovery_class": "blocked"
+    }
+  },
+  "delivery": {},
+  "project": {
+    "resolve_project": "Ren Scratch - breaktest",
+    "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare",
+    "footage": "the scratch copy's own recorded media pool"
+  },
+  "evidence": {
+    "readback:reel13": {
+      "kind": "timeline_readback",
+      "source": "the scratch copy's own recorded read-back of Reel 13",
+      "locator": "project_model/snapshot.json: edits[-1].after.resolve_readback"
+    },
+    "pool:scratch": {
+      "kind": "media_pool",
+      "source": "the scratch copy's recorded media pool",
+      "locator": "project_model/snapshot.json: edits[-1].after.resolve_readback.bin"
+    },
+    "transcript:master": {
+      "kind": "transcript",
+      "source": "the master's word-timed transcript",
+      "locator": "the session transcript, 477 segments, each naming its file"
+    }
+  }
+}

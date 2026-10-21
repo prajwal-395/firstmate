@@ -1,0 +1,92 @@
+{
+  "schema": "ren-editorial-task-record/1",
+  "task_id": "the-wrong-caption",
+  "brief_id": "the-wrong-caption",
+  "instruction": "One of the captions says 'revenue' but she is talking about churn. Fix that caption's text and nothing else - not the timing, not the other captions.",
+  "interpretation": {
+    "restated_outcome": "Fix the one caption whose text names the wrong word, and change nothing else - not its timing, not the other captions.",
+    "selected_operations": [
+      "caption_fix"
+    ],
+    "resolved_targets": [
+      {
+        "role": "wrong_caption_card",
+        "resolved": false,
+        "target": "not found - no caption in the reel names a word the speech does not",
+        "evidence": [
+          "readback:reel13"
+        ]
+      }
+    ],
+    "intent": {
+      "version": 1,
+      "intent_id": "intent:the-wrong-caption",
+      "desired_outcome": "One of the captions says 'revenue' but she is talking about churn. Fix that caption's text and nothing else - not the timing, not the other captions.",
+      "brief_ref": "",
+      "requirements": [],
+      "preferences": [],
+      "inferred_preferences": [],
+      "requests": [],
+      "references": [],
+      "constraints": [],
+      "unresolved": [],
+      "evidence_links": []
+    }
+  },
+  "retrieval": {
+    "abstained": false,
+    "moments": [],
+    "unavailable": [
+      "The reel carries 45 caption cards, and no card names 'revenue' where the speech says churn; the reel's speech is not about churn at all."
+    ]
+  },
+  "planning": {
+    "operations": [
+      {
+        "op": "caption_fix",
+        "target_role": "wrong_caption_card"
+      }
+    ],
+    "requirements_covered": [
+      "caption-text-right",
+      "timing-kept",
+      "others-untouched"
+    ]
+  },
+  "execution": {
+    "attempts": 1,
+    "checks": {},
+    "collateral_changes": [],
+    "route": "caption_fix -> no production route",
+    "receipt": {
+      "status": "refused"
+    },
+    "refusal": {
+      "reason": "caption_fix has no production route, and no caption in the reel names the wrong word.",
+      "recovery_class": "auto_recoverable"
+    }
+  },
+  "delivery": {},
+  "project": {
+    "resolve_project": "Ren Scratch - breaktest",
+    "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare",
+    "footage": "the scratch copy's own recorded media pool"
+  },
+  "evidence": {
+    "readback:reel13": {
+      "kind": "timeline_readback",
+      "source": "the scratch copy's own recorded read-back of Reel 13",
+      "locator": "project_model/snapshot.json: edits[-1].after.resolve_readback"
+    },
+    "pool:scratch": {
+      "kind": "media_pool",
+      "source": "the scratch copy's recorded media pool",
+      "locator": "project_model/snapshot.json: edits[-1].after.resolve_readback.bin"
+    },
+    "transcript:master": {
+      "kind": "transcript",
+      "source": "the master's word-timed transcript",
+      "locator": "the session transcript, 477 segments, each naming its file"
+    }
+  }
+}
