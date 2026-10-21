@@ -1212,6 +1212,9 @@ A missing second-workspace file means the three-rung ladder exactly as before, w
 No token, key, or workspace id goes in tracked files, commit messages, or PR bodies.
 On the first launch that needs it, firstmate builds the gitignored pin database beside each id file (`config/opencode-second.db`, `config/opencode-main.db`): a migrated database seeded from this machine's console login and pinned to that workspace.
 On every later launch that needs it the login rows are re-copied from the live database and re-pinned, so the pin never carries a stale token, and a pin that will not refresh is discarded and rebuilt.
+The console refresh token belongs to the live database alone: refreshing inside a copy rotates the token server-side and revokes the live login for every other caller, so the live database is the only place a token is ever refreshed.
+Firstmate therefore refreshes the live login through OpenCode against the live database itself, then copies the fresh rows outward into the pins and the task databases; it never points OpenCode at a copy whose token expired, and a pin holding an expired login is refused with that reason instead of being refreshed in place.
+A Pi launch refreshes every pinned database in the home from that live login, so the pins stay current even though the OpenCode route now runs on Pi and no OpenCode worker runs to refresh them.
 The pin is a copy, never the login itself: a pin path that names the live console database is refused before anything reads or writes either file.
 Before a launch rides its pin, the pinned config must resolve the `opencode` provider to that launch's own workspace; anything else refuses the launch, so a mis-pinned session can never bill the wrong workspace.
 Every Go launch in a home with a configured second workspace rides its own pin, main and secondary alike, so no Go launch ever inherits the machine-wide active workspace; a Go launch whose pin cannot be proven is refused rather than run unpinned.
@@ -1247,9 +1250,12 @@ MiniMax M3.1 Flash Free uses OpenAI Chat Completions; Muse Spark 1.3 Contributor
 Firstmate supplies each task's selected workspace id and stable `x-opencode-session` value through that launch's environment, and uses the existing workspace pin database to create the task's private credential database.
 
 Pi does not refresh OpenCode console credentials itself.
-For each model request, its credential command asks OpenCode to refresh the canonical console database, copies only the login rows into that task's private database, and refuses an absent or near-expiry token.
+For each model request, its credential command reads the token from that task's private database first and hands it to Pi when it is comfortably unexpired, so a busy machine answers from the task database without asking OpenCode anything.
+A near-expiry or absent token makes the command ask OpenCode to refresh the canonical console database and copy only the login rows into that task's private database, and the refresh is serialized across tasks so workers do not race the same console refresh token.
+That refresh runs against the live database, the single holder of the console refresh token, and the fresh rows are copied outward; the command also refreshes the home's pinned workspace databases from the same live login, so a re-login reaches them too.
+Pi gives that command a hard 10s budget and discards its stderr, so the command bounds its own work, waits out a contended task database instead of failing on it, and records the failing step beside the task's state when it cannot answer; that record never carries the token.
 Tokens remain in OpenCode databases; the request-time command hands the token directly to Pi without logging or persisting it elsewhere.
-The refresh is serialized across tasks so workers do not race the same console refresh token.
+`FM_OPENCODE_LIVE_DB` names the console database outright; when it is set, the lookup never falls back to the machine's own data directory, so a scratch home or a test cannot reach the account of the person running the machine.
 The shared provider entry calls a content-versioned helper installed inside the Pi agent directory, selected through `PI_CODING_AGENT_DIR` or the default `$HOME/.pi/agent` path. Multiple homes and code roots can therefore share the provider without a code-root-specific command. Older helper versions remain installed so workers that already loaded an earlier provider command continue to work after a later install; installation migrates the older code-root-bound managed entry.
 `bin/fm-pi-opencode-go.sh` owns provider installation and request-time credential handling.
 

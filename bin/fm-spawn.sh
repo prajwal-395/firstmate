@@ -3090,6 +3090,14 @@ if [ "$PI_OPENCODE_GO" -eq 1 ]; then
     echo "error: Pi OpenCode Go requires a console login in its task database" >&2
     exit 1
   }
+  # The pinned workspace databases have to stay current with the live console
+  # login even though no OpenCode worker runs any more: the Pi route is the
+  # only route left, and a pin that carries a stale token reports a rejected
+  # provider to everything that reads it. The live login is refreshed through
+  # the live database and the fresh rows are copied outward into every pin.
+  # A pin that cannot be refreshed is reported and does not stop the launch:
+  # the pin this launch rides was already proved by the build above.
+  fm_opencode_pins_refresh "$(fm_opencode_second_config_dir)" || true
 fi
 # Ultra is an explicit native capability, never a Pi thinking-level alias.
 # Validate the fully resolved profile before worktree or endpoint provisioning.

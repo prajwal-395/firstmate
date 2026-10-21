@@ -2513,7 +2513,7 @@ test_relaunch_opencode_workspace_moves_and_preserves_the_pin() {
     'CREATE TABLE account_state (id integer PRIMARY KEY, active_account_id text, active_org_id text);' \
     || fail "the fixture login could not be built"
   sqlite3 "$datadir/opencode.db" \
-    "INSERT INTO account VALUES('acc_01FIXTURE','fixture@example.invalid','https://opencode.ai/console','tok-access','tok-refresh',1893456000,1780000000,1780000000);" \
+    "INSERT INTO account VALUES('acc_01FIXTURE','fixture@example.invalid','https://opencode.ai/console','tok-access','tok-refresh',4102444800000,1780000000,1780000000);" \
     || fail "the fixture login could not be built"
   sqlite3 "$datadir/opencode.db" \
     "INSERT INTO account_state VALUES(1,'acc_01FIXTURE','wrk_01FIXTUREMAIN');" \
