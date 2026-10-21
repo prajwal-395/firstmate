@@ -1,0 +1,1527 @@
+{
+ "schema": "ren_detection_coverage_manifest/1",
+ "task": "D-01",
+ "purpose": "Measured detection coverage across object categories on real footage, with denominators.",
+ "label_source": "One agent adjudicator (the lane's own worker) looked at every frame and labelled every instance of the taxonomy classes it could see. Boxes are visual estimates on the native frame, normalized 0..1, top-left origin. No human gold labels and no second adjudicator: these are agent labels, and the report says so.",
+ "labelling_rules": {
+  "exhaustive_within_taxonomy": "Every visible instance of a taxonomy class in a frame is labelled, so an unmatched detection of that class is a false positive rather than an unlabelled instance.",
+  "classes": {
+   "person": "a human body in the scene, including a partly framed one",
+   "hand": "a hand, including one entering from a frame edge",
+   "phone": "a handheld phone",
+   "laptop": "an open or closed laptop computer",
+   "cup": "a drinking vessel (cup, mug, glass)",
+   "small_object": "a discrete object that is not one of the classes above and is small in the frame (glasses, a camera on a tripod, a plant pot, a lamp, a ceiling speaker, a light switch, a hanging device, a door handle, a side mirror, a backpack strap)"
+  },
+  "small_object_is_measured_not_asserted": "An instance is also counted in the SMALL stratum when its box area is under 1% of the frame, whatever its class.",
+  "partially_visible_is_measured_not_asserted": "An instance is also counted in the PARTIAL stratum when its box touches a frame edge, whatever its class.",
+  "unusual_footage_is_a_frame_property": "unusual_footage marks frames that are not the studio podcast setup: in-car dashcam footage, handheld vertical selfie footage and street walk-and-talk footage."
+ },
+ "matching": {
+  "iou_threshold": 0.5,
+  "score_threshold": 0.1,
+  "one_to_one": "A detection matches at most one labelled instance and an instance is recalled by at most one detection (maximum-cardinality matching, as the bakeoff does).",
+  "class_conditioned": "A detection answers one query phrase and matches only an instance whose query phrase is the same phrase, except the class-agnostic Apple Vision foreground proposal, which may match any instance."
+ },
+ "detectors": {
+  "owlv2": "open-vocabulary, the incumbent (google/owlv2-base-patch16-ensemble, MPS float32)",
+  "rf_detr_nano": "fixed-vocabulary COCO detector mapped onto the query phrases (Roboflow/rf-detr-nano, MPS float32)",
+  "vision_foreground": "class-agnostic Apple Vision foreground proposals (no phrase, so no per-class precision)"
+ },
+ "frames": [
+  {
+   "frame_id": "podcast-LC4930-t020",
+   "image": "podcast-LC4930-t020.jpg",
+   "unusual_footage": false,
+   "source": {
+    "clip": "LC4930",
+    "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LC4930.MXF",
+    "timestamp_s": 20.0,
+    "width": 3840,
+    "height": 2160
+   },
+   "objects": [
+    {
+     "class": "person",
+     "query": "person",
+     "box": [
+      0.335,
+      0.075,
+      0.72,
+      0.685
+     ]
+    },
+    {
+     "class": "hand",
+     "query": "hand",
+     "box": [
+      0.462,
+      0.578,
+      0.52,
+      0.668
+     ]
+    },
+    {
+     "class": "hand",
+     "query": "hand",
+     "box": [
+      0.503,
+      0.575,
+      0.56,
+      0.665
+     ]
+    },
+    {
+     "class": "laptop",
+     "query": "laptop",
+     "box": [
+      0.0,
+      0.575,
+      0.145,
+      1.0
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "glasses",
+     "box": [
+      0.462,
+      0.215,
+      0.548,
+      0.295
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "camera",
+     "box": [
+      0.93,
+      0.02,
+      0.995,
+      0.105
+     ]
+    }
+   ]
+  },
+  {
+   "frame_id": "podcast-LC4930-t080",
+   "image": "podcast-LC4930-t080.jpg",
+   "unusual_footage": false,
+   "source": {
+    "clip": "LC4930",
+    "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LC4930.MXF",
+    "timestamp_s": 80.0,
+    "width": 3840,
+    "height": 2160
+   },
+   "objects": [
+    {
+     "class": "person",
+     "query": "person",
+     "box": [
+      0.34,
+      0.075,
+      0.72,
+      0.685
+     ]
+    },
+    {
+     "class": "hand",
+     "query": "hand",
+     "box": [
+      0.465,
+      0.59,
+      0.522,
+      0.68
+     ]
+    },
+    {
+     "class": "hand",
+     "query": "hand",
+     "box": [
+      0.505,
+      0.588,
+      0.562,
+      0.678
+     ]
+    },
+    {
+     "class": "hand",
+     "query": "hand",
+     "box": [
+      0.0,
+      0.76,
+      0.05,
+      0.93
+     ]
+    },
+    {
+     "class": "laptop",
+     "query": "laptop",
+     "box": [
+      0.0,
+      0.575,
+      0.145,
+      1.0
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "glasses",
+     "box": [
+      0.462,
+      0.215,
+      0.548,
+      0.295
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "camera",
+     "box": [
+      0.93,
+      0.02,
+      0.995,
+      0.105
+     ]
+    }
+   ]
+  },
+  {
+   "frame_id": "podcast-LC4930-t140",
+   "image": "podcast-LC4930-t140.jpg",
+   "unusual_footage": false,
+   "source": {
+    "clip": "LC4930",
+    "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LC4930.MXF",
+    "timestamp_s": 140.0,
+    "width": 3840,
+    "height": 2160
+   },
+   "objects": [
+    {
+     "class": "person",
+     "query": "person",
+     "box": [
+      0.335,
+      0.075,
+      0.725,
+      0.68
+     ]
+    },
+    {
+     "class": "hand",
+     "query": "hand",
+     "box": [
+      0.437,
+      0.505,
+      0.512,
+      0.6
+     ]
+    },
+    {
+     "class": "hand",
+     "query": "hand",
+     "box": [
+      0.52,
+      0.48,
+      0.598,
+      0.565
+     ]
+    },
+    {
+     "class": "hand",
+     "query": "hand",
+     "box": [
+      0.0,
+      0.77,
+      0.055,
+      0.935
+     ]
+    },
+    {
+     "class": "laptop",
+     "query": "laptop",
+     "box": [
+      0.0,
+      0.575,
+      0.145,
+      1.0
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "glasses",
+     "box": [
+      0.462,
+      0.215,
+      0.548,
+      0.295
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "camera",
+     "box": [
+      0.93,
+      0.02,
+      0.995,
+      0.105
+     ]
+    }
+   ]
+  },
+  {
+   "frame_id": "podcast-LC4930-t170",
+   "image": "podcast-LC4930-t170.jpg",
+   "unusual_footage": false,
+   "source": {
+    "clip": "LC4930",
+    "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LC4930.MXF",
+    "timestamp_s": 170.0,
+    "width": 3840,
+    "height": 2160
+   },
+   "objects": [
+    {
+     "class": "person",
+     "query": "person",
+     "box": [
+      0.34,
+      0.075,
+      0.72,
+      0.69
+     ]
+    },
+    {
+     "class": "hand",
+     "query": "hand",
+     "box": [
+      0.46,
+      0.595,
+      0.518,
+      0.685
+     ]
+    },
+    {
+     "class": "hand",
+     "query": "hand",
+     "box": [
+      0.505,
+      0.592,
+      0.562,
+      0.682
+     ]
+    },
+    {
+     "class": "hand",
+     "query": "hand",
+     "box": [
+      0.0,
+      0.78,
+      0.05,
+      0.935
+     ]
+    },
+    {
+     "class": "laptop",
+     "query": "laptop",
+     "box": [
+      0.0,
+      0.575,
+      0.145,
+      1.0
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "glasses",
+     "box": [
+      0.462,
+      0.215,
+      0.548,
+      0.295
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "camera",
+     "box": [
+      0.93,
+      0.02,
+      0.995,
+      0.105
+     ]
+    }
+   ]
+  },
+  {
+   "frame_id": "podcast-LC4931-t020",
+   "image": "podcast-LC4931-t020.jpg",
+   "unusual_footage": false,
+   "source": {
+    "clip": "LC4931",
+    "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LC4931.MXF",
+    "timestamp_s": 20.0,
+    "width": 3840,
+    "height": 2160
+   },
+   "objects": [
+    {
+     "class": "person",
+     "query": "person",
+     "box": [
+      0.335,
+      0.085,
+      0.73,
+      0.7
+     ]
+    },
+    {
+     "class": "hand",
+     "query": "hand",
+     "box": [
+      0.48,
+      0.605,
+      0.535,
+      0.68
+     ]
+    },
+    {
+     "class": "hand",
+     "query": "hand",
+     "box": [
+      0.52,
+      0.6,
+      0.575,
+      0.675
+     ]
+    },
+    {
+     "class": "cup",
+     "query": "cup",
+     "box": [
+      0.917,
+      0.77,
+      1.0,
+      0.93
+     ]
+    },
+    {
+     "class": "laptop",
+     "query": "laptop",
+     "box": [
+      0.17,
+      0.66,
+      0.22,
+      1.0
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "glasses",
+     "box": [
+      0.455,
+      0.235,
+      0.545,
+      0.31
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "camera",
+     "box": [
+      0.93,
+      0.02,
+      0.995,
+      0.105
+     ]
+    }
+   ]
+  },
+  {
+   "frame_id": "podcast-LC4931-t080",
+   "image": "podcast-LC4931-t080.jpg",
+   "unusual_footage": false,
+   "source": {
+    "clip": "LC4931",
+    "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LC4931.MXF",
+    "timestamp_s": 80.0,
+    "width": 3840,
+    "height": 2160
+   },
+   "objects": [
+    {
+     "class": "person",
+     "query": "person",
+     "box": [
+      0.34,
+      0.085,
+      0.725,
+      0.7
+     ]
+    },
+    {
+     "class": "hand",
+     "query": "hand",
+     "box": [
+      0.425,
+      0.6,
+      0.51,
+      0.715
+     ]
+    },
+    {
+     "class": "hand",
+     "query": "hand",
+     "box": [
+      0.52,
+      0.6,
+      0.605,
+      0.71
+     ]
+    },
+    {
+     "class": "hand",
+     "query": "hand",
+     "box": [
+      0.0,
+      0.855,
+      0.045,
+      0.985
+     ]
+    },
+    {
+     "class": "cup",
+     "query": "cup",
+     "box": [
+      0.917,
+      0.77,
+      1.0,
+      0.93
+     ]
+    },
+    {
+     "class": "laptop",
+     "query": "laptop",
+     "box": [
+      0.17,
+      0.66,
+      0.22,
+      1.0
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "glasses",
+     "box": [
+      0.455,
+      0.235,
+      0.545,
+      0.31
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "camera",
+     "box": [
+      0.93,
+      0.02,
+      0.995,
+      0.105
+     ]
+    }
+   ]
+  },
+  {
+   "frame_id": "podcast-LC4931-t140",
+   "image": "podcast-LC4931-t140.jpg",
+   "unusual_footage": false,
+   "source": {
+    "clip": "LC4931",
+    "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LC4931.MXF",
+    "timestamp_s": 140.0,
+    "width": 3840,
+    "height": 2160
+   },
+   "objects": [
+    {
+     "class": "person",
+     "query": "person",
+     "box": [
+      0.335,
+      0.085,
+      0.73,
+      0.7
+     ]
+    },
+    {
+     "class": "hand",
+     "query": "hand",
+     "box": [
+      0.47,
+      0.62,
+      0.57,
+      0.72
+     ]
+    },
+    {
+     "class": "cup",
+     "query": "cup",
+     "box": [
+      0.917,
+      0.77,
+      1.0,
+      0.93
+     ]
+    },
+    {
+     "class": "laptop",
+     "query": "laptop",
+     "box": [
+      0.17,
+      0.66,
+      0.22,
+      1.0
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "glasses",
+     "box": [
+      0.455,
+      0.235,
+      0.545,
+      0.31
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "camera",
+     "box": [
+      0.93,
+      0.02,
+      0.995,
+      0.105
+     ]
+    }
+   ]
+  },
+  {
+   "frame_id": "podcast-LC4931-t200",
+   "image": "podcast-LC4931-t200.jpg",
+   "unusual_footage": false,
+   "source": {
+    "clip": "LC4931",
+    "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LC4931.MXF",
+    "timestamp_s": 200.0,
+    "width": 3840,
+    "height": 2160
+   },
+   "objects": [
+    {
+     "class": "person",
+     "query": "person",
+     "box": [
+      0.335,
+      0.085,
+      0.73,
+      0.7
+     ]
+    },
+    {
+     "class": "hand",
+     "query": "hand",
+     "box": [
+      0.47,
+      0.615,
+      0.528,
+      0.69
+     ]
+    },
+    {
+     "class": "hand",
+     "query": "hand",
+     "box": [
+      0.512,
+      0.612,
+      0.57,
+      0.688
+     ]
+    },
+    {
+     "class": "cup",
+     "query": "cup",
+     "box": [
+      0.917,
+      0.77,
+      1.0,
+      0.93
+     ]
+    },
+    {
+     "class": "laptop",
+     "query": "laptop",
+     "box": [
+      0.17,
+      0.66,
+      0.22,
+      1.0
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "glasses",
+     "box": [
+      0.455,
+      0.235,
+      0.545,
+      0.31
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "camera",
+     "box": [
+      0.93,
+      0.02,
+      0.995,
+      0.105
+     ]
+    }
+   ]
+  },
+  {
+   "frame_id": "podcast-LCATL0012-t020",
+   "image": "podcast-LCATL0012-t020.jpg",
+   "unusual_footage": false,
+   "source": {
+    "clip": "LCATL0012",
+    "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0012.MXF",
+    "timestamp_s": 20.0,
+    "width": 3840,
+    "height": 2160
+   },
+   "objects": [
+    {
+     "class": "person",
+     "query": "person",
+     "box": [
+      0.38,
+      0.165,
+      0.665,
+      0.8
+     ]
+    },
+    {
+     "class": "laptop",
+     "query": "laptop",
+     "box": [
+      0.2,
+      0.53,
+      0.47,
+      0.8
+     ]
+    },
+    {
+     "class": "hand",
+     "query": "hand",
+     "box": [
+      0.455,
+      0.57,
+      0.6,
+      0.685
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "plant pot",
+     "box": [
+      0.315,
+      0.437,
+      0.357,
+      0.542
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "lamp",
+     "box": [
+      0.0,
+      0.04,
+      0.04,
+      0.205
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "watch",
+     "box": [
+      0.54,
+      0.59,
+      0.575,
+      0.65
+     ]
+    }
+   ]
+  },
+  {
+   "frame_id": "podcast-LCATL0012-t080",
+   "image": "podcast-LCATL0012-t080.jpg",
+   "unusual_footage": false,
+   "source": {
+    "clip": "LCATL0012",
+    "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0012.MXF",
+    "timestamp_s": 80.0,
+    "width": 3840,
+    "height": 2160
+   },
+   "objects": [
+    {
+     "class": "person",
+     "query": "person",
+     "box": [
+      0.38,
+      0.155,
+      0.64,
+      0.76
+     ]
+    },
+    {
+     "class": "laptop",
+     "query": "laptop",
+     "box": [
+      0.195,
+      0.51,
+      0.47,
+      0.8
+     ]
+    },
+    {
+     "class": "hand",
+     "query": "hand",
+     "box": [
+      0.47,
+      0.595,
+      0.56,
+      0.72
+     ]
+    },
+    {
+     "class": "hand",
+     "query": "hand",
+     "box": [
+      0.565,
+      0.575,
+      0.65,
+      0.7
+     ]
+    },
+    {
+     "class": "hand",
+     "query": "hand",
+     "box": [
+      0.745,
+      0.855,
+      0.96,
+      1.0
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "plant pot",
+     "box": [
+      0.318,
+      0.435,
+      0.36,
+      0.54
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "lamp",
+     "box": [
+      0.0,
+      0.04,
+      0.04,
+      0.205
+     ]
+    }
+   ]
+  },
+  {
+   "frame_id": "podcast-LCATL0012-t140",
+   "image": "podcast-LCATL0012-t140.jpg",
+   "unusual_footage": false,
+   "source": {
+    "clip": "LCATL0012",
+    "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0012.MXF",
+    "timestamp_s": 140.0,
+    "width": 3840,
+    "height": 2160
+   },
+   "objects": [
+    {
+     "class": "person",
+     "query": "person",
+     "box": [
+      0.38,
+      0.19,
+      0.655,
+      0.76
+     ]
+    },
+    {
+     "class": "laptop",
+     "query": "laptop",
+     "box": [
+      0.215,
+      0.53,
+      0.475,
+      0.8
+     ]
+    },
+    {
+     "class": "hand",
+     "query": "hand",
+     "box": [
+      0.448,
+      0.605,
+      0.52,
+      0.7
+     ]
+    },
+    {
+     "class": "hand",
+     "query": "hand",
+     "box": [
+      0.498,
+      0.598,
+      0.57,
+      0.695
+     ]
+    },
+    {
+     "class": "hand",
+     "query": "hand",
+     "box": [
+      0.78,
+      0.87,
+      0.95,
+      1.0
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "plant pot",
+     "box": [
+      0.326,
+      0.437,
+      0.367,
+      0.539
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "lamp",
+     "box": [
+      0.0,
+      0.04,
+      0.04,
+      0.205
+     ]
+    }
+   ]
+  },
+  {
+   "frame_id": "podcast-LCATL0012-t200",
+   "image": "podcast-LCATL0012-t200.jpg",
+   "unusual_footage": false,
+   "source": {
+    "clip": "LCATL0012",
+    "path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0012.MXF",
+    "timestamp_s": 200.0,
+    "width": 3840,
+    "height": 2160
+   },
+   "objects": [
+    {
+     "class": "person",
+     "query": "person",
+     "box": [
+      0.38,
+      0.205,
+      0.645,
+      0.74
+     ]
+    },
+    {
+     "class": "laptop",
+     "query": "laptop",
+     "box": [
+      0.21,
+      0.53,
+      0.47,
+      0.8
+     ]
+    },
+    {
+     "class": "hand",
+     "query": "hand",
+     "box": [
+      0.465,
+      0.615,
+      0.535,
+      0.7
+     ]
+    },
+    {
+     "class": "hand",
+     "query": "hand",
+     "box": [
+      0.515,
+      0.612,
+      0.585,
+      0.698
+     ]
+    },
+    {
+     "class": "hand",
+     "query": "hand",
+     "box": [
+      0.79,
+      0.875,
+      0.95,
+      1.0
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "plant pot",
+     "box": [
+      0.32,
+      0.437,
+      0.362,
+      0.54
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "lamp",
+     "box": [
+      0.0,
+      0.04,
+      0.04,
+      0.205
+     ]
+    }
+   ]
+  },
+  {
+   "frame_id": "car-IMG1807-t005",
+   "image": "car-IMG1807-t005.jpg",
+   "unusual_footage": true,
+   "source": {
+    "clip": "IMG_1807",
+    "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1807.MOV",
+    "timestamp_s": 5.0,
+    "width": 1080,
+    "height": 1920
+   },
+   "objects": [
+    {
+     "class": "hand",
+     "query": "hand",
+     "box": [
+      0.055,
+      0.7,
+      0.35,
+      1.0
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "car door handle",
+     "box": [
+      0.175,
+      0.68,
+      0.43,
+      0.79
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "side mirror",
+     "box": [
+      0.065,
+      0.355,
+      0.205,
+      0.47
+     ]
+    }
+   ]
+  },
+  {
+   "frame_id": "car-IMG1808-t020",
+   "image": "car-IMG1808-t020.jpg",
+   "unusual_footage": true,
+   "source": {
+    "clip": "IMG_1808",
+    "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1808.MOV",
+    "timestamp_s": 20.0,
+    "width": 1920,
+    "height": 1080
+   },
+   "objects": [
+    {
+     "class": "person",
+     "query": "person",
+     "box": [
+      0.0,
+      0.17,
+      0.56,
+      1.0
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "hanging device",
+     "box": [
+      0.69,
+      0.2,
+      0.855,
+      0.56
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "white charger",
+     "box": [
+      0.78,
+      0.0,
+      0.84,
+      0.105
+     ]
+    }
+   ]
+  },
+  {
+   "frame_id": "car-IMG1809-t020",
+   "image": "car-IMG1809-t020.jpg",
+   "unusual_footage": true,
+   "source": {
+    "clip": "IMG_1809",
+    "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1809.MOV",
+    "timestamp_s": 20.0,
+    "width": 1080,
+    "height": 1920
+   },
+   "objects": []
+  },
+  {
+   "frame_id": "car-IMG1810-t002",
+   "image": "car-IMG1810-t002.jpg",
+   "unusual_footage": true,
+   "source": {
+    "clip": "IMG_1810",
+    "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1810.MOV",
+    "timestamp_s": 2.0,
+    "width": 1080,
+    "height": 1920
+   },
+   "objects": []
+  },
+  {
+   "frame_id": "car-IMG1812-t035",
+   "image": "car-IMG1812-t035.jpg",
+   "unusual_footage": true,
+   "source": {
+    "clip": "IMG_1812",
+    "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1812.MOV",
+    "timestamp_s": 34.8,
+    "width": 1920,
+    "height": 1080
+   },
+   "objects": [
+    {
+     "class": "person",
+     "query": "person",
+     "box": [
+      0.27,
+      0.0,
+      0.76,
+      1.0
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "backpack",
+     "box": [
+      0.61,
+      0.54,
+      0.79,
+      1.0
+     ]
+    }
+   ]
+  },
+  {
+   "frame_id": "car-IMG1820-t013",
+   "image": "car-IMG1820-t013.jpg",
+   "unusual_footage": true,
+   "source": {
+    "clip": "IMG_1820",
+    "path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1820.MOV",
+    "timestamp_s": 13.1,
+    "width": 1920,
+    "height": 1080
+   },
+   "objects": [
+    {
+     "class": "person",
+     "query": "person",
+     "box": [
+      0.27,
+      0.0,
+      0.86,
+      1.0
+     ]
+    }
+   ]
+  },
+  {
+   "frame_id": "vertical-ep0-t107",
+   "image": "vertical-ep0-t107.jpg",
+   "unusual_footage": true,
+   "source": {
+    "clip": "1_28_2026(ep0)",
+    "path": "/Users/prajwal/Documents/content_stuff/leet or yeet myself/1_28_2026(ep0).MOV",
+    "timestamp_s": 106.8,
+    "width": 1080,
+    "height": 1920
+   },
+   "objects": [
+    {
+     "class": "person",
+     "query": "person",
+     "box": [
+      0.0,
+      0.29,
+      0.96,
+      1.0
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "glasses",
+     "box": [
+      0.44,
+      0.45,
+      0.78,
+      0.58
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "ceiling speaker",
+     "box": [
+      0.465,
+      0.0,
+      0.61,
+      0.065
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "light switch",
+     "box": [
+      0.875,
+      0.44,
+      0.935,
+      0.56
+     ]
+    }
+   ]
+  },
+  {
+   "frame_id": "vertical-ep0-t294",
+   "image": "vertical-ep0-t294.jpg",
+   "unusual_footage": true,
+   "source": {
+    "clip": "1_28_2026(ep0)",
+    "path": "/Users/prajwal/Documents/content_stuff/leet or yeet myself/1_28_2026(ep0).MOV",
+    "timestamp_s": 293.7,
+    "width": 1080,
+    "height": 1920
+   },
+   "objects": [
+    {
+     "class": "person",
+     "query": "person",
+     "box": [
+      0.0,
+      0.27,
+      1.0,
+      1.0
+     ]
+    },
+    {
+     "class": "hand",
+     "query": "hand",
+     "box": [
+      0.0,
+      0.84,
+      0.2,
+      1.0
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "glasses",
+     "box": [
+      0.235,
+      0.435,
+      0.6,
+      0.58
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "light switch",
+     "box": [
+      0.895,
+      0.44,
+      0.97,
+      0.56
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "ceiling speaker",
+     "box": [
+      0.315,
+      0.0,
+      0.445,
+      0.06
+     ]
+    }
+   ]
+  },
+  {
+   "frame_id": "vertical-ep0-t454",
+   "image": "vertical-ep0-t454.jpg",
+   "unusual_footage": true,
+   "source": {
+    "clip": "1_28_2026(ep0)",
+    "path": "/Users/prajwal/Documents/content_stuff/leet or yeet myself/1_28_2026(ep0).MOV",
+    "timestamp_s": 453.8,
+    "width": 1080,
+    "height": 1920
+   },
+   "objects": [
+    {
+     "class": "person",
+     "query": "person",
+     "box": [
+      0.0,
+      0.04,
+      0.85,
+      1.0
+     ]
+    },
+    {
+     "class": "hand",
+     "query": "hand",
+     "box": [
+      0.51,
+      0.41,
+      0.73,
+      0.62
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "glasses",
+     "box": [
+      0.165,
+      0.375,
+      0.6,
+      0.475
+     ]
+    }
+   ]
+  },
+  {
+   "frame_id": "vertical-ep1-t247",
+   "image": "vertical-ep1-t247.jpg",
+   "unusual_footage": true,
+   "source": {
+    "clip": "1_29_2026(ep1)",
+    "path": "/Users/prajwal/Documents/content_stuff/leet or yeet myself/1_29_2026(ep1).MOV",
+    "timestamp_s": 247.1,
+    "width": 1080,
+    "height": 1920
+   },
+   "objects": [
+    {
+     "class": "person",
+     "query": "person",
+     "box": [
+      0.0,
+      0.19,
+      0.96,
+      1.0
+     ]
+    },
+    {
+     "class": "hand",
+     "query": "hand",
+     "box": [
+      0.56,
+      0.79,
+      1.0,
+      1.0
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "glasses",
+     "box": [
+      0.08,
+      0.59,
+      0.79,
+      0.72
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "light switch",
+     "box": [
+      0.79,
+      0.62,
+      0.9,
+      0.73
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "ceiling speaker",
+     "box": [
+      0.24,
+      0.085,
+      0.4,
+      0.195
+     ]
+    }
+   ]
+  },
+  {
+   "frame_id": "vertical-ep1-t382",
+   "image": "vertical-ep1-t382.jpg",
+   "unusual_footage": true,
+   "source": {
+    "clip": "1_29_2026(ep1)",
+    "path": "/Users/prajwal/Documents/content_stuff/leet or yeet myself/1_29_2026(ep1).MOV",
+    "timestamp_s": 381.9,
+    "width": 1080,
+    "height": 1920
+   },
+   "objects": [
+    {
+     "class": "person",
+     "query": "person",
+     "box": [
+      0.0,
+      0.04,
+      0.9,
+      1.0
+     ]
+    },
+    {
+     "class": "hand",
+     "query": "hand",
+     "box": [
+      0.54,
+      0.62,
+      1.0,
+      1.0
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "ceiling speaker",
+     "box": [
+      0.25,
+      0.07,
+      0.38,
+      0.175
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "light switch",
+     "box": [
+      0.825,
+      0.51,
+      0.935,
+      0.61
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "glasses",
+     "box": [
+      0.22,
+      0.42,
+      0.79,
+      0.53
+     ]
+    }
+   ]
+  },
+  {
+   "frame_id": "vertical-ep1-t090",
+   "image": "vertical-ep1-t090.jpg",
+   "unusual_footage": true,
+   "source": {
+    "clip": "1_29_2026(ep1)",
+    "path": "/Users/prajwal/Documents/content_stuff/leet or yeet myself/1_29_2026(ep1).MOV",
+    "timestamp_s": 89.8,
+    "width": 1080,
+    "height": 1920
+   },
+   "objects": [
+    {
+     "class": "person",
+     "query": "person",
+     "box": [
+      0.0,
+      0.3,
+      0.82,
+      1.0
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "glasses",
+     "box": [
+      0.34,
+      0.5,
+      0.72,
+      0.64
+     ]
+    },
+    {
+     "class": "small_object",
+     "query": "ceiling speaker",
+     "box": [
+      0.275,
+      0.175,
+      0.39,
+      0.265
+     ]
+    }
+   ]
+  }
+ ]
+}

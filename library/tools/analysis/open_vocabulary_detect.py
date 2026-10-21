@@ -467,19 +467,57 @@ def _detect_florence2(image_path: str, phrases: list[str],
     return [d for d in out if d.score >= score_threshold]
 
 
+def _stem(word: str) -> str:
+    """A crude stem, enough to see that "potted" and "pot" are one
+    word. It is used only to decide whether two COMPOUND names are the
+    same noun said differently."""
+    stemmed = word.strip().lower()
+    for suffix in ("ted", "ed", "es", "s"):
+        if len(stemmed) > len(suffix) + 2 and stemmed.endswith(suffix):
+            stemmed = stemmed[:-len(suffix)]
+            break
+    return stemmed
+
+
 def _match_phrase(label: str, phrases: list[str]) -> str:
     """A detector's raw label back to the queried phrase: exact
     case-insensitive match first, then the queried phrase the label
     contains (or that contains the label). Unmatched labels keep their
     own text rather than being forced onto a phrase - a forced match
-    would score recall for words nobody asked about."""
+    would score recall for words nobody asked about.
+
+    Two COMPOUND names that are the same nouns in another order are one
+    noun: COCO says "potted plant" where the query said "plant pot",
+    and that is a TRUE detection of the queried object. Before this
+    rule the adapter dropped it for a naming reason and the fixed
+    vocabulary path measured 0 plant-pot coverage on real footage
+    (D-01, 2026-10-21). Both sides must be compounds, so a one-word
+    label still never answers a longer phrase: COCO's "car" is not a
+    "car door handle", and "traffic light" is not a "light switch"."""
     lowered = label.strip().lower()
     for phrase in phrases:
-        if phrase.lower() == lowered:
+        phrase_lower = phrase.lower()
+        if phrase_lower == lowered:
             return phrase
-    for phrase in phrases:
-        if lowered in phrase.lower() or phrase.lower() in lowered:
+        if phrase_lower in lowered:
             return phrase
+        # A label may be LONGER than the query ("cell phone" answers
+        # "phone"), but a ONE-WORD label is not a longer query: COCO's
+        # "car" is not a "car door handle", and counting it as one
+        # makes the fixed-vocabulary path report detections it did not
+        # make (D-01, 2026-10-21).
+        if lowered in phrase_lower and (
+                len(lowered.split()) >= 2 or len(phrase_lower.split()) == 1):
+            return phrase
+    label_words = lowered.split()
+    if len(label_words) >= 2:
+        label_stems = {_stem(word) for word in label_words}
+        for phrase in phrases:
+            phrase_words = phrase.lower().split()
+            if len(phrase_words) < 2:
+                continue
+            if label_stems == {_stem(word) for word in phrase_words}:
+                return phrase
     return label
 
 

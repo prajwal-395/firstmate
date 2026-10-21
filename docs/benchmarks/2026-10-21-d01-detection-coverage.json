@@ -1,0 +1,1414 @@
+{
+ "schema": "ren_detection_coverage_report/1",
+ "task": "D-01",
+ "generated_at": "2026-10-21T03:35:42+00:00",
+ "manifest": "docs/benchmarks/2026-10-21-d01-detection-coverage-manifest.json",
+ "frames": 24,
+ "label_source": "One agent adjudicator (the lane's own worker) looked at every frame and labelled every instance of the taxonomy classes it could see. Boxes are visual estimates on the native frame, normalized 0..1, top-left origin. No human gold labels and no second adjudicator: these are agent labels, and the report says so.",
+ "query_phrases": [
+  "person",
+  "hand",
+  "laptop",
+  "glasses",
+  "camera",
+  "cup",
+  "plant pot",
+  "lamp",
+  "watch",
+  "car door handle",
+  "side mirror",
+  "hanging device",
+  "white charger",
+  "backpack",
+  "ceiling speaker",
+  "light switch"
+ ],
+ "detectors": {
+  "owlv2": {
+   "detector": "owlv2",
+   "frames_scored": 24,
+   "instances": 116,
+   "recalled": 65,
+   "recall": 0.5603448275862069,
+   "detections": 371,
+   "true_positives": 65,
+   "false_positives": 306,
+   "precision": 0.1752021563342318,
+   "iou_threshold": 0.5,
+   "class_agnostic_proposals": {
+    "proposals": 0,
+    "matched": 0,
+    "unmatched": 0
+   },
+   "unclassified_false_positives": 0,
+   "by_class": {
+    "person": {
+     "instances": 21,
+     "recalled": 21,
+     "recall": 1.0,
+     "detections": 40,
+     "true_positives": 21,
+     "false_positives": 19,
+     "precision": 0.525,
+     "measured": true
+    },
+    "hand": {
+     "instances": 34,
+     "recalled": 13,
+     "recall": 0.38235294117647056,
+     "detections": 36,
+     "true_positives": 13,
+     "false_positives": 23,
+     "precision": 0.3611111111111111,
+     "measured": true
+    },
+    "phone": {
+     "instances": 0,
+     "recalled": 0,
+     "recall": null,
+     "detections": 0,
+     "true_positives": 0,
+     "false_positives": 0,
+     "precision": null,
+     "measured": false
+    },
+    "laptop": {
+     "instances": 12,
+     "recalled": 12,
+     "recall": 1.0,
+     "detections": 21,
+     "true_positives": 12,
+     "false_positives": 9,
+     "precision": 0.5714285714285714,
+     "measured": true
+    },
+    "cup": {
+     "instances": 4,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 0,
+     "true_positives": 0,
+     "false_positives": 0,
+     "precision": null,
+     "measured": true
+    },
+    "small_object": {
+     "instances": 45,
+     "recalled": 19,
+     "recall": 0.4222222222222222,
+     "detections": 274,
+     "true_positives": 19,
+     "false_positives": 255,
+     "precision": 0.06934306569343066,
+     "measured": true
+    }
+   },
+   "by_query": {
+    "person": {
+     "instances": 21,
+     "recalled": 21,
+     "recall": 1.0,
+     "detections": 40,
+     "true_positives": 21,
+     "false_positives": 19,
+     "precision": 0.525,
+     "measured": true
+    },
+    "hand": {
+     "instances": 34,
+     "recalled": 13,
+     "recall": 0.38235294117647056,
+     "detections": 36,
+     "true_positives": 13,
+     "false_positives": 23,
+     "precision": 0.3611111111111111,
+     "measured": true
+    },
+    "laptop": {
+     "instances": 12,
+     "recalled": 12,
+     "recall": 1.0,
+     "detections": 21,
+     "true_positives": 12,
+     "false_positives": 9,
+     "precision": 0.5714285714285714,
+     "measured": true
+    },
+    "glasses": {
+     "instances": 14,
+     "recalled": 8,
+     "recall": 0.5714285714285714,
+     "detections": 17,
+     "true_positives": 8,
+     "false_positives": 9,
+     "precision": 0.47058823529411764,
+     "measured": true
+    },
+    "camera": {
+     "instances": 8,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 42,
+     "true_positives": 0,
+     "false_positives": 42,
+     "precision": 0.0,
+     "measured": true
+    },
+    "cup": {
+     "instances": 4,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 0,
+     "true_positives": 0,
+     "false_positives": 0,
+     "precision": null,
+     "measured": true
+    },
+    "plant pot": {
+     "instances": 4,
+     "recalled": 4,
+     "recall": 1.0,
+     "detections": 8,
+     "true_positives": 4,
+     "false_positives": 4,
+     "precision": 0.5,
+     "measured": true
+    },
+    "lamp": {
+     "instances": 4,
+     "recalled": 2,
+     "recall": 0.5,
+     "detections": 37,
+     "true_positives": 2,
+     "false_positives": 35,
+     "precision": 0.05405405405405406,
+     "measured": true
+    },
+    "watch": {
+     "instances": 1,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 4,
+     "true_positives": 0,
+     "false_positives": 4,
+     "precision": 0.0,
+     "measured": true
+    },
+    "car door handle": {
+     "instances": 1,
+     "recalled": 1,
+     "recall": 1.0,
+     "detections": 91,
+     "true_positives": 1,
+     "false_positives": 90,
+     "precision": 0.01098901098901099,
+     "measured": true
+    },
+    "side mirror": {
+     "instances": 1,
+     "recalled": 1,
+     "recall": 1.0,
+     "detections": 11,
+     "true_positives": 1,
+     "false_positives": 10,
+     "precision": 0.09090909090909091,
+     "measured": true
+    },
+    "hanging device": {
+     "instances": 1,
+     "recalled": 1,
+     "recall": 1.0,
+     "detections": 17,
+     "true_positives": 1,
+     "false_positives": 16,
+     "precision": 0.058823529411764705,
+     "measured": true
+    },
+    "white charger": {
+     "instances": 1,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 1,
+     "true_positives": 0,
+     "false_positives": 1,
+     "precision": 0.0,
+     "measured": true
+    },
+    "backpack": {
+     "instances": 1,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 1,
+     "true_positives": 0,
+     "false_positives": 1,
+     "precision": 0.0,
+     "measured": true
+    },
+    "ceiling speaker": {
+     "instances": 5,
+     "recalled": 2,
+     "recall": 0.4,
+     "detections": 29,
+     "true_positives": 2,
+     "false_positives": 27,
+     "precision": 0.06896551724137931,
+     "measured": true
+    },
+    "light switch": {
+     "instances": 4,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 16,
+     "true_positives": 0,
+     "false_positives": 16,
+     "precision": 0.0,
+     "measured": true
+    }
+   },
+   "strata": {
+    "small": {
+     "instances": 53,
+     "recalled": 16,
+     "recall": 0.3018867924528302,
+     "measured": true
+    },
+    "partial": {
+     "instances": 48,
+     "recalled": 27,
+     "recall": 0.5625,
+     "measured": true
+    },
+    "unusual_footage": {
+     "instances": 34,
+     "recalled": 20,
+     "recall": 0.5882352941176471,
+     "measured": true
+    },
+    "studio_footage": {
+     "instances": 82,
+     "recalled": 45,
+     "recall": 0.5487804878048781,
+     "measured": true
+    }
+   },
+   "per_frame": [
+    {
+     "frame_id": "podcast-LC4930-t020",
+     "unusual_footage": false,
+     "instances": 6,
+     "recalled": 4,
+     "detections": 15,
+     "false_positives": 11
+    },
+    {
+     "frame_id": "podcast-LC4930-t080",
+     "unusual_footage": false,
+     "instances": 7,
+     "recalled": 3,
+     "detections": 20,
+     "false_positives": 17
+    },
+    {
+     "frame_id": "podcast-LC4930-t140",
+     "unusual_footage": false,
+     "instances": 7,
+     "recalled": 3,
+     "detections": 25,
+     "false_positives": 22
+    },
+    {
+     "frame_id": "podcast-LC4930-t170",
+     "unusual_footage": false,
+     "instances": 7,
+     "recalled": 2,
+     "detections": 21,
+     "false_positives": 19
+    },
+    {
+     "frame_id": "podcast-LC4931-t020",
+     "unusual_footage": false,
+     "instances": 7,
+     "recalled": 3,
+     "detections": 14,
+     "false_positives": 11
+    },
+    {
+     "frame_id": "podcast-LC4931-t080",
+     "unusual_footage": false,
+     "instances": 8,
+     "recalled": 5,
+     "detections": 17,
+     "false_positives": 12
+    },
+    {
+     "frame_id": "podcast-LC4931-t140",
+     "unusual_footage": false,
+     "instances": 6,
+     "recalled": 3,
+     "detections": 12,
+     "false_positives": 9
+    },
+    {
+     "frame_id": "podcast-LC4931-t200",
+     "unusual_footage": false,
+     "instances": 7,
+     "recalled": 2,
+     "detections": 15,
+     "false_positives": 13
+    },
+    {
+     "frame_id": "podcast-LCATL0012-t020",
+     "unusual_footage": false,
+     "instances": 6,
+     "recalled": 4,
+     "detections": 14,
+     "false_positives": 10
+    },
+    {
+     "frame_id": "podcast-LCATL0012-t080",
+     "unusual_footage": false,
+     "instances": 7,
+     "recalled": 6,
+     "detections": 13,
+     "false_positives": 7
+    },
+    {
+     "frame_id": "podcast-LCATL0012-t140",
+     "unusual_footage": false,
+     "instances": 7,
+     "recalled": 5,
+     "detections": 13,
+     "false_positives": 8
+    },
+    {
+     "frame_id": "podcast-LCATL0012-t200",
+     "unusual_footage": false,
+     "instances": 7,
+     "recalled": 5,
+     "detections": 17,
+     "false_positives": 12
+    },
+    {
+     "frame_id": "car-IMG1807-t005",
+     "unusual_footage": true,
+     "instances": 3,
+     "recalled": 3,
+     "detections": 44,
+     "false_positives": 41
+    },
+    {
+     "frame_id": "car-IMG1808-t020",
+     "unusual_footage": true,
+     "instances": 3,
+     "recalled": 2,
+     "detections": 15,
+     "false_positives": 13
+    },
+    {
+     "frame_id": "car-IMG1809-t020",
+     "unusual_footage": true,
+     "instances": 0,
+     "recalled": 0,
+     "detections": 11,
+     "false_positives": 11
+    },
+    {
+     "frame_id": "car-IMG1810-t002",
+     "unusual_footage": true,
+     "instances": 0,
+     "recalled": 0,
+     "detections": 49,
+     "false_positives": 49
+    },
+    {
+     "frame_id": "car-IMG1812-t035",
+     "unusual_footage": true,
+     "instances": 2,
+     "recalled": 1,
+     "detections": 2,
+     "false_positives": 1
+    },
+    {
+     "frame_id": "car-IMG1820-t013",
+     "unusual_footage": true,
+     "instances": 1,
+     "recalled": 1,
+     "detections": 9,
+     "false_positives": 8
+    },
+    {
+     "frame_id": "vertical-ep0-t107",
+     "unusual_footage": true,
+     "instances": 4,
+     "recalled": 2,
+     "detections": 9,
+     "false_positives": 7
+    },
+    {
+     "frame_id": "vertical-ep0-t294",
+     "unusual_footage": true,
+     "instances": 5,
+     "recalled": 2,
+     "detections": 10,
+     "false_positives": 8
+    },
+    {
+     "frame_id": "vertical-ep0-t454",
+     "unusual_footage": true,
+     "instances": 3,
+     "recalled": 2,
+     "detections": 5,
+     "false_positives": 3
+    },
+    {
+     "frame_id": "vertical-ep1-t247",
+     "unusual_footage": true,
+     "instances": 5,
+     "recalled": 2,
+     "detections": 7,
+     "false_positives": 5
+    },
+    {
+     "frame_id": "vertical-ep1-t382",
+     "unusual_footage": true,
+     "instances": 5,
+     "recalled": 3,
+     "detections": 8,
+     "false_positives": 5
+    },
+    {
+     "frame_id": "vertical-ep1-t090",
+     "unusual_footage": true,
+     "instances": 3,
+     "recalled": 2,
+     "detections": 6,
+     "false_positives": 4
+    }
+   ]
+  },
+  "rf_detr_nano": {
+   "detector": "rf_detr_nano",
+   "frames_scored": 24,
+   "instances": 116,
+   "recalled": 33,
+   "recall": 0.28448275862068967,
+   "detections": 101,
+   "true_positives": 33,
+   "false_positives": 68,
+   "precision": 0.32673267326732675,
+   "iou_threshold": 0.5,
+   "class_agnostic_proposals": {
+    "proposals": 0,
+    "matched": 0,
+    "unmatched": 0
+   },
+   "unclassified_false_positives": 0,
+   "by_class": {
+    "person": {
+     "instances": 21,
+     "recalled": 21,
+     "recall": 1.0,
+     "detections": 48,
+     "true_positives": 21,
+     "false_positives": 27,
+     "precision": 0.4375,
+     "measured": true
+    },
+    "hand": {
+     "instances": 34,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 6,
+     "true_positives": 0,
+     "false_positives": 6,
+     "precision": 0.0,
+     "measured": true
+    },
+    "phone": {
+     "instances": 0,
+     "recalled": 0,
+     "recall": null,
+     "detections": 0,
+     "true_positives": 0,
+     "false_positives": 0,
+     "precision": null,
+     "measured": false
+    },
+    "laptop": {
+     "instances": 12,
+     "recalled": 8,
+     "recall": 0.6666666666666666,
+     "detections": 13,
+     "true_positives": 8,
+     "false_positives": 5,
+     "precision": 0.6153846153846154,
+     "measured": true
+    },
+    "cup": {
+     "instances": 4,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 6,
+     "true_positives": 0,
+     "false_positives": 6,
+     "precision": 0.0,
+     "measured": true
+    },
+    "small_object": {
+     "instances": 45,
+     "recalled": 4,
+     "recall": 0.08888888888888889,
+     "detections": 28,
+     "true_positives": 4,
+     "false_positives": 24,
+     "precision": 0.14285714285714285,
+     "measured": true
+    }
+   },
+   "by_query": {
+    "person": {
+     "instances": 21,
+     "recalled": 21,
+     "recall": 1.0,
+     "detections": 48,
+     "true_positives": 21,
+     "false_positives": 27,
+     "precision": 0.4375,
+     "measured": true
+    },
+    "hand": {
+     "instances": 34,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 6,
+     "true_positives": 0,
+     "false_positives": 6,
+     "precision": 0.0,
+     "measured": true
+    },
+    "laptop": {
+     "instances": 12,
+     "recalled": 8,
+     "recall": 0.6666666666666666,
+     "detections": 13,
+     "true_positives": 8,
+     "false_positives": 5,
+     "precision": 0.6153846153846154,
+     "measured": true
+    },
+    "glasses": {
+     "instances": 14,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 0,
+     "true_positives": 0,
+     "false_positives": 0,
+     "precision": null,
+     "measured": true
+    },
+    "camera": {
+     "instances": 8,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 0,
+     "true_positives": 0,
+     "false_positives": 0,
+     "precision": null,
+     "measured": true
+    },
+    "cup": {
+     "instances": 4,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 6,
+     "true_positives": 0,
+     "false_positives": 6,
+     "precision": 0.0,
+     "measured": true
+    },
+    "plant pot": {
+     "instances": 4,
+     "recalled": 4,
+     "recall": 1.0,
+     "detections": 21,
+     "true_positives": 4,
+     "false_positives": 17,
+     "precision": 0.19047619047619047,
+     "measured": true
+    },
+    "lamp": {
+     "instances": 4,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 0,
+     "true_positives": 0,
+     "false_positives": 0,
+     "precision": null,
+     "measured": true
+    },
+    "watch": {
+     "instances": 1,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 0,
+     "true_positives": 0,
+     "false_positives": 0,
+     "precision": null,
+     "measured": true
+    },
+    "car door handle": {
+     "instances": 1,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 0,
+     "true_positives": 0,
+     "false_positives": 0,
+     "precision": null,
+     "measured": true
+    },
+    "side mirror": {
+     "instances": 1,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 0,
+     "true_positives": 0,
+     "false_positives": 0,
+     "precision": null,
+     "measured": true
+    },
+    "hanging device": {
+     "instances": 1,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 0,
+     "true_positives": 0,
+     "false_positives": 0,
+     "precision": null,
+     "measured": true
+    },
+    "white charger": {
+     "instances": 1,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 0,
+     "true_positives": 0,
+     "false_positives": 0,
+     "precision": null,
+     "measured": true
+    },
+    "backpack": {
+     "instances": 1,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 7,
+     "true_positives": 0,
+     "false_positives": 7,
+     "precision": 0.0,
+     "measured": true
+    },
+    "ceiling speaker": {
+     "instances": 5,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 0,
+     "true_positives": 0,
+     "false_positives": 0,
+     "precision": null,
+     "measured": true
+    },
+    "light switch": {
+     "instances": 4,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 0,
+     "true_positives": 0,
+     "false_positives": 0,
+     "precision": null,
+     "measured": true
+    }
+   },
+   "strata": {
+    "small": {
+     "instances": 53,
+     "recalled": 4,
+     "recall": 0.07547169811320754,
+     "measured": true
+    },
+    "partial": {
+     "instances": 48,
+     "recalled": 13,
+     "recall": 0.2708333333333333,
+     "measured": true
+    },
+    "unusual_footage": {
+     "instances": 34,
+     "recalled": 9,
+     "recall": 0.2647058823529412,
+     "measured": true
+    },
+    "studio_footage": {
+     "instances": 82,
+     "recalled": 24,
+     "recall": 0.2926829268292683,
+     "measured": true
+    }
+   },
+   "per_frame": [
+    {
+     "frame_id": "podcast-LC4930-t020",
+     "unusual_footage": false,
+     "instances": 6,
+     "recalled": 2,
+     "detections": 3,
+     "false_positives": 1
+    },
+    {
+     "frame_id": "podcast-LC4930-t080",
+     "unusual_footage": false,
+     "instances": 7,
+     "recalled": 2,
+     "detections": 5,
+     "false_positives": 3
+    },
+    {
+     "frame_id": "podcast-LC4930-t140",
+     "unusual_footage": false,
+     "instances": 7,
+     "recalled": 2,
+     "detections": 5,
+     "false_positives": 3
+    },
+    {
+     "frame_id": "podcast-LC4930-t170",
+     "unusual_footage": false,
+     "instances": 7,
+     "recalled": 2,
+     "detections": 5,
+     "false_positives": 3
+    },
+    {
+     "frame_id": "podcast-LC4931-t020",
+     "unusual_footage": false,
+     "instances": 7,
+     "recalled": 1,
+     "detections": 2,
+     "false_positives": 1
+    },
+    {
+     "frame_id": "podcast-LC4931-t080",
+     "unusual_footage": false,
+     "instances": 8,
+     "recalled": 1,
+     "detections": 5,
+     "false_positives": 4
+    },
+    {
+     "frame_id": "podcast-LC4931-t140",
+     "unusual_footage": false,
+     "instances": 6,
+     "recalled": 1,
+     "detections": 2,
+     "false_positives": 1
+    },
+    {
+     "frame_id": "podcast-LC4931-t200",
+     "unusual_footage": false,
+     "instances": 7,
+     "recalled": 1,
+     "detections": 5,
+     "false_positives": 4
+    },
+    {
+     "frame_id": "podcast-LCATL0012-t020",
+     "unusual_footage": false,
+     "instances": 6,
+     "recalled": 3,
+     "detections": 6,
+     "false_positives": 3
+    },
+    {
+     "frame_id": "podcast-LCATL0012-t080",
+     "unusual_footage": false,
+     "instances": 7,
+     "recalled": 3,
+     "detections": 7,
+     "false_positives": 4
+    },
+    {
+     "frame_id": "podcast-LCATL0012-t140",
+     "unusual_footage": false,
+     "instances": 7,
+     "recalled": 3,
+     "detections": 8,
+     "false_positives": 5
+    },
+    {
+     "frame_id": "podcast-LCATL0012-t200",
+     "unusual_footage": false,
+     "instances": 7,
+     "recalled": 3,
+     "detections": 7,
+     "false_positives": 4
+    },
+    {
+     "frame_id": "car-IMG1807-t005",
+     "unusual_footage": true,
+     "instances": 3,
+     "recalled": 0,
+     "detections": 5,
+     "false_positives": 5
+    },
+    {
+     "frame_id": "car-IMG1808-t020",
+     "unusual_footage": true,
+     "instances": 3,
+     "recalled": 1,
+     "detections": 5,
+     "false_positives": 4
+    },
+    {
+     "frame_id": "car-IMG1809-t020",
+     "unusual_footage": true,
+     "instances": 0,
+     "recalled": 0,
+     "detections": 4,
+     "false_positives": 4
+    },
+    {
+     "frame_id": "car-IMG1810-t002",
+     "unusual_footage": true,
+     "instances": 0,
+     "recalled": 0,
+     "detections": 1,
+     "false_positives": 1
+    },
+    {
+     "frame_id": "car-IMG1812-t035",
+     "unusual_footage": true,
+     "instances": 2,
+     "recalled": 1,
+     "detections": 2,
+     "false_positives": 1
+    },
+    {
+     "frame_id": "car-IMG1820-t013",
+     "unusual_footage": true,
+     "instances": 1,
+     "recalled": 1,
+     "detections": 14,
+     "false_positives": 13
+    },
+    {
+     "frame_id": "vertical-ep0-t107",
+     "unusual_footage": true,
+     "instances": 4,
+     "recalled": 1,
+     "detections": 1,
+     "false_positives": 0
+    },
+    {
+     "frame_id": "vertical-ep0-t294",
+     "unusual_footage": true,
+     "instances": 5,
+     "recalled": 1,
+     "detections": 1,
+     "false_positives": 0
+    },
+    {
+     "frame_id": "vertical-ep0-t454",
+     "unusual_footage": true,
+     "instances": 3,
+     "recalled": 1,
+     "detections": 2,
+     "false_positives": 1
+    },
+    {
+     "frame_id": "vertical-ep1-t247",
+     "unusual_footage": true,
+     "instances": 5,
+     "recalled": 1,
+     "detections": 2,
+     "false_positives": 1
+    },
+    {
+     "frame_id": "vertical-ep1-t382",
+     "unusual_footage": true,
+     "instances": 5,
+     "recalled": 1,
+     "detections": 3,
+     "false_positives": 2
+    },
+    {
+     "frame_id": "vertical-ep1-t090",
+     "unusual_footage": true,
+     "instances": 3,
+     "recalled": 1,
+     "detections": 1,
+     "false_positives": 0
+    }
+   ]
+  },
+  "vision_foreground": {
+   "detector": "vision_foreground",
+   "frames_scored": 24,
+   "instances": 116,
+   "recalled": 21,
+   "recall": 0.1810344827586207,
+   "detections": 0,
+   "true_positives": 0,
+   "false_positives": 0,
+   "precision": null,
+   "iou_threshold": 0.5,
+   "class_agnostic_proposals": {
+    "proposals": 21,
+    "matched": 21,
+    "unmatched": 0
+   },
+   "unclassified_false_positives": 0,
+   "by_class": {
+    "person": {
+     "instances": 21,
+     "recalled": 21,
+     "recall": 1.0,
+     "detections": 0,
+     "true_positives": 0,
+     "false_positives": 0,
+     "precision": null,
+     "measured": true
+    },
+    "hand": {
+     "instances": 34,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 0,
+     "true_positives": 0,
+     "false_positives": 0,
+     "precision": null,
+     "measured": true
+    },
+    "phone": {
+     "instances": 0,
+     "recalled": 0,
+     "recall": null,
+     "detections": 0,
+     "true_positives": 0,
+     "false_positives": 0,
+     "precision": null,
+     "measured": false
+    },
+    "laptop": {
+     "instances": 12,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 0,
+     "true_positives": 0,
+     "false_positives": 0,
+     "precision": null,
+     "measured": true
+    },
+    "cup": {
+     "instances": 4,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 0,
+     "true_positives": 0,
+     "false_positives": 0,
+     "precision": null,
+     "measured": true
+    },
+    "small_object": {
+     "instances": 45,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 0,
+     "true_positives": 0,
+     "false_positives": 0,
+     "precision": null,
+     "measured": true
+    }
+   },
+   "by_query": {
+    "person": {
+     "instances": 21,
+     "recalled": 21,
+     "recall": 1.0,
+     "detections": 0,
+     "true_positives": 0,
+     "false_positives": 0,
+     "precision": null,
+     "measured": true
+    },
+    "hand": {
+     "instances": 34,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 0,
+     "true_positives": 0,
+     "false_positives": 0,
+     "precision": null,
+     "measured": true
+    },
+    "laptop": {
+     "instances": 12,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 0,
+     "true_positives": 0,
+     "false_positives": 0,
+     "precision": null,
+     "measured": true
+    },
+    "glasses": {
+     "instances": 14,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 0,
+     "true_positives": 0,
+     "false_positives": 0,
+     "precision": null,
+     "measured": true
+    },
+    "camera": {
+     "instances": 8,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 0,
+     "true_positives": 0,
+     "false_positives": 0,
+     "precision": null,
+     "measured": true
+    },
+    "cup": {
+     "instances": 4,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 0,
+     "true_positives": 0,
+     "false_positives": 0,
+     "precision": null,
+     "measured": true
+    },
+    "plant pot": {
+     "instances": 4,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 0,
+     "true_positives": 0,
+     "false_positives": 0,
+     "precision": null,
+     "measured": true
+    },
+    "lamp": {
+     "instances": 4,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 0,
+     "true_positives": 0,
+     "false_positives": 0,
+     "precision": null,
+     "measured": true
+    },
+    "watch": {
+     "instances": 1,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 0,
+     "true_positives": 0,
+     "false_positives": 0,
+     "precision": null,
+     "measured": true
+    },
+    "car door handle": {
+     "instances": 1,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 0,
+     "true_positives": 0,
+     "false_positives": 0,
+     "precision": null,
+     "measured": true
+    },
+    "side mirror": {
+     "instances": 1,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 0,
+     "true_positives": 0,
+     "false_positives": 0,
+     "precision": null,
+     "measured": true
+    },
+    "hanging device": {
+     "instances": 1,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 0,
+     "true_positives": 0,
+     "false_positives": 0,
+     "precision": null,
+     "measured": true
+    },
+    "white charger": {
+     "instances": 1,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 0,
+     "true_positives": 0,
+     "false_positives": 0,
+     "precision": null,
+     "measured": true
+    },
+    "backpack": {
+     "instances": 1,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 0,
+     "true_positives": 0,
+     "false_positives": 0,
+     "precision": null,
+     "measured": true
+    },
+    "ceiling speaker": {
+     "instances": 5,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 0,
+     "true_positives": 0,
+     "false_positives": 0,
+     "precision": null,
+     "measured": true
+    },
+    "light switch": {
+     "instances": 4,
+     "recalled": 0,
+     "recall": 0.0,
+     "detections": 0,
+     "true_positives": 0,
+     "false_positives": 0,
+     "precision": null,
+     "measured": true
+    }
+   },
+   "strata": {
+    "small": {
+     "instances": 53,
+     "recalled": 0,
+     "recall": 0.0,
+     "measured": true
+    },
+    "partial": {
+     "instances": 48,
+     "recalled": 9,
+     "recall": 0.1875,
+     "measured": true
+    },
+    "unusual_footage": {
+     "instances": 34,
+     "recalled": 9,
+     "recall": 0.2647058823529412,
+     "measured": true
+    },
+    "studio_footage": {
+     "instances": 82,
+     "recalled": 12,
+     "recall": 0.14634146341463414,
+     "measured": true
+    }
+   },
+   "per_frame": [
+    {
+     "frame_id": "podcast-LC4930-t020",
+     "unusual_footage": false,
+     "instances": 6,
+     "recalled": 1,
+     "detections": 1,
+     "false_positives": 0
+    },
+    {
+     "frame_id": "podcast-LC4930-t080",
+     "unusual_footage": false,
+     "instances": 7,
+     "recalled": 1,
+     "detections": 1,
+     "false_positives": 0
+    },
+    {
+     "frame_id": "podcast-LC4930-t140",
+     "unusual_footage": false,
+     "instances": 7,
+     "recalled": 1,
+     "detections": 1,
+     "false_positives": 0
+    },
+    {
+     "frame_id": "podcast-LC4930-t170",
+     "unusual_footage": false,
+     "instances": 7,
+     "recalled": 1,
+     "detections": 1,
+     "false_positives": 0
+    },
+    {
+     "frame_id": "podcast-LC4931-t020",
+     "unusual_footage": false,
+     "instances": 7,
+     "recalled": 1,
+     "detections": 1,
+     "false_positives": 0
+    },
+    {
+     "frame_id": "podcast-LC4931-t080",
+     "unusual_footage": false,
+     "instances": 8,
+     "recalled": 1,
+     "detections": 1,
+     "false_positives": 0
+    },
+    {
+     "frame_id": "podcast-LC4931-t140",
+     "unusual_footage": false,
+     "instances": 6,
+     "recalled": 1,
+     "detections": 1,
+     "false_positives": 0
+    },
+    {
+     "frame_id": "podcast-LC4931-t200",
+     "unusual_footage": false,
+     "instances": 7,
+     "recalled": 1,
+     "detections": 1,
+     "false_positives": 0
+    },
+    {
+     "frame_id": "podcast-LCATL0012-t020",
+     "unusual_footage": false,
+     "instances": 6,
+     "recalled": 1,
+     "detections": 1,
+     "false_positives": 0
+    },
+    {
+     "frame_id": "podcast-LCATL0012-t080",
+     "unusual_footage": false,
+     "instances": 7,
+     "recalled": 1,
+     "detections": 1,
+     "false_positives": 0
+    },
+    {
+     "frame_id": "podcast-LCATL0012-t140",
+     "unusual_footage": false,
+     "instances": 7,
+     "recalled": 1,
+     "detections": 1,
+     "false_positives": 0
+    },
+    {
+     "frame_id": "podcast-LCATL0012-t200",
+     "unusual_footage": false,
+     "instances": 7,
+     "recalled": 1,
+     "detections": 1,
+     "false_positives": 0
+    },
+    {
+     "frame_id": "car-IMG1807-t005",
+     "unusual_footage": true,
+     "instances": 3,
+     "recalled": 0,
+     "detections": 0,
+     "false_positives": 0
+    },
+    {
+     "frame_id": "car-IMG1808-t020",
+     "unusual_footage": true,
+     "instances": 3,
+     "recalled": 1,
+     "detections": 1,
+     "false_positives": 0
+    },
+    {
+     "frame_id": "car-IMG1809-t020",
+     "unusual_footage": true,
+     "instances": 0,
+     "recalled": 0,
+     "detections": 0,
+     "false_positives": 0
+    },
+    {
+     "frame_id": "car-IMG1810-t002",
+     "unusual_footage": true,
+     "instances": 0,
+     "recalled": 0,
+     "detections": 0,
+     "false_positives": 0
+    },
+    {
+     "frame_id": "car-IMG1812-t035",
+     "unusual_footage": true,
+     "instances": 2,
+     "recalled": 1,
+     "detections": 1,
+     "false_positives": 0
+    },
+    {
+     "frame_id": "car-IMG1820-t013",
+     "unusual_footage": true,
+     "instances": 1,
+     "recalled": 1,
+     "detections": 1,
+     "false_positives": 0
+    },
+    {
+     "frame_id": "vertical-ep0-t107",
+     "unusual_footage": true,
+     "instances": 4,
+     "recalled": 1,
+     "detections": 1,
+     "false_positives": 0
+    },
+    {
+     "frame_id": "vertical-ep0-t294",
+     "unusual_footage": true,
+     "instances": 5,
+     "recalled": 1,
+     "detections": 1,
+     "false_positives": 0
+    },
+    {
+     "frame_id": "vertical-ep0-t454",
+     "unusual_footage": true,
+     "instances": 3,
+     "recalled": 1,
+     "detections": 1,
+     "false_positives": 0
+    },
+    {
+     "frame_id": "vertical-ep1-t247",
+     "unusual_footage": true,
+     "instances": 5,
+     "recalled": 1,
+     "detections": 1,
+     "false_positives": 0
+    },
+    {
+     "frame_id": "vertical-ep1-t382",
+     "unusual_footage": true,
+     "instances": 5,
+     "recalled": 1,
+     "detections": 1,
+     "false_positives": 0
+    },
+    {
+     "frame_id": "vertical-ep1-t090",
+     "unusual_footage": true,
+     "instances": 3,
+     "recalled": 1,
+     "detections": 1,
+     "false_positives": 0
+    }
+   ]
+  }
+ }
+}
