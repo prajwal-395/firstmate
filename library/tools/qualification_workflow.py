@@ -654,7 +654,8 @@ def prepare_broker_job(params: dict) -> dict:
 
     allowed = {"project", "source_copy", "timeline", "run_stamp", "source_start",
                "source_end", "output_dir", "output_name",
-               "timeout_seconds", "source_sha256",
+               "timeout_seconds", "source_sha256", "media_fps",
+               "media_total_frames",
                "lifecycle_project_folder", "lifecycle_run_id"}
     if set(params) != allowed:
         raise JobRefused("qualification.workflow accepts exactly "
@@ -689,6 +690,19 @@ def prepare_broker_job(params: dict) -> dict:
     if len(params["source_sha256"]) != 64 or any(
             char not in "0123456789abcdef" for char in params["source_sha256"]):
         raise JobRefused("source_sha256 must be a lowercase SHA-256 hex digest")
+    # The media facts are MEASURED by the caller, before the job is
+    # queued: the broker's turn is the one thing every lane waits
+    # behind, and hashing a media copy and running ffprobe on it are
+    # file facts, not Resolve facts. The job therefore never opens the
+    # media file.
+    fps = params["media_fps"]
+    if (not isinstance(fps, (int, float)) or isinstance(fps, bool)
+            or not 0 < float(fps) <= 1000):
+        raise JobRefused("media_fps must be a positive frame rate")
+    frames = params["media_total_frames"]
+    if (not isinstance(frames, int) or isinstance(frames, bool)
+            or frames < 1):
+        raise JobRefused("media_total_frames must be a positive frame count")
     if Path(params["output_name"]).name != params["output_name"]:
         raise JobRefused("output_name must be a single filename stem")
     if len(params["timeline"]) > 64:
@@ -826,9 +840,14 @@ def _run_broker_job(job: dict, resolve, current: dict,
     source = Path(params["source_copy"]).resolve()
     if not source.is_relative_to(qp.real_media_dir().resolve()):
         raise WorkflowQualificationError("broker source escaped qualification media")
-    if _file_sha256(source) != params["source_sha256"]:
-        raise WorkflowQualificationError(
-            "qualification source copy no longer matches its recorded SHA-256")
+    if not source.is_file():
+        raise WorkflowQualificationError("qualification source copy is gone")
+    # The media facts are the CALLER's measurement (the digest, the
+    # frame rate and the frame count), carried in the job: the copy was
+    # hashed and probed before this job was queued, so the broker's
+    # turn is spent on Resolve and not on reading a media file.
+    media_fps = float(params["media_fps"])
+    total_frames = int(params["media_total_frames"])
     if not isinstance(resolve, DeadlineProxy):
         raise WorkflowQualificationError(
             "qualification Resolve handle is missing per-call deadlines")
@@ -873,7 +892,6 @@ def _run_broker_job(job: dict, resolve, current: dict,
                  media_unique_id=str(media_item.GetUniqueId() or ""),
                  source_path=str(source), source_sha256=params["source_sha256"],
                  state="imported")
-        media_fps, total_frames = _probe_source_frames(source)
         # Pool clips start at their own zero; the offset is a timeline
         # notion, and some essence items expose no offset method at all.
         left = 0
@@ -1197,6 +1215,16 @@ def run(index_path: str | Path, *, query: str = DEFAULT_QUERY,
             timeline_name = f"Q Workflow {run_stamp} {ordinal}"
             export_dir = root / "exports"
             export_dir.mkdir(exist_ok=True)
+            # The media facts are measured HERE, before the job is
+            # queued: the broker's turn is what every lane waits
+            # behind, and a media copy's digest and frame rate are file
+            # facts, not Resolve facts. The job carries them and never
+            # opens the media file.
+            media_fps, media_total_frames = _probe_source_frames(copy_path)
+            if _file_sha256(copy_path) != selected["sha256"]:
+                raise WorkflowQualificationError(
+                    "the qualification source copy changed since it was "
+                    "made; it is not the copy the plan was built from")
             params = {"project": "Ren Qualification",
                       "run_stamp": run_stamp,
                       "source_copy": str(copy_path),
@@ -1212,6 +1240,8 @@ def run(index_path: str | Path, *, query: str = DEFAULT_QUERY,
                       "output_name": f"{timeline_name.replace(' ', '_')}",
                       "timeout_seconds": RENDER_TIMEOUT_SECONDS,
                       "source_sha256": selected["sha256"],
+                      "media_fps": media_fps,
+                      "media_total_frames": media_total_frames,
                       "lifecycle_project_folder": str(lifecycle_project_folder),
                       "lifecycle_run_id": run_stamp}
             try:

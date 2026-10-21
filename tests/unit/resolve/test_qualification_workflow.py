@@ -96,6 +96,7 @@ def test_broker_workflow_job_is_confined_to_copied_qualification_media(
               "source_end": 15.0, "output_dir": str(output_dir),
               "output_name": "Q_Workflow_Test", "timeout_seconds": 600,
               "source_sha256": hashlib.sha256(b"fixture").hexdigest(),
+              "media_fps": 24.0, "media_total_frames": 360,
               "lifecycle_project_folder": str(lifecycle_project),
               "lifecycle_run_id": "run-1"}
 
@@ -113,6 +114,10 @@ def test_broker_workflow_job_is_confined_to_copied_qualification_media(
         qw.prepare_broker_job({**params, "source_end": 46.0})
     with pytest.raises(JobRefused, match="SHA-256 hex digest"):
         qw.prepare_broker_job({**params, "source_sha256": "z" * 64})
+    with pytest.raises(JobRefused, match="media_fps"):
+        qw.prepare_broker_job({**params, "media_fps": 0})
+    with pytest.raises(JobRefused, match="media_total_frames"):
+        qw.prepare_broker_job({**params, "media_total_frames": 0})
 
 
 def test_successful_cleanup_preserves_evidence_and_shared_reusable_files(

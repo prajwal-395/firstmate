@@ -8203,23 +8203,25 @@ def cmd_project_scratch(args) -> int:
         if args.scratch_command in ("create", "import", "open", "delete"):
             # The scratch origin is ONE machine resource, so a verb that
             # moves the machine QUEUES for it the way the instance lease
-            # queues - it does not refuse on the first sight. The queue
-            # runs BETWEEN attempts and OUTSIDE the lease, because the
-            # holder has to be able to take that lease to restore and
-            # release the origin.
-            deadline = _time.time() + scratch.slot_timeout()
-            attempts = 0
-            while True:
-                try:
-                    result = _scratch_apply(args, scratch)
-                    break
-                except scratch.ScratchProjectError as exc:
-                    attempts += 1
-                    if ("the scratch origin is held by" not in str(exc)
-                            or attempts >= 3 or _time.time() >= deadline):
-                        raise
-                    scratch.wait_for_origin_slot(
-                        timeout=max(0.0, deadline - _time.time()))
+            # queues - it does not refuse on the first sight.
+            #
+            # The queue runs in the CALLER, before the broker's turn is
+            # taken, and never here: the holder of the slot is inside
+            # Resolve and needs that turn to restore the origin and
+            # release the slot, so a wait inside a turn holds the very
+            # turn the holder needs. This command is run INSIDE the
+            # broker's turn when the broker is serving, so it refuses
+            # FAST, with its own exit code, and the caller waits for
+            # the slot and runs it again (measured 2026-10-21: three
+            # `project scratch open` jobs held the machine's turn for
+            # the whole 900 s lease timeout each, and every other lane
+            # waited behind them).
+            try:
+                result = _scratch_apply(args, scratch)
+            except scratch.ScratchOriginHeld as held:
+                emit([f"error: {held}",
+                      f"help: {TOOL} project scratch --help"])
+                return scratch.SLOT_HELD_EXIT_CODE
         else:
             result = _scratch_apply(args, scratch)
         emit([kv_block("project_scratch", result),
@@ -11517,6 +11519,64 @@ def _submit_through_broker(client, argv: list) -> int:
     return 0
 
 
+#: The scratch lifecycle verbs that need the machine's scratch-origin
+#: slot: each of them moves the machine into (or out of) a Ren-owned
+#: scratch project, and the slot is the route back.
+_SCRATCH_SLOT_COMMANDS = ("create", "import", "open", "delete")
+
+
+def _scratch_slot_needed(name: str, args) -> bool:
+    """Whether this command has to wait for the scratch-origin slot."""
+    return (name == "cmd_project_scratch"
+            and getattr(args, "scratch_command", "") in _SCRATCH_SLOT_COMMANDS)
+
+
+def _wait_for_the_scratch_slot(deadline: float) -> dict:
+    """Wait for the machine's scratch-origin slot, HERE.
+
+    The wait belongs to the caller: the writer that holds the slot is
+    inside Resolve and needs the broker's turn to restore the origin
+    and release it. So the wait runs where no turn is held - before
+    the command is queued - and never inside the command, which the
+    broker runs while holding the turn (measured 2026-10-21: three
+    `project scratch open` jobs held the machine's turn for the whole
+    900 s lease timeout each, and every other lane waited behind them).
+
+    The answer says whether the slot is free. A slot that is still held
+    when the wait ends is NOT run against: the command would queue
+    inside the turn again, which is the defect.
+    """
+    from library.tools import resolve_scratch_projects as scratch
+    return scratch.wait_for_origin_slot(
+        timeout=max(0.0, deadline - _time.time()))
+
+
+def _run_with_the_scratch_slot(run, deadline: float) -> int:
+    """Run `run()` once the scratch-origin slot is free, and retry once.
+
+    The command refuses FAST (with its own exit code) when the slot is
+    held, so the retry happens out here, where the wait costs the
+    machine nothing.
+    """
+    from library.tools import resolve_scratch_projects as scratch
+    while True:
+        state = _wait_for_the_scratch_slot(deadline)
+        if state.get("timed_out"):
+            # The slot is still somebody else's. The command is NOT
+            # run: it would wait inside the turn, which is the defect
+            # this whole path exists to remove.
+            holder = state.get("holder") or "another writer"
+            emit([f"error: the scratch origin is held by {holder}; it is "
+                  "still held, so nothing was moved",
+                  f"help: {TOOL} project scratch --help"])
+            return scratch.SLOT_HELD_EXIT_CODE
+        code = run()
+        if code != scratch.SLOT_HELD_EXIT_CODE:
+            return code
+        if _time.time() >= deadline:
+            return code
+
+
 def _main_impl(argv=None) -> int:
     # Same default as the front door, for direct `-m` use: under a
     # harness the host parses `REN_RESULT` instead of prose (LE-03).
@@ -11550,14 +11610,25 @@ def _main_impl(argv=None) -> int:
                      and not (
                          name in _SHADOW_READ_COMMANDS
                          and not getattr(args, "refresh_live", False)))
+    scratch_slot = _scratch_slot_needed(name, args)
+    deadline = 0.0
+    if scratch_slot:
+        from library.tools import resolve_scratch_projects as scratch
+        deadline = _time.time() + scratch.slot_timeout()
     if needs_resolve:
         from library.tools.resolved import client
         client.ensure()
         if submit and not client.in_broker():
             return _submit_through_broker(client, argv)
         if client.serving():
+            if scratch_slot:
+                return _run_with_the_scratch_slot(
+                    lambda: _through_broker(client, argv), deadline)
             return _through_broker(client, argv)
     try:
+        if scratch_slot:
+            return _run_with_the_scratch_slot(
+                lambda: _dispatch(func, args), deadline)
         return _dispatch(func, args)
     except AxiError as exc:
         return fail(str(exc), exc.fix)

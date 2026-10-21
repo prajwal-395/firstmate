@@ -60,7 +60,15 @@ pub enum Request {
     Health,
     PostRestartCheck,
     WatchdogStatus,
-    Shutdown,
+    Shutdown {
+        /// Who is asking: the pid and the command line, as the client
+        /// sent them. The daemon logs it, because a stop that names no
+        /// one is a stop nobody can trace (measured 2026-10-21: the
+        /// broker's log showed nineteen shutdowns in one day and named
+        /// the requester of none).
+        #[serde(default)]
+        requester: Option<String>,
+    },
 }
 
 fn default_limit() -> i64 {

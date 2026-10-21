@@ -122,6 +122,90 @@ def _exchange(sock: socket.socket, stream, request: dict,
     return reply
 
 
+class ShutdownRefused(RenRefusal):
+    """A stop of the machine's broker asked for from a linked worktree.
+
+    The machine has ONE broker and every lane uses it. PR 3041 refuses
+    to START it from a linked worktree, because a broker started there
+    serves production Resolve calls on unmerged code from a directory a
+    worktree tool may reclaim. A STOP has the same reach and the same
+    reason to be refused: it takes every lane's Resolve with it, and a
+    worktree copy is not the installed engine that owns this machine's
+    broker. A deliberately private broker - one that names its own
+    socket - is not the machine's broker and stays stoppable from
+    anywhere.
+    """
+
+    CODE = "REN_RESOLVED_SHUTDOWN_REFUSED"
+    RECOVERY_CLASS = "needs_question"
+    ASK_REASON = "insufficient_evidence"
+    USER_MESSAGE = (
+        "This copy is a linked worktree, so it does not stop the machine's "
+        "broker; run the stop from the installed engine checkout.")
+
+    def __init__(self, why: str = "", fix: str = ""):
+        super().__init__(
+            "the machine's broker",
+            why or ("a linked worktree must not stop the broker every lane "
+                    "shares, the way it must not start it"),
+            fix or ("run `ren resolved stop` from the installed engine "
+                    "checkout"))
+
+
+def requester_identity() -> str:
+    """Who is asking the broker to do something, in one line.
+
+    The broker's log says that a shutdown was requested; without this
+    it says nothing about WHO asked (measured 2026-10-21: nineteen
+    shutdowns in one day, and the log could name none of the
+    requesters). The pid and the command line are what an operator
+    needs to find the lane that asked.
+    """
+    command = " ".join(sys.argv).strip()
+    if not command:
+        command = "(no command line)"
+    return f"pid {os.getpid()}: {command}"
+
+
+def request_shutdown(path=None) -> None:
+    """Ask the serving broker to stop, naming the requester.
+
+    The machine's broker is one instance serving every lane, and a
+    linked worktree does not stop it (PR 3041's rule for a start; the
+    same reach, the same reason). A deliberately private broker - one
+    that names its own socket - is stoppable from anywhere.
+    """
+    target = _path(path)
+    if _is_default_socket(target) and _is_linked_worktree(_engine_root()):
+        raise ShutdownRefused()
+    call({"op": "shutdown", "requester": requester_identity()}, target)
+
+
+def _queued_job_count(target) -> int:
+    """How many jobs the serving broker still has QUEUED.
+
+    The queue is the broker's memory, so a broker that is stopped with
+    work waiting takes that work with it. The count is what tells a
+    replacement from a retirement apart. A broker that cannot answer
+    the question counts as ZERO: the caller verifies by ping anyway,
+    and an unreadable queue is not a reason to keep a stale binary.
+    """
+    try:
+        sock = _open(target)
+        if sock is None:
+            return 0
+        with sock, sock.makefile("r", encoding="utf-8") as stream:
+            reply = _exchange(sock, stream,
+                              {"op": "list", "limit": 200}, 5.0)
+    except Exception:  # noqa: BLE001 - an unreadable queue is not a blocker
+        return 0
+    jobs = reply.get("jobs") if isinstance(reply, dict) else None
+    if not isinstance(jobs, list):
+        return 0
+    return sum(1 for job in jobs
+               if isinstance(job, dict) and job.get("state") == "queued")
+
+
 def call(request: dict, path=None, timeout: Optional[float] = 30.0) -> dict:
     """One request, one reply. Raises `BrokerError`, or `ConnectionError`
     where no broker is serving.
@@ -519,6 +603,27 @@ def ensure(path=None, timeout: float = START_TIMEOUT_SECONDS) -> Optional[dict]:
                 if (os.environ.get("REN_RESOLVED_DAEMON", "").lower()
                         != "python"
                         and refreshed.get("ren-resolved") == "rebuilt"):
+                    # A broker that still has QUEUED work is not retired.
+                    # The queue lives in the broker's memory: a stop
+                    # takes every waiting job with it, and the lane that
+                    # submitted it waits out its whole lease timeout for
+                    # a turn that will never come (measured 2026-10-21:
+                    # nineteen broker restarts in one day, each of them
+                    # a queue that vanished). An IDLE broker with an
+                    # empty queue costs nothing to replace, and THAT is
+                    # the only one this path retires.
+                    queued = _queued_job_count(target)
+                    if queued:
+                        try:
+                            print(
+                                "ren-resolved: keeping the serving broker "
+                                f"(pid {answer.get('pid')}) - it has "
+                                f"{queued} job(s) queued, and stopping it "
+                                "would drop them",
+                                file=sys.stderr, flush=True)
+                        except Exception:  # noqa: BLE001 - reported, not fatal
+                            pass
+                        return answer
                     try:
                         print(
                             "ren-resolved: retiring the idle broker "
@@ -529,7 +634,7 @@ def ensure(path=None, timeout: float = START_TIMEOUT_SECONDS) -> Optional[dict]:
                     except Exception:  # noqa: BLE001 - retirement is reported
                         pass
                     try:
-                        call({"op": "shutdown"}, target)
+                        request_shutdown(target)
                     except Exception:  # noqa: BLE001 - verify by ping below
                         pass
                     deadline = time.time() + min(timeout, 5.0)

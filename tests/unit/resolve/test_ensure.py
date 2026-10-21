@@ -685,7 +685,9 @@ def test_idle_production_broker_swaps_onto_a_rebuild(
         client, "_start_detached",
         lambda path: started.append(path) or _Process())
     assert client.ensure(path=target, timeout=30) == new_answer
-    assert calls == [{"op": "shutdown"}]
+    assert [call["op"] for call in calls] == ["shutdown"]
+    # The request names who is asking, so the broker's log can say so.
+    assert "requester" in calls[0]
     assert started == [target]
 
 
@@ -723,6 +725,38 @@ def test_idle_production_broker_keeps_serving_when_busy_or_fresh(
     assert started == []
 
 
+def test_a_production_broker_with_queued_work_is_not_retired(
+        lock_dir, monkeypatch):
+    """Catches: a rebuild dropping the queue.
+
+    The queue lives in the broker's memory, so a broker that is stopped
+    with work waiting takes that work with it (measured 2026-10-21:
+    nineteen broker restarts in one day, each of them a queue that
+    vanished, and every waiting lane left holding a turn that would
+    never come). A rebuild must not retire a broker that still has work
+    waiting for it.
+    """
+    from library.tools import native_refresh
+
+    target = lock_dir / SOCKET_NAME
+    _as_production(monkeypatch)
+    _fake_target_ping(monkeypatch, [dict(IDLE_ANSWER)] * 30, target)
+    calls = []
+    _fake_target_call(monkeypatch, calls, target)
+    monkeypatch.setattr(client, "_queued_job_count", lambda path: 3)
+    monkeypatch.setattr(
+        native_refresh, "ensure_current",
+        lambda root, **kwargs: {"ren-resolved": "rebuilt"})
+    started = []
+    monkeypatch.setattr(
+        client, "_start_detached",
+        lambda path: started.append(path))
+
+    assert client.ensure(path=target, timeout=1) == IDLE_ANSWER
+    assert calls == []
+    assert started == []
+
+
 def test_idle_production_broker_keeps_serving_where_it_will_not_stop(
         lock_dir, monkeypatch):
     """A shutdown the broker ignores is not followed by a second broker."""
@@ -741,5 +775,5 @@ def test_idle_production_broker_keeps_serving_where_it_will_not_stop(
         client, "_start_detached",
         lambda path: started.append(path))
     assert client.ensure(path=target, timeout=1) == IDLE_ANSWER
-    assert calls == [{"op": "shutdown"}]
+    assert [call["op"] for call in calls] == ["shutdown"]
     assert started == []

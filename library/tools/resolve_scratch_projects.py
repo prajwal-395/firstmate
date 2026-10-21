@@ -74,6 +74,30 @@ class ScratchProjectError(RuntimeError):
     pass
 
 
+class ScratchOriginHeld(ScratchProjectError):
+    """The machine's scratch-origin slot is held by a live writer.
+
+    A SLOT, not a fault: the writer that holds it is inside Resolve with
+    its own session, and it needs the Resolve turn to restore the origin
+    and release the slot. So the WAIT belongs to the caller, before the
+    turn is taken - never inside one, where it holds the very turn the
+    holder needs (measured 2026-10-21: three `project scratch open`
+    jobs held the machine's turn for the whole 900 s lease timeout,
+    each ending in "the scratch origin is held by", and every other
+    lane waited behind them for fifteen minutes).
+
+    The refusal is its own class so the caller can WAIT for the slot
+    and try again, instead of reading the message and giving up.
+    """
+
+
+#: The exit code a scratch lifecycle command returns when the slot is
+#: held. It is distinct from a failure so the caller can tell "the
+#: machine is busy with somebody else's scratch session" from "this
+#: command could not do its work".
+SLOT_HELD_EXIT_CODE = 75
+
+
 ORIGIN_LEDGER_FORMAT = "ren-resolve-scratch-origins/2"
 """The format of the scratch-origin ledger.
 
@@ -1243,7 +1267,7 @@ def _refuse_if_another_writer_holds(resolve, manager) -> None:
     if record is None or _held_by_us(record):
         return
     if _owner_alive(record):
-        raise ScratchProjectError(
+        raise ScratchOriginHeld(
             f"the scratch origin is held by {record.get('owner')!r} "
             f"(pid {record.get('owner_pid')}); wait for it to be released "
             "before moving the machine")
@@ -1271,10 +1295,10 @@ def _take_back_abandoned_session(resolve, manager, records: list[dict]):
             # This writer's own session: the new one nests inside it.
             break
         if _owner_alive(record):
-            raise ScratchProjectError(
+            raise ScratchOriginHeld(
                 f"the scratch origin is held by {record.get('owner')!r} "
-                f"(pid {record.get('owner_pid')}); wait for it to be released "
-                "before opening another scratch project")
+                f"(pid {record.get('owner_pid')}); wait for it to be "
+                "released before opening another scratch project")
         origin_name = str(record.get("project") or "")
         if not _ren_owned_origin(origin_name):
             held = {"origin": origin_name,

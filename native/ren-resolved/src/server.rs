@@ -524,7 +524,7 @@ impl Daemon {
                     protocol::wire(&WatchdogReply { watchdog: false })
                 }
             }
-            Request::Shutdown => {
+            Request::Shutdown { .. } => {
                 self.broker.stop();
                 self.shutdown
                     .store(true, std::sync::atomic::Ordering::Release);
@@ -813,15 +813,23 @@ fn handle_connection(stream: UnixStream, daemon: &Daemon, wake_path: &Path) {
         if writer.flush().is_err() {
             break;
         }
-        if matches!(request, Request::Shutdown) {
+        if let Request::Shutdown { requester } = &request {
             // Landed in the broker log with when: the 2026-10-08 stop
             // was found with no known cause because neither starts nor
-            // stops were logged.
+            // stops were logged. The requester is logged with it: a stop
+            // that names nobody is a stop nobody can trace (measured
+            // 2026-10-21: nineteen shutdowns in one day, and the log
+            // named the requester of none).
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs())
                 .unwrap_or(0);
-            eprintln!("{now} ren-resolved: shutdown requested - stopping");
+            match requester.as_deref() {
+                Some(who) if !who.is_empty() => {
+                    eprintln!("{now} ren-resolved: shutdown requested by {who} - stopping");
+                }
+                _ => eprintln!("{now} ren-resolved: shutdown requested - stopping"),
+            }
             // Wake the blocking accept so the server can exit promptly.
             let _ = UnixStream::connect(wake_path);
             break;

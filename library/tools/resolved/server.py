@@ -709,7 +709,9 @@ class _Handler(socketserver.StreamRequestHandler):
             broker.release(grant)
             return {"released": grant}
         if op == "shutdown":
-            _log_broker("ren-resolved: shutdown requested - stopping")
+            requester = request.get("requester")
+            _log_broker("ren-resolved: shutdown requested - stopping"
+                        + (f" (by {requester})" if requester else ""))
             broker.stop()
             return {"ok": True}
         return {"error": f"unknown op {op!r}"}

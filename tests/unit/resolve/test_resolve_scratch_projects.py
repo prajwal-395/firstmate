@@ -1102,15 +1102,22 @@ def test_the_cli_queues_for_the_scratch_origin_between_attempts(
     assert events == [("lease", True), ("connect",), ("open",)]
 
 
-def test_the_cli_waits_and_retries_until_the_holder_releases(
-        monkeypatch, capsys):
-    """Catches: one refusal ending a queue that had not finished."""
+def test_the_cli_refuses_fast_and_the_caller_waits(monkeypatch, capsys):
+    """Catches: a wait inside the broker's turn.
+
+    The command runs inside the machine's turn, so a wait here holds
+    that turn against every other lane (measured 2026-10-21: three
+    `project scratch open` jobs held the turn for the whole 900 s lease
+    timeout each). The command refuses with its own exit code; the
+    CALLER waits for the slot, where no turn is held, and runs it
+    again.
+    """
     attempts = []
 
     def refuse_then_open(resolve, manager, name):
         attempts.append(name)
         if len(attempts) == 1:
-            raise scratch.ScratchProjectError(
+            raise scratch.ScratchOriginHeld(
                 "the scratch origin is held by 'lane-a' (pid 1); wait for it "
                 "to be released before opening another scratch project")
         return {"opened": True}
@@ -1126,9 +1133,28 @@ def test_the_cli_waits_and_retries_until_the_holder_releases(
     monkeypatch.setattr(scratch, "slot_timeout", lambda: 30.0)
     args = SimpleNamespace(scratch_command="open", apply=True,
                            name="Ren Scratch - cli-retry")
-    assert resolve_axi.cmd_project_scratch(args) == 0
-    assert attempts == ["Ren Scratch - cli-retry"] * 2
-    assert len(waits) == 1
+    assert resolve_axi.cmd_project_scratch(args) == scratch.SLOT_HELD_EXIT_CODE
+    assert attempts == ["Ren Scratch - cli-retry"]
+    assert waits == []
+
+    # The caller is where the wait belongs.
+    from library.tools import resolve_axi_core_commands as commands
+
+    def refuse_then_apply(args, scratch_module):
+        attempts.append(args.name)
+        if len(attempts) == 2:
+            raise scratch.ScratchOriginHeld(
+                "the scratch origin is held by 'lane-a' (pid 1); wait for it "
+                "to be released before opening another scratch project")
+        return {"opened": True}
+
+    monkeypatch.setattr(commands, "_scratch_apply", refuse_then_apply)
+    assert commands._run_with_the_scratch_slot(
+        lambda: resolve_axi.cmd_project_scratch(args),
+        __import__("time").time() + 30.0) == 0
+    assert len(attempts) == 3
+    assert len(waits) == 2
+    assert all(0 < value <= 30.0 for value in waits)
 
 
 def test_the_cli_refuses_when_the_holder_never_releases(monkeypatch, capsys):
@@ -1142,13 +1168,13 @@ def test_the_cli_refuses_when_the_holder_never_releases(monkeypatch, capsys):
     monkeypatch.setattr(
         scratch, "open_project",
         lambda resolve, manager, name: (_ for _ in ()).throw(
-            scratch.ScratchProjectError(
+            scratch.ScratchOriginHeld(
                 "the scratch origin is held by 'lane-a' (pid 1); wait for it "
                 "to be released before opening another scratch project")))
     monkeypatch.setattr(scratch, "slot_timeout", lambda: 0.0)
     args = SimpleNamespace(scratch_command="open", apply=True,
                            name="Ren Scratch - cli-refuse")
-    assert resolve_axi.cmd_project_scratch(args) == 1
+    assert resolve_axi.cmd_project_scratch(args) == scratch.SLOT_HELD_EXIT_CODE
     assert "held by" in capsys.readouterr().out
 
 

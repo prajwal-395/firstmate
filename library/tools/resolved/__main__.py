@@ -129,7 +129,14 @@ def main(argv=None) -> int:
                       file=sys.stderr)
                 return 1
             try:
-                client.call({"op": "shutdown"})
+                client.request_shutdown()
+            except client.ShutdownRefused:
+                print("ren-resolved: refusing to stop the production "
+                      "broker from here - run from the installed engine "
+                      "checkout; a linked worktree stops only the broker "
+                      "on its own socket",
+                      file=sys.stderr)
+                return 1
             except ConnectionError:
                 print("ren-resolved: no broker is serving - nothing to stop")
                 return 1

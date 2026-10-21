@@ -9466,3 +9466,52 @@ either: this scratch project holds no compiled manifest, so no caption intent
 was supplied and the captions were judged by reading the file, not against a
 plan. Both are reported `not_measured`, with the citation, rather than passing
 on what did run.
+## the-wait-in-the-turn
+
+**The rule:** A wait for a machine resource runs OUTSIDE the broker's turn, and
+the broker's turn is for the WORK. The scratch-origin slot is one machine
+resource: the writer that holds it is inside Resolve and needs the turn to
+restore the origin and release the slot. So a verb that moves the machine
+refuses FAST when the slot is held, and the CALLER waits for the slot - where no
+turn is held - and runs it again. A broker STOP names who asked, and a linked
+worktree never stops the machine's broker.
+
+**What happened.** Measured 2026-10-21 on the machine's own broker (36 h, 8238
+jobs, `ren resolved kpi`): 24.14% of every blocked second was held by
+`resolve.qualification_session` and 17.01% by `resolve_axi` "Running Resolve
+command: project" - the scratch-project lifecycle. In the job table, four of
+those jobs held the machine's turn for the whole 900 s lease timeout while
+WAITING for the slot they could not get:
+
+    900.4s  project scratch open Ren Scratch - breaktest  -> the scratch origin is held by 'pid-45290'
+    900.3s  project scratch open Ren Scratch - breaktest  -> the scratch origin is held by 'pid-81999'
+    901.3s  project scratch create Ren Scratch - axi001    -> the scratch origin is held by 'pid-65086'
+   1676.9s  project scratch open Ren Scratch - breaktest  -> failed
+
+4,378.9 s of the machine's turn - an hour and a quarter - spent waiting for a
+resource whose holder needed that same turn to let go of it. Every other lane
+was queued behind a wait that could not end.
+
+**Where it is.** `library/tools/resolve_scratch_projects.py` owns the slot
+(`wait_for_origin_slot`, `ScratchOriginHeld`, `SLOT_HELD_EXIT_CODE`);
+`library/tools/resolve_axi_core_commands.py` refuses fast
+(`cmd_project_scratch`) and waits in the CALLER (`_wait_for_the_scratch_slot`,
+`_run_with_the_scratch_slot`) - before the command is queued, so no turn is
+held. A slot that is still held when the wait ends means the command is NOT run
+at all: running it would queue inside the turn again.
+
+**Who stopped the broker.** The same log showed nineteen shutdowns in one day
+and named the requester of none. The request now carries the requester's pid
+and command line (`library/tools/resolved/client.py:requester_identity`), the
+Rust and Python daemons log it, and a linked worktree is refused the stop the
+way PR 3041 refuses the start. A rebuild no longer retires a broker that still
+has work queued: the queue is the broker's memory, so stopping it with work
+waiting takes that work with it.
+
+**What it does not fix.** The qualification sessions' remaining hold is not this
+defect: their borrow and restore of the captain's project are the DISCIPLINE
+that leaves the captain's project as found, and changing that is a decision
+above this lane. What moved out of the turn here is the part that was never
+Resolve work: the media copy's digest and its frame rate, measured by the
+caller before the job is queued (0.073 s on the qualification copy, measured).
+
