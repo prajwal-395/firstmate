@@ -483,53 +483,6 @@ fn flock_is_held(directory: &Path) -> bool {
     }
 }
 
-#[cfg(test)]
-mod lease_tests {
-    use super::*;
-    use std::os::fd::AsRawFd;
-
-    /// The defect, measured 2026-10-20: a dead holder's lease record
-    /// outlived the lock, and `ren resolved status` read the record
-    /// instead of the flock - so a FREE instance was called busy, with
-    /// the dead holder's pid, for hours.
-    #[test]
-    fn a_record_with_no_flock_behind_it_is_stale_not_busy() {
-        let directory =
-            std::env::temp_dir().join(format!("ren-resolved-stale-test-{}", std::process::id()));
-        std::fs::create_dir_all(&directory).unwrap();
-        let _lock = std::fs::File::create(directory.join("resolve_instance.lock")).unwrap();
-        let record = serde_json::json!({"owner": "pid-72326", "purpose": "place",
-            "pid": 72326, "host": "test", "since": 1.0});
-        std::fs::write(directory.join(LEASE_NAME), record.to_string()).unwrap();
-
-        let (active, recorded) = lease_probe_in(&directory);
-        assert!(active.is_none(), "a free instance was reported as held");
-        assert_eq!(recorded.unwrap().pid, 72326, "the record was not read back");
-        // The record is left alone: another writer may be publishing its own.
-        assert!(directory.join(LEASE_NAME).exists());
-        std::fs::remove_dir_all(directory).unwrap();
-    }
-
-    #[test]
-    fn abandoned_record_is_ignored_and_a_new_holder_is_visible() {
-        let directory =
-            std::env::temp_dir().join(format!("ren-resolved-lease-test-{}", std::process::id()));
-        std::fs::create_dir_all(&directory).unwrap();
-        let lock = std::fs::File::create(directory.join("resolve_instance.lock")).unwrap();
-        let record = serde_json::json!({"owner": "build", "purpose": "place",
-            "pid": 123, "host": "test", "since": 1.0});
-        std::fs::write(directory.join(LEASE_NAME), record.to_string()).unwrap();
-        assert!(lease_probe_in(&directory).0.is_none());
-        // SAFETY: the file owns a valid descriptor throughout both calls.
-        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
-        assert_eq!(lease_probe_in(&directory).0.unwrap().pid, 123);
-        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
-        assert!(lease_probe_in(&directory).0.is_none());
-        assert!(directory.join(LEASE_NAME).exists());
-        std::fs::remove_dir_all(directory).unwrap();
-    }
-}
-
 /// Serve on the socket until `shutdown` or a signal.
 ///
 /// `accept` blocks until a client arrives. The shutdown handler connects once
@@ -647,5 +600,52 @@ fn handle_connection(stream: UnixStream, daemon: &Daemon, wake_path: &Path) {
         daemon
             .broker
             .release(&job_id, "done", "the client disconnected while holding");
+    }
+}
+
+#[cfg(test)]
+mod lease_tests {
+    use super::*;
+    use std::os::fd::AsRawFd;
+
+    /// The defect, measured 2026-10-20: a dead holder's lease record
+    /// outlived the lock, and `ren resolved status` read the record
+    /// instead of the flock - so a FREE instance was called busy, with
+    /// the dead holder's pid, for hours.
+    #[test]
+    fn a_record_with_no_flock_behind_it_is_stale_not_busy() {
+        let directory =
+            std::env::temp_dir().join(format!("ren-resolved-stale-test-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let _lock = std::fs::File::create(directory.join("resolve_instance.lock")).unwrap();
+        let record = serde_json::json!({"owner": "pid-72326", "purpose": "place",
+            "pid": 72326, "host": "test", "since": 1.0});
+        std::fs::write(directory.join(LEASE_NAME), record.to_string()).unwrap();
+
+        let (active, recorded) = lease_probe_in(&directory);
+        assert!(active.is_none(), "a free instance was reported as held");
+        assert_eq!(recorded.unwrap().pid, 72326, "the record was not read back");
+        // The record is left alone: another writer may be publishing its own.
+        assert!(directory.join(LEASE_NAME).exists());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn abandoned_record_is_ignored_and_a_new_holder_is_visible() {
+        let directory =
+            std::env::temp_dir().join(format!("ren-resolved-lease-test-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let lock = std::fs::File::create(directory.join("resolve_instance.lock")).unwrap();
+        let record = serde_json::json!({"owner": "build", "purpose": "place",
+            "pid": 123, "host": "test", "since": 1.0});
+        std::fs::write(directory.join(LEASE_NAME), record.to_string()).unwrap();
+        assert!(lease_probe_in(&directory).0.is_none());
+        // SAFETY: the file owns a valid descriptor throughout both calls.
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+        assert_eq!(lease_probe_in(&directory).0.unwrap().pid, 123);
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
+        assert!(lease_probe_in(&directory).0.is_none());
+        assert!(directory.join(LEASE_NAME).exists());
+        std::fs::remove_dir_all(directory).unwrap();
     }
 }

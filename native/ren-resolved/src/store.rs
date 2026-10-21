@@ -234,7 +234,7 @@ impl JobStore {
             }
             let found = tx
                 .query_row(
-                    "SELECT * FROM jobs WHERE id=?1",
+                    &format!("SELECT {RECEIPT_COLUMNS} FROM jobs WHERE id=?1"),
                     params![job_id],
                     receipt_from_row,
                 )
@@ -513,6 +513,67 @@ mod tests {
         assert_eq!(receipt.progress, "");
         drop(store);
 
+        let _ = std::fs::remove_file(&scratch);
+        let _ = std::fs::remove_file(scratch.with_extension("sqlite3-wal"));
+        let _ = std::fs::remove_file(scratch.with_extension("sqlite3-shm"));
+    }
+
+    #[test]
+    fn idempotent_receipt_uses_named_columns_on_retry() {
+        let scratch = std::env::temp_dir().join(format!(
+            "ren-resolved-idempotent-retry-{}-{}.sqlite3",
+            std::process::id(),
+            now().to_bits(),
+        ));
+        // The saved-receipt decoder uses fixed positions. A wildcard select
+        // couples those positions to physical schema order and reads the
+        // REAL `finished` value as the TEXT `result` field on retry.
+        let store = JobStore::open(&scratch).unwrap();
+        let job = JobRecord {
+            id: "job-legacy-idempotency".into(),
+            kind: "semantic_edit".into(),
+            priority: "normal".into(),
+            mode: "exclusive".into(),
+            executed: true,
+            params: serde_json::json!({"request": "logo resize"}),
+            project: "Ren Scratch - breaktest".into(),
+            timeline: "Breaktest - Reel 13".into(),
+            qualification: false,
+            coalesce_key: None,
+            interrupt_policy: "".into(),
+            owner: "breaktest".into(),
+            description: "logo resize".into(),
+            progress: "applied".into(),
+            state: "queued".into(),
+            subscribers: 1,
+            submitted: 1_700_000_000.0,
+        };
+        assert!(store
+            .insert_idempotent(&job, "semantic_edit", "logo-1", "digest-1")
+            .unwrap()
+            .is_none());
+        store
+            .update(
+                &job.id,
+                &[
+                    ("state", Value::String("done".into())),
+                    ("finished", Value::from(1_700_000_001.25)),
+                    ("result", Value::String("{\"verified\":true}".into())),
+                ],
+            )
+            .unwrap();
+
+        let previous = store
+            .insert_idempotent(&job, "semantic_edit", "logo-1", "digest-1")
+            .unwrap()
+            .expect("identical retry should return the saved receipt");
+        assert_eq!(previous.id, job.id);
+        assert_eq!(previous.finished, Some(1_700_000_001.25));
+        assert_eq!(previous.result, Some(serde_json::json!({"verified": true})));
+        assert_eq!(previous.description, "");
+        assert_eq!(previous.progress, "");
+
+        drop(store);
         let _ = std::fs::remove_file(&scratch);
         let _ = std::fs::remove_file(scratch.with_extension("sqlite3-wal"));
         let _ = std::fs::remove_file(scratch.with_extension("sqlite3-shm"));

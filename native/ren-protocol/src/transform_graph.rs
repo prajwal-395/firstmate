@@ -175,7 +175,7 @@ fn apply_time_edge(
         return Err(TransformError::Uncovered);
     }
     let scaled = (input_uncertainty as u128)
-        .checked_mul(numerator.unsigned_abs() as u128)
+        .checked_mul(numerator.unsigned_abs())
         .ok_or(TransformError::Overflow)?;
     let propagated = scaled.div_ceil(denominator as u128);
     let total = propagated
@@ -237,9 +237,9 @@ pub fn map_point(
         let mut homogeneous = coordinates.clone();
         homogeneous.push(1.0);
         let mut result = vec![0.0; dimension];
-        for row in 0..dimension {
-            for col in 0..dimension {
-                result[row] += transform.matrix[row * dimension + col] * homogeneous[col];
+        for (row, result_value) in result.iter_mut().enumerate() {
+            for (col, coordinate) in homogeneous.iter().enumerate() {
+                *result_value += transform.matrix[row * dimension + col] * coordinate;
             }
         }
         let w = result[dimension - 1];
