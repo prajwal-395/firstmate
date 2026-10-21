@@ -147,7 +147,9 @@ def _timeline_by_identity(project, timeline_name: str, timeline_id: str):
 def _adopt(project_folder: str, project, resolve, timeline_name: str, *,
            reason: str, by: str, timeline_id: str) -> dict:
     """Capture the live generation and append the adopted version."""
-    from library.tools import reel_read
+    import uuid
+
+    from library.tools import reel_read, reel_replace_guard
     from library.tools.resolve_lock import assert_current_timeline
 
     target = _timeline_by_identity(project, timeline_name, timeline_id)
@@ -155,7 +157,22 @@ def _adopt(project_folder: str, project, resolve, timeline_name: str, *,
     assert_current_timeline(project, target)
 
     tracks = reel_read.read_tracks(target)
-    rows = reel_read.rows_of({"tracks": tracks})
+    # The row shape every version digest is computed over: the
+    # promotion's retiring rows, the undo's live rows and this one must
+    # agree, or the same timeline reads as two generations.
+    rows = reel_replace_guard.rows_of_tracks(tracks)
+    # The grade and the effects are the part a restoration can drop
+    # without changing a single row, so the adoption records them: the
+    # rows say which passage plays, the preservation says what it looks
+    # like, and a restore is checked against both.
+    try:
+        preservation = reel_replace_guard.preservation_record(
+            reel_replace_guard.snapshot_items(tracks))
+    except TypeError as unreadable:
+        raise reel_versions.ReelVersionsUnreadable(
+            f"the live generation of {timeline_name!r} could not be read "
+            f"({unreadable}); a version that cannot be read is not a "
+            "version, so nothing was adopted") from unreadable
 
     archive = store.export_timeline_recovery_archive(
         resolve, target, target.GetName(), project_folder,
@@ -163,7 +180,18 @@ def _adopt(project_folder: str, project, resolve, timeline_name: str, *,
         # and its archive is a file of its own - the shared per-reel path
         # is overwritten by the next build, and a version that cannot be
         # restored is a note, not a version.
-        archive_suffix=replaced_generation.generation_suffix(unique_id))
+        #
+        # The generation's own suffix, plus THIS adoption's own
+        # discriminator: a Resolve id names a timeline OBJECT, and an
+        # in-place hand edit changes the generation while the object -
+        # and so the id - stays the same. Two adoptions of the same
+        # timeline are two generations, and with the generation suffix
+        # alone the second adoption replaced the first one's archive:
+        # the first version's receipt went on naming a file whose
+        # content had changed under it (measured 2026-10-21 on a live
+        # adoption).
+        archive_suffix=(f"{replaced_generation.generation_suffix(unique_id)}"
+                        f"--adopted-{uuid.uuid4().hex[:8]}"))
     if not archive.get("archived"):
         raise reel_versions.ReelVersionsUnreadable(
             f"the live generation of {timeline_name!r} could not be "
@@ -181,6 +209,33 @@ def _adopt(project_folder: str, project, resolve, timeline_name: str, *,
             if not source:
                 continue
             media.add(source)
+    # The archive must hold the media the live timeline plays: the
+    # restore compares the archive's inventory with this receipt's, and
+    # an archive of a DIFFERENT generation is refused at the adoption,
+    # where nothing has been recorded yet.
+    from library.tools.resolve_archive import read_archive
+
+    try:
+        facts = read_archive(archive_path)
+    except Exception as unreadable:  # noqa: BLE001 - refused, not adopted
+        raise reel_versions.ReelVersionsUnreadable(
+            f"the recovery archive of {timeline_name!r} could not be read "
+            f"({unreadable}), so the generation cannot be adopted: a "
+            "version that cannot be restored is a note, not a version") \
+            from unreadable
+    archive_media = {
+        os.path.normcase(os.path.realpath(str(item.get("media_path") or "")))
+        for timeline in (facts.get("timelines") or ())
+        for track in timeline.get("tracks") or ()
+        for item in track.get("items") or ()
+        if item.get("media_path")}
+    live_media = {os.path.normcase(os.path.realpath(source))
+                  for source in media if source}
+    if archive_media != live_media:
+        raise reel_versions.ReelVersionsUnreadable(
+            f"the recovery archive of {timeline_name!r} does not hold the "
+            f"media the live timeline plays, so it is not this generation "
+            f"and nothing was adopted")
     for source in sorted(media):
         if not os.path.isfile(source):
             continue
@@ -200,6 +255,8 @@ def _adopt(project_folder: str, project, resolve, timeline_name: str, *,
         # cannot be restored at all.
         "inventory_items": _archive_item_count(archive_path),
         "assets": assets,
+        # The look of the generation this version records.
+        "preservation": preservation,
     }
     entry = reel_versions.record(
         project_folder, target.GetName(),
@@ -207,6 +264,12 @@ def _adopt(project_folder: str, project, resolve, timeline_name: str, *,
         rows=rows,
         reason=str(reason or ""),
         by=str(by or "captain"),
+        # The attribution a version ledger reads to tell a human's edit
+        # from Ren's own: this generation is the EDITOR'S state, not an
+        # act Ren performed, and it is recorded as such.
+        author=str(by or "captain"),
+        intent="external hand edit",
+        operations=[{"kind": "external_hand_edit"}],
         timeline_id=unique_id,
         adopted=True,
         recovery_archive=receipt)

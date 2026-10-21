@@ -214,12 +214,22 @@ def verify_archive(*, archive_path, project, timeline,
         raise ReplacedGenerationArchiveRefused(
             "the exported archive's inventory does not match the "
             "generation being replaced")
+    # A `.drt` names the TIMELINE it holds, not the Resolve project it
+    # was exported from: the archive of `Reel 01 - geo-is-comprehension
+    # -not-position` reads back a project called `Reel 01 - geo-is-
+    # comprehension-not-position` (measured 2026-10-21 over the
+    # machine's recovery archives). Comparing that name with the RESOLVE
+    # PROJECT's name compares two names that are not the same kind of
+    # name, and refuses every archive. Either name is accepted; a third
+    # one is not.
     archive_project = str(facts.get("project") or "")
     expected_project = str(project.GetName() or "")
-    if archive_project and expected_project and archive_project != expected_project:
+    accepted_names = {str(timeline.GetName() or ""), expected_project}
+    accepted_names.discard("")
+    if archive_project and accepted_names and archive_project not in accepted_names:
         raise ReplacedGenerationArchiveRefused(
-            f"the exported archive belongs to Resolve project "
-            f"{archive_project!r}, not {expected_project!r}")
+            f"the exported archive belongs to {archive_project!r}, not to "
+            f"this timeline ({expected_project!r})")
     inventory = _inventory_against_snapshot(facts, before)
     if not inventory["matches"]:
         raise ReplacedGenerationArchiveRefused(
@@ -257,7 +267,20 @@ def verify_archive(*, archive_path, project, timeline,
         "rows_digest": rounds.digest_rows(rows),
         "inventory_items": len(archive_items),
         "assets": assets,
+        # The LOOK of the generation this archive holds: the grade, the
+        # Fusion comps and the composite settings. Rows say which
+        # passage plays and carry no look, so without this a restore
+        # can put back the cut and lose the picture, and the ledger
+        # would call it the exact generation.
+        "preservation": _preservation_of(before),
     }
+
+
+def _preservation_of(snapshot: Mapping) -> list:
+    """The comparable part of a generation's native state."""
+    from library.tools import reel_replace_guard
+
+    return reel_replace_guard.preservation_record(snapshot.get("items") or ())
 
 
 def archive_generation(*, resolve, project, timeline, project_folder: str,

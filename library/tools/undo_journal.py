@@ -3517,11 +3517,15 @@ def rollback_rebuild(project_folder: str, final: str, act: Mapping, *,
                      build: Callable[[str, int], int] | None = None,
                      touch: Callable[[str, Mapping], Any] | None = None,
                      supersede=(), accept_editor_changes=None,
-                     restore_archive: Callable | None = None) -> dict:
+                     restore_archive: Callable | None = None,
+                     read_live_preservation: Callable | None = None) -> dict:
     """Roll a rebuild back to the version before it, and say if it got there.
 
     `read_live_rows(final)` reads the live rows; `build` and `touch` are
     the reels process and `reel_touchup.apply_touchup`, seams for tests.
+    `read_live_preservation(final)` reads the live generation's grade and
+    effects, so a restoration can be checked against the look the
+    restored version recorded.
     """
     from library.tools.versions import reel_versions, rounds
 
@@ -3561,12 +3565,14 @@ def rollback_rebuild(project_folder: str, final: str, act: Mapping, *,
         return _rollback_from_verified_archive(
             project_folder, final, act, target,
             read_live_rows=read_live_rows, restore_archive=restore_archive,
-            supersede=supersede)
+            supersede=supersede,
+            read_live_preservation=read_live_preservation)
     if base["plan_moment"] == act.get("plan_moment"):
         return _rollback_from_verified_archive(
             project_folder, final, act, target,
             read_live_rows=read_live_rows, restore_archive=restore_archive,
-            supersede=supersede)
+            supersede=supersede,
+            read_live_preservation=read_live_preservation)
     replays = [entry for entry in reel_versions.live_acts(project_folder,
                                                           final)
                if entry["kind"] == reel_versions.KIND_TOUCH
@@ -3587,7 +3593,8 @@ def rollback_rebuild(project_folder: str, final: str, act: Mapping, *,
         return _rollback_from_verified_archive(
             project_folder, final, act, target,
             read_live_rows=read_live_rows, restore_archive=restore_archive,
-            supersede=supersede)
+            supersede=supersede,
+            read_live_preservation=read_live_preservation)
     unplaced = reel_versions.take_pending_rollback(project_folder, final)
     if code or unplaced is not None:
         # The promotion consumes the marker; one still standing means
@@ -3595,7 +3602,8 @@ def rollback_rebuild(project_folder: str, final: str, act: Mapping, *,
         return _rollback_from_verified_archive(
             project_folder, final, act, target,
             read_live_rows=read_live_rows, restore_archive=restore_archive,
-            supersede=supersede)
+            supersede=supersede,
+            read_live_preservation=read_live_preservation)
     replayed = []
     try:
         for entry in replays:
@@ -3607,13 +3615,15 @@ def rollback_rebuild(project_folder: str, final: str, act: Mapping, *,
         return _rollback_from_verified_archive(
             project_folder, final, act, target,
             read_live_rows=read_live_rows, restore_archive=restore_archive,
-            supersede=supersede)
+            supersede=supersede,
+            read_live_preservation=read_live_preservation)
     after = dict(read_live_rows(final) or {})
     if rounds.digest_rows(after) != target["rows_digest"]:
         return _rollback_from_verified_archive(
             project_folder, final, act, target,
             read_live_rows=read_live_rows, restore_archive=restore_archive,
-            supersede=supersede)
+            supersede=supersede,
+            read_live_preservation=read_live_preservation)
     # This version carried NO verified archive, so what was restored is
     # a REBUILD from the plan - the cut, not the grade, the Fusion
     # graph or the colour. It is recorded as such: a version that says
@@ -3629,7 +3639,9 @@ def _rollback_from_verified_archive(project_folder: str, final: str,
                                     act: Mapping, target: Mapping, *,
                                     read_live_rows: Callable,
                                     restore_archive: Callable | None,
-                                    supersede=()) -> dict:
+                                    supersede=(),
+                                    read_live_preservation: Callable | None = None
+                                    ) -> dict:
     """Restore the exact retained version when semantic replay diverges."""
     from library.tools.versions import reel_versions, rounds
 
@@ -3662,10 +3674,20 @@ def _rollback_from_verified_archive(project_folder: str, final: str,
             f"archive restoration for {final!r} did not read back as "
             f"version {target['version']}; the timeline is preserved for "
             "recovery and the rollback was not recorded")
+    # The rows say which passage plays. The grade and the effects say
+    # what it LOOKS like, and a `.drt` import can change the second
+    # without changing the first - so the restoration is checked against
+    # the state the version recorded, or the ledger would claim the
+    # exact generation came back while the colour did not.
+    preservation = _verify_preservation(
+        project_folder, final, target,
+        read_live_preservation or _read_live_preservation)
     entry = reel_versions.record(
         project_folder, final, kind=reel_versions.KIND_ROLLBACK,
         rows=target["rows"], undoes=int(act["version"]),
         recovery_archive=dict(receipt),
+        preservation_verified=bool(preservation["verified"]),
+        preservation_note=str(preservation.get("reason") or ""),
         restored_from_timeline_id=normalized["timeline_id"])
     reel_versions.mark_undone(
         project_folder, final, int(act["version"]), entry["version"])
@@ -3673,7 +3695,196 @@ def _rollback_from_verified_archive(project_folder: str, final: str,
         reel_signoff.supersede(project_folder, final)
     return {"final": final, "rolled_back": act["version"],
             "to": target["version"], "restored_from_archive": True,
+            "preservation_verified": bool(preservation["verified"]),
+            "preservation_note": str(preservation.get("reason") or ""),
             "timeline_id": normalized["timeline_id"]}
+
+
+def _verify_preservation(project_folder: str, final: str, target: Mapping,
+                         read_live_preservation: Callable) -> dict:
+    """Whether the restored generation still holds the recorded look.
+
+    The recorded state is the version's own receipt: the grade, the
+    Fusion comps and the composite settings the generation held when it
+    was adopted or built. A version that records none cannot be checked,
+    and says so - an unverified restoration is reported as unverified,
+    never as a verified one.
+    """
+    from library.tools import reel_replace_guard
+    from library.tools.versions import reel_versions
+
+    receipt = reel_versions.read_recovery_receipt(
+        target.get("recovery_archive"))
+    recorded = receipt.get("preservation")
+    if not recorded:
+        return {"verified": False,
+                "reason": f"version {target.get('version')} of {final!r} "
+                           "records no grade or effects state, so the "
+                           "restoration could not be checked against one"}
+    live = read_live_preservation(project_folder, final)
+    if live is None:
+        return {"verified": False,
+                "reason": f"the restored {final!r} could not be read back, "
+                           "so its grade and effects could not be checked"}
+    losses = reel_replace_guard.preservation_losses(recorded, live)
+    if losses:
+        grades = [loss for loss in losses if loss["field"] == "color"]
+        effects = [loss for loss in losses if loss["field"] != "color"]
+        said = [f"{loss['label']}: {loss['field']}" for loss in losses]
+        because = []
+        if grades:
+            because.append(
+                "the recovery archive does not carry the grade (measured "
+                "2026-10-21 over 117 recovery archives: 77 carry the Fusion "
+                "composition, none carries a CDL, a LUT or a node graph), so "
+                "the grade has to be re-applied")
+        if effects:
+            because.append(
+                "the recovery archive carries the effects, so a lost effect "
+                "is a loss the restore did not make good")
+        raise UndoNotVerified(
+            f"the restored {final!r} does not hold the grade and effects "
+            f"version {target.get('version')} recorded: "
+            + "; ".join(said)
+            + ". The timeline holds the archive's generation, which is not "
+              "the recorded one; the rollback was not recorded. "
+            + ("; ".join(because)) + " - re-apply the grade and effects, "
+            "or keep the current timeline and adopt it.")
+    return {"verified": True,
+            "reason": "the restored generation holds the recorded grade "
+                      "and effects"}
+
+
+def _read_live_preservation(project_folder: str, final: str):
+    """The live generation's grade and effects, read fresh from Resolve.
+
+    None when the live timeline cannot be read: an unreadable state is
+    not a preserved one, and the caller says so rather than passing it.
+    """
+    from library.tools import reel_read, reel_replace_guard
+    from library.tools.resolve_lock import cursor_excursion, resolve_lease
+
+    try:
+        resolve_name = _resolve_name(project_folder)
+        with resolve_lease(f"verify the restored {final}"):
+            project = _connect(resolve_name)
+            timeline = None
+            for index in range(1, int(project.GetTimelineCount() or 0) + 1):
+                candidate = project.GetTimelineByIndex(index)
+                if candidate and candidate.GetName() == final:
+                    timeline = candidate
+                    break
+            if timeline is None:
+                return None
+            # The reading is comparable only with the reel current, so
+            # the cursor is moved for the read and put back.
+            with cursor_excursion(project, timeline,
+                                  f"verify the restored {final}"):
+                tracks = reel_read.read_tracks(timeline,
+                                               resolve_project=project)
+            return reel_replace_guard.preservation_record(
+                reel_replace_guard.snapshot_items(tracks))
+    except Exception:  # noqa: BLE001 - an unreadable state is not a loss
+        return None
+
+
+def _video_track_items(timeline, index) -> list:
+    """One video row's items, or an empty list when it cannot be read.
+
+    Resolve counts the rows PER MEDIA TYPE (`GetTrackCount("video")`),
+    not once for the timeline: the count without a type answers nothing,
+    and a row that was never read is not an empty row.
+    """
+    try:
+        return list(timeline.GetItemListInTrack("video", index) or [])
+    except Exception:  # noqa: BLE001 - one unreadable row, not a failure
+        return []
+
+
+def _picture_items(timeline) -> list:
+    """Every item on every video row of a timeline, as native handles."""
+    items = []
+    try:
+        count = int(timeline.GetTrackCount("video") or 0)
+    except Exception:  # noqa: BLE001 - an unreadable track list is no items
+        return items
+    for index in range(1, count + 1):
+        items.extend(_video_track_items(timeline, index))
+    return items
+
+
+def _footage_items(timeline, footage_roots) -> list:
+    """The items that play this project's FOOTAGE, as native handles.
+
+    The build's own rule, kept: a rendered card shares the first picture
+    row with the footage and is a graphic, not footage - grading one
+    would tint it. So only an item whose media lives under a declared
+    footage root is graded.
+    """
+    items = []
+    for item in _picture_items(timeline):
+        try:
+            pool_item = item.GetMediaPoolItem()
+            path = (str(pool_item.GetClipProperty("File Path"))
+                    if pool_item is not None else "")
+        except Exception:  # noqa: BLE001,S112 - unreadable is not footage
+            continue
+        if not path:
+            continue
+        resolved = os.path.realpath(path)
+        if any(resolved.startswith(os.path.realpath(root) + os.sep)
+               for root in footage_roots):
+            items.append(item)
+    return items
+
+
+def _reapply_declared_grade(project_folder: str, timeline) -> dict:
+    """Put the project's DECLARED grade back on the restored items.
+
+    The recovery archive does not carry the grade. Measured 2026-10-21
+    over the 117 `.drt` recovery archives on this machine: 77 of them
+    carry the Fusion composition and NONE carries a CDL, a LUT or a node
+    graph. So a restore that only imports the archive restores the cut
+    and the effects, and leaves the picture ungraded.
+
+    The grade the project DECLARED is re-applied here, by the product's
+    own route (`color_page_grade.apply_power_grade`), because that
+    declaration is the project's own file and is still there. A grade
+    the captain applied BY HAND, on one clip, that the project does not
+    declare is NOT recoverable from an archive - nothing here pretends
+    otherwise, and the verification says so by name.
+    """
+    from library.tools import color_page_grade, footage_identity
+
+    try:
+        declared = color_page_grade.resolve_color_page_grade(project_folder)
+    except Exception as exc:  # noqa: BLE001 - a bad declaration is reported
+        return {"route": "none", "applied": [], "reason":
+                f"the project's grade declaration could not be read "
+                f"({exc})"}
+    if not declared or not declared.get("path"):
+        return {"route": "none", "applied": [],
+                "reason": "the project declares no grade"}
+    try:
+        roots = footage_identity.footage_roots(project_folder)
+    except Exception as exc:  # noqa: BLE001 - reported, not guessed
+        return {"route": "none", "applied": [],
+                "reason": f"the project's footage could not be read "
+                          f"({exc})"}
+    applied = []
+    warnings = []
+    for item in _footage_items(timeline, roots):
+        landed = color_page_grade.apply_power_grade(item, declared["path"])
+        if landed.get("applied"):
+            applied.append({"nodes": landed.get("nodes"),
+                            "path": landed.get("path")})
+        else:
+            warnings.append(str(landed.get("reason")
+                                or "the grade did not land"))
+    return {"route": "power_grade_drx", "path": declared["path"],
+            "applied": applied, "warnings": warnings,
+            "reason": (f"the declared grade was re-applied to "
+                       f"{len(applied)} footage item(s)")}
 
 
 def _restore_archive_by_resolve_id(project_folder: str, final: str,
@@ -3862,6 +4073,13 @@ def _restore_archive_by_resolve_id(project_folder: str, final: str,
                 f"imported archive {normalized['timeline_id']!r} does not read "
                 f"as version {target['version']}; the current generation "
                 "remains in place")
+        # The archive carries the cut and the Fusion effects, but NOT the
+        # grade (measured 2026-10-21: 77 of 117 recovery archives carry a
+        # composition, none carries a CDL, a LUT or a node graph). The
+        # grade the project DECLARED is put back here, before the
+        # restored generation takes the final name, so the version that
+        # is restored is the one the captain accepted.
+        grade = _reapply_declared_grade(project_folder, donor)
         donor_name = donor.GetName()
         backup = f"{final} (undo recovery {uuid.uuid4().hex[:8]})"
         if not current.SetName(backup):
@@ -3887,13 +4105,15 @@ def _restore_archive_by_resolve_id(project_folder: str, final: str,
             raise UndoNotVerified(
                 f"{final!r} reads as the archived version, but Resolve could "
                 f"not remove the preserved backup {backup!r}; both remain")
-    return {"restored": True, "timeline_id": normalized["timeline_id"]}
+    return {"restored": True, "timeline_id": normalized["timeline_id"],
+            "grade": grade}
 
 
 def restore_version(project_folder: str, final: str, version: int, *,
                     read_live_rows: Callable | None = None,
                     restore_archive: Callable | None = None,
-                    supersede=(), accept_editor_changes=None) -> dict:
+                    supersede=(), accept_editor_changes=None,
+                    read_live_preservation: Callable | None = None) -> dict:
     """Restore ONE recorded version onto the live timeline, from its archive.
 
     `ren undo` reverses an ACT. A version that is not an act - an
@@ -3990,10 +4210,19 @@ def restore_version(project_folder: str, final: str, version: int, *,
             f"the restore of version {version} of {final!r} did not read "
             "back as that version; the timeline is preserved for recovery "
             "and the restore was not recorded")
+    # The rows say which passage plays; the grade and the effects say
+    # what it LOOKS like. A restore that only checks the rows can put
+    # back the cut and lose the look, and the ledger would call it the
+    # exact generation.
+    preservation = _verify_preservation(
+        project_folder, final, target,
+        read_live_preservation or _read_live_preservation)
     entry = reel_versions.record(
         project_folder, final, kind=reel_versions.KIND_ROLLBACK,
         rows=target.get("rows") or {}, undoes=int(current["version"]),
         recovery_archive=dict(receipt),
+        preservation_verified=bool(preservation["verified"]),
+        preservation_note=str(preservation.get("reason") or ""),
         restored_from_timeline_id=normalized["timeline_id"])
     reel_versions.mark_undone(
         project_folder, final, int(current["version"]), entry["version"])
@@ -4003,6 +4232,8 @@ def restore_version(project_folder: str, final: str, version: int, *,
             "replaced": int(current["version"]),
             "restored_from_archive": True,
             "archive_carries_media_manifest": archive_carries_media_manifest,
+            "preservation_verified": bool(preservation["verified"]),
+            "preservation_note": str(preservation.get("reason") or ""),
             "timeline_id": normalized["timeline_id"],
             "version": int(entry["version"])}
 

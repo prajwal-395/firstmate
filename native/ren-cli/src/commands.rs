@@ -204,6 +204,7 @@ const VERBS: &[Verb] = &[
     Verb { name: "reject", group: "Reels", summary: "Reject proposed reels, recording why" },
     Verb { name: "build", group: "Reels", summary: "Build approved reels in Resolve; --preview makes a watchable preview after build" },
     Verb { name: "adopt", group: "Reels", summary: "Adopt existing reel timelines as Ren-built by exact Resolve id" },
+    Verb { name: "adopt-edit", group: "Reels", summary: "Record a hand-edited reel timeline as a version" },
     Verb { name: "touch", group: "Reels", summary: "Apply a small change to a built reel (a touch-up, not a rebuild)" },
     Verb { name: "still-overlays", group: "Reels", summary: "Freeze static overlay videos into stills, in place (no rebuild)" },
     Verb { name: "dedupe-stills", group: "Reels", summary: "Point identical stills at one pool item, in place (no rebuild)" },

@@ -368,6 +368,10 @@ def read_recovery_receipt(receipt: Mapping | None) -> dict:
         "rows_digest": str(receipt.get("rows_digest") or ""),
         "assets": assets,
         "inventory_items": inventory_items,
+        # The grade, the Fusion comps and the composite settings the
+        # generation held. Absent before this was recorded, and absent
+        # is absent - never an empty look.
+        "preservation": list(receipt.get("preservation") or []),
         "has_asset_manifest": "assets" in receipt,
         "legacy": "archive_path" not in receipt,
         "receipt": receipt,

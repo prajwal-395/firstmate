@@ -588,6 +588,107 @@ def _normalized_fusion(value):
     return value
 
 
+#: The keys a preservation record keeps for every item: what it is
+#: (the passage it plays and the row it sits on), and where it sits.
+#: The grade and the effects are the payload; these are the address.
+PRESERVATION_RECORD_FIELDS = (
+    "source_identity", "track_type", "track_index", "source_in_frame",
+    "source_out_frame", "record_in", "record_out", "name", "enabled",
+    "source_file",
+)
+
+
+def preservation_record(items) -> list:
+    """The COMPARABLE part of a generation's native state.
+
+    A generation's grade and effects are the state a replacement can
+    silently drop: the promotion's own guard reads them
+    (`_native_state_losses`), but a RESTORE reads only rows - names,
+    spans, enabled state - so an imported `.drt` that lost the
+    captain's grade still read as the recorded version.
+
+    This is the record that lets a restore be checked against the
+    generation it claims to restore: the grade, the Fusion comps and
+    the composite settings, normalized the way the promotion
+    normalizes them, addressed by the passage each item plays.
+
+    Absent is absent: an item whose color read empty records an empty
+    color, never a default.
+    """
+    record = []
+    for item in items or ():
+        row = {key: item.get(key) for key in PRESERVATION_RECORD_FIELDS}
+        row["color"] = _normalized_color(item.get("color") or {})
+        row["fusion"] = _normalized_fusion(item.get("fusion") or {})
+        row["composite"] = dict(item.get("composite") or {})
+        record.append(row)
+    return record
+
+
+def native_state_losses(expected: dict, live: dict) -> list:
+    """The grade, Fusion and composite state `expected` holds and `live` lost.
+
+    The promotion's own rule, named for the reader that needs it: the
+    first argument is the generation whose native state must survive,
+    the second is what was found in its place. An empty list means the
+    native state survived.
+    """
+    return _native_state_losses(expected, live)
+
+
+def _preservation_key(item: dict) -> tuple:
+    """Which item this is, by where it sits and what it plays.
+
+    The MEDIA is the identity of an item - Resolve re-spells a name
+    freely - and the record frames say where it sits. Two items on one
+    track cannot share a record frame, so the pair is unique.
+    """
+    media = str(item.get("source_file") or "")
+    if media:
+        media = os.path.normcase(os.path.realpath(media))
+    return (str(item.get("track_type") or ""),
+            int(item.get("track_index") or 0),
+            int(item.get("record_in") or 0),
+            int(item.get("record_out") or 0),
+            media)
+
+
+def preservation_losses(recorded: list, live: list) -> list:
+    """The grade, effects and composite state the recorded generation held
+    and the live one does not.
+
+    The same field semantics as the promotion's own native-state guard
+    (`_same_preservation_value`), matched by PLACEMENT rather than by
+    passage: a restoration is the same generation put back, so the item
+    that held the grade sits where it sat, and an item that is simply
+    gone is named rather than passed.
+
+    Each loss names the item and the field, so a reader can tell a lost
+    EFFECT (the archive carries those) from a lost GRADE (it does not).
+    """
+    live_by_key = {}
+    for item in live or ():
+        live_by_key.setdefault(_preservation_key(item), item)
+    losses = []
+    for item in recorded or ():
+        label = (item.get("name") or item.get("source_file")
+                 or item.get("source_identity") or "item")
+        found = live_by_key.get(_preservation_key(item))
+        if found is None:
+            losses.append({"label": label, "field": "item"})
+            continue
+        for field in ("color", "fusion", "composite"):
+            before = item.get(field)
+            has_payload = (
+                _has_native_composite_payload(before)
+                if field == "composite" else _has_native_payload(before))
+            if not has_payload:
+                continue
+            if not _same_preservation_value(field, before, found.get(field)):
+                losses.append({"label": label, "field": field})
+    return losses
+
+
 def _same_preservation_value(field: str, before, after) -> bool:
     """Compare one preserved item field using its domain semantics."""
     if field == "color":
@@ -1451,6 +1552,21 @@ def row_key(media_type: str, track_name: str) -> str:
     return f"{media_type}:{track_name}"
 
 
+def rows_of_tracks(tracks) -> dict:
+    """The row projection of ONE read, with the subtitle tokens attached.
+
+    The shape every row digest in the version model is computed over: the
+    promotion's retiring rows, the undo's live rows and an adoption's
+    rows must be the SAME shape, or their digests are not comparable and
+    a version that is the same timeline reads as a different one.
+    """
+    from library.tools import reel_read
+
+    rows = reel_read.rows_of({"tracks": tracks})
+    _attach_subtitle_tokens(rows, tracks)
+    return rows
+
+
 def snapshot_timeline(timeline, timeline_name: str,
                        side: str = "retiring") -> dict:
     """Every row of a live timeline: each item's enabled state and span.
@@ -1483,8 +1599,7 @@ def snapshot_timeline(timeline, timeline_name: str,
                 f"the enabled state of {clip['name']!r} on "
                 f"{track['type']}:{track['name'] or track['index']} "
                 f"could not be read")
-        rows = reel_read.rows_of({"tracks": tracks})
-        _attach_subtitle_tokens(rows, tracks)
+        rows = rows_of_tracks(tracks)
         return rows
     except ReplaceGuardUnreadable as unreadable:
         raise ReplaceGuardUnreadable(

@@ -4493,6 +4493,62 @@ def cmd_undo(args):
                   f"{receipt['rolled_back']} to version {receipt['to']}")
 
 
+def cmd_adopt_edit(args):
+    """Record a hand-edited reel timeline as a VERSION.
+
+    The captain's own edit - the logo's timing, corrected by hand in
+    Resolve - is a state, not an act: `ren undo` reverses what Ren did
+    and does not reverse the captain's hand. This records the live
+    generation as an ADOPTED version: its rows, the immutable archive of
+    that exact generation, the hashed media it plays, and the grade and
+    effects it carries, so a later rollback can restore the look and not
+    only the cut.
+
+    The timeline is named exactly (`--timeline`) or by its reel number
+    (`--reel`); a name is an assertion and the Resolve unique id is the
+    identity. See library/tools/reel_adoption.py.
+    """
+    from library.tools import reel_adoption
+    from library.tools.versions import reel_versions
+
+    project_folder = _reel_project_folder(args.project)
+    final = args.timeline
+    if not final and args.reel is not None:
+        from library.tools.reel_touchup import (
+            TouchupRefused,
+            resolve_final_name,
+        )
+        try:
+            final = resolve_final_name(project_folder, args.reel)
+        except TouchupRefused as refused:
+            print(refused.render(), file=sys.stderr)
+            emit_refusal_result(refused)
+            sys.exit(REFUSAL_EXIT_CODE)
+    if not final:
+        raise RenRefusal(
+            "no timeline was named to adopt",
+            "the hand edit has to be on a timeline Ren can see",
+            "name it with --timeline <exact name> or --reel <number>")
+    try:
+        entry = reel_adoption.adopt_live_timeline(
+            project_folder, final,
+            reason=args.reason or "hand-edited in Resolve",
+            by=args.by or "captain")
+    except reel_versions.ReelVersionsUnreadable as unreadable:
+        raise RenRefusal(
+            f"the hand edit on {final!r} could not be adopted: {unreadable}",
+            "a version that cannot be restored is a note, not a version",
+            "check that the timeline is the one you edited, and that the "
+            "project folder is writable") from None
+    receipt = entry.get("recovery_archive") or {}
+    print(f"Adopted {final!r} as version {entry['version']} "
+          f"({entry.get('kind')}), by {entry.get('by')!r}.")
+    print(f"  reason: {entry.get('reason')}")
+    print(f"  rows digest: {entry.get('rows_digest')}")
+    print(f"  recovery archive: {receipt.get('archive_path')}")
+    print(f"  Resolve id: {receipt.get('timeline_id')}")
+
+
 def cmd_redo(args):
     """Re-apply a reversed Ren act: a touch from its journal, a rebuild from its plan.
 
@@ -5160,6 +5216,26 @@ def main():
         "--master", action="store_true",
         help="Replay onto the master timeline instead of a reel")
     replay_ledger_parser.set_defaults(func=cmd_replay_ledger)
+
+    adopt_edit_parser = _add_command(sub, "adopt-edit")
+    adopt_edit_parser.add_argument(
+        "project", help="Project slug, or an absolute path "
+                        "to the project directory")
+    adopt_edit_parser.add_argument(
+        "--timeline", default="",
+        help="The EXACT name of the hand-edited timeline (AGENTS.md 5: "
+             "never a prefix)")
+    adopt_edit_parser.add_argument(
+        "--reel", type=int, nargs="?", default=None,
+        help="The reel number of the hand-edited timeline, when it is "
+             "one of this project's reels")
+    adopt_edit_parser.add_argument(
+        "--reason", default="",
+        help="Why the edit was made, in the editor's words")
+    adopt_edit_parser.add_argument(
+        "--by", default="",
+        help="Who made the hand edit (default: the captain)")
+    adopt_edit_parser.set_defaults(func=cmd_adopt_edit)
 
     undo_parser = _add_command(sub, "undo")
     undo_parser.add_argument(
