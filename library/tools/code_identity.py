@@ -729,6 +729,10 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/explainer_render.py",
         "library/tools/face_tracks.py",
         "library/tools/frame_exact.py",
+        # The adaptive temporal inspection policy: it decides where the
+        # dense tier runs, so a fix to it changes what gets inspected.
+        "library/tools/adaptive_inspection.py",
+        "library/tools/adaptive_signals.py",
         "library/tools/occurrence_identity.py",
         "library/tools/plan_feasibility.py",
         "library/tools/project_ref.py",
@@ -1422,6 +1426,10 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/explainer_render.py",
         "library/tools/face_tracks.py",
         "library/tools/frame_exact.py",
+        # The adaptive temporal inspection policy: it decides where the
+        # dense tier runs, so a fix to it changes what gets inspected.
+        "library/tools/adaptive_inspection.py",
+        "library/tools/adaptive_signals.py",
         "library/tools/occurrence_identity.py",
         "library/tools/plan_feasibility.py",
         "library/tools/project_ref.py",
@@ -1523,6 +1531,10 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/explainer_render.py",
         "library/tools/face_tracks.py",
         "library/tools/frame_exact.py",
+        # The adaptive temporal inspection policy: it decides where the
+        # dense tier runs, so a fix to it changes what gets inspected.
+        "library/tools/adaptive_inspection.py",
+        "library/tools/adaptive_signals.py",
         "library/tools/occurrence_identity.py",
         "library/tools/plan_feasibility.py",
         "library/tools/project_ref.py",
@@ -2879,6 +2891,10 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/explainer_render.py",
         "library/tools/face_tracks.py",
         "library/tools/frame_exact.py",
+        # The adaptive temporal inspection policy: it decides where the
+        # dense tier runs, so a fix to it changes what gets inspected.
+        "library/tools/adaptive_inspection.py",
+        "library/tools/adaptive_signals.py",
         "library/tools/occurrence_identity.py",
         "library/tools/plan_feasibility.py",
         "library/tools/project_ref.py",
@@ -3628,6 +3644,10 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/explainer_render.py",
         "library/tools/face_tracks.py",
         "library/tools/frame_exact.py",
+        # The adaptive temporal inspection policy: it decides where the
+        # dense tier runs, so a fix to it changes what gets inspected.
+        "library/tools/adaptive_inspection.py",
+        "library/tools/adaptive_signals.py",
         "library/tools/occurrence_identity.py",
         "library/tools/plan_feasibility.py",
         "library/tools/project_ref.py",

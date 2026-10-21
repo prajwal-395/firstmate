@@ -849,7 +849,16 @@ def _attribute_editorial(query: dict, report: dict, corpus: Corpus,
 
 def run(project: str, eval_set: dict, families: Sequence[str] = FAMILIES,
         timing_records: Sequence[str] = (),
-        labels: Optional[Mapping[str, Mapping]] = None) -> dict:
+        labels: Optional[Mapping[str, Mapping]] = None,
+        frame_index_dir: Optional[str] = None) -> dict:
+    """Score the shipped search paths over `eval_set`.
+
+    ``frame_index_dir`` names an ALTERNATIVE frame index to score
+    against, for a before/after measurement of one index build.  It
+    defaults to the project's own index, so the shipped behaviour is
+    unchanged; a caller that measures a different build points it at
+    that build's directory.
+    """
     rules = eval_set["scoring"]
     from library.tools import editorial_eval_labels
     if labels is None:
@@ -877,7 +886,7 @@ def run(project: str, eval_set: dict, families: Sequence[str] = FAMILIES,
         elif family == "visual":
             if frame_index is None:
                 from library.tools.analysis.footage_frames import FrameIndex
-                frame_index = FrameIndex(project)
+                frame_index = FrameIndex(project, index_dir=frame_index_dir)
             report = frame_index.search_ranges(
                 query["query"], top_ranges=rules["visual"]["top_k"],
                 temporal=True,
@@ -895,7 +904,7 @@ def run(project: str, eval_set: dict, families: Sequence[str] = FAMILIES,
             if query.get("lane") == "visual":
                 if frame_index is None:
                     from library.tools.analysis.footage_frames import FrameIndex
-                    frame_index = FrameIndex(project)
+                    frame_index = FrameIndex(project, index_dir=frame_index_dir)
                     evidence.frame_index = frame_index
                 visual_report = frame_index.search_ranges(
                     query["query"],
@@ -1299,6 +1308,10 @@ def main(argv=None) -> int:
                         help="another analysis_run.json to report processing "
                         "time from (e.g. a fresh run on a scratch memory root)")
     parser.add_argument("--out-json", help="write the full result here")
+    parser.add_argument("--frame-index-dir",
+                        help="score against an ALTERNATIVE frame index "
+                             "instead of the project's own, for a "
+                             "before/after measurement of one index build")
     args = parser.parse_args(argv)
     from library.tools.project_registry import resolve_project_path
     found = resolve_project_path(args.project)
@@ -1308,7 +1321,9 @@ def main(argv=None) -> int:
                          "ren eval-search <path to project or collection>", blocker="missing_media")
     with open(args.set, encoding="utf-8") as handle:
         eval_set = json.load(handle)
-    result = run(str(found.parent), eval_set, args.families, args.timing_record)
+    result = run(str(found.parent), eval_set, args.families,
+                 args.timing_record,
+                 frame_index_dir=args.frame_index_dir)
     text = json.dumps(result, indent=1)
     if args.out_json:
         Path(args.out_json).write_text(text, encoding="utf-8")

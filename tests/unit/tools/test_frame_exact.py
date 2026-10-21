@@ -200,6 +200,48 @@ def test_a_dense_sample_holds_every_frame_of_the_interval(tmp_path):
 
 
 @pytest.mark.skipif(not HAS_MEDIA, reason=MEDIA_REASON)
+def test_a_dense_sample_does_not_read_to_the_end_of_the_file(tmp_path):
+    """The defect: the interval sample keeps DECODING after the
+    interval ends, so a two-second sample of a long file pays for
+    every frame after it.
+
+    Measured on the 4K MXF corpus: 2 seconds of a 47-minute file took
+    1509 s of wall time for 48 frames, because the decode ran to EOF.
+    The read is bounded just past the interval, and the bound must not
+    change the frames the sample holds.
+    """
+    long_clip = _clip(tmp_path, seconds=30.0)
+    timebase = frame_exact.probe_timebase(str(long_clip))
+    report = frame_exact.sample_interval(str(long_clip), timebase, 0.5, 1.0,
+                                          tmp_path / "dense")
+    indices = [f["frame_index"] for f in report["frames"]]
+    assert indices == list(range(indices[0], indices[0] + len(indices)))
+    assert indices[0] == 15
+    # The read is bounded, so the decoder stopped near the interval
+    # rather than at the end of the file.
+    assert report["cost"]["decode_seconds"] < 5.0
+
+
+@pytest.mark.skipif(not HAS_MEDIA, reason=MEDIA_REASON)
+def test_the_bounded_read_keeps_the_last_wanted_frame(tmp_path):
+    """The defect: the bound on the read cuts the LAST frame of the
+    interval off, so the sample silently loses a frame.
+
+    The bound is half a second past the interval's end, which is more
+    than one frame period at every rate this engine has met.
+    """
+    path = _clip(tmp_path, seconds=4.0, fps=30)
+    timebase = frame_exact.probe_timebase(str(path))
+    report = frame_exact.sample_interval(str(path), timebase, 1.0, 2.0,
+                                          tmp_path / "dense")
+    indices = [f["frame_index"] for f in report["frames"]]
+    # Every frame of the interval, and the one at its end.
+    assert indices == list(range(30, 61))
+    times = [f["pts_seconds"] for f in report["frames"]]
+    assert max(times) <= 2.0
+
+
+@pytest.mark.skipif(not HAS_MEDIA, reason=MEDIA_REASON)
 def test_the_refinement_names_the_frame_the_measurement_names(tmp_path):
     path = _clip(tmp_path)
     timebase = frame_exact.probe_timebase(str(path))

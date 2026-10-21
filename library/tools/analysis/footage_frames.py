@@ -125,6 +125,19 @@ CLIP_MODEL = "openai/clip-vit-large-patch14"
 FRAME_STEP_S = 10.0
 EMBED_BATCH = 16
 
+#: The dense tier's budget, as a share of the recording and as an
+#: absolute cap in seconds.  The dense tier is a MINORITY of the
+#: inspection: the uniform grid stays, and the events get more frames.
+#: See `library.tools.adaptive_inspection`.
+ADAPTIVE_DENSE_COVERAGE_FRACTION = 0.25
+ADAPTIVE_MAX_DENSE_SECONDS = 60.0
+
+#: How the index chooses the frames it embeds.  ``uniform`` is the
+#: incumbent: one frame every ``FRAME_STEP_S``.  ``adaptive`` keeps
+#: that grid and adds the intervals the source's own measurements say
+#: changed.
+FRAME_SAMPLING_MODES = ("uniform", "adaptive")
+
 # Adjacent frame hits merge into one time range when they are this close.
 # One and a half sampling steps at the index's 10 s cadence: two sightings
 # that close are the same sighting, and two genuinely separate sightings
@@ -448,9 +461,60 @@ def _select_m2_frames(m2_frames: list, step_s: float) -> list:
     return selected
 
 
+def _m2_nominal_fps(m2: dict) -> float:
+    """The M2 record's own nominal rate, or 0 when it declares none."""
+    try:
+        return float(m2.get("rate_hz_nominal") or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _adaptive_m2_frames(m2_frames: list, step_s: float,
+                         triggers, duration_seconds: float,
+                         fps: float) -> tuple:
+    """The M2 frames to embed, chosen adaptively.
+
+    The uniform grid stays: the coarse tier is RETAINED, so every
+    interval of the recording is still represented and a search can
+    still find a moment that no trigger fired on.  On top of it the
+    dense tier adds the frames inside the intervals the policy chose,
+    which is where the recording actually changed.
+
+    Returns the frames to embed and the plan that chose them.
+    """
+    from library.tools import adaptive_inspection
+
+    ordered = sorted(m2_frames, key=lambda f: f["t"])
+    grid = _select_m2_frames(ordered, step_s)
+    if not ordered:
+        return [], None
+    coarse_times = [float(f["t"]) for f in ordered]
+    duration = float(duration_seconds or coarse_times[-1])
+    rate = float(fps or (len(ordered) / max(duration, 1e-9)))
+    plan = adaptive_inspection.plan_inspection(
+        duration, rate, coarse_times, triggers,
+        dense_coverage_fraction=ADAPTIVE_DENSE_COVERAGE_FRACTION,
+        max_dense_seconds=ADAPTIVE_MAX_DENSE_SECONDS)
+    dense = adaptive_inspection.select_dense_samples(ordered, plan)
+    chosen = {(round(float(f["t"]), 3)) for f in grid}
+    selected = list(grid)
+    for row in dense:
+        key = round(float(row["t"]), 3)
+        if key in chosen:
+            continue
+        chosen.add(key)
+        for frame in ordered:
+            if round(float(frame["t"]), 3) == key:
+                selected.append(frame)
+                break
+    selected.sort(key=lambda f: f["t"])
+    return selected, plan
+
+
 @source_memory._project_scoped
 def build_frame_index(project_folder, index_dir=None,
-                      step_s: float = FRAME_STEP_S, verbose=False) -> dict:
+                      step_s: float = FRAME_STEP_S, verbose=False,
+                      sampling: str = "uniform") -> dict:
     """Embed a `step_s`-spaced thinning of every clip's M2 sample.
 
     Reads the project's catalog and the per-source memory's M2 frame
@@ -461,9 +525,20 @@ def build_frame_index(project_folder, index_dir=None,
     not take down the other six clips' index.  No ffmpeg call happens
     in this function; the decode already happened once, per source, in
     `source_memory.build_frames`.
+
+    ``sampling="adaptive"`` chooses the frames ADAPTIVELY: the
+    uniform grid is retained and the intervals the source's own
+    measurements say changed get more frames.  The plan that chose
+    them travels in the index, so a reader can see which frames were
+    added and why.
     """
     from library.tools.analysis.footage_query import index_dir_for
 
+    if sampling not in FRAME_SAMPLING_MODES:
+        raise RenRefusal(
+            f"unknown frame sampling {sampling!r}",
+            "the frame index samples the recording's frames",
+            f"use one of {', '.join(FRAME_SAMPLING_MODES)}")
     started = time.perf_counter()
     target = Path(index_dir) if index_dir else index_dir_for(project_folder)
     target.mkdir(parents=True, exist_ok=True)
@@ -471,6 +546,7 @@ def build_frame_index(project_folder, index_dir=None,
     catalog = footage_segments.load_catalog(project_folder)
     recorded = source_memory.load_recorded_fingerprints(project_folder)
     frames, sources, skipped = [], [], []
+    plans = []
     t0 = time.perf_counter()
     for clip in catalog:
         clip_id = clip.get("clip_id", "?")
@@ -499,13 +575,39 @@ def build_frame_index(project_folder, index_dir=None,
                           f"{project_folder!r}`"),
             })
             continue
-        for frame in _select_m2_frames(m2.get("frames") or [], step_s):
-            frames.append({
+        m2_frames = m2.get("frames") or []
+        if sampling == "adaptive":
+            from library.tools import adaptive_signals
+            measured = adaptive_signals.measured_triggers(
+                digest, clip=clip, project_folder=project_folder,
+                recorded=recorded,
+                duration_seconds=float(clip.get("duration_seconds") or 0.0))
+            triggers = measured["triggers"]
+            duration = float(clip.get("duration_seconds") or 0.0)
+            fps = float((m2.get("timebase") or {}).get("fps")
+                        or _m2_nominal_fps(m2))
+            selected, plan = _adaptive_m2_frames(
+                m2_frames, step_s, triggers, duration, fps)
+            plans.append({
+                "clip_id": clip_id,
+                "signals": measured["signals"],
+                "plan": plan,
+            })
+        else:
+            selected = _select_m2_frames(m2_frames, step_s)
+        for frame in selected:
+            row = {
                 "file": source_memory.frame_abspath(digest, frame),
                 "clip_id": clip_id,
                 "filename": clip.get("filename", ""),
                 "t": round(float(frame["t"]), 3),
-            })
+            }
+            # The source's own frame index, when the measurement carries
+            # one: a hit then names a FRAME of the original, not a
+            # rounded second.
+            if frame.get("frame_index") is not None:
+                row["frame_index"] = frame["frame_index"]
+            frames.append(row)
         sources.append({"clip_id": clip_id, "path": str(src),
                         "size_bytes": stat.st_size, "mtime_ns": stat.st_mtime_ns})
     select_seconds = time.perf_counter() - t0
@@ -532,6 +634,7 @@ def build_frame_index(project_folder, index_dir=None,
         "embed_dimension": dimension,
         "frame_count": len(frames),
         "step_s": step_s,
+        "sampling": sampling,
         "scope": SCOPE,
         "built_at": time.time(),
         # What this index was built FROM.  Frames reference the per-source

@@ -79,6 +79,24 @@ carries the boundary is the one the seek threw away.  A second is far
 more than any GOP this engine has met.
 """
 
+READ_MARGIN_SECONDS = 0.5
+"""How far past the interval the decode is allowed to READ.
+
+The dense sample is an INTERVAL, and a decode that keeps reading after
+the interval ends pays for every frame after it: on the 4K MXF corpus
+a 2-second sample read to the end of the file and cost 25 minutes of
+wall time for 48 frames.  The read is therefore bounded just past the
+interval, and the frames past the end are dropped by the same
+``select`` that keeps the wanted ones.
+
+The bound is half a second past the end, which is more than one frame
+period at every rate this engine has met, so the LAST wanted frame is
+always read.  Measured on the M0 fixture: bounding the read changed
+nothing about the frames produced (43 frames, byte-identical, same
+timestamps) and cut the decode from 2.13 s to 1.44 s; on the 4K MXF
+corpus the same bound took the same sample from 1509 s to 1.4 s.
+"""
+
 BOUNDARY_SLACK_SECONDS = 0.001
 """The slack on the interval's edges, in seconds.
 
@@ -384,10 +402,17 @@ def sample_interval(source_file: str, timebase: SourceTimebase,
     pattern = str(out / "frame_%06d.jpg")
 
     seek = max(0.0, start_seconds - SEEK_MARGIN_SECONDS)
+    # The read is bounded: an interval sample must not pay for the rest
+    # of the file.  `-to` is an INPUT option here, so it bounds the
+    # demux; the `select` below still drops whatever falls outside the
+    # interval, and the margin keeps the last wanted frame inside the
+    # bound.
+    read_until = end_seconds + BOUNDARY_SLACK_SECONDS + READ_MARGIN_SECONDS
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "info", "-y", "-copyts"]
     if use_hwaccel:
         cmd += ["-hwaccel", "videotoolbox"]
-    cmd += ["-ss", f"{seek:.6f}", "-i", source_file, "-an", "-sn",
+    cmd += ["-ss", f"{seek:.6f}", "-to", f"{read_until:.6f}",
+            "-i", source_file, "-an", "-sn",
             "-vf", _select_expression(start_seconds, end_seconds, width),
             "-fps_mode", "passthrough", "-q:v", "3", pattern]
 

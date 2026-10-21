@@ -5174,6 +5174,13 @@ def main(argv=None):
     p_build.add_argument("--frames", action="store_true",
                          help="Also sample the clips to stills and embed them with CLIP "
                               "(objects/people/scenes; writes beside the text index)")
+    p_build.add_argument("--frame-sampling",
+                         choices=["uniform", "adaptive"],
+                         default="uniform",
+                         help="How the frame index picks the frames it embeds: "
+                              "'uniform' (default) embeds one frame every 10 s; "
+                              "'adaptive' keeps that grid and adds the intervals "
+                              "the source's own measurements say changed")
     p_build.add_argument("--video-chunks", action="store_true",
                          help="Also embed one 8s video vector per media window "
                               "with EmbeddingGemma 2 (needs the model; clips "
@@ -5520,7 +5527,8 @@ def main(argv=None):
         if args.frames:
             from library.tools.analysis import footage_frames
             frame_stats = footage_frames.build_frame_index(
-                args.project, index_dir=args.index_dir)
+                args.project, index_dir=args.index_dir,
+                sampling=args.frame_sampling)
             print(json.dumps(frame_stats, indent=2))
         return 0
 
