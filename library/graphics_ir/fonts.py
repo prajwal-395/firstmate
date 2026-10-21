@@ -26,6 +26,7 @@ from __future__ import annotations
 import hashlib
 import io
 import os
+import threading
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Optional
@@ -133,8 +134,13 @@ def _disk_cache_write(key: str, data: bytes, unique: str) -> None:
         return
     try:
         os.makedirs(directory, exist_ok=True)
+        # The temp name carries the THREAD as well as the process: two
+        # threads in one process can want the same face at the same
+        # weight, and one writer truncating the other's temp file
+        # mid-write would publish a half-written font to the next
+        # process.
         tmp = os.path.join(
-            directory, f".{key}.{os.getpid()}.tmp")
+            directory, f".{key}.{os.getpid()}.{threading.get_ident()}.tmp")
         with open(tmp, "wb") as handle:
             handle.write(data)
         os.replace(tmp, os.path.join(directory, key))

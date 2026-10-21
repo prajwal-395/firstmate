@@ -181,6 +181,162 @@ def renderer_limits() -> tuple[int, int, int]:
 CardT = TypeVar("CardT")
 SegmentT = TypeVar("SegmentT")
 
+#: How many INDEPENDENT card renders may be in flight at once.
+NATIVE_CARD_WORKERS_ENV = "PIPELINE_CARD_RENDER_WORKERS"
+"""The override for the native card-render width.
+
+Out of range is REFUSED, not clamped: a typo that quietly halved a
+build would be a lie about the width.  The same rule
+`frame_extract_workers` follows for the coarse-frame sweep.
+"""
+
+DEFAULT_NATIVE_CARD_WORKERS = 4
+"""The declared default width, and the cap.
+
+Four is where the measurement stopped paying.  Measured 2026-10-21 on
+the captain's 10-core box, against the Ren-owned scratch copy
+`ren-scratch-l3wave`, 103 real `full_frame_span` cards through the
+FFrames engine - one native `ren-graphics-fframes` render plus one
+`prores_videotoolbox` encode each:
+
+    one card at a time    347.6 s
+    four cards at a time   76.5 s      4.54x
+
+and every artefact came out byte-identical to the serial run's
+(sha256, per card).  Four is also where the peak tree RSS stopped
+being free: 303 MB at one card, 865 MB at four, on a box that had
+159 GB free and was already swapping during a build.
+
+A wider wave on the same box competes with the ffmpeg encoder for
+cores and the native renderer for the GPU, and the machine is shared -
+the captain renders while working.
+"""
+
+MAX_NATIVE_CARD_WORKERS = 8
+"""The widest wave this module will run, whatever the override says."""
+
+
+def native_card_workers() -> int:
+    """How many independent card renders this run may keep in flight.
+
+    The declared default is HALF the machine's cores, capped at
+    `DEFAULT_NATIVE_CARD_WORKERS`: a two-core Mac and a ten-core Studio
+    answer differently because they ARE different, and a card is two
+    processes rather than one.  An explicit
+    `PIPELINE_CARD_RENDER_WORKERS` wins, and an out-of-range or
+    unparseable one is REFUSED rather than silently clamped.
+
+    This is the NATIVE renderer's bound, and it is a different number
+    from `card_concurrency()` because it measures a different thing:
+    a browser card is a tab on ONE shared Chrome, while a native card
+    is a whole `ren-graphics-fframes` process plus its own encoder.
+    """
+    raw = os.environ.get(NATIVE_CARD_WORKERS_ENV)
+    if raw is not None and raw.strip():
+        try:
+            value = int(raw)
+        except ValueError as exc:
+            raise ValueError(
+                f"{NATIVE_CARD_WORKERS_ENV} must be an integer from 1 to "
+                f"{MAX_NATIVE_CARD_WORKERS}, got {raw!r}") from exc
+        if not 1 <= value <= MAX_NATIVE_CARD_WORKERS:
+            raise ValueError(
+                f"{NATIVE_CARD_WORKERS_ENV} must be from 1 to "
+                f"{MAX_NATIVE_CARD_WORKERS}, got {value}")
+        return value
+    cores = os.cpu_count() or 2
+    return max(1, min(cores // 2, DEFAULT_NATIVE_CARD_WORKERS))
+
+
+def run_native_card_wave(
+        cards: Sequence[CardT],
+        render_card: Callable[[int, CardT], SegmentT],
+        on_result: Optional[Callable[[int, SegmentT], None]] = None,
+        workers: Optional[int] = None) -> List[SegmentT]:
+    """Render INDEPENDENT cards in waves; return the results in plan order.
+
+    The caller owns which cards are eligible and what a result means.
+    This module owns the width and the schedule.
+
+    Independent means each card is its own scene, its own output file and
+    its own sidecar, so two cards in flight never touch the same file.
+    A wave therefore changes the SCHEDULE and nothing else: the command,
+    the output path and the sidecar per card are unchanged, and a card
+    drawn in a wave is the same bytes as a card drawn alone.
+
+    On a failure, no NEW card is submitted; the cards already in flight
+    finish, and the failure raised is the first IN PLAN ORDER - so the
+    same build names the same card however the wave interleaved.  A card
+    that never ran leaves no artefact, so a failed wave is not a
+    partly-written reel.
+    """
+    items = list(cards)
+    if not items:
+        return []
+    width = (native_card_workers() if workers is None
+              else max(1, int(workers)))
+    width = min(width, len(items))
+    if width <= 1:
+        results: List[SegmentT] = []
+        for index, card in enumerate(items):
+            result = render_card(index, card)
+            results.append(result)
+            if on_result is not None:
+                on_result(index, result)
+        return results
+
+    completed: dict[int, SegmentT] = {}
+    failed: dict[int, BaseException] = {}
+    pending = {}
+    next_index = 0
+    with ThreadPoolExecutor(max_workers=width) as executor:
+        while next_index < len(items) and len(pending) < width:
+            future = executor.submit(render_card, next_index, items[next_index])
+            pending[future] = next_index
+            next_index += 1
+        while pending:
+            done, _ = wait(pending, return_when=FIRST_COMPLETED)
+            for future in sorted(done, key=lambda item: pending[item]):
+                index = pending.pop(future)
+                try:
+                    completed[index] = future.result()
+                except BaseException as exc:  # noqa: BLE001 - re-raised below
+                    failed[index] = exc
+            if failed:
+                # Stop submitting: a card that never ran must leave no
+                # artefact, so the wave is not a partly-written reel.
+                for future in pending:
+                    future.cancel()
+                break
+            while next_index < len(items) and len(pending) < width:
+                future = executor.submit(render_card, next_index, items[next_index])
+                pending[future] = next_index
+                next_index += 1
+        # Whatever was still in flight when the wave stopped is collected
+        # before the failure is raised, so every card that DID run is
+        # accounted for.
+        for future, index in sorted(pending.items(), key=lambda item: item[1]):
+            if future.cancelled():
+                continue
+            try:
+                completed[index] = future.result()
+            except BaseException as exc:  # noqa: BLE001 - re-raised below
+                failed.setdefault(index, exc)
+
+    if failed:
+        # The FIRST IN PLAN ORDER, so the same build always names the
+        # same card however the wave happened to interleave.
+        first = min(failed)
+        if on_result is not None:
+            for index in sorted(index for index in completed
+                               if index < first):
+                on_result(index, completed[index])
+        raise failed[first]
+    if on_result is not None:
+        for index in sorted(completed):
+            on_result(index, completed[index])
+    return [completed[index] for index in range(len(items))]
+
 
 def run_caption_card_workers(
         cards: Sequence[CardT],

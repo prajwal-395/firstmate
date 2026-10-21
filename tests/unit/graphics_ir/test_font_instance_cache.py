@@ -14,6 +14,9 @@ instantiation: it exercises the cache path, not the instancer.
 
 from __future__ import annotations
 
+import os
+import threading
+
 import pytest
 
 FONT = "/System/Library/Fonts/Geneva.ttf"
@@ -87,3 +90,58 @@ def test_distinct_weights_key_distinct_entries(isolated_cache):
     light, _ = fonts_mod.static_instance(FONT, 300)
     bold, _ = fonts_mod.static_instance(FONT, 700)
     assert light != bold
+
+
+def test_two_threads_writing_one_face_do_not_truncate_each_other(
+        isolated_cache, monkeypatch):
+    """The cache's temp name must be per THREAD, not just per process.
+
+    The reel's caption cards render in waves, so two threads in one
+    process can want the same face at the same weight at the same time.
+    A temp name keyed on the process alone made both threads write the
+    SAME file: one writer truncated the other's bytes mid-write, and
+    `os.replace` published a half-written font to the next process.
+
+    The defect is a race, so it is pinned by the interleaving rather
+    than by the bytes: each thread's temp path must be its own.
+    """
+    from library.graphics_ir import fonts as fonts_mod
+
+    seen = []
+    barrier = threading.Barrier(2)
+
+    real_replace = os.replace
+
+    def record_replace(src, dst):
+        # The cache publishes the face and its name separately; only the
+        # FACE's temp path is the one that must be per thread.
+        if not str(src).endswith(".name"):
+            seen.append((threading.get_ident(), src))
+            barrier.wait(timeout=5)
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(fonts_mod.os, "replace", record_replace)
+
+    errors = []
+
+    def write(payload):
+        try:
+            fonts_mod._disk_cache_write("face-key", payload, "Unique")
+        except BaseException as exc:  # noqa: BLE001 - reported below
+            errors.append(exc)
+
+    threads = [threading.Thread(target=write, args=(b"a" * 4096,)),
+               threading.Thread(target=write, args=(b"b" * 4096,))]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    assert not errors
+    # Two threads, two temp files: the same path twice is the defect.
+    assert len(seen) == 2
+    assert len({src for _ident, src in seen}) == 2
+    # And the published face is one of the two whole payloads, never a
+    # half-written mixture.
+    published = (isolated_cache / "face-key").read_bytes()
+    assert published in (b"a" * 4096, b"b" * 4096)
