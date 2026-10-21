@@ -264,9 +264,12 @@ step, like `ren deliver`."""
 ROUND_PAGE = "round_page"
 """`ren round-page` (library/tools/round_page.py) - the review round's page,
 written beside the previews it plays."""
+EDIT_OUTCOME = "edit_outcome"
+"""`library/tools/edit_outcome.py` - the product-level outcome of a
+generated edit, read off the recorded corrections."""
 NON_STEP_PRODUCERS = (RUNNER, REVIEW_CHANNEL, ORGANIZE, MARKER_PULL,
                       MARKER_CAPTURE, FOOTAGE_ANALYSIS_RUN, PROJECT_FORMAT,
-                      REEL_PREVIEW, ROUND_PAGE)
+                      REEL_PREVIEW, ROUND_PAGE, EDIT_OUTCOME)
 
 _OUT = "pipeline_output"
 _STEPS_DIRNAME = "steps"
@@ -372,6 +375,10 @@ class Area(str, Enum):
     # under a step would be a lie about who wrote them.
     GATES = "gates"
     REVIEW = "review"
+    EDIT_OUTCOMES = "edit_outcomes"
+    """The product outcome of a generated edit: did the captain take it
+    or change it, how much, and whether the change was a fault in the
+    output or a matter of taste. See library/tools/edit_outcome.py."""
     PREVIEWS = "previews"
     LLM_REQUESTS = "llm_requests"
     LLM_RESPONSES = "llm_responses"
@@ -630,6 +637,13 @@ AREAS: dict[Area, AreaSpec] = {
         f"{_OUT}/review", Kind.OUTPUT,
         "The anchored review channel - channel.json holds every note and reply.",
         produced_by=(REVIEW_CHANNEL,)),
+    Area.EDIT_OUTCOMES: AreaSpec(
+        f"{_OUT}/edit_outcomes", Kind.OUTPUT,
+        "The product outcome of a generated edit: the captain's "
+        "acceptance or the corrections he made, how much was repaired, "
+        "and which corrections were failures of the output and which "
+        "were disagreements of taste. See library/tools/edit_outcome.py.",
+        produced_by=(EDIT_OUTCOME,)),
     Area.PREVIEWS: AreaSpec(
         f"{_OUT}/previews", Kind.OUTPUT,
         "Watchable low-cost previews of built reels, one per content key, "

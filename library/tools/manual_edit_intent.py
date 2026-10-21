@@ -128,6 +128,18 @@ def _check_caption_obscuring(before_item: Mapping,
     return None
 
 
+def face_crop_regression(before_item: Mapping, after_item: Mapping) -> Optional[str]:
+    """Whether a hand edit cropped the subject's face, and where.
+
+    The public face of `_check_face_crop`: a caller that holds one
+    item's before and after states asks this, and gets the regression
+    in a sentence or None. It is the engine's own objective claim about
+    a LOOK - a look is the captain's call, and a look that cuts the
+    subject's face is not a matter of taste.
+    """
+    return _check_face_crop(before_item, after_item)
+
+
 def verify_manual_edit_intent(
         edit_history: Sequence[Mapping],
         review_dir: str = "",

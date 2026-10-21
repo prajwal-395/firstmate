@@ -217,6 +217,11 @@ AREA_POLICY: dict[Area, Policy] = {
         PROTECTED, False, "",
         "proposals, sign-offs, judgements and phase logs: the record of "
         "the captain's decisions"),
+    Area.EDIT_OUTCOMES: Policy(
+        PROTECTED, False, "",
+        "what the captain did with a generated edit - took it, changed it, "
+        "and whether he called the change a fault or a matter of taste; a "
+        "re-run cannot reconstruct a judgement the captain made"),
     Area.GATES: Policy(
         PROTECTED, False, "",
         "review gates: a decision that was taken, not a computation"),

@@ -10348,3 +10348,61 @@ One enumeration, `library/tools/collateral_scope.py`; the ONE pre-write
 gate is `library/tools/compound_transaction.py`, which reports the scope
 and refuses on the approved work. The measurement and the corpus are in
 `docs/PRESERVATION_AWARE_PLANNING.md`.
+
+## the-product-outcome-of-a-generated-edit
+
+**The punch list, PROD-008, 2026-10-20.** "Add product-level feedback
+and outcome tracking. Capture whether a user accepted or modified a
+generated edit. Record correction type, time saved, and amount of
+manual repair. Distinguish objective system failures from stylistic
+disagreement. Keep media and project-level learning opt-in and
+appropriately isolated."
+
+**What was wrong.** Every part of a hand correction existed and none
+of it was joined into an outcome. `reel_edit_history` knows an edit
+was the CAPTAIN's and what it changed; `plan_provenance` holds the
+DETECTED difference and the fields that moved; `reel_adoption` (VC-004)
+appends the captain's hand-edited generation to the version ledger;
+`reel_acceptance` records that a delivered reel was TAKEN;
+`manual_edit_intent` measures the one objective defect a hand edit can
+carry - a crop that cuts the subject's face.
+
+So the facts were all there, and the PRODUCT question was never asked
+of them: did he take the edit or change it, how much did he have to
+repair, and was the change a fault in the output or a matter of taste?
+Nothing answered it, so nothing could be measured, and the engine's
+own corrections could not be told from the captain's preferences.
+
+**Measured, on five scratch reels** (`scripts/edit_outcome_proof.py`;
+the records are the engine's own - a version ledger, an edit history, a
+detected change, a delivery acceptance):
+
+- before: 0 of the 5 product questions could be answered from the
+  recorded state - the records were all present and nothing read them;
+- after: 5 of 5. The five reels ended in five DIFFERENT readings - one
+  `accepted` (delivered and taken, no correction), three `modified`
+  (one correction each), one `unmeasured` (nothing recorded at all);
+  and the three corrections classified as 1 objective failure (the
+  engine's own measurement found the crop cut the subject's face), 1
+  stylistic disagreement (the captain's own words), 1 `unclassified`
+  (nothing measured it and nobody said - which is NOT taste).
+
+**The rule.** A correction is classified ONLY when something decides
+it: the captain's own words, or the engine's own measurement of a
+defect at that place. An unclassified correction is counted on its own
+and is never folded into "taste" - a disagreement the engine cannot
+read is not a disagreement about taste, and calling it one hides the
+corrections nobody has explained yet. A reel nobody answered for is
+`unmeasured`, never `accepted`, and claims no time saved. The time
+saved is the PROGRAM delivered unrepaired, with its denominator, and
+the elapsed window between the build and the correction is an upper
+bound on his repair time, not the time itself - the window also holds
+the time he watched the reel. Learning is opt-in and isolated: nothing
+is learned unless the project declares it, a project learning stays in
+the project, a media learning carries no free text, and media reaches
+another project only through the existing mutual grant - checked
+BEFORE the source is read.
+
+`library/tools/edit_outcome.py` is the one enumeration of the outcome
+and the one classification; `reel_adoption` records it when the
+captain's hand edit becomes a version.

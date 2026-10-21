@@ -36,6 +36,7 @@ The audit's own words (Reel 26 grade and version-control audit,
 from __future__ import annotations
 
 import os
+import sys
 from collections.abc import Mapping
 
 from library.tools.versions import replaced_generation
@@ -211,6 +212,19 @@ def _adopt(project_folder: str, project, resolve, timeline_name: str, *,
         recovery_archive=receipt)
     reel_versions.attach_recovery_archive(
         project_folder, target.GetName(), int(entry["version"]), receipt)
+    # PROD-008: a hand edit is a PRODUCT outcome as well as a version.
+    # The captain's correction is now read where the product reads it:
+    # what he changed, how much, and whether the change was a fault in
+    # the output or a matter of taste. Recording it is instrumentation:
+    # the adoption stands even when the outcome cannot be written.
+    try:
+        from library.tools import edit_outcome
+
+        edit_outcome.record_outcome(project_folder, target.GetName())
+    except Exception as exc:  # noqa: BLE001 - the adoption already landed
+        print(f"  edit outcome unrecorded for {target.GetName()!r}: "
+              f"{exc!r} - the adopted version stands without it",
+              file=sys.stderr)
     return entry
 
 

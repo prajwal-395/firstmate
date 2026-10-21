@@ -106,6 +106,16 @@ ACT_MANUAL_EDIT_REASON = "manual_edit_reason"
 ACT_UNEXPLAINED = "unexplained"
 ACT_UI_TRANSACTION = "ui_transaction"
 
+#: How the captain says a hand correction reads: a FAULT in the output
+#: the engine produced, or a MATTER OF TASTE. The captain's own words
+#: decide it - the engine measures what it can measure and never calls
+#: a disagreement about taste by itself (AGENTS.md 10.5). Filed with
+#: the reason, through `file_manual_edit_reason`.
+CLASSIFICATION_OBJECTIVE = "objective_failure"
+CLASSIFICATION_STYLISTIC = "stylistic_disagreement"
+CLASSIFICATIONS: tuple[str, ...] = (CLASSIFICATION_OBJECTIVE,
+                                    CLASSIFICATION_STYLISTIC)
+
 REN_ACTS = (ACT_BUILD, ACT_PROMOTION, ACT_TOUCH, ACT_UNDO, ACT_ROLLBACK,
             ACT_REDO)
 
@@ -672,15 +682,18 @@ def record_manual_edit(review_dir: str, final: str, *, summary: str,
         refs["reason"] = str(reason)
     if note_id:
         refs["note_id"] = str(note_id)
-    return record_entry(review_dir, final, actor=ACTOR_CAPTAIN,
-                        act=ACT_MANUAL_EDIT, summary=summary, refs=refs,
-                        frame_delta=frame_delta, at=at, origin=origin)
+    entry = record_entry(review_dir, final, actor=ACTOR_CAPTAIN,
+                         act=ACT_MANUAL_EDIT, summary=summary, refs=refs,
+                         frame_delta=frame_delta, at=at, origin=origin)
+    _record_product_outcome(review_dir, final)
+    return entry
 
 
 def file_manual_edit_reason(review_dir: str, final: str, *,
                             manual_edit_id: Optional[str] = None,
                             editor_change_id: Optional[str] = None,
                             reason: str,
+                            classification: str = "",
                             note_id: Optional[str] = None,
                             at: Optional[str] = None) -> Optional[dict]:
     """File the captain's reason for a detected manual edit. Never raises.
@@ -690,6 +703,14 @@ def file_manual_edit_reason(review_dir: str, final: str, *,
     list). History is append-only and idempotent by entry id, so the
     reason is a NEW entry referencing the edit it explains - never a
     rewrite of the detection entry, which stays exactly as measured.
+
+    `classification` is the captain's own reading of the change, when
+    he gave one: `objective_failure` (the output was wrong) or
+    `stylistic_disagreement` (a matter of taste). It is the CAPTAIN's
+    call - the engine measures what it can measure and never decides a
+    disagreement about taste on its own - and a classification with no
+    reason behind it is refused, because a class with no words is a
+    guess wearing a class's clothes.
 
     The link is the manual edit entry's id, or the `editor_change_id`
     the replace guard recorded against it: either resolves the edit the
@@ -705,7 +726,14 @@ def file_manual_edit_reason(review_dir: str, final: str, *,
         return None
     if not manual_edit_id and not editor_change_id:
         return None
+    classification = str(classification or "").strip()
+    if classification and classification not in CLASSIFICATIONS:
+        raise ValueError(
+            f"{classification!r} is not a classification of a hand "
+            f"correction. The classes are: " + ", ".join(CLASSIFICATIONS))
     refs: dict = {"reason": reason}
+    if classification:
+        refs["classification"] = classification
     if manual_edit_id:
         refs["manual_edit_id"] = str(manual_edit_id)
     if editor_change_id:
@@ -713,15 +741,19 @@ def file_manual_edit_reason(review_dir: str, final: str, *,
     if note_id:
         refs["note_id"] = str(note_id)
     try:
-        return record_entry(review_dir, final, actor=ACTOR_CAPTAIN,
-                            act=ACT_MANUAL_EDIT_REASON,
-                            summary=f"captain's reason for manual edit: "
-                                    f"{reason}",
-                            refs=refs, at=at)
+        filed = record_entry(review_dir, final, actor=ACTOR_CAPTAIN,
+                             act=ACT_MANUAL_EDIT_REASON,
+                             summary=f"captain's reason for manual edit: "
+                                     f"{reason}",
+                             refs=refs, at=at)
     except Exception as exc:  # noqa: BLE001 - the contract is never-fail
         print(f"  edit history reason unrecorded for {final}: {exc!r} - "
               f"the edit stands without it", file=sys.stderr)
         return None
+    # The captain's words can CLASSIFY the correction, so the product
+    # outcome is re-read now that they are on file.
+    _record_product_outcome(review_dir, final)
+    return filed
 
 
 def reason_for(entries: Sequence[Mapping],
@@ -752,6 +784,62 @@ def reason_for(entries: Sequence[Mapping],
             if reason:
                 return str(reason)
     return None
+
+
+def classification_for(entries: Sequence[Mapping],
+                       manual_edit_id: Optional[str]) -> Optional[str]:
+    """The classification the captain filed for one manual edit, or None.
+
+    The edit's own `refs.classification` first (known at detection
+    time), then the newest `manual_edit_reason` entry filed against it
+    - by the entry's id, or by the `editor_change_id` the entry
+    carries. None anywhere is honestly None: an unclassified edit stays
+    unclassified, and it is never counted as taste.
+    """
+    target = str(manual_edit_id or "")
+    if not target:
+        return None
+    for entry in entries or ():
+        if (entry.get("act") == ACT_MANUAL_EDIT
+                and str(entry.get("id") or "") == target):
+            classification = (entry.get("refs") or {}).get("classification")
+            if classification:
+                return str(classification)
+    for entry in reversed(list(entries or ())):
+        if entry.get("act") != ACT_MANUAL_EDIT_REASON:
+            continue
+        refs = entry.get("refs") or {}
+        if (str(refs.get("manual_edit_id") or "") == target
+                or str(refs.get("editor_change_id") or "") == target):
+            classification = refs.get("classification")
+            if classification:
+                return str(classification)
+    return None
+
+
+def _record_product_outcome(review_dir: str, final: str) -> None:
+    """Record the reel's PRODUCT outcome after a hand correction.
+
+    PROD-008: a hand correction is a product outcome as well as a fact
+    in the history - did the captain take the generated edit or change
+    it, how much, and was the change a fault in the output or a matter
+    of taste. The outcome is read off the records, so it is recorded
+    when a record changes.
+
+    Recording it is instrumentation and never fails the caller: the
+    edit stands, and the history stands, whether or not the outcome
+    could be written.
+    """
+    try:
+        from library.tools import edit_outcome
+
+        project = _project_folder_for(review_dir)
+        if not project:
+            return
+        edit_outcome.record_outcome(project, str(final))
+    except Exception as exc:  # noqa: BLE001 - the contract is never-fail
+        print(f"  product outcome unrecorded for {final}: {exc!r} - the "
+              f"edit stands without it", file=sys.stderr)
 
 
 def unexplained_manual_edits(review_dir: str, final: str) -> list[dict]:
