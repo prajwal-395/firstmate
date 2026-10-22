@@ -388,3 +388,152 @@ def test_the_save_outcome_names_what_the_call_said():
     assert save_outcome(_Manager(False))[0] == "refused"
     assert save_outcome(_Manager(None))[0] == "unknown"
     assert save_outcome(_Manager(RuntimeError("no")))[0] == "refused"
+
+
+# ── The project a write names is in ANOTHER FOLDER ──────────────────
+#
+# THE DEFECT (measured live 2026-10-22 on this machine, AXI-016's live
+# run): every Ren-owned scratch project is filed in one Project Manager
+# folder ("Lucie Content/Social Media/Podcast"), and the qualification
+# project that is usually open sits at the ROOT.  The Project Manager's
+# listing is folder-scoped and the folder it shows FOLLOWS THE OPEN
+# PROJECT, so borrowing the root-level qualification project left the
+# Project Manager at the root - where the scratch project reads as
+# ABSENT.  `LoadProject` resolves a name inside the folder the Project
+# Manager is showing, so the write refused with "'Ren Scratch -
+# breaktest' did not read back after the switch (have 'Ren
+# Qualification')" - a project that EXISTS, refused because of where
+# it is filed.
+
+
+def test_a_project_filed_in_another_folder_is_opened_by_its_folder_path(
+        monkeypatch):
+    """The write reaches the project by the folder it is filed in.
+
+    The defect: every live write to a Ren-owned scratch project
+    refused, because the borrow put the Project Manager in the
+    qualification project's folder (the root) and the scratch project
+    is filed in another one.
+    """
+    from library.tools import qualification_project, resolve_project_open
+    from library.tools import resolve_project_folders
+
+    _lease(monkeypatch)
+    manager = _FakeManager("Ren Qualification", ["Ren Qualification"])
+    resolve = _FakeResolve(manager)
+    folder = ("Lucie Content", "Social Media", "Podcast")
+    opened: list[tuple[str, tuple[str, ...]]] = []
+
+    monkeypatch.setattr(
+        resolve_project_folders, "database_folder_paths",
+        lambda _manager, _name: [folder])
+    monkeypatch.setattr(
+        resolve_project_folders, "open_project_by_folder",
+        lambda m, name, path: opened.append((name, tuple(path)))
+        or m.LoadProject(name))
+    monkeypatch.setattr(
+        qualification_project, "switch_project",
+        lambda m, name, **_kw: m.LoadProject(name))
+    monkeypatch.setattr(qualification_project, "restore",
+                        lambda _r, found: None)
+
+    with resolve_project_open.opened(
+            resolve, "Ren Scratch - breaktest") as project:
+        assert project.GetName() == "Ren Scratch - breaktest"
+
+    assert opened == [("Ren Scratch - breaktest", folder)]
+
+
+def test_a_project_in_the_folder_shown_is_opened_by_name(monkeypatch):
+    """The folder route is not taken when the name is already listed."""
+    from library.tools import qualification_project, resolve_project_open
+    from library.tools import resolve_project_folders
+
+    _lease(monkeypatch)
+    manager = _FakeManager("Ren Qualification",
+                            ["Ren Qualification", "Ren Scratch - breaktest"])
+    resolve = _FakeResolve(manager)
+    reached: list[str] = []
+
+    monkeypatch.setattr(
+        resolve_project_folders, "database_folder_paths",
+        lambda _manager, _name: pytest.fail(
+            "the folder route was taken for a project the Project "
+            "Manager already lists"))
+    monkeypatch.setattr(
+        qualification_project, "switch_project",
+        lambda m, name, **_kw: reached.append(name) or m.LoadProject(name))
+    monkeypatch.setattr(qualification_project, "restore",
+                        lambda _r, found: None)
+
+    with resolve_project_open.opened(resolve, "Ren Scratch - breaktest"):
+        pass
+
+    assert reached == ["Ren Scratch - breaktest"]
+
+
+def test_a_name_two_folders_hold_is_refused_with_both_folders_named(
+        monkeypatch):
+    """Two copies are two projects; the wrong one is not ours to open."""
+    from library.tools import qualification_project, resolve_project_open
+    from library.tools import resolve_project_folders
+
+    _lease(monkeypatch)
+    manager = _FakeManager("Ren Qualification", ["Ren Qualification"])
+    resolve = _FakeResolve(manager)
+
+    monkeypatch.setattr(
+        resolve_project_folders, "database_folder_paths",
+        lambda _manager, _name: [("Lucie Content", "Social Media",
+                                  "Podcast"), ("Work",)])
+    monkeypatch.setattr(
+        qualification_project, "switch_project",
+        lambda m, name, **_kw: pytest.fail(
+            "a name two folders hold must not be opened by name"))
+    monkeypatch.setattr(qualification_project, "restore",
+                        lambda _r, found: None)
+
+    with pytest.raises(resolve_project_open.ProjectOpenRefused) as refused:
+        with resolve_project_open.opened(resolve, "Ren Scratch - breaktest"):
+            pass
+
+    rendered = refused.value.render()
+    assert "more than one" in rendered
+    assert "Lucie Content/Social Media/Podcast" in rendered
+    assert "Work" in rendered
+
+
+def test_a_switch_that_fails_is_a_refusal_and_not_a_crash(monkeypatch):
+    """A failed switch is REFUSED, in the refusal's words.
+
+    Defect: the switch failed with the qualification family's plain
+    `RuntimeError`, so the front door reported `REN_UNEXPECTED` with a
+    Python traceback - a refusal the engine had already decided,
+    arriving as a crash (measured live 2026-10-22 on this machine, on
+    the AXI-016 live run).
+    """
+    from library.tools import qualification_project, resolve_project_open
+    from library.tools.ren_refusal import UNEXPECTED_CODE, RenRefusal
+
+    _lease(monkeypatch)
+    manager = _FakeManager("Ren Qualification", ["Ren Qualification"])
+    resolve = _FakeResolve(manager)
+
+    def _failed(_manager, name, **_kwargs):
+        raise qualification_project.QualificationError(
+            f"{name!r} did not read back after the switch "
+            "(have 'Ren Qualification')")
+
+    monkeypatch.setattr(qualification_project, "switch_project", _failed)
+    monkeypatch.setattr(qualification_project, "restore",
+                        lambda _r, found: None)
+
+    with pytest.raises(resolve_project_open.ProjectOpenRefused) as refused:
+        with resolve_project_open.opened(resolve, "Ren Scratch - breaktest"):
+            pass
+
+    assert isinstance(refused.value, RenRefusal)
+    assert refused.value.code != UNEXPECTED_CODE
+    rendered = refused.value.render()
+    assert "could not open" in rendered
+    assert "did not read back" in rendered

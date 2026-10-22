@@ -806,3 +806,45 @@ def test_retime_keeps_its_grade_through_the_qualified_plan(tmp_path,
     # The approved reel stands untouched behind the staging.
     assert approved.rows["V1"][0].GetDuration() == 479
     assert approved.rows["V1"][0].GetNumNodes() == 8
+
+
+def test_a_fraction_scale_opacity_refuses_by_name(tmp_path):
+    """Opacity is a percent (0-100), and a fraction-scale value is refused.
+
+    THE DEFECT (measured live 2026-10-22 on Ren Scratch -
+    vep-bench-demo2, AXI-016's live run): two landed touches wrote
+    Opacity 0.99 and 0.98. Both VERIFIED - the read-back reads what was
+    written - while the motion-graphics card went nearly transparent:
+    Resolve stores Opacity on the 0-100 percent scale, so 0.99 stores
+    ~1%. The gate refused unsettable keys but never checked the scale,
+    so nothing between the caller and the timeline caught it. Both
+    writes were reverted the same day.
+    """
+    timeline, _pool, _media = build_reel(tmp_path)
+    for value in (0.99, 0.5, 1.0):
+        with pytest.raises(tu.TouchupRefused,
+                           match="reads as a fraction") as refused:
+            tu.qualify(_tracks(timeline), {"reel": 1, "edits": [
+                {"op": "set_properties", "row": "V1", "item": 0,
+                 "properties": {"Opacity": value}}]})
+        assert "percent" in refused.value.render()
+
+
+def test_a_percent_scale_opacity_qualifies(tmp_path):
+    """The 0-100 percent scale passes the gate, boundaries included."""
+    timeline, _pool, _media = build_reel(tmp_path)
+    for value in (0.0, 1.5, 85.0, 100.0):
+        qualification = tu.qualify(_tracks(timeline), {"reel": 1, "edits": [
+            {"op": "set_properties", "row": "V1", "item": 0,
+             "properties": {"Opacity": value}}]})
+        assert qualification.in_place[0]["properties"] == {"Opacity": value}
+
+
+def test_a_non_numeric_or_over_range_opacity_refuses(tmp_path):
+    """Neither a placeholder string nor 101 is an opacity."""
+    timeline, _pool, _media = build_reel(tmp_path)
+    for value in ("half", 101.0, -1.0):
+        with pytest.raises(tu.TouchupRefused, match="outside 0-100"):
+            tu.qualify(_tracks(timeline), {"reel": 1, "edits": [
+                {"op": "set_properties", "row": "V1", "item": 0,
+                 "properties": {"Opacity": value}}]})

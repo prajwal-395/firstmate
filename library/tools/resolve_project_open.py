@@ -23,6 +23,26 @@ borrowed - its exact name, its Project Manager folder, its timeline and
 its page - the named project is opened by EXACT name, and the borrowed
 project is restored, with a read-back, when the block ends.
 
+**A PROJECT IS REACHED BY ITS FOLDER PATH.** The Project Manager's
+listing is folder-scoped and the folder it shows FOLLOWS THE OPEN
+PROJECT: reading the open project leaves the Project Manager in that
+project's folder, and a project filed anywhere else reads as ABSENT.
+`LoadProject` resolves a name inside the folder the Project Manager is
+showing, so a project filed in another folder cannot be opened by name
+from here - and every Ren-owned scratch project on this machine is
+filed in one folder (`Lucie Content/Social Media/Podcast`), while the
+qualification project that is usually open sits at the root. So a
+project the borrow cannot see is reached by its folder path, which is
+discovered from the Resolve database on disk
+(`library/tools/resolve_project_folders.py`). Measured live
+2026-10-22 on this machine: `OpenFolder` answers True, the cursor
+moves, and the listing follows - the folder route works here.
+
+**A SWITCH THAT FAILS IS A REFUSAL, NOT A CRASH.** The switch can
+still fail, and a failure is `ProjectOpenRefused` - what, why and fix -
+rather than the qualification family's plain `RuntimeError`, which the
+front door reports as `REN_UNEXPECTED` with a traceback.
+
 `qualification_project.borrowed()` is this mechanism for the
 qualification project. This is the general one, and it is what
 `resolve_lock.resolve_lease` uses when the lease names a project.
@@ -94,6 +114,47 @@ def ren_owned(name: str) -> bool:
     return (text in {"Ren Qualification", "Resolve Qualification"}
             or (text.startswith(scratch_prefix)
                 and bool(text[len(scratch_prefix):].strip())))
+
+
+def folder_path(manager, name: str) -> tuple[str, ...]:
+    """The Project Manager folder the project `name` is filed in.
+
+    The Project Manager's listing is FOLDER-SCOPED, and the folder it
+    shows FOLLOWS THE OPEN PROJECT - so a project filed in another
+    folder reads as absent, and `LoadProject` by name cannot reach it.
+
+    The path is DISCOVERED from the Resolve database on disk, which
+    mirrors the Project Manager tree
+    (`library/tools/resolve_project_folders.py`).  A name two folders
+    hold is REFUSED with both folders named: Resolve resolves a name
+    inside the current folder, so the two copies are different projects
+    and the wrong one is not ours to open.
+
+    () means the folder the Project Manager is already showing, so the
+    project is reachable by name from here.
+    """
+    try:
+        listed = manager.GetProjectListInCurrentFolder() or []
+    except Exception:  # noqa: BLE001 - an unreadable listing is no evidence
+        listed = []
+    if name in listed:
+        return ()
+    from library.tools import resolve_project_folders
+
+    found = resolve_project_folders.database_folder_paths(manager, name)
+    if len(found) > 1:
+        folders = ", ".join(
+            resolve_project_folders.folder_label(path) for path in found)
+        raise ProjectOpenRefused(
+            what=(f"{name!r} is filed in more than one Project Manager "
+                  f"folder ({folders})"),
+            why=("Resolve resolves a project name inside the folder the "
+                 "Project Manager is showing, so the two copies are "
+                 "different projects and opening the wrong one would put "
+                 "this write in somebody else's project"),
+            fix=("move the project to one folder, or name the folder this "
+                 "write should open it from"))
+    return found[0] if found else ()
 
 
 def save_outcome(manager) -> tuple[str, str]:
@@ -181,7 +242,21 @@ def opened(resolve, name: str):
                     "has not written",
                 fix="wait for the session holding that project to finish, "
                     "then re-run the same command")
-    qualification_project.switch_project(manager, name)
+    folder = folder_path(manager, name)
+    try:
+        if folder:
+            from library.tools import resolve_project_folders
+
+            resolve_project_folders.open_project_by_folder(manager, name,
+                                                           folder)
+        else:
+            qualification_project.switch_project(manager, name)
+    except qualification_project.QualificationError as failed:
+        raise ProjectOpenRefused(
+            what=f"could not open {name!r}",
+            why=str(failed),
+            fix=("open the project in Resolve's Project Manager by hand, "
+                 "then re-run the same command")) from failed
     live = manager.GetCurrentProject()
     if live is None or (live.GetName() or "") != name:
         raise ProjectOpenRefused(

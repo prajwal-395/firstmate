@@ -2118,6 +2118,36 @@ def _op_set_properties(edit, position, tracks, spans, changes,
             "so the gate refuses them loudly instead",
             f"drop {sorted(unsettable)} from edit {position}'s "
             f"properties, then re-run `ren touch`")
+    for key, value in properties.items():
+        if str(key) != "Opacity":
+            continue
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            number = None
+        if number is None or not (0.0 <= number <= 100.0):
+            raise TouchupRefused(
+                f"edit {position} (`set_properties`) asks to set "
+                f"Opacity to {value!r}, outside 0-100",
+                "Resolve reads Opacity as a percent: a fraction-scale "
+                "value stores ~1% opacity and effectively erases the "
+                "item, while the read-back still verifies because it "
+                "reads what was written (measured live 2026-10-22: "
+                "0.99 verified and the card went nearly transparent)",
+                f"state Opacity on edit {position} on the 0-100 "
+                f"percent scale, then re-run `ren touch`")
+        if 0.0 < number <= 1.0:
+            raise TouchupRefused(
+                f"edit {position} (`set_properties`) asks to set "
+                f"Opacity to {value!r}, which reads as a fraction",
+                "0.99 is 0.99% on Resolve's percent scale - nearly "
+                "transparent - and 99% on a fraction scale: the two "
+                "readings disagree by two orders of magnitude, so a "
+                "value in (0, 1] is an ambiguous intent, not a dimmer "
+                "card (0 itself is identical in both scales and stays "
+                "allowed)",
+                f"state Opacity on edit {position} on the 0-100 "
+                f"percent scale (99 for 99%), then re-run `ren touch`")
     clip = _find_clip(tracks, row, int(item_index))
     # Every unsettable key raised above, so what remains is all of it.
     wanted = dict(properties)
