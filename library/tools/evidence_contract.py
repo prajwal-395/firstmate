@@ -719,6 +719,15 @@ _REGISTRY: dict[str, dict[str, Any]] = {
         "description": "A subjective decision to keep soft focus for one "
         "edit. Carries whose brief authorised it, never a measurement.",
     },
+    "creative.correction": {
+        "unit": "decision",
+        "kind": EvidenceType.CREATIVE_JUDGMENT,
+        "producer_kind": "human",
+        "requires_resolution": False,
+        "description": "A human's judgement about the footage or the "
+        "cut: a correction, or a verdict on whether a piece is "
+        "accepted. Carries who said it and when, never a measurement.",
+    },
 }
 
 # Method stamps the lanes write today (FI-02 producer inventory).

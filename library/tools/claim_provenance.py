@@ -17,7 +17,10 @@ This module is the ONE enumeration of that distinction:
   transcribed word, a detected face, a scene description, a sound event
   label, a model's verdict about a statement.
 * **interpreted** - a judgement read it. A person's evaluation, a
-  creative decision, an editorial reading of the footage.
+  creative decision, an editorial reading of the footage. A captain's
+  correction and a reviewer's verdict enter the world model through
+  ``library.tools.human_judgement.py``; a MODEL's verdict is an
+  inference, and never lands here.
 * **unknown** - nobody declared how it was produced. The class stays
   unknown: it is never defaulted to a measurement.
 
@@ -155,6 +158,11 @@ CLAIM_DECLARATIONS: dict[str, dict[str, str]] = {
         "producer": "library.tools.relationships",
         "measurement_type": "relation.candidate_span",
     },
+    "judgement": {
+        "lane": "project",
+        "producer": "library.tools.human_judgement",
+        "measurement_type": "creative.correction",
+    },
 }
 
 #: How a claim is told apart from its own kind, so the census counts
@@ -174,6 +182,7 @@ IDENTITY_FIELDS = {
     "candidate_span": ("start", "end"),
     "verdict": ("frames", "statement"),
     "relationship": ("name", "start", "end"),
+    "judgement": ("id",),
 }
 
 
@@ -363,6 +372,10 @@ def _iter_claims(world_model: Mapping[str, Any]) -> Iterator[tuple[str, Any, Any
     record_provenance = world_model.get("provenance")
     record_provenance = record_provenance if isinstance(
         record_provenance, Mapping) else {}
+
+    for judgement in world_model.get("judgements") or []:
+        if isinstance(judgement, Mapping):
+            yield "judgement", judgement, judgement.get("provenance")
 
     entities = world_model.get("entities") or {}
     for kind in ("face_tracks", "voice_tracks"):

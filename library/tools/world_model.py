@@ -71,6 +71,15 @@ query at time T is one array index:
 A lane that was never built is ABSENT from `lanes`, never defaulted:
 the world model joins what exists and says what it joined.
 
+**A human judgement is filed BESIDE the model's claims, never in place
+of them.** The judgements a project records - the captain's
+corrections, a reviewer's verdict - enter the world model as claims of
+class `interpreted` (`library/tools/human_judgement.py`), each with who
+said it and when. A judgement the project cannot place against a
+source stays out of every world model and is reported instead: an
+unattached correction is still a correction, and guessing which source
+it was about would be the defect this class exists to stop.
+
     python3 -m library.tools.world_model build <project>
     python3 -m library.tools.world_model status <project>
     python3 -m library.tools.world_model query <project> --t 42.5
@@ -514,7 +523,9 @@ def _cinematography_at(m4: Optional[dict], time_seconds: float) -> Optional[dict
 
 
 def build_source_world_model(content_digest: str, source_file: str,
-                             root: Optional[Path] = None) -> dict:
+                             root: Optional[Path] = None,
+                             judgements: Optional[List[dict]] = None,
+                             ) -> dict:
     """Build the world model for one source from its M0-M8 lanes.
 
     Light: reads the source memory, joins, writes. No decode, no model.
@@ -556,6 +567,7 @@ def build_source_world_model(content_digest: str, source_file: str,
         "lanes": lanes,
         "provenance_version": PROVENANCE_VERSION,
         "provenance": provenance,
+        "judgements": _judgements_for(judgements),
         "timeline": timeline,
         "entities": entities,
         "multicam": _build_multicam(m6),
@@ -564,6 +576,36 @@ def build_source_world_model(content_digest: str, source_file: str,
     return {"content_digest": content_digest, "source_file": source_file,
             "duration_seconds": duration, "lanes": lanes,
             "timeline_seconds": len(timeline)}
+
+
+def _judgements_for(judgements: Optional[List[dict]]) -> List[dict]:
+    """The human judgements this source carries, each with its class.
+
+    A judgement is a claim of class `interpreted`: a person read the
+    footage and said something about it. It is filed BESIDE the model's
+    claims about the same seconds and never in place of them - a
+    disagreement between a person and a model is a fact about the
+    reading, and it is recorded as one.
+    """
+    filed: List[dict] = []
+    for judgement in judgements or []:
+        if not isinstance(judgement, dict):
+            continue
+        target = judgement.get("target")
+        target = target if isinstance(target, dict) else {}
+        filed.append({
+            "id": judgement.get("id"),
+            "kind": judgement.get("kind"),
+            "author": judgement.get("author"),
+            "author_detail": judgement.get("author_detail"),
+            "recorded_at": judgement.get("recorded_at"),
+            "statement": judgement.get("statement"),
+            "origin": judgement.get("origin"),
+            "detail": judgement.get("detail") or {},
+            "target": target,
+            "provenance": claim_provenance.tag("judgement"),
+        })
+    return filed
 
 
 def build_project_world_model(project_folder: str,
@@ -579,10 +621,13 @@ def build_project_world_model(project_folder: str,
 
     from library.tools.concurrency_routing import run_lanes
 
+    judgements = _project_judgements(project_folder)
+
     def _one(job):
         clip_id, digest, path = job
         try:
-            account = build_source_world_model(digest, path, root)
+            account = build_source_world_model(
+                digest, path, root, judgements.get(digest))
         except Exception as exc:
             return ({"clip_id": clip_id, "content_digest": digest,
                      "failed": f"{type(exc).__name__}: {exc}"}, clip_id)
@@ -603,13 +648,58 @@ def build_project_world_model(project_folder: str,
             "clips": results, "failed": failed}
 
 
+def _project_judgements(project_folder: str) -> dict:
+    """The human judgements of a project, grouped by the source each is
+    about.
+
+    A judgement the project records but cannot place stays out of every
+    world model and is reported by `human_judgement` instead: an
+    unattached correction is still a correction, and guessing which
+    source it was about would be worse than saying nothing.
+    """
+    from library.tools import human_judgement
+
+    try:
+        report = human_judgement.project_judgements(project_folder)
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}
+    return human_judgement.judgements_by_digest(report)
+
+
 def query_at_time(world_model: dict, t: float) -> Optional[dict]:
-    """Return the derived bin containing T; event timing lives on source intervals."""
+    """Return the derived bin containing T; event timing lives on source intervals.
+
+    The bin carries the human judgements about that second as well as
+    the model's claims: a question about a moment is answered with
+    what the captain said about it too.
+    """
     timeline = world_model.get("timeline") or []
     idx = int(t)
     if 0 <= idx < len(timeline):
-        return timeline[idx]
+        entry = dict(timeline[idx])
+        judgements = _judgements_at(world_model, float(idx), float(idx) + 1.0)
+        if judgements:
+            entry["judgements"] = judgements
+        return entry
     return None
+
+
+def _judgements_at(world_model: dict, lo: float, hi: float) -> List[dict]:
+    """The judgements that bear on this span of the source.
+
+    A judgement is filed against the SECOND it was made in, so a note
+    typed 0.9s into a second belongs to that second and not the next.
+    """
+    out = []
+    for judgement in world_model.get("judgements") or []:
+        target = judgement.get("target") or {}
+        start = target.get("start")
+        end = target.get("end")
+        if start is None or end is None:
+            continue
+        if float(start) < hi and float(end) > lo:
+            out.append(judgement)
+    return out
 
 
 def main(argv=None) -> int:

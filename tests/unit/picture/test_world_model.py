@@ -548,7 +548,7 @@ class TestWorldModelLanes:
         spans = []
         spans_lock = threading.Lock()
 
-        def fake_build(digest, path, root=None):
+        def fake_build(digest, path, root=None, judgements=None):
             if digest.endswith("2"):
                 raise RuntimeError("no M0 duration")
             start = time.monotonic()
