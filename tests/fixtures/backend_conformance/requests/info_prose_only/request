@@ -1,0 +1,7 @@
+id: info_prose_only
+arg: info
+arg: nonexistent
+env: REN_OUTPUT=
+file: project_files/demo/project.yaml
+file: project_files/demo/brief.md
+note: a refusal with the machine-readable line switched off

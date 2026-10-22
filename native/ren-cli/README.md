@@ -27,6 +27,17 @@ Python change cannot silently drift. Where the Python reaches a part
 this crate does not port (a format migration, the safe-zone layout
 engine), the verb falls back to execing Python rather than drifting.
 
+**The mirroring is measured, not assumed.** A refusal is the same shape
+on both sides - the kind of block, the next action, and the
+machine-readable `REN_RESULT` line when the caller asked for it
+(`src/refusal.rs`) - and the check reads what is on the record for the
+Resolve target, the way `library/tools/timeline_shadow.py` reads it
+(`src/shadow.rs`). The recorded request set that compares the two
+backends is `tests/fixtures/backend_conformance/`, and
+`python3 scripts/backend_conformance.py` runs it: the same recorded
+request through each backend, compared on content, on the state the
+operation left behind, and (reported, never gated) on timing.
+
 `scripts/build_ren_cli.sh` builds the binary into a built tree's
 `bin/ren` (binaries are never committed). `ren/package_engine.py`
 invokes it after copying `bin/`; without cargo the script exits 4 and

@@ -1,0 +1,7 @@
+id: check_no_raw_dir
+arg: check
+arg: demo
+file: project_files/demo/project.yaml
+file: project_files/demo/brief.md
+omit: raw
+note: the readiness check of a project with no raw folder at all

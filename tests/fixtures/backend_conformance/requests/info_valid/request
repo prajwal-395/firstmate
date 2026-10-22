@@ -1,0 +1,6 @@
+id: info_valid
+arg: info
+arg: demo
+file: project_files/demo/project.yaml
+file: project_files/demo/brief.md
+note: the configuration of a valid project, as JSON

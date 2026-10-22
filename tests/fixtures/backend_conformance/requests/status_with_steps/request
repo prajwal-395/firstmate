@@ -1,0 +1,7 @@
+id: status_with_steps
+arg: status
+arg: demo
+file: project_files/with_steps/project.yaml
+file: project_files/with_steps/brief.md
+file: project_files/with_steps/pipeline_data.json
+note: the status of a project whose ledgers record completed steps

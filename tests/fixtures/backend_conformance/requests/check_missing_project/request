@@ -1,0 +1,6 @@
+id: check_missing_project
+arg: check
+arg: nonexistent
+file: project_files/demo/project.yaml
+file: project_files/demo/brief.md
+note: the readiness check of a slug that is not a project

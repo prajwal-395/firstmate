@@ -1,0 +1,8 @@
+{
+  "steps_completed": {
+    "step_1_01_scan_project": {"completed_at": "2026-10-01T10:00:00Z"}
+  },
+  "preflight_completed": {
+    "step_1_02_catalog_footage": {"completed_at": "2026-10-01T10:05:00Z"}
+  }
+}

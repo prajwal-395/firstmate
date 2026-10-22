@@ -1,0 +1,6 @@
+id: info_missing_project
+arg: info
+arg: nonexistent
+file: project_files/demo/project.yaml
+file: project_files/demo/brief.md
+note: the configuration of a slug that is not a project

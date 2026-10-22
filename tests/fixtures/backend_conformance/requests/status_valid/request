@@ -1,0 +1,6 @@
+id: status_valid
+arg: status
+arg: demo
+file: project_files/demo/project.yaml
+file: project_files/demo/brief.md
+note: the on-disk status of a valid project

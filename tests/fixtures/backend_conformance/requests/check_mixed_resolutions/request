@@ -1,0 +1,8 @@
+id: check_mixed_resolutions
+arg: check
+arg: demo
+file: project_files/demo/project.yaml
+file: project_files/demo/brief.md
+footage: raw/a.mov | testsrc=duration=1:size=320x240:rate=30
+footage: raw/b.mov | testsrc=duration=1:size=640x480:rate=30
+note: the readiness check of a project whose footage has two resolutions

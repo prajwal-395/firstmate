@@ -1,0 +1,7 @@
+id: check_no_resolve_project
+arg: check
+arg: demo
+file: project_files/no_resolve/project.yaml
+file: project_files/no_resolve/brief.md
+footage: raw/clip.mov | testsrc=duration=1:size=320x240:rate=30
+note: the readiness check of a project that declares no Resolve project

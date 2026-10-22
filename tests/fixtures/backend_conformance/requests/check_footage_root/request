@@ -1,0 +1,7 @@
+id: check_footage_root
+arg: check
+arg: demo
+file: project_files/footage_root/project.yaml
+file: project_files/footage_root/brief.md
+footage: media/clip_a.mp4 | testsrc=duration=1:size=320x240:rate=30
+note: the readiness check of a project whose footage is declared in place

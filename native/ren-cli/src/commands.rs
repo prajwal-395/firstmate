@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 use crate::engine;
 use crate::json::Json;
 use crate::project::{self, config_to_dict, project_status, Located, ProjectConfig};
+use crate::refusal::{self, Refusal};
 
 /// What a native verb did: finished with an exit code, or the project
 /// needs a part only Python has, so the front door must exec Python.
@@ -325,7 +326,7 @@ enum LocateResult {
     /// The project needs a part only Python has (a format migration, the
     /// safe-zone layout engine): exec Python rather than drift.
     Fallback,
-    NotFound(String),
+    NotFound(Refusal),
     LoadError(String),
 }
 
@@ -352,20 +353,20 @@ fn locate_project(reference: &str, engine_root: &Path) -> LocateResult {
 fn run_project_command(
     reference: &str,
     engine_root: &Path,
-    serve: impl FnOnce(&ProjectConfig) -> Result<Outcome, String>,
+    serve: impl FnOnce(&ProjectConfig) -> Result<Outcome, Refusal>,
 ) -> Outcome {
     match locate_project(reference, engine_root) {
         LocateResult::Found(config) => match serve(&config) {
             Ok(outcome) => outcome,
             Err(refusal) => {
-                eprintln!("{refusal}");
-                Outcome::Exited(REFUSAL_EXIT_CODE)
+                refusal.emit();
+                Outcome::Exited(refusal::REFUSAL_EXIT_CODE)
             }
         },
         LocateResult::Fallback => Outcome::Fallback,
         LocateResult::NotFound(refusal) => {
-            eprintln!("{refusal}");
-            Outcome::Exited(REFUSAL_EXIT_CODE)
+            refusal.emit();
+            Outcome::Exited(refusal::REFUSAL_EXIT_CODE)
         }
         LocateResult::LoadError(message) => {
             eprintln!("{message}");
@@ -464,7 +465,7 @@ pub fn check(reference: &str, engine_root: &Path) -> Outcome {
         println!("Checking brand template...");
         let template = match resolve_template_reference(&config.pipeline.brand_template, &project_dir) {
         Ok(template) => template,
-        Err(message) => return Err(refusal(&message, "the check cannot verify a template it cannot read", &format!("fix pipeline.brand_template in project.yaml (or clear it for no template), then re-run `ren check {reference}`"))),
+        Err(message) => return Err(refusal(&message, "the check cannot verify a template it cannot read", &format!("fix pipeline.brand_template in project.yaml (or clear it for no template), then re-run `ren check {reference}`"), refusal::MISSING_MEDIA)),
     };
 
         println!("Checking creative_brief...");
@@ -472,9 +473,10 @@ pub fn check(reference: &str, engine_root: &Path) -> Outcome {
             let cb_path = project_dir.join(&config.pipeline.creative_brief);
             if !cb_path.exists() {
                 return Err(refusal(
-                &format!("declared creative_brief path does not exist: {cb_path:?}"),
+                &format!("declared creative_brief path does not exist: {}", cb_path.display()),
                 "the check cannot verify a brief it cannot read",
                 "fix pipeline.creative_brief in project.yaml (or clear it), then re-run `ren check`",
+                refusal::MISSING_MEDIA,
             ));
             }
         }
@@ -483,38 +485,42 @@ pub fn check(reference: &str, engine_root: &Path) -> Outcome {
         let sfx = sfx_library(engine_root);
         if !sfx.exists() {
             return Err(refusal(
-            &format!("PIPELINE_SFX_LIBRARY does not exist: {sfx:?}"),
+            &format!("PIPELINE_SFX_LIBRARY does not exist: {}", sfx.display()),
             "the check cannot verify a library that is not there",
             "set PIPELINE_SFX_LIBRARY (`ren config --init`, then edit it), then re-run `ren check`",
+            refusal::MISSING_MEDIA,
         ));
         }
         let music = music_library(engine_root);
         if !music.exists() {
             return Err(refusal(
-            &format!("PIPELINE_MUSIC_LIBRARY does not exist: {music:?}"),
+            &format!("PIPELINE_MUSIC_LIBRARY does not exist: {}", music.display()),
             "the check cannot verify a library that is not there",
             "set PIPELINE_MUSIC_LIBRARY (`ren config --init`, then edit it), then re-run `ren check`",
+            refusal::MISSING_MEDIA,
         ));
         }
         let projects_root = project::projects_root(engine_root);
         if !projects_root.exists() {
             return Err(refusal(
-                &format!("PIPELINE_PROJECTS_ROOT does not exist: {projects_root:?}"),
+                &format!("PIPELINE_PROJECTS_ROOT does not exist: {}", projects_root.display()),
                 "the check cannot verify a projects root that is not there",
                 "create it (`ren init`), then re-run `ren check`",
+                refusal::MISSING_MEDIA,
             ));
         }
 
         println!("Checking footage files with ffprobe...");
         let footage = match enumerate_footage(&project_dir) {
         Ok(files) => files,
-        Err(message) => return Err(refusal(&message, "the check cannot verify footage that is not there", &format!("copy raw footage to the project's raw footage dir, then re-run `ren check {reference}`"))),
+        Err(message) => return Err(refusal(&message, "the check cannot verify footage that is not there", &format!("copy raw footage to the project's raw footage dir, then re-run `ren check {reference}`"), refusal::MISSING_MEDIA)),
     };
         if footage.is_empty() {
             return Err(refusal(
             "no footage files found in project",
             "the check cannot verify footage that is not there",
             &format!("copy raw footage to the project's raw footage dir, then re-run `ren check {reference}`"),
+            refusal::MISSING_MEDIA,
         ));
         }
 
@@ -540,6 +546,7 @@ pub fn check(reference: &str, engine_root: &Path) -> Outcome {
                             &format!(
                                 "re-encode the file so ffprobe reports every field, then re-run `ren check {reference}`"
                             ),
+                            refusal::INSUFFICIENT_EVIDENCE,
                         ));
                         }
                     }
@@ -550,8 +557,10 @@ pub fn check(reference: &str, engine_root: &Path) -> Outcome {
                     if !fps.is_empty() {
                         increment(&mut fps_counts, &fps);
                     }
+                    // The Python counts a resolution as a TUPLE, and its
+                    // report prints the tuple's repr: `(320, 240)`.
                     let res = format!(
-                        "{}x{}",
+                        "({}, {})",
                         metadata.width.unwrap_or(0),
                         metadata.height.unwrap_or(0)
                     );
@@ -562,6 +571,7 @@ pub fn check(reference: &str, engine_root: &Path) -> Outcome {
                         &format!("ffprobe failed to read {}: {message}", file.path),
                         "the check cannot verify a file ffprobe cannot read",
                         &format!("fix or replace the file, then re-run `ren check {reference}`"),
+                        refusal::MISSING_MEDIA,
                     ));
                 }
             }
@@ -572,9 +582,22 @@ pub fn check(reference: &str, engine_root: &Path) -> Outcome {
             .get("content")
             .cloned()
             .unwrap_or(Json::Object(vec![]));
-        if let Err(message) = check_bookends(&content, &project_dir) {
-            eprintln!("ren: refused - {message}");
-            return Ok(Outcome::Exited(REFUSAL_EXIT_CODE));
+        if let Err(failure) = check_bookends(&content, &project_dir) {
+            return Ok(match failure {
+                BookendFailure::AssetMissing(message) => {
+                    asset_missing_refusal(&message).emit();
+                    Outcome::Exited(REFUSAL_EXIT_CODE)
+                }
+                BookendFailure::Malformed(message) => {
+                    // The Python RAISES on a malformed declaration: an
+                    // unexpected error with a traceback and exit 1,
+                    // never a refusal. The native says the same thing
+                    // and exits the same way, so a host reads one
+                    // answer - not two shapes of the same failure.
+                    eprintln!("{message}");
+                    Outcome::Exited(1)
+                }
+            });
         }
         let effect = template
             .get("effect")
@@ -591,11 +614,13 @@ pub fn check(reference: &str, engine_root: &Path) -> Outcome {
                             .unwrap_or_default(),
                     );
                     if let Err(message) = resolve_project_asset(&candidate, &project_dir) {
-                        eprintln!("ren: refused - {message}");
+                        asset_missing_refusal(&message).emit();
                         return Ok(Outcome::Exited(REFUSAL_EXIT_CODE));
                     }
                 } else if !Path::new(font_file).exists() {
-                    eprintln!("ren: refused - project asset '{font_file}' not found (checked absolute path)");
+                    asset_missing_refusal(&format!(
+                        "project asset '{font_file}' not found (checked absolute path)"
+                    )).emit();
                     return Ok(Outcome::Exited(REFUSAL_EXIT_CODE));
                 }
             }
@@ -620,10 +645,53 @@ pub fn check(reference: &str, engine_root: &Path) -> Outcome {
             eprintln!("REPORT: Standalone Python script in project folder: {relpath}");
         }
 
+        // The Resolve TARGET, from what is on the record - never a live
+        // probe. A live probe here would put a hanging Resolve on the
+        // front door's critical path, and a check that hangs is not a
+        // check.
+        println!("Checking the Resolve target on the record...");
+        check_resolve_target(config);
+
         println!();
         println!("Readiness check PASS.");
         Ok(Outcome::Exited(0))
     })
+}
+
+/// What the record says about this project's Resolve target.
+///
+/// A REPORT, never a refusal: the shadow store holds what Ren has read,
+/// and a timeline nobody has read yet is a fact to state, not a
+/// condition to refuse.
+fn check_resolve_target(config: &ProjectConfig) {
+    let resolve_project = config.resolve.project_name.clone();
+    if resolve_project.is_empty() {
+        eprintln!("REPORT: the project declares no Resolve project name; the \
+                    write path will use the open one");
+        return;
+    }
+    match crate::shadow::recorded_timeline_names(&resolve_project) {
+        Err(message) => {
+            eprintln!("REPORT: the recorded timelines could not be read: {message}");
+        }
+        Ok(names) if names.is_empty() => {
+            eprintln!(
+                "REPORT: Resolve project '{resolve_project}' has no recorded \
+                 timeline yet; read one before editing it \
+                 (`ren timeline refresh`)"
+            );
+        }
+        Ok(names) => {
+            println!("  Resolve project: {resolve_project}");
+            println!("  Recorded timelines: {}", names.len());
+            for name in names.iter().take(20) {
+                println!("    - {name}");
+            }
+            if names.len() > 20 {
+                println!("    ... and {} more", names.len() - 20);
+            }
+        }
+    }
 }
 
 fn increment(counts: &mut Vec<(String, i64)>, key: &str) {
@@ -645,8 +713,21 @@ fn python_dict(counts: &[(String, i64)]) -> String {
     format!("{{{}}}", entries.join(", "))
 }
 
-fn refusal(what: &str, why: &str, fix: &str) -> String {
-    project::render_refusal(what, why, fix)
+fn refusal(what: &str, why: &str, fix: &str, blocker: &'static str) -> Refusal {
+    Refusal::new(what, why, fix, blocker)
+}
+
+/// The refusal a declared project asset that is not on disk raises: the
+/// Python's `ProjectAssetNotFoundError`, with its own code.
+fn asset_missing_refusal(message: &str) -> Refusal {
+    Refusal::new(
+        message,
+        "a declared project asset must exist on disk before the run trusts it",
+        "place the asset at the declared path (a flat file, or \
+         <name>/index<ext> beside it), then re-run",
+        refusal::MISSING_MEDIA,
+    )
+    .with_code("REN_PROJECT_ASSET_NOT_FOUND_ERROR")
 }
 
 /// `library.tools.brand_registry.resolve_template_reference`.
@@ -864,8 +945,16 @@ fn truthy(value: &Json) -> bool {
     project::truthy_pub(value)
 }
 
+/// A bookend declaration that cannot be used: either malformed (the
+/// Python raises on it) or an asset that is not on disk (the Python
+/// refuses on it).
+enum BookendFailure {
+    Malformed(String),
+    AssetMissing(String),
+}
+
 /// `bookends.declared_bookends` + `resolve_bookend` over a template's content.
-fn check_bookends(content: &Json, project_dir: &Path) -> Result<(), String> {
+fn check_bookends(content: &Json, project_dir: &Path) -> Result<(), BookendFailure> {
     let declarations = match content.get("bookends") {
         Some(Json::Object(map)) => {
             let mut slots: Vec<(&String, &Json)> =
@@ -874,10 +963,10 @@ fn check_bookends(content: &Json, project_dir: &Path) -> Result<(), String> {
             slots
         }
         Some(other) => {
-            return Err(format!(
+            return Err(BookendFailure::Malformed(format!(
                 "content.bookends must be a mapping of slot -> declaration, got {}",
                 project::type_name_pub(other)
-            ));
+            )));
         }
         None => vec![],
     };
@@ -888,10 +977,10 @@ fn check_bookends(content: &Json, project_dir: &Path) -> Result<(), String> {
         let declaration = match raw {
             Json::Object(pairs) => pairs.clone(),
             other => {
-                return Err(format!(
+                return Err(BookendFailure::Malformed(format!(
                     "bookend '{slot}' must be a mapping, got {}",
                     project::type_name_pub(other)
-                ));
+                )));
             }
         };
         let get = |key: &str| {
@@ -906,51 +995,53 @@ fn check_bookends(content: &Json, project_dir: &Path) -> Result<(), String> {
         let composition_truthy = composition.as_ref().map(truthy).unwrap_or(false);
         let asset_truthy = asset.as_ref().map(truthy).unwrap_or(false);
         if composition_truthy == asset_truthy {
-            return Err(format!(
+            return Err(BookendFailure::Malformed(format!(
                 "bookend '{slot}' must name exactly one of 'composition' (a Remotion composition to render) or 'asset' (a clip that already exists); got composition={composition:?}, asset={asset:?}"
-            ));
+            )));
         }
         if asset_truthy && source.as_ref().map(truthy).unwrap_or(false) {
-            return Err(format!(
+            return Err(BookendFailure::Malformed(format!(
                 "bookend '{slot}' names both 'asset' and 'source'; an asset is already rendered, so there is nothing to build it from"
-            ));
+            )));
         }
         if composition_truthy
             && !source.as_ref().map(truthy).unwrap_or(false)
             && !ENGINE_BOOKEND_COMPOSITIONS
                 .contains(&composition.as_ref().and_then(|v| v.as_str()).unwrap_or(""))
         {
-            return Err(format!(
+            return Err(BookendFailure::Malformed(format!(
                 "bookend '{slot}' names composition {composition:?}, which the engine does not register. Either point 'source' at the project's own .tsx file, or name one of {ENGINE_BOOKEND_COMPOSITIONS:?}"
-            ));
+            )));
         }
         let duration = get("duration_seconds");
         let duration_number = match duration {
             Some(Json::Int(n)) => n as f64,
             Some(Json::Float(f)) => f,
             _ => {
-                return Err(format!(
+                return Err(BookendFailure::Malformed(format!(
                     "bookend '{slot}' has no numeric duration_seconds; the spine needs it to place the block, and probing the file would make the plan depend on a render that has not happened yet"
-                ));
+                )));
             }
         };
         if duration_number <= 0.0 {
-            return Err(format!(
+            return Err(BookendFailure::Malformed(format!(
                 "bookend '{slot}' has duration_seconds={duration_number}, which puts nothing on screen"
-            ));
+            )));
         }
         if duration_number > 30.0 {
-            return Err(format!(
+            return Err(BookendFailure::Malformed(format!(
                 "bookend '{slot}' runs {duration_number}s, longer than the 30.0s a card may hold; a longer beat is content and belongs in the spine"
-            ));
+            )));
         }
         let mode = if asset_truthy { "asset" } else { "composition" };
         if mode == "asset" {
             let asset_path = asset.as_ref().and_then(|v| v.as_str()).unwrap_or("");
-            resolve_project_asset_str(asset_path, project_dir)?;
+            resolve_project_asset_str(asset_path, project_dir)
+                .map_err(BookendFailure::AssetMissing)?;
         } else if source.as_ref().map(truthy).unwrap_or(false) {
             let source_path = source.as_ref().and_then(|v| v.as_str()).unwrap_or("");
-            resolve_project_asset_str(source_path, project_dir)?;
+            resolve_project_asset_str(source_path, project_dir)
+                .map_err(BookendFailure::AssetMissing)?;
         }
     }
     Ok(())
@@ -1059,18 +1150,30 @@ fn enumerate_footage(project_dir: &Path) -> Result<Vec<FootageFile>, String> {
     let footage_roots: Vec<PathBuf> = if declared.is_empty() {
         vec![project_dir.join("raw")]
     } else {
-        declared
-            .iter()
-            .map(|entry| {
-                let expanded = project::expand_portable_pub(entry, project_dir, &engine_root);
-                let path = PathBuf::from(&expanded);
-                if path.is_absolute() {
-                    path
-                } else {
-                    project_dir.join(path)
-                }
-            })
-            .collect()
+        let mut roots = vec![];
+        for entry in &declared {
+            let expanded = project::expand_portable_pub(entry, project_dir, &engine_root);
+            let path = PathBuf::from(&expanded);
+            if !path.is_absolute() {
+                return Err(format!(
+                    "source.footage_root is '{entry}', a relative path. Media is \
+                     addressed absolutely everywhere else in this pipeline, and a \
+                     relative one resolves against whichever directory a step \
+                     happens to run in."
+                ));
+            }
+            if !path.is_dir() {
+                return Err(format!(
+                    "source.footage_root names {expanded}, which is not a directory. \
+                     Refusing rather than falling back to {raw}: a typo that \
+                     silently becomes 'this project has no footage' is the refusal \
+                     this declaration exists to prevent.",
+                    raw = project_dir.join("raw").display(),
+                ));
+            }
+            roots.push(path);
+        }
+        roots
     };
     if footage_roots.iter().any(|root| !root.is_dir()) {
         return Err(format!(

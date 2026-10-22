@@ -1,0 +1,23 @@
+project_format_version: 2
+name: Demo Project
+slug: demo
+client: ""
+created: "2026-10-01"
+status: in_progress
+source:
+  fps: 29.97
+  footage_root: {{media}}
+  language: en
+  shape: speech
+pipeline:
+  brand_template: ""
+  creative_brief: brief.md
+resolve:
+  project_name: Demo Project
+  database: local
+  folder: ""
+  timeline_name: Main Edit
+tags:
+  - test
+description: A demo
+ren_version: "ren 0.1.0+abc.dev.personal"

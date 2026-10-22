@@ -133,7 +133,7 @@ pub fn format_float(value: f64) -> String {
 /// A JSON string literal with Python's `ensure_ascii` escaping: every
 /// character above `0x7E` becomes `\uXXXX` (a surrogate pair above the BMP),
 /// and the control characters Python short-escapes use its shortcuts.
-fn write_json_string(out: &mut String, value: &str) {
+pub fn write_json_string(out: &mut String, value: &str) {
     out.push('"');
     for ch in value.chars() {
         match ch {

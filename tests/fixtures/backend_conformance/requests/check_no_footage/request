@@ -1,0 +1,6 @@
+id: check_no_footage
+arg: check
+arg: demo
+file: project_files/demo/project.yaml
+file: project_files/demo/brief.md
+note: the readiness check of a project whose raw folder is empty
