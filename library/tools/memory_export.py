@@ -78,6 +78,8 @@ WRITERS = {
     source_memory.SLOT_CLOCK: "library/tools/conversation_clock.py (M6)",
     source_memory.SLOT_EVENTS: "library/tools/event_spans.py (M7)",
     source_memory.SLOT_VERDICTS: "library/tools/span_verification.py (M8)",
+    source_memory.SLOT_ON_DEMAND:
+        "library/tools/on_demand_verification.py (VI-014)",
 }
 
 # Lane name (footage_analysis.LANES) behind each exported section.

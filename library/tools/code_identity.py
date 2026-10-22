@@ -388,6 +388,12 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/project_model_qualification.py',
         'library/tools/qualification_workflow.py',
         'library/tools/reel_build.py',
+        # The reel build's plan-span verification: it reads the
+        # plan's source spans against the source files' own measured
+        # transcripts before it places any media, so a fix to either
+        # changes what the build does with the plan.
+        'library/tools/on_demand_verification.py',
+        'library/tools/plan_span_verification.py',
         'library/tools/reel_append_placement.py',
         'library/tools/resolve_temporal.py',
         'library/tools/reel_conformance_verifier.py',
@@ -1186,6 +1192,12 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/project_model_qualification.py',
         'library/tools/qualification_workflow.py',
         'library/tools/reel_build.py',
+        # The reel build's plan-span verification: it reads the
+        # plan's source spans against the source files' own measured
+        # transcripts before it places any media, so a fix to either
+        # changes what the build does with the plan.
+        'library/tools/on_demand_verification.py',
+        'library/tools/plan_span_verification.py',
         'library/tools/reel_append_placement.py',
         'library/tools/resolve_temporal.py',
         'library/tools/reel_conformance_verifier.py',
@@ -2071,6 +2083,12 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/project_model_qualification.py',
         'library/tools/qualification_workflow.py',
         'library/tools/reel_build.py',
+        # The reel build's plan-span verification: it reads the
+        # plan's source spans against the source files' own measured
+        # transcripts before it places any media, so a fix to either
+        # changes what the build does with the plan.
+        'library/tools/on_demand_verification.py',
+        'library/tools/plan_span_verification.py',
         'library/tools/reel_append_placement.py',
         'library/tools/resolve_temporal.py',
         'library/tools/reel_conformance_verifier.py',
@@ -2859,6 +2877,12 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/project_model_qualification.py',
         'library/tools/qualification_workflow.py',
         'library/tools/reel_build.py',
+        # The reel build's plan-span verification: it reads the
+        # plan's source spans against the source files' own measured
+        # transcripts before it places any media, so a fix to either
+        # changes what the build does with the plan.
+        'library/tools/on_demand_verification.py',
+        'library/tools/plan_span_verification.py',
         'library/tools/reel_append_placement.py',
         'library/tools/resolve_temporal.py',
         'library/tools/reel_conformance_verifier.py',
@@ -3730,6 +3754,12 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/project_model_qualification.py',
         'library/tools/qualification_workflow.py',
         'library/tools/reel_build.py',
+        # The reel build's plan-span verification: it reads the
+        # plan's source spans against the source files' own measured
+        # transcripts before it places any media, so a fix to either
+        # changes what the build does with the plan.
+        'library/tools/on_demand_verification.py',
+        'library/tools/plan_span_verification.py',
         'library/tools/reel_append_placement.py',
         'library/tools/resolve_temporal.py',
         'library/tools/reel_conformance_verifier.py',

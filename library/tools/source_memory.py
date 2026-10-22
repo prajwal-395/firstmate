@@ -204,6 +204,7 @@ SLOT_RELATIONSHIPS = "relationships.json"       # M10 - written by relationships
 SLOT_AUDIO_QUALITY = "audio_quality.json"       # M11 - written by audio_quality.py
 SLOT_IMAGE_DEFECTS = "image_defects.json"        # VI-03 - image_defects.py
 SLOT_PICTURE_QUALITY = "picture_quality.json"    # picture_quality.py
+SLOT_ON_DEMAND = "on_demand.json"        # VI-014 - on_demand_verification.py
 
 SLOT_BY_LANE = {
     "m0": SLOT_SOURCE, "m1": SLOT_TRANSCRIPT, "m1b": SLOT_SPEAKERS,
@@ -214,10 +215,11 @@ SLOT_BY_LANE = {
     "m6": SLOT_CLOCK, "m7": SLOT_EVENTS, "m8": SLOT_VERDICTS,
     "m9": SLOT_WORLD_MODEL, "m10": SLOT_RELATIONSHIPS,
     "m11": SLOT_AUDIO_QUALITY, "vi-03": SLOT_IMAGE_DEFECTS,
+    "vi-14": SLOT_ON_DEMAND,
 }
 
 LANE_ALIASES = {
-    "vi03": "vi-03", "vi09": "vi-09",
+    "vi03": "vi-03", "vi09": "vi-09", "vi14": "vi-14",
 }
 """The Project Model's lane names for the two vision-intelligence lanes.
 
@@ -1401,6 +1403,7 @@ def _with_evidence_envelope(path: Path, payload: dict) -> dict:
         SLOT_RELATIONSHIPS: "relationship-candidate-detection",
         SLOT_AUDIO_QUALITY: "audio-quality-measurement",
         SLOT_IMAGE_DEFECTS: "sampled-image-defect-measurement",
+        SLOT_ON_DEMAND: "on-demand-span-verification",
     }
     envelope = {
         "record_version": 1,

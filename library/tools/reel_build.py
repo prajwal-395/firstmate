@@ -3527,6 +3527,62 @@ def repair_moment_tail(end: float, start: float, transcript: dict,
     return float(end), outcome
 
 
+def _verify_plan_span_claims(project_folder: str, moments) -> Optional[dict]:
+    """Verify the plan's source-span claims on demand, before the build.
+
+    Each moment names the raw footage it plays as
+    ``{source_file, source_start, source_end}``.  Those spans were
+    derived by REBASING the master timeline's transcript rows onto the
+    source files, and a rebase is an inference nobody has checked
+    against the source file's own transcript.
+
+    The check is the cheapest one there is - the source's own measured
+    words - and it runs inside a budget, so a project with no source
+    transcripts costs nothing and reports every span as undecided.
+
+    A failure here is NOT a refusal: the build proceeds and the finding
+    is recorded.  The captain's ruling that a report-only check does not
+    block a build stands for this check too.
+    """
+    from library.tools import plan_span_verification as _psv
+    import json as _json
+    import sys
+    try:
+        from library.tools.timeline_transcript import transcript_path
+        with open(transcript_path(project_folder), encoding="utf-8") as handle:
+            transcript = _json.load(handle)
+    except (OSError, ValueError):
+        return None
+    try:
+        report = _psv.verify_plan_spans(moments, transcript, project_folder)
+        _psv.write_report(project_folder, report)
+    except Exception as exc:  # noqa: BLE001 - a check never breaks a build
+        print(f"  source-span verification did not run: {exc}",
+              file=sys.stderr, flush=True)
+        return None
+    return report.to_dict()
+
+
+def _print_span_verification(report: dict) -> None:
+    """Print what the span verification found, in the build's own voice."""
+    import sys
+    summary = report.get("summary") or {}
+    print(f"  source-span claims: {summary.get('spans_checked', 0)} of "
+          f"{summary.get('spans_total', 0)} decided "
+          f"({summary.get('supported', 0)} supported, "
+          f"{summary.get('contradicted', 0)} contradicted, "
+          f"{summary.get('unresolved', 0)} undecided) in "
+          f"{summary.get('seconds', 0.0):.2f}s", file=sys.stderr, flush=True)
+    for finding in report.get("findings") or []:
+        if finding.get("verdict") != "contradicted":
+            continue
+        print(f"    reel {finding.get('reel_number')}: "
+              f"{os.path.basename(str(finding.get('source_file') or ''))} "
+              f"[{finding.get('source_start')}-{finding.get('source_end')}] "
+              f"carries other speech: {finding.get('detail')}",
+              file=sys.stderr, flush=True)
+
+
 def record_tail_repairs(project_folder: str,
                         repairs: Sequence[tuple]) -> Optional[str]:
     """Upsert stranded-tail repairs onto the boundary-repair ledger.
@@ -15539,6 +15595,18 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     moments = read_proposal(proposal_path)
     building, wanted = _requested_approved_moments(
         moments, only, proposal_path, "build")
+
+    # The plan's source spans are a REBASE of the master timeline's
+    # transcript rows onto the source files, and a rebase is an
+    # inference: nothing has ever checked it against the source file's
+    # own transcript. This verifies each span on demand, before any
+    # media is placed, and records the answer beside the plan's other
+    # decisions. It is a REPORT: a span the check cannot decide is
+    # reported as undecided, and a build is never refused over it (the
+    # captain's ruling on report-only checks stands).
+    _span_report = _verify_plan_span_claims(project_folder, moments)
+    if _span_report is not None:
+        _print_span_verification(_span_report)
     build_inventory_operation = _inventory_provenance.begin_timeline_inventory(
         os.path.join(project_folder, "pipeline_output", "review"),
         "reel build", build_inventory_before,
