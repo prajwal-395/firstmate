@@ -11,7 +11,7 @@
 # ledger appends nothing, so a retried cleanup never counts a task twice.
 # Recording is disabled unless config/pipeline-spend is present; in that case
 # this command exits before reading task metadata, no-mistakes state, or ledger.
-# When enabled, bin/fm-teardown.sh calls record for every ship task whose
+# When enabled, bin/fm-teardown.sh calls record for every ship task whose recorded mode is no-mistakes and whose
 # local copy it cleans up, before it deletes the task branch this script
 # attributes runs by and before it removes state/<id>.meta. The ledger is
 # private and gitignored with the rest of data/.
@@ -119,6 +119,8 @@ command -v python3 >/dev/null 2>&1 || fail "python3 is required to read no-mista
 
 WT=$(meta_value worktree)
 SPAWN_GEN=$(meta_value spawn_gen)
+TASK_MODE=$(meta_value mode)
+[ -n "$TASK_MODE" ] || TASK_MODE=no-mistakes
 BRANCH=
 SINCE=
 REPO=
@@ -129,6 +131,8 @@ if [ -z "$WT" ] || [ ! -d "$WT" ]; then
 elif ! BRANCH=$(git -C "$WT" symbolic-ref --quiet --short HEAD 2>/dev/null) || [ -z "$BRANCH" ]; then
   BRANCH=
   REASON="the task copy is not on a branch"
+elif [ "$TASK_MODE" != no-mistakes ]; then
+  REASON="task mode is $TASK_MODE, not no-mistakes"
 elif ! command -v no-mistakes >/dev/null 2>&1; then
   REASON="no-mistakes is not installed"
 else
