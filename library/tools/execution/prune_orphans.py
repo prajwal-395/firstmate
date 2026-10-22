@@ -259,26 +259,30 @@ def _disk_database_root(db_name: str) -> str:
     `poetic:/Users/<you>/Pictures/Davinci:*:::DISK`.  Matched on the
     name `GetCurrentDatabase()` reports, because a machine may have
     several and the first line is not necessarily the open one.
+
+    An EMPTY name asks for THE ONE disk database the machine has, and
+    refuses when it has several: a Resolve that does not answer
+    `GetCurrentDatabase()` (measured live 2026-10-22: it answered
+    nothing) leaves the name unknown, and a machine with two disk
+    databases has no way to say which one the Project Manager is
+    showing.
+
+    The reader is `library/tools/resolve_project_folders.py`'s, so the
+    database list is read in ONE place.
     """
-    conf = Path.home() / ("Library/Preferences/Blackmagic Design/"
-                          "DaVinci Resolve/dblist.conf")
-    try:
-        text = conf.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise RemovalRefused(
-            f"cannot read the Resolve database list at {conf}: {exc}. "
-            f"Nothing was removed.") from exc
-    listed = []
-    for line in text.splitlines():
-        fields = line.strip().split(":")
-        if len(fields) < 2 or not fields[1]:
-            continue
-        listed.append((fields[0], fields[1]))
-        if fields[0] == db_name:
-            return fields[1]
+    from library.tools import resolve_project_folders
+
+    listed = resolve_project_folders.machine_databases()
+    disks = resolve_project_folders.machine_disk_databases()
+    if db_name:
+        for name, path in listed:
+            if name == db_name:
+                return path
+    elif len(disks) == 1:
+        return disks[0][1]
     raise RemovalRefused(
-        f"{conf} does not name a disk database called {db_name!r}. It "
-        f"lists {listed!r}. Nothing was removed.")
+        f"{resolve_project_folders.DATABASE_LIST_NAME} does not name one "
+        f"disk database to read. It lists {listed!r}. Nothing was removed.")
 
 
 @under_lease("save Resolve project before orphan pruning")

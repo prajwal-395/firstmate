@@ -866,6 +866,23 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/fidelity.py",
         "library/tools/resident_model_admission.py",
         "library/tools/resolved/job_budget.py",
+        # The project-folder route: the folder a Ren-owned
+        # project is filed in, the navigation to it and the
+        # refusal that names it.  A fix to it changes what the
+        # cached rows resolve through, so the map names it.
+        "library/tools/resolve_project_folders.py",
+        # The shared modules the closure above reached
+        # with the PRs that landed after this map was
+        # written: a fix to any of them changes what the
+        # cached rows resolve through, so the map names
+        # them.
+        'library/tools/comp_carry.py',
+        # The shared modules the closure above reached
+        # with the PRs that landed after this map was
+        # written: a fix to any of them changes what the
+        # cached rows resolve through, so the map names
+        # them.
+        'library/tools/execution/apply_fusion_comps.py',
     ),
     "step_1_01_scan_project": (
         "library/tools/alignment_quality.py",
@@ -1644,6 +1661,23 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/fidelity.py",
         "library/tools/resident_model_admission.py",
         "library/tools/resolved/job_budget.py",
+        # The project-folder route: the folder a Ren-owned
+        # project is filed in, the navigation to it and the
+        # refusal that names it.  A fix to it changes what the
+        # cached rows resolve through, so the map names it.
+        "library/tools/resolve_project_folders.py",
+        # The shared modules the closure above reached
+        # with the PRs that landed after this map was
+        # written: a fix to any of them changes what the
+        # cached rows resolve through, so the map names
+        # them.
+        'library/tools/comp_carry.py',
+        # The shared modules the closure above reached
+        # with the PRs that landed after this map was
+        # written: a fix to any of them changes what the
+        # cached rows resolve through, so the map names
+        # them.
+        'library/tools/execution/apply_fusion_comps.py',
     ),
     "step_1_02_catalog_footage": (
         # Shared measurement and evidence readers reached by the catalog's
@@ -2474,6 +2508,23 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/fidelity.py",
         "library/tools/resident_model_admission.py",
         "library/tools/resolved/job_budget.py",
+        # The project-folder route: the folder a Ren-owned
+        # project is filed in, the navigation to it and the
+        # refusal that names it.  A fix to it changes what the
+        # cached rows resolve through, so the map names it.
+        "library/tools/resolve_project_folders.py",
+        # The shared modules the closure above reached
+        # with the PRs that landed after this map was
+        # written: a fix to any of them changes what the
+        # cached rows resolve through, so the map names
+        # them.
+        'library/tools/comp_carry.py',
+        # The shared modules the closure above reached
+        # with the PRs that landed after this map was
+        # written: a fix to any of them changes what the
+        # cached rows resolve through, so the map names
+        # them.
+        'library/tools/execution/apply_fusion_comps.py',
     ),
     "step_1_03_semantic_analysis": (
         "library/tools/alignment_quality.py",
@@ -3277,6 +3328,23 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/fidelity.py",
         "library/tools/resident_model_admission.py",
         "library/tools/resolved/job_budget.py",
+        # The project-folder route: the folder a Ren-owned
+        # project is filed in, the navigation to it and the
+        # refusal that names it.  A fix to it changes what the
+        # cached rows resolve through, so the map names it.
+        "library/tools/resolve_project_folders.py",
+        # The shared modules the closure above reached
+        # with the PRs that landed after this map was
+        # written: a fix to any of them changes what the
+        # cached rows resolve through, so the map names
+        # them.
+        'library/tools/comp_carry.py',
+        # The shared modules the closure above reached
+        # with the PRs that landed after this map was
+        # written: a fix to any of them changes what the
+        # cached rows resolve through, so the map names
+        # them.
+        'library/tools/execution/apply_fusion_comps.py',
     ),
     "step_1_04_temporal_index": (
         "library/tools/alignment_quality.py",
@@ -4111,6 +4179,23 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/fidelity.py",
         "library/tools/resident_model_admission.py",
         "library/tools/resolved/job_budget.py",
+        # The project-folder route: the folder a Ren-owned
+        # project is filed in, the navigation to it and the
+        # refusal that names it.  A fix to it changes what the
+        # cached rows resolve through, so the map names it.
+        "library/tools/resolve_project_folders.py",
+        # The shared modules the closure above reached
+        # with the PRs that landed after this map was
+        # written: a fix to any of them changes what the
+        # cached rows resolve through, so the map names
+        # them.
+        'library/tools/comp_carry.py',
+        # The shared modules the closure above reached
+        # with the PRs that landed after this map was
+        # written: a fix to any of them changes what the
+        # cached rows resolve through, so the map names
+        # them.
+        'library/tools/execution/apply_fusion_comps.py',
     ),
     "step_1_05_prosody_analysis": (
         # The legacy step delegates the measurement here.

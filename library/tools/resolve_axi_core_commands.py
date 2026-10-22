@@ -8641,6 +8641,8 @@ def _scratch_apply(args, scratch) -> dict:
 
 def cmd_project_scratch(args) -> int:
     """Operate on Ren-owned scratch projects under the exclusive lease."""
+    from library.tools.ren_refusal import RenRefusal
+
     if not getattr(args, "apply", False) and args.scratch_command != "collect":
         return fail(
             "scratch project lifecycle changes the Resolve session; pass --apply",
@@ -8675,6 +8677,12 @@ def cmd_project_scratch(args) -> int:
               help_block([f"{TOOL} project scratch restore --apply",
                           f"{TOOL} project scratch delete <scratch-name> --apply"])])
         return 0
+    except RenRefusal:
+        # A TYPED refusal keeps its own shape: what happened, why, and
+        # the fix - the CLI boundary renders it (exit 4). Flattening it
+        # into this verb's generic failure would throw away the folder
+        # the refusal names.
+        raise
     except Exception as exc:  # noqa: BLE001 - lifecycle refusal is user-facing
         return fail(f"scratch project operation failed: {exc}",
                     f"{TOOL} project scratch --help")

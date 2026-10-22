@@ -980,6 +980,38 @@ def _listed(manager, name: str) -> bool:
     return name in (manager.GetProjectListInCurrentFolder() or [])
 
 
+def _folder_path(manager, name: str, records: list[dict] | None = None) -> tuple[str, ...]:
+    """The Project Manager folder a scratch project is filed in.
+
+    The RECORDED path first: a scratch project whose folder path a
+    previous session wrote down is reached by that path, so the machine
+    does not have to search for it again. Then the DISCOVERED path: the
+    Resolve database on disk mirrors the Project Manager tree, so the
+    folder a project is filed in is readable from it (measured
+    2026-10-22; `library/tools/resolve_project_folders.py`).
+
+    An empty path means the ROOT - the folder every machine can reach -
+    or a project this machine cannot place. The caller tells the two
+    apart by asking the listing.
+    """
+    from library.tools import resolve_project_folders
+
+    record = _record_for(records or [], name)
+    recorded = (record or {}).get("folder_path") or ()
+    if recorded:
+        return tuple(str(part) for part in recorded)
+    found = resolve_project_folders.database_folder_paths(manager, name)
+    if len(found) == 1:
+        return found[0]
+    if len(found) > 1:
+        raise ScratchProjectError(
+            f"scratch project {name!r} is filed in more than one "
+            f"Project Manager folder "
+            f"({', '.join(resolve_project_folders.folder_label(path) for path in found)}); "
+            "refusing rather than picking one")
+    return ()
+
+
 def _parse_fps(fps) -> float | None:
     """Validate an optional frame-rate request; None means leave the default."""
     if fps is None or (isinstance(fps, str) and not fps.strip()):
@@ -1439,11 +1471,28 @@ def open_project(resolve, manager, name: str) -> dict:
     state = _starting_state(resolve, manager)
     if name == state["project"]:
         raise ScratchProjectError(f"scratch project {name!r} is already open")
-    if not _listed(manager, name):
-        raise ScratchProjectError(f"scratch project {name!r} is not in the current folder")
-    _write_origin({**state, "scratch_project": name}, records)
+    from library.tools import resolve_project_folders
+
+    if _listed(manager, name):
+        # The current folder holds it: the load is the plain one.
+        folder: tuple[str, ...] = ()
+    else:
+        # The Project Manager's listing is folder-scoped, so a project
+        # filed in another folder reads as absent. The folder it is
+        # filed in is the whole answer, and it is read from the ledger
+        # or from the database on disk.
+        folder = _folder_path(manager, name, records)
+        if not folder:
+            raise ScratchProjectError(
+                f"scratch project {name!r} is not in the current folder "
+                f"({resolve_project_folders.folder_label(())}) and no other "
+                "Project Manager folder holds it that this machine can find")
+    _write_origin({**state, "scratch_project": name,
+                    "folder_path": list(folder)}, records)
     try:
-        project = switch_project(manager, name)
+        project = (switch_project(manager, name) if not folder
+                   else resolve_project_folders.open_project_by_folder(
+                       manager, name, folder))
     except Exception:
         # Keep the record when Resolve may have partially switched. It
         # remains the only safe route back after a failed switch.
@@ -1452,6 +1501,7 @@ def open_project(resolve, manager, name: str) -> dict:
     result = {"project": project.GetName(),
               "timeline": timeline.GetName() if timeline else None,
               "opened": True,
+              "folder": resolve_project_folders.folder_label(folder),
               "origin": {"project": state["project"], "timeline": state["timeline"],
                          "page": state["page"]},
               "recovered_origin": recovered,

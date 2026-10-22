@@ -345,6 +345,16 @@ def open_project(session: Session, timeout: float) -> Session:
     avoided), so this costs nothing when the session's project is
     already there.
 
+    A project FILED IN ANOTHER FOLDER is reached by that folder's path:
+    Resolve resolves a project name inside the folder the Project
+    Manager is showing, so the session navigates to the folder the
+    project is filed in and loads it there. The folder path comes from
+    the Resolve database on disk, which mirrors the Project Manager tree
+    (measured 2026-10-22; `library/tools/resolve_project_folders.py`).
+    A machine whose Project Manager cannot move refuses with the folder
+    NAMED, which is the one thing the caller cannot work out for
+    itself.
+
     A session that names no project opens nothing and verifies nothing:
     it is not about a project, and it says so.
     """
@@ -363,12 +373,52 @@ def open_project(session: Session, timeout: float) -> Session:
         if manager is None:
             raise SessionProjectRefused(
                 f"{name!r} (Resolve's project manager is not available)")
-        switch_project(manager, name)
+        folder = _folder_path(manager, name)
+        if folder:
+            from library.tools import resolve_project_folders
+
+            resolve_project_folders.open_project_by_folder(
+                manager, name, folder)
+        else:
+            switch_project(manager, name)
         found = _open_project_name(resolve)
         if found != name:
             raise SessionProjectRefused(
                 f"{name!r} (Resolve has {found or 'no project'!r})")
     return replace(session, opened_project=name)
+
+
+def _folder_path(manager, name: str) -> tuple[str, ...]:
+    """The Project Manager folder a project is filed in, or the root.
+
+    The current folder's listing is folder-scoped, so a project filed in
+    another folder reads as absent - and the folder it is filed in is
+    readable from the database on disk, which mirrors the Project
+    Manager tree. A name that two folders hold is REFUSED with the
+    folders named: Resolve resolves a name inside the current folder,
+    so the two are different projects and the wrong one is not ours to
+    open.
+    """
+    from library.tools import resolve_project_folders
+
+    try:
+        listed = manager.GetProjectListInCurrentFolder() or []
+    except Exception:  # noqa: BLE001 - a manager that cannot list is no evidence
+        listed = []
+    if name in listed:
+        return ()
+    found = resolve_project_folders.database_folder_paths(manager, name)
+    if len(found) > 1:
+        folders = ", ".join(
+            resolve_project_folders.folder_label(path) for path in found)
+        raise SessionProjectRefused(
+            what=f"{name!r} is filed in more than one Project Manager folder",
+            why=(f"{folders} - Resolve resolves a name inside the current "
+                 "folder, so opening the wrong one would put this "
+                 "session's writes in somebody else's project"),
+            fix=("move the project to one folder, or name the folder this "
+                 "session should open it from"))
+    return found[0] if found else ()
 
 
 def adopt_project(session: Session, name: str) -> Session:

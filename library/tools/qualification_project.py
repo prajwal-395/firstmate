@@ -705,25 +705,34 @@ def _current_project_folder_path(manager) -> tuple[str, ...]:
 
 
 def _open_project_folder_path(manager, path: tuple[str, ...]) -> None:
-    """Navigate from the Project Manager root to a recorded folder path."""
-    if manager.GotoRootFolder() is False:
-        raise QualificationError(
-            "Resolve refused to navigate to the Project Manager root")
-    for segment in path:
-        folders = manager.GetFoldersInCurrentFolder() or []
-        folders = (list(folders.values()) if isinstance(folders, dict)
-                   else list(folders))
-        if folders.count(segment) != 1 or manager.OpenFolder(segment) is False:
-            raise QualificationError(
-                f"Resolve could not navigate to project folder "
-                f"{'/'.join(path)!r}")
-        if manager.GetCurrentFolder() != segment:
-            raise QualificationError(
-                f"Resolve did not read back project folder {segment!r}")
+    """Navigate from the Project Manager root to a recorded folder path.
+
+    The route is the ONE route: `library/tools/resolve_project_folders.py`
+    owns the navigation and the refusal that names the folder a machine
+    cannot reach. This wrapper keeps the qualification family's own
+    exception type, so a reader of this module sees what it expects.
+    """
+    from library.tools import resolve_project_folders
+
+    try:
+        resolve_project_folders.navigate_to_folder(manager, path)
+    except resolve_project_folders.ProjectFolderRefused as refused:
+        raise QualificationError(str(refused)) from refused
 
 
-def switch_project(manager, name: str, *, settle: float | None = None):
+def switch_project(manager, name: str, *, settle: float | None = None,
+                   folder=None):
     """The ONE in-repo LoadProject path: already-open, live-check, settle.
+
+    `folder` is the Project Manager folder the project is filed in, when
+    it is not the one the Project Manager is showing. Resolve resolves a
+    project NAME inside the CURRENT folder, so a project filed elsewhere
+    is only reachable by navigating there first - and the navigation
+    happens AFTER the current project is read, because that read is
+    measured to put the Project Manager back to the root (AGENTS.md
+    section 5: a call is judged by what it RETURNS). A machine whose
+    Project Manager does not move refuses with the folder named
+    (`library/tools/resolve_project_folders.py`).
 
     A project that is ALREADY the open one is not loaded again. The
     reload would cost a `LoadProject` and a settle window
@@ -755,6 +764,11 @@ def switch_project(manager, name: str, *, settle: float | None = None):
         return current
     started_at = time.time()
     try:
+        if folder:
+            from library.tools import resolve_project_folders
+
+            with _phase("project_folder_navigation"):
+                resolve_project_folders.navigate_to_folder(manager, folder)
         with _phase("project_switch_load"):
             project = manager.LoadProject(name)
         resolve_switch_guard.note_project_switch()
