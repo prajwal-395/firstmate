@@ -10888,7 +10888,7 @@ the invariant fails closed on it. The CANVAS is part of the accepted
 state: a comp re-authored on another canvas, and a reel whose delivery
 canvas changed, are both named (the second is Reel 26's signature, and
 the first is what a version comparison could not see).
-=======
+
 ## the-refusal-that-arrived-as-a-crash
 
 Measured 2026-10-21, the PERF-001 rebenchmark of the execution layer
@@ -11378,3 +11378,73 @@ The two operations the scratch ledgers never covered - the render and
 the vision model's reading - are measured from Ren's own qualification
 runs, which build and render on synthetic footage. Their rows carry the
 same `frames` and `calls` counts, so their units are the same units.
+
+=======
+## the-span-reel-that-four-refusals-were-built-on
+
+**The rule.** A reel whose picture is a `full_frame_span` is not a reel
+with fewer pictures: the span's own CARDS are the picture, the footage
+beneath them is SUPPRESSED, and every pass that reads the picture row
+must read it by what each item CARRIES, never by position.
+
+**What happened.** 2026-10-21, on the Ren-owned scratch copy
+(`Ren Scratch - breaktest`), reel 13 was built and promoted end to end
+for the first time. Six things refused it, and every one of them was a
+pass that read the picture row by position:
+
+* the punch-in aim zipped the row's TIMELINE ITEMS with the row's
+  PLACEMENTS by position. On a span reel the items are 52 cards and one
+  hold, and the placements are the footage the span suppressed - so the
+  footage's punch-in was aimed at the first five CARDS (scaling
+  full-frame graphics by 2.13) and the hold, the one footage clip under
+  the span, was never aimed at all: it played UNCROPPED under the TV
+  frame and left black inside the television's screen (F12, six
+  findings);
+* the recorded transform holds were zipped the same way, so the
+  captain's hold (aimed at a footage shot) landed on a card and left
+  0.74 % of the frame uncovered (F12);
+* the re-derived plan emptied the picture plan for a span reel, and
+  with it the declared FREEZE the build places under the span - so the
+  plan laid 1912 frames where the built picture carried 1931, and
+  PLAN-MISMATCH refused a correct build for 19 frames nobody dropped;
+* the same plan left the hold out of the planned PICTURE ITEMS, so the
+  gate reported "planned 0 picture items, found 1" (F4);
+* the caption word diff did not honour the transcript's own
+  `display: False` mark, so a word the transcript had already decided
+  not to draw (a mis-split "AI") read as a DROPPED word (F25);
+* the card's picture record carried no GEOMETRY descriptor, so the
+  rendered-overlay picture check SKIPPED it - and a skipped clip makes
+  that check refuse, so a span reel could never pass it.
+
+**The rule.** The picture row is paired by IDENTITY: the item that
+carries a placement's media, at that placement's own record frame. An
+item no placement produced is not footage this reel plays. The
+positional reading survives only where the identity cannot be read at
+all and the row IS its placements, in order.
+
+Two more readings followed from the same place:
+
+* a NATIVE HOLD has no `GetStartFrame` (Resolve answers None), so the
+  record frame comes from `GetStart` when that is absent - and the
+  record frame is the only evidence a hold can be paired by;
+* the hold INHERITS the ending shot's treatment from the item in front
+  of it, which on a span reel is a CARD. With no footage in front there
+  is nothing to inherit, and the hold keeps the aim computed for it -
+  which IS the shot's treatment, the same subject and the same zoom.
+
+**Where it is.** `library/tools/reel_build.py`:
+`pair_row_items_to_places` (the identity pairing),
+`_item_record_frame` (the native hold's frame), `_inherit_freeze_treatment`
+(the inherit, and what it does when there is no shot in front),
+`resolve_declared_project` (the project resolved in its DECLARED folder,
+because the Project Manager's current folder moves under a run when
+lanes share one Resolve). `library/tools/reel_conformance_verifier.py`:
+`_derive_plan_from_master` (the hold counted in a span reel's plan) and
+`_suppressed_played_words` (the transcript's own display mark).
+
+**Tests that name the defects.**
+`tests/unit/reels/test_span_reel_punch_in_pairing.py`,
+`tests/unit/reels/test_span_reel_ending_hold.py`,
+`tests/unit/reels/test_freeze_hold_inherits_its_shot.py`,
+`tests/unit/reels/test_declared_folder_project_resolution.py`,
+`tests/unit/captions/test_transcript_display_flag_word_diff.py`.

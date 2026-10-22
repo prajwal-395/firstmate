@@ -314,6 +314,12 @@ def played_words_from_transcript(
                 "source_file": seg_file,
                 "source_time": src,
                 "degenerate": index in degenerate,
+                # The transcript's OWN display decision travels with the
+                # word: a row the transcript marks `display: False` is a
+                # token the caption planner never draws (the spine
+                # drops it), and a diff that does not know that reads
+                # the caption's obedience as a dropped word.
+                "display": word.get("display"),
                 # The row's speaker travels so the verifier can apply
                 # the same display suppressions the caption planner
                 # applies per block (F25): an anchored suppression

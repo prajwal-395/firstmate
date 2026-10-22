@@ -5121,17 +5121,38 @@ def _suppressed_played_words(read_played, project_folder: str = "") -> list:
     so the stamp travels nowhere else). No project folder, no active
     suppressions, or an unreadable store marks nothing - the diff
     then reads exactly as before, never refused on a missing store.
+
+    THE TRANSCRIPT'S OWN MARK is the first half of the same contract.
+    A row the transcript carries as `display: False` is a token the
+    transcript pass already decided not to draw, and the spine drops
+    it before the caption planner ever sees it (`reel_spine`: a word
+    with `display: False` is not in the spine). The caption that
+    omits it therefore obeys the record, and a diff that does not
+    know about the flag reads that obedience as a DROPPED WORD
+    (measured 2026-10-21 on scratch Reel 13: the transcript's "A" -
+    the first half of a mis-split "AI" - carries `display: False`,
+    and F25 refused the caption for dropping it). The flag travels
+    with the word (the transcript's own decision, already made), so
+    it is read here rather than re-decided.
     """
     ordered = list(read_played or [])
-    if not ordered or not project_folder:
+    if not ordered:
         return []
+    marked: list = []
+    for entry in ordered:
+        if entry.get("display") is False:
+            entry["suppression"] = str(
+                entry.get("suppression") or "transcript-display-flag")
+            marked.append(entry)
+    if not project_folder:
+        return marked
     try:
         from library.tools import transcript_corrections as _tc
         active = _tc.suppressions(project_folder)
     except Exception:  # noqa: BLE001 - absence, never a refusal
-        return []
+        return marked
     if not active:
-        return []
+        return marked
     runs: list = []
     for entry in ordered:
         speaker = (entry.get("speaker") or "").strip().lower()
@@ -5139,7 +5160,7 @@ def _suppressed_played_words(read_played, project_folder: str = "") -> list:
             runs[-1][1].append(entry)
         else:
             runs.append((speaker, [entry]))
-    out: list = []
+    out: list = list(marked)
     for speaker, run in runs:
         cores = [_tc.word_core(entry.get("word", "")) for entry in run]
         for index, entry in enumerate(run):
@@ -5150,7 +5171,8 @@ def _suppressed_played_words(read_played, project_folder: str = "") -> list:
                         entry.get("word", ""), speaker or None,
                         prev_core, next_core, suppression):
                     entry["suppression"] = str(suppression.get("id", ""))
-                    out.append(entry)
+                    if entry not in out:
+                        out.append(entry)
                     break
     return out
 
@@ -6368,20 +6390,31 @@ def _derive_plan_from_master(
     # span-built reel as "planned N items, found 0".  Cards never take
     # this branch - a card sits beside the footage, not in place of it.
     span_present = any(c.placement == "span" for c in cards)
-    placed = ([] if span_present
-              else compute_placements(kr, master_clips, fps,
-                                      lead_frames=lead_frames))
+    # The FOOTAGE the plan lays, kept even for a span reel. A span IS
+    # the picture for the whole body, so the footage beneath it is
+    # suppressed at build time and the ITEM COUNT must not expect it -
+    # but the declared FREEZE is planned from those very placements
+    # (`reel_ending.plan_freeze` holds the last frame that plays), and
+    # the build places that hold even under a span (the span's own
+    # suppression exempts it). Dropping the placements for a span
+    # therefore dropped the FREEZE from the re-derived plan: the plan
+    # laid 1912 frames where the built picture carried 1931 (the body
+    # plus the 19-frame hold), and PLAN-MISMATCH refused a correct
+    # build for 19 frames nobody had dropped.
+    footage_placed = compute_placements(kr, master_clips, fps,
+                                        lead_frames=lead_frames)
     # And as the reel's declared angle plan places them - the build's
     # own composition (`reel_build.plan_reel_picture`), so a reel that
     # shows the listener is not graded against the master's per-speaker
     # shots ("planned 4 picture items, found 6", scratch Reel 04,
     # 2026-09-25).
-    if placed and project_folder:
+    if footage_placed and project_folder:
         from library.tools.reel_build import plan_reel_picture
 
-        placed = plan_reel_picture(
-            placed, project_folder, reel_name, master_clips, kr,
+        footage_placed = plan_reel_picture(
+            footage_placed, project_folder, reel_name, master_clips, kr,
             transcript or {}, fps, lead_in_frames=lead_frames)
+    placed = ([] if span_present else footage_placed)
 
     # A declared source-locked tail shot is picture the viewer watches
     # that no keep range describes - the same case a full-frame card
@@ -6397,6 +6430,13 @@ def _derive_plan_from_master(
     # span, for every reel that declares none.
     tail_seconds = 0.0
     tail_span = None
+    # The list the FREEZE is planned from: the footage the reel lays,
+    # then the declared tail shot - the build's own order
+    # (`reel_build.append_approved_tail` runs before
+    # `reel_ending.plan_freeze`). A SPAN reel places no tail picture
+    # (the span suppresses it), so its freeze is planned from the
+    # footage alone.
+    freeze_source = list(footage_placed)
     if ending_declaration is not None and placed:
         from library.tools import reel_ending as _tail_ending
         from library.tools.reel_build import (
@@ -6408,6 +6448,7 @@ def _derive_plan_from_master(
             placed = list(placed)
             _append_tail(placed, ending_declaration, fps, reel_name,
                          track_types=("video",))
+            freeze_source = list(placed)
             tail_seconds = (
                 _tail_ending.approved_tail_frames(ending_declaration, fps)
                 / fps if fps else 0.0)
@@ -6418,15 +6459,25 @@ def _derive_plan_from_master(
     # longer than "the plan" and PLAN-MISMATCH refuses the whole
     # grading. Re-derived, never rendered - the verifier reads.
     freeze_plan = None
-    if ending_declaration is not None and placed:
+    if ending_declaration is not None and footage_placed:
         from library.tools import reel_ending as _ending
 
+        # The FREEZE is planned from the FOOTAGE placements, never from
+        # the span-emptyed list: a span reel places no footage, but it
+        # DOES hold the last frame the body played, and the frames the
+        # hold occupies are picture the viewer watches.
         freeze_plan = _ending.plan_freeze(
-            placed, ending_declaration, fps,
+            freeze_source, ending_declaration, fps,
             look=_reel_look_declaration(project_folder))
         if freeze_plan is not None:
-            placed = list(placed) + [
-                _ending.freeze_placement(freeze_plan, fps)]
+            # The hold IS a picture item the build places, even under a
+            # span: the item count and the per-speaker map read the
+            # PLAN's placements, and a plan that leaves the hold out
+            # reports the reel as "planned 0 picture items, found 1"
+            # (F4) and the hold's 19 frames as video no speaker in the
+            # plan owns.
+            freeze_placement = _ending.freeze_placement(freeze_plan, fps)
+            placed = list(placed) + [freeze_placement]
 
     planned_placements = tuple(
         PlannedPlacement(
@@ -7055,6 +7106,33 @@ def _write_verification_report(json_path, report, project_folder, only_reels,
     return True
 
 
+def _resolve_in_declared_folder(manager, project_name: str,
+                                project_folder: str = ""):
+    """The named project, resolved in the folder the project DECLARES.
+
+    The Project Manager's current folder moves under a run when other
+    lanes share the one Resolve, and an exact lookup in the wrong
+    folder refuses a project that is open. The project's own declared
+    folder is where it lives, so the lookup goes there first.
+    """
+    folder = ""
+    if project_folder:
+        try:
+            import yaml
+            with open(os.path.join(project_folder, "project.yaml"),
+                      "r", encoding="utf-8") as handle:
+                config = yaml.safe_load(handle) or {}
+            folder = str((config.get("resolve") or {}).get("folder") or "")
+        except Exception:  # noqa: BLE001 - absence, never a refusal
+            folder = ""
+    if not folder:
+        from library.tools.timeline_ingest import resolve_project_exactly
+        return resolve_project_exactly(manager, project_name)
+    from library.tools.timeline_ingest import (
+        resolve_project_in_declared_folder)
+    return resolve_project_in_declared_folder(manager, project_name, folder)
+
+
 @under_lease("verify reel conformance", exclusive=False)
 @perf_ledger.measured("verification")
 def run_verification(
@@ -7235,7 +7313,16 @@ def run_verification(
 
     manager = resolve.GetProjectManager()
     try:
-        project = resolve_project_exactly(manager, project_name)
+        # The project's DECLARED folder, not whatever folder the
+        # Project Manager happens to be in: on a machine where several
+        # lanes share ONE Resolve, that folder moves under the run
+        # (measured 2026-10-21, scratch Reel 13: the reel was placed
+        # and the gate PASSED, and the verification that followed could
+        # not find the project any more - "No project named exactly
+        # 'Ren Scratch - breaktest' in the current folder. Resolve
+        # lists []").
+        project = _resolve_in_declared_folder(
+            manager, project_name, project_folder)
     except TimelineIngestError as exc:
         print(f"FATAL: {exc}", file=err)
         return 2

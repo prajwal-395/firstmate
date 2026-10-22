@@ -7420,6 +7420,134 @@ def _prepare_subject_measurements(placements, project_folder: str):
     return prepared_measure
 
 
+def _item_media_key(item) -> str:
+    """The media a timeline item carries, as a comparable name.
+
+    The pool item's own `File Path` when Resolve can name it, and the
+    item's display name otherwise - both reduced to the file name
+    without its extension, so `.../LC4932.MXF` and `LC4932` are one
+    key. Empty when the item carries no media at all (a compound, a
+    title): an item with no key is matched by nothing.
+    """
+    name = ""
+    try:
+        pool_item = item.GetMediaPoolItem()
+    except Exception:  # noqa: BLE001 - an item that cannot say
+        pool_item = None
+    if pool_item is not None:
+        try:
+            name = str(pool_item.GetClipProperty("File Path") or "")
+        except Exception:  # noqa: BLE001 - an item that cannot say
+            name = ""
+    if not name:
+        try:
+            name = str(item.GetName() or "")
+        except Exception:  # noqa: BLE001 - an item that cannot say
+            name = ""
+    return os.path.splitext(os.path.basename(name))[0].strip().lower()
+
+
+def _place_media_key(place) -> str:
+    """The media a placement lays, as the same comparable name."""
+    source = str(getattr(place.get("clip"), "source_file", "") or "")
+    return os.path.splitext(os.path.basename(source))[0].strip().lower()
+
+
+def _item_record_frame(item) -> int:
+    """The reel frame an item starts at, or -1 when it cannot say.
+
+    `GetStartFrame` is the record start, and a NATIVE HOLD - the
+    declared freeze, a retimed frame - has none: Resolve answers None
+    for it, and calling it is a TypeError. `GetStart` is the same frame
+    for every item that has one, so it is the fallback.
+    """
+    for getter in ("GetStartFrame", "GetStart"):
+        try:
+            value = getattr(item, getter, None)
+        except Exception:  # noqa: BLE001 - an item that cannot say
+            continue
+        if value is None:
+            continue
+        try:
+            return int(value())
+        except Exception:  # noqa: BLE001 - an item that cannot say
+            continue
+    return -1
+
+
+def pair_row_items_to_places(row_items, row_places):
+    """Pair each row item with the placement that produced it.
+
+    `row_items` is what RESOLVE holds on the row; `row_places` is what
+    the plan says to play on it. They are not the same list, and
+    zipping them by POSITION assumes they are - which is true for a
+    reel that plays footage, and false for a reel whose picture is a
+    SPAN: the row then holds the span's own cards (graphics) plus the
+    one footage clip the declared freeze places, while the placements
+    are the footage the span SUPPRESSED. The positional zip aimed the
+    footage's punch-in at the first cards - scaling full-frame
+    graphics by 2.13 (F12 on five span cards) - and never aimed the
+    footage at all, so the declared hold played UNCROPPED under the TV
+    frame and left black inside the television's screen (F12 on the
+    hold).
+
+    So the pairing is by IDENTITY: the item carrying the placement's
+    media, at the placement's own record frame. An item no placement
+    produced is not footage this reel plays and is left alone.
+
+    The positional reading is kept only where the identity could not be
+    read AT ALL for the row - no item matched anything - AND the two
+    lists are the same length. That is a row whose items cannot say
+    what they carry (or whose pool path differs from the plan's source
+    path): the row IS its placements, in order, which is the reading
+    every ordinary reel had. A row whose identity reads even ONE
+    placement is read by identity, so a row whose contents and plan
+    disagree (a span) is never handed back the positional reading.
+    """
+    items = list(row_items or [])
+    places = list(row_places or [])
+    pairs = []
+    used = set()
+    for place in places:
+        key = _place_media_key(place)
+        frame = int(place.get("snapped_record") or 0)
+        for item_index, item in enumerate(items):
+            if item_index in used:
+                continue
+            if _item_record_frame(item) != frame:
+                continue
+            if _item_media_key(item) != key:
+                continue
+            used.add(item_index)
+            pairs.append((item, place))
+            break
+    # An item that cannot SAY what it carries (no pool item, no name -
+    # a native hold is the shape that happens) is paired with the
+    # placement at its record frame, which is then the only evidence
+    # there is. The frame must be unique among the row's items, or
+    # nothing is claimed.
+    unmatched = [place for place in places
+                 if not any(place is paired for _, paired in pairs)]
+    for place in unmatched:
+        frame = int(place.get("snapped_record") or 0)
+        at_frame = [index for index, item in enumerate(items)
+                    if index not in used
+                    and _item_record_frame(item) == frame
+                    and not _item_media_key(item)]
+        if len(at_frame) != 1:
+            continue
+        index = at_frame[0]
+        used.add(index)
+        pairs.append((items[index], place))
+    if not pairs and len(items) == len(places):
+        # The identity could not be read for this row at all and the
+        # row IS its placements, in order: the positional reading
+        # stands.
+        return [(items[index], places[index])
+                for index in range(len(items))]
+    return pairs
+
+
 def aim_picture_row(name: str, look: dict, screen_window,
                     frame_width: int, frame_height: int,
                     row_items, row_places,
@@ -8043,6 +8171,29 @@ def _inherit_freeze_treatment(name: str, timeline, track_plan,
             f"item to give the shot's treatment to. The row carries "
             f"{len(items)} item(s). Refusing rather than grading the "
             f"wrong clip.")
+    # The item in front of the hold must be the SHOT the hold holds: a
+    # clip of the same source file. On a reel whose picture is a SPAN
+    # the item in front is the span's own CARD - a graphic, not footage
+    # - and copying ITS transform overwrote the punch-in the aim had
+    # just written on the hold with the card's identity, so the hold
+    # played UNCROPPED under the TV frame and left black inside the
+    # screen (F12, scratch Reel 13). With no shot in front there is
+    # nothing to inherit: the hold keeps the aim computed for it, which
+    # IS the shot's treatment (the same subject, the same zoom).
+    try:
+        shot_pool = shot.GetMediaPoolItem()
+        shot_source = (shot_pool.GetClipProperty("File Path") or ""
+                       if shot_pool else "")
+    except Exception:  # noqa: BLE001 - an item that cannot say
+        shot_source = ""
+    if shot_source != freeze.held_from:
+        record["properties"] = {"inherited": False}
+        record["grades_copied"] = False
+        print(f"  {name}: the freeze tail has no shot in front of it to "
+              f"inherit from (the item in front is not footage of "
+              f"{os.path.basename(freeze.held_from)}) - the hold keeps "
+              f"the aim the punch-in computed for it", file=sys.stderr)
+        return record
     wanted = shot.GetProperty() or {}
     from library.tools.transform_write_log import set_property
 
@@ -8172,10 +8323,13 @@ def apply_transform_overrides(name: str, track_plan, video_row_by_angle: dict,
             and video_row_by_angle.get(_angle_key(p["clip"]))
             == aroll_row.index]
         row_places.sort(key=lambda p: p["snapped_record"])
-        for index, item in enumerate(row_items):
-            if index >= len(row_places):
-                break
-            place = row_places[index]
+        # The row's items are paired with the placements that produced
+        # them BY IDENTITY, not by position: on a reel whose picture is
+        # a SPAN the row holds the span's own cards, and a positional
+        # zip handed the captain's recorded transform hold (aimed at a
+        # FOOTAGE shot) to a full-frame graphic - which scaled the
+        # card and left 0.74% of the frame uncovered (F12).
+        for item, place in pair_row_items_to_places(row_items, row_places):
             records = by_span.get(position.get(id(place), -1), [])
             if not records:
                 continue
@@ -10286,6 +10440,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             timeline_name=name)
         if card_note:
             print(f"  {name}: {card_note}", file=sys.stderr)
+        from library.tools.layout_model import GeometryDescriptor
         _card_picture_records.append({
             "label": f"card {getattr(card, 'placement', 'graphic')} "
                      f"at {card.reel_start_frame}",
@@ -10294,6 +10449,15 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             "duration_frames": int(card.duration_frames),
             "absolute_box": list(card_box),
             "canvas_wh": [int(width), int(height)],
+            # The card's GEOMETRY, so the rendered-picture check can
+            # SEE it: a record with no descriptor is SKIPPED by that
+            # check, and a skipped clip makes the check refuse - so a
+            # span reel (52 cards) could never pass it.
+            "geometry": GeometryDescriptor(
+                frame=(int(width), int(height)),
+                box=tuple(map(float, card_box)),
+                canvas=(float(width), float(height)),
+                anchor=(0.5, 0.5)).to_dict(),
             "overlay_path": path,
             "source_start_frame": 0,
         })
@@ -10575,9 +10739,12 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     def _aim_picture():
         """The look's punch-in, aimed per shot on the placed picture rows."""
         # The plan's picture rows - one per angle, never a hardcoded
-        # V1 beside the plan. Each row's items zip with the placements
-        # that landed on it (matched by the angle mapping above), so a
-        # punch-in is aimed per speaker, per shot.
+        # V1 beside the plan. Each row's items are paired with the
+        # placements that landed on it BY IDENTITY (matched by the
+        # angle mapping above and by what each item carries), so a
+        # punch-in is aimed per speaker, per shot - and a row that
+        # holds something ELSE (a span's own cards) is never handed a
+        # shot's aim.
         aimed = 0
         for aroll_row in track_plan.aroll_rows():
             row_items = (timeline.GetItemListInTrack(
@@ -10588,9 +10755,12 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                 and video_row_by_angle.get(_angle_key(p["clip"]))
                 == aroll_row.index]
             row_places.sort(key=lambda p: p["snapped_record"])
+            pairs = pair_row_items_to_places(row_items, row_places)
             aimed += aim_picture_row(
                 name, look, screen_window, width, height,
-                row_items, row_places, project_folder=project_folder,
+                [item for item, _ in pairs],
+                [place for _, place in pairs],
+                project_folder=project_folder,
                 measure=prepared.subject_measure,
                 draw_gain=draw_gain, timeline=timeline,
                 resolve_project=project)
@@ -12595,7 +12765,31 @@ def _connect_resolve_project(resolve_project_name: str):
         _connect_resolve().GetProjectManager(), resolve_project_name)
 
 
-def _open_project(resolve, project_name: str):
+def resolve_declared_project(manager, project_name: str, folder: str = ""):
+    """The named project, resolved in the folder the project DECLARES.
+
+    `resolve_project_exactly` looks in the Project Manager's CURRENT
+    folder, and on a machine where several lanes share ONE Resolve that
+    folder moves under the build: the build then refuses with "No
+    project named exactly 'Ren Scratch - breaktest' in the current
+    folder. Resolve lists []" although the project is open and declared
+    (measured 2026-10-21, scratch Reel 13's build: the reel was placed
+    and the conformance gate PASSED, and the verification that follows
+    it could not find the project any more).
+
+    The project's own declared folder is where it lives, so the lookup
+    goes there first - and restores the Project Manager's path
+    afterwards, because the Project Manager's position is not this
+    module's to move.
+    """
+    if not folder:
+        return resolve_project_exactly(manager, project_name)
+    from library.tools.timeline_ingest import (
+        resolve_project_in_declared_folder)
+    return resolve_project_in_declared_folder(manager, project_name, folder)
+
+
+def _open_project(resolve, project_name: str, folder: str = ""):
     """The project Resolve has OPEN, by exact name, or a refusal by name.
 
     A project HANDLE goes stale the moment the cursor moves: Resolve then
@@ -12610,11 +12804,15 @@ def _open_project(resolve, project_name: str):
     hold, and a cursor that moved is refused BY NAME - the thing the
     operator can act on - instead of being read through. The lookup is
     exact: a near match lands on somebody else's project (AGENTS.md 5),
-    so a project that is not the declared one refuses.
+    so a project that is not the declared one refuses. It is also
+    resolved in the folder the project DECLARES, because the Project
+    Manager's current folder moves under a run when other lanes share
+    one Resolve, and an exact lookup in the wrong folder refuses a
+    project that is open (measured 2026-10-21, scratch Reel 13).
     """
     try:
-        return resolve_project_exactly(
-            resolve.GetProjectManager(), project_name)
+        return resolve_declared_project(
+            resolve.GetProjectManager(), project_name, folder)
     except TimelineIngestError as exc:
         raise ReelBuildError(
             f"Resolve's cursor is not on {project_name!r}: {exc}") from exc
@@ -15205,7 +15403,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     with resolve_lease("build reels open project", exclusive=True,
                        project=resolve_name):
         resolve = _connect_resolve()
-        project = _open_project(resolve, resolve_name)
+        project = _open_project(
+            resolve, resolve_name,
+            str(resolve_config.get("folder") or ""))
         project_default_resolution = None
         if placement_mode in ("auto", "otio"):
             from library.tools.reel_otio_placement import (
@@ -19084,7 +19284,8 @@ def build_reel_variants(project_slug: str, reel_number: int,
         raise ValueError(
             "Missing 'timeline_name' under 'resolve' in project.yaml")
 
-    project = resolve_project_exactly(pm, resolve_name)
+    project = resolve_declared_project(
+        pm, resolve_name, str(resolve_config.get("folder") or ""))
 
     from library.tools.reel_proposal import proposal_path as _proposal_path
     moments = read_proposal(str(_proposal_path(project_folder)))

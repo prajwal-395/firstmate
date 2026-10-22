@@ -23,6 +23,7 @@ refuses what it cannot do, and calls that.
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -88,6 +89,7 @@ def verify_staged_overlay_pictures(project_folder: str,
 
     from library.tools.overlay_verify import verify_rendered_boxes
     from library.tools.resolve_lock import cursor_excursion, resolve_lease
+    from library.tools.reel_build import resolve_declared_project
     from library.tools.timeline_ingest import resolve_project_exactly
     from library.tools.reel_build import (
         ReelVerificationRefused, _connect_resolve,
@@ -121,8 +123,17 @@ def verify_staged_overlay_pictures(project_folder: str,
                 raise RuntimeError(
                     "Resolve would not open the Edit page for rendered "
                     "overlay verification")
-            project = (resolve_project_exactly(
-                resolve.GetProjectManager(), resolve_project_name)
+            # The project's DECLARED folder, not whatever folder the
+            # Project Manager happens to be in: on a machine where
+            # several lanes share ONE Resolve, that folder moves under
+            # the run, and an exact lookup in the wrong folder refuses
+            # a project that is open (measured 2026-10-21, scratch
+            # Reel 13: the reel was placed and the gate PASSED, and
+            # the picture check that followed could not find the
+            # project any more).
+            project = (resolve_declared_project(
+                resolve.GetProjectManager(), resolve_project_name,
+                _declared_resolve_folder(project_folder))
                 if overlays_to_check else None)
             for staging_name in overlays_to_check:
                 timeline = next((
@@ -834,3 +845,19 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+def _declared_resolve_folder(project_folder: str) -> str:
+    """The Resolve folder the project DECLARES, or "" when it declares
+    none (a project with no declared folder is resolved in the Project
+    Manager's current folder, as before)."""
+    if not project_folder:
+        return ""
+    try:
+        import yaml
+        with open(os.path.join(project_folder, "project.yaml"),
+                  "r", encoding="utf-8") as handle:
+            config = yaml.safe_load(handle) or {}
+        return str((config.get("resolve") or {}).get("folder") or "")
+    except Exception:  # noqa: BLE001 - absence, never a refusal
+        return ""
