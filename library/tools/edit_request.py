@@ -388,6 +388,12 @@ class EditRequest:
     head the same way. `originator` names who asked (`kind` is one of
     `ORIGINATOR_KINDS`). Operations stay in author order; `compile`
     returns them in dependency order.
+
+    A request may also DECLARE the scope of its write - the capability
+    contract that governs it, the extent it touches and the conflict
+    domains it may touch. A declaration is the caller's own statement,
+    and the compilation honours it; a request that declares nothing is
+    measured and derived, as it always was (AXI-004b).
     """
 
     id: str
@@ -413,6 +419,30 @@ class EditRequest:
     direct patch, forbid a full rebuild, demand staging - and it can
     never widen it. The model does not choose a backend; it states a
     requirement the router satisfies or refuses by name."""
+    capability: str = ""
+    """The capability contract the caller DECLARES governs this write.
+
+    Empty means the engine derives the narrowest registered contract
+    that covers the request's operations. A declaration is the caller's
+    own statement of WHICH contract governs the write, so every door
+    honours it (AXI-004): two doors that read one request differently
+    because one derived the contract and the other believed a
+    declaration are two meanings of one edit."""
+    declared_affected_spans: tuple = ()
+    """The extent the caller DECLARES, in timeline frames.
+
+    Empty means the engine MEASURES the extent from the base snapshot.
+    A declaration is the caller's own contract with the collateral
+    check, so it is honoured and never replaced by a measurement: a
+    measurement substituted for a declaration changes what the write is
+    judged against."""
+    declared_conflict_domains: tuple = ()
+    """The conflict domains the caller DECLARES the write touches.
+
+    Empty means the engine derives them from the algebra. A declared
+    domain is the caller's statement of what the write may touch, and
+    the patch's own vocabulary (`edit_patch.CONFLICT_DOMAINS`) is what
+    it is checked against."""
     idempotency_key: str = ""
     version: int = REQUEST_VERSION
 
@@ -425,6 +455,12 @@ class EditRequest:
             self, "expected_model_revision",
             _generation_pin(self.expected_model_revision,
                             "expected_model_revision"))
+        object.__setattr__(self, "capability", str(self.capability or ""))
+        object.__setattr__(self, "declared_affected_spans",
+                           _declared_spans(self.declared_affected_spans))
+        object.__setattr__(self, "declared_conflict_domains",
+                           tuple(str(domain) for domain in
+                                 (self.declared_conflict_domains or ())))
         if not self.id:
             raise EditRequestError("an edit request needs an id")
         if not self.idempotency_key:
@@ -494,6 +530,10 @@ class EditRequest:
             "preconditions": [copy.deepcopy(c) for c in self.preconditions],
             "preservation": [copy.deepcopy(r) for r in self.preservation],
             "backend_constraints": list(self.backend_constraints),
+            "capability": self.capability,
+            "declared_affected_spans": [list(span) for span in
+                                        self.declared_affected_spans],
+            "declared_conflict_domains": list(self.declared_conflict_domains),
             "idempotency_key": (self.idempotency_key or self.id),
         }
 
@@ -505,7 +545,9 @@ class EditRequest:
                    - {"version", "id", "project", "timeline", "timeline_id",
                       "expected_base_generation", "expected_model_revision",
                       "originator", "operations", "preconditions",
-                      "preservation", "backend_constraints",
+                      "preservation", "backend_constraints", "capability",
+                      "declared_affected_spans",
+                      "declared_conflict_domains",
                       "idempotency_key"})
         if unknown:
             raise EditRequestError(
@@ -531,10 +573,43 @@ class EditRequest:
                                 (data.get("preservation") or ())),
             backend_constraints=tuple(str(c) for c in
                                       (data.get("backend_constraints") or ())),
+            capability=str(data.get("capability") or ""),
+            declared_affected_spans=tuple(
+                tuple(span) for span in
+                (data.get("declared_affected_spans") or ())),
+            declared_conflict_domains=tuple(
+                str(domain) for domain in
+                (data.get("declared_conflict_domains") or ())),
             idempotency_key=str(data.get("idempotency_key") or data.get("id")
                                 or ""),
             version=int(data.get("version") or REQUEST_VERSION),
         )
+
+
+def _declared_spans(value: Sequence[Sequence[int]]
+                    ) -> tuple[tuple[int, int], ...]:
+    """The DECLARED extent, as frame pairs.
+
+    A declared span is `[start, end)` in timeline frames, and the pair
+    is read as two numbers. A declaration that is not a pair of numbers
+    is refused here rather than reaching the write: the shape is part of
+    the declaration, and a shape nobody can read is not a declaration.
+
+    Nothing else is judged here. Whether the declared extent COVERS what
+    the operations touch is the write's own check (`edit_patch`), and it
+    stays there, so a declared extent that is too narrow is refused by
+    the same authority that refused it before.
+    """
+    spans: list[tuple[int, int]] = []
+    for span in (value or ()):
+        try:
+            start, end = span
+            spans.append((int(start), int(end)))
+        except (TypeError, ValueError) as exc:
+            raise EditRequestError(
+                f"a declared extent is [start, end) in timeline frames, "
+                f"not {span!r}") from exc
+    return tuple(spans)
 
 
 def _check_preservation(requirements: Sequence[Mapping[str, Any]]) -> None:
@@ -785,7 +860,14 @@ def compile_request(request: EditRequest,
     algebra_ops = tuple(op.to_algebra_op() for op in ordered)
     spans: list[tuple[int, int]] = []
     assumptions: list[str] = []
-    if base is not None:
+    if request.declared_affected_spans:
+        # AXI-004b: a DECLARED extent is the caller's own contract with
+        # the collateral check, and it is honoured - the measurement is
+        # not substituted for it. The declared extent is what the write
+        # is judged against, on every door.
+        merged_spans = [tuple(int(value) for value in span)
+                        for span in request.declared_affected_spans]
+    elif base is not None:
         with edit_algebra.indexed_snapshot(base):
             for op in algebra_ops:
                 span = edit_algebra.span(dict(op), base)
@@ -795,14 +877,20 @@ def compile_request(request: EditRequest,
             assumptions.append(
                 "no operation resolved a frame span on the base snapshot - "
                 "the plan carries no affected frames yet")
+        merged_spans = _merge_spans(spans)
     else:
         assumptions.append(
             "compiled without a base snapshot - affected spans are "
             "uncomputed until preparation resolves one")
-    domains = sorted({edit_algebra.get(str(op.get("op", ""))).domain
-                      for op in algebra_ops
-                      if edit_algebra.get(str(op.get("op", ""))) is not None})
-    merged_spans = _merge_spans(spans)
+        merged_spans = []
+    if request.declared_conflict_domains:
+        # AXI-004b: the declared domains are the caller's statement of
+        # what the write may touch, and they are carried as declared.
+        domains = list(request.declared_conflict_domains)
+    else:
+        domains = sorted({edit_algebra.get(str(op.get("op", ""))).domain
+                          for op in algebra_ops
+                          if edit_algebra.get(str(op.get("op", ""))) is not None})
     return CompiledEdit(
         request_id=request.id,
         order=tuple(order),

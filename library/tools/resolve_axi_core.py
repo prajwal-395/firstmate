@@ -527,7 +527,7 @@ def _execute_registered_delete_batch(*, request, compiled, generation,
         raise RegisteredBatchPreflightRefused(str(exc)) from exc
     receipt = edit_patch.apply_live_patch(
         project=project, timeline=timeline,
-        capability=_patch_capability(compiled),
+        capability=_capability_for(request, compiled),
         operations=compiled.operations,
         conflict_domains=compiled.conflict_domains,
         idempotency_key=request.idempotency_key or request.id,
@@ -1663,19 +1663,6 @@ def _is_request_mapping(data: Mapping[str, Any]) -> bool:
                for op in operations)
 
 
-def _is_patch_mapping(data: Mapping[str, Any]) -> bool:
-    """Whether a plain dict is a patch shape, not a request shape.
-
-    A patch names the generation it was planned against, the capability
-    that governs the write and the extent it declares; a request names
-    its addressing vocabulary instead (see `_is_request_mapping`).
-    """
-    if not isinstance(data, Mapping):
-        return False
-    return ("base_generation" in data and "capability" in data
-            and "affected_spans" in data)
-
-
 def _shadow_project_key(project: str) -> str:
     """The shadow store's project key for a request's project.
 
@@ -2008,6 +1995,21 @@ def _request_from_any(request):
     return request if isinstance(request, EditRequest) else EditRequest.from_dict(request)
 
 
+def _capability_for(request, compiled) -> str:
+    """The capability contract that governs this write.
+
+    AXI-004b: a request that DECLARES its capability names the contract
+    that governs the write, and the declaration is honoured on every
+    door - the legacy door declared it, and the canonical door now
+    reads the same declaration from the same request instead of
+    deriving a second one. A request that declares none is governed by
+    the narrowest registered contract that covers its operations, which
+    is the derivation the canonical path has always used.
+    """
+    declared = str(getattr(request, "capability", "") or "")
+    return declared or _patch_capability(compiled)
+
+
 def _patch_capability(compiled) -> str:
     """Find the narrowest registered capability contract that covers a patch."""
     from library.tools import capabilities
@@ -2104,7 +2106,8 @@ def submit_edit_request_async(request, *, authorized: bool = False,
         return {**job, "request_id": request.id, "backend": backend,
                 "plan": plan, "status": "queued"}
     patch = compiled.to_patch(
-        _patch_capability(compiled), base_generation=generation.generation,
+        _capability_for(request, compiled),
+        base_generation=generation.generation,
         project=request.project, timeline=request.timeline,
         idempotency_key=request.idempotency_key,
         preconditions=request.preconditions,
@@ -2200,19 +2203,19 @@ def plan_transaction(transaction) -> dict[str, Any]:
     with one model.
     """
     from library.tools.edit_request import EditRequest
+    from library.tools import legacy_transaction
 
     if isinstance(transaction, EditRequest) or _is_request_mapping(
             transaction):
         return _plan_request(transaction)
-    if isinstance(transaction, AxiTransaction) or _is_patch_mapping(
-            transaction):
+    if legacy_transaction.is_carrier(transaction):
         return _plan_transaction_patch(transaction)
     raise TypeError(
-        "plan_transaction takes an AxiTransaction, a patch mapping or an "
+        "plan_transaction takes a legacy carrier, a patch mapping or an "
         f"EditRequest, got {type(transaction).__name__}")
 
 
-def _plan_transaction_patch(transaction: AxiTransaction) -> dict[str, Any]:
+def _plan_transaction_patch(transaction: Any) -> dict[str, Any]:
     """The typed-transaction plan: EditPatch validation against the base.
 
     AXI-004: the plan is the legacy plan's shape, but the operations it
@@ -2234,7 +2237,7 @@ def _plan_transaction_patch(transaction: AxiTransaction) -> dict[str, Any]:
 
 
 def submit_transaction_async(
-    transaction: AxiTransaction | Mapping[str, Any], *, owner: str = "resolve-axi"
+    transaction: Any, *, owner: str = "resolve-axi"
 ) -> dict[str, Any]:
     """Queue a multi-operation EditPatch and return its broker job handle.
 
@@ -2265,7 +2268,7 @@ def retrieve_transaction(job_id: str, *, wait: float = 0.0) -> dict[str, Any]:
 
 
 def submit_transaction(
-    transaction: AxiTransaction | Mapping[str, Any], *, owner: str = "resolve-axi",
+    transaction: Any, *, owner: str = "resolve-axi",
     timeout: float = 120.0
 ) -> dict[str, Any]:
     """Submit a multi-operation EditPatch and wait for its verified receipt."""

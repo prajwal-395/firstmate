@@ -30,6 +30,13 @@ What the adapter deliberately does NOT change:
   what the write is judged against.
 - the CAPABILITY of a legacy patch stays DECLARED, for the same reason:
   the capability names which contract governs the write.
+
+AXI-004b: both declarations now travel in the CANONICAL request
+(``EditRequest.capability``, ``declared_affected_spans``,
+``declared_conflict_domains``), and the request's compilation honours
+them. So the declared scope is a property of the REQUEST, read the same
+way by every door, and the durable patch below is compiled from the
+request alone.
 """
 
 from __future__ import annotations
@@ -71,6 +78,22 @@ def carrier_dict(transaction: Any) -> dict[str, Any]:
         f"not {type(transaction).__name__}")
 
 
+def is_carrier(transaction: Any) -> bool:
+    """Whether this is a legacy carrier at all.
+
+    The carrier is recognised by its PROTOCOL - it renders itself
+    through ``patch()`` - and not by its class, so a front door never
+    has to name the legacy type to accept one (AXI-004b). A patch-shaped
+    mapping is a carrier too: that is the shape the doors' callers hand
+    over.
+    """
+    if isinstance(transaction, Mapping):
+        return ("base_generation" in transaction
+                and "capability" in transaction
+                and "affected_spans" in transaction)
+    return callable(getattr(transaction, "patch", None))
+
+
 def request_for(transaction: Any) -> edit_request.EditRequest:
     """The canonical request for a legacy carrier.
 
@@ -104,6 +127,16 @@ def request_for(transaction: Any) -> edit_request.EditRequest:
                                 "idempotency_key": identifier}
     if preservation:
         changes["preservation"] = tuple(dict(row) for row in preservation)
+    # AXI-004b: the carrier's DECLARED scope travels in the request, so
+    # the scope is read from one place on every door. The request
+    # normalises the declaration's shape; whether the declaration is
+    # TRUE is the write's own check (`edit_patch.validate`), which is
+    # where it has always been judged.
+    changes["capability"] = str(carrier.get("capability") or "")
+    changes["declared_affected_spans"] = tuple(
+        tuple(span) for span in (carrier.get("affected_spans") or ()))
+    changes["declared_conflict_domains"] = tuple(
+        str(domain) for domain in (carrier.get("conflict_domains") or ()))
     return dataclasses.replace(request, **changes)
 
 
@@ -121,8 +154,11 @@ def patch_for(transaction: Any) -> dict[str, Any]:
     """The durable patch a legacy carrier becomes.
 
     The patch is the same record the canonical path writes: the same
-    operations, in the same order, with the same preservation. The
-    extent and the capability stay the carrier's own declarations.
+    operations, in the same order, with the same preservation and the
+    same DECLARED scope. Everything the patch says about the write is
+    read from the canonical request the carrier carries - the carrier
+    names the scope, the request compiles it, and the patch is the
+    result.
     """
     from library.tools import edit_patch
 
@@ -131,20 +167,18 @@ def patch_for(transaction: Any) -> dict[str, Any]:
     compiled = edit_request.compile_request(request)
     patch = edit_patch.EditPatch.from_dict({
         "id": request.id,
-        "project": str(carrier.get("project") or ""),
-        "timeline": str(carrier.get("timeline") or ""),
-        "base_generation": int(carrier.get("base_generation") or 0),
-        "capability": str(carrier.get("capability") or ""),
+        "project": request.project,
+        "timeline": request.timeline,
+        "base_generation": int(request.expected_base_generation or 0),
+        "capability": request.capability,
         "affected_spans": [list(span) for span in
-                            (carrier.get("affected_spans") or ())],
-        "conflict_domains": list(carrier.get("conflict_domains") or ()),
+                           compiled.affected_spans],
+        "conflict_domains": list(compiled.conflict_domains),
         "operations": [dict(operation) for operation in compiled.operations],
-        "preconditions": [dict(row) for row in
-                          (carrier.get("preconditions") or ())],
+        "preconditions": [dict(row) for row in request.preconditions],
         "postconditions": [dict(row) for row in
                            (carrier.get("postconditions") or ())],
-        "preservation": [dict(row) for row in
-                         (carrier.get("preservation") or ())],
+        "preservation": [dict(row) for row in request.preservation],
     })
     return patch.to_dict()
 

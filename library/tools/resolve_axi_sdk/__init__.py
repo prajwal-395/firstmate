@@ -7,7 +7,6 @@ from collections.abc import Iterable
 from library.tools.resolve_axi_core import (
     AxiOperation,
     AxiResult,
-    AxiTransaction,
     cancel_edit_request,
     execute,
     plan_transaction,
@@ -50,7 +49,16 @@ def transaction(operations: Iterable[AxiOperation]) -> tuple[AxiResult, ...]:
 def apply_transaction(
     transaction, *, owner: str = "resolve-axi", timeout: float = 120.0
 ) -> dict:
-    """Apply one typed, multi-op EditPatch through the Resolve broker."""
+    """Apply one typed, multi-op EditPatch through the Resolve broker.
+
+    AXI-004b: the legacy carrier is read as the canonical `EditRequest`,
+    and the patch it becomes is compiled from that request - so this
+    entry point writes what the canonical one writes. The carrier is
+    accepted by its PROTOCOL (it renders itself through `patch()`), so
+    a caller may hand one over without this module naming the legacy
+    type. The type itself is still importable from
+    `library.tools.resolve_axi_core`.
+    """
     return submit_transaction(transaction, owner=owner, timeout=timeout)
 
 
@@ -106,7 +114,6 @@ def cancel_edit_job(job_id: str) -> dict:
 __all__ = [
     "AxiOperation",
     "AxiResult",
-    "AxiTransaction",
     "apply_edit",
     "apply_transaction",
     "call",

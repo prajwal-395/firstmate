@@ -571,6 +571,11 @@ def _bind_request(request: EditRequest,
             expected_model_revision=request.expected_model_revision,
             originator=dict(request.originator),
             preconditions=tuple(dict(c) for c in request.preconditions),
+            capability=request.capability,
+            declared_affected_spans=tuple(
+                tuple(span) for span in request.declared_affected_spans),
+            declared_conflict_domains=tuple(
+                str(domain) for domain in request.declared_conflict_domains),
             idempotency_key=request.idempotency_key,
             version=request.version), notes)
     except Exception as exc:  # noqa: BLE001 - a failed bind is an assumption

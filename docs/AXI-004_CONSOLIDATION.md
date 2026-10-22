@@ -165,31 +165,45 @@ run against recorded bases, with no project touched.
   the base snapshot; a legacy patch DECLARES them. The declared spans
   are the caller's own contract with the collateral check, and
   replacing them with a measurement would change what a write is judged
-  against. The adapter keeps the declaration.
+  against. The adapter keeps the declaration. **CLOSED by AXI-004b**
+  (`docs/evidence/axi004b_declared_scope.md`): the declaration travels
+  in the canonical request and every door honours it, so the two doors
+  no longer disagree about the extent.
 - **The CAPABILITY.** The canonical path derives the narrowest
   capability contract that covers the operations; a legacy patch names
   its capability. The capability names which contract governs the
-  write, so the declaration stays.
+  write, so the declaration stays. **CLOSED by AXI-004b**: the
+  declaration travels in the canonical request, and the canonical door
+  reads it from there instead of deriving a second one.
 - **The INPUT SHAPE of the legacy doors.** The three
   `resolve_axi_transaction*` doors still take a patch-shaped mapping.
   They now READ it with the canonical model, which is what the
   acceptance asks for; changing the shape their callers hand over is a
-  different change, and the shape is the legacy public API.
+  different change, and the shape is the legacy public API. **STILL
+  OPEN.**
 - **The bulk construction path.** The reel build is a STRATEGY request
   (a staged incremental diff or a full rebuild), not a list of
   per-operation algebra operations, and it does not become a list of
   `EditRequest`s. It keeps its own path and its own efficiency. See
   `docs/REEL_BUILD_HAS_NO_OWNING_NODE.md` and the open item in
-  `docs/AXI_EXECUTION_CONSOLIDATION.md` (AXI-034).
+  `docs/AXI_EXECUTION_CONSOLIDATION.md` (AXI-034). **STILL OPEN.**
 
 ## What is left
 
 - The legacy carrier is still a public type, because the SDK's callers
   hand one over. It is now only ever built FROM the canonical request.
-- The two doors still disagree about the EXTENT (declared against
+  **AXI-004b took the SDK's re-export of it away**: the SDK accepts a
+  carrier by its protocol and no longer names the type, so the two
+  production references that remain are the canonical model's own
+  conversion.
+- The two doors still disagreed about the EXTENT (declared against
   measured) and about the CAPABILITY (declared against derived), by
-  the two decisions above. Closing those needs a measurement of the
-  legacy path's own collateral behaviour first, not a substitution.
+  the two decisions above. **CLOSED by AXI-004b**
+  (`docs/evidence/axi004b_declared_scope.md`): the declaration travels
+  in the canonical request, the request's compilation honours it, and
+  both doors write the same durable patch for the same request.
 - `AxiTransaction.patch()` is the legacy carrier's own rendering and
   is still what the carrier is; the durable patch the engine writes is
   compiled by the adapter.
+- The legacy doors' INPUT SHAPE is still the legacy one, and the reel
+  build's bulk path is still its own.

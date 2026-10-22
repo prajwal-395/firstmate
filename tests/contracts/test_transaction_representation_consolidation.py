@@ -281,7 +281,6 @@ def test_the_legacy_door_refuses_a_carrier_with_no_operations():
 
 # ── The round trip is lossless over the WHOLE algebra ────────────────
 
-
 #: A value for every required parameter the algebra declares. The
 #: request builder only asks that a required parameter is present and
 #: not None, so the value's shape does not matter here.
@@ -361,3 +360,200 @@ def test_the_adapter_writes_the_whole_algebra_in_the_canonical_order():
     request = legacy_transaction.request_for(carrier)
     compiled = edit_request.compile_request(request)
     assert [dict(op) for op in compiled.operations] == ops
+
+
+# ── The DECLARED scope: one reading on every door ────────────────────
+#
+# AXI-004b. The carrier's DECLARED extent and capability were the last
+# two things the canonical request could not say, so the two doors read
+# one request differently: the legacy door believed the declaration and
+# the canonical door measured the extent and derived the capability.
+# The declaration now travels in the request, and the request's
+# compilation honours it, so both doors write one patch.
+
+
+def test_the_declared_scope_travels_in_the_canonical_request():
+    """Defect: the declared scope lived only in the legacy carrier.
+
+    The extent and the capability a caller declares are part of what the
+    request MEANS. A declaration that only the legacy carrier could
+    carry is a declaration the canonical door cannot read, and a door
+    that cannot read it reads the request its own way.
+    """
+    request = legacy_transaction.request_for(_carrier())
+    assert request.capability == "reel.touchup"
+    assert request.declared_affected_spans == ((100, 120),)
+    assert request.declared_conflict_domains == ("picture_transform",)
+
+
+def test_both_doors_write_the_same_durable_patch_for_the_same_request():
+    """Defect: one request left two different records of what it touched.
+
+    The legacy door compiled the patch from the carrier's declarations
+    and the canonical door compiled it from its measurement and its
+    derived capability, so the same request wrote two different
+    patches. One request now means one patch, on every door.
+    """
+    carrier = _carrier()
+    request = legacy_transaction.request_for(carrier)
+    compiled = edit_request.compile_request(request, _base())
+    canonical = compiled.to_patch(
+        request.capability, base_generation=7, project="Project",
+        timeline="Timeline", idempotency_key=request.idempotency_key,
+        preconditions=request.preconditions,
+        preservation=request.preservation)
+
+    assert legacy_transaction.patch_for(carrier) == canonical
+    assert canonical["capability"] == "reel.touchup"
+    assert canonical["affected_spans"] == [[100, 120]]
+    assert canonical["conflict_domains"] == ["picture_transform"]
+
+
+def test_a_declared_extent_is_not_replaced_by_a_measurement():
+    """Defect: the consolidation substituted a measurement for a declaration.
+
+    The operations on this base measure to the clip's own frames; the
+    caller declared a wider extent, and the declaration is the caller's
+    own contract with the collateral check. A measurement substituted
+    for it would change what the write is judged against.
+    """
+    carrier = _carrier(affected_spans=[[0, 200]])
+    request = legacy_transaction.request_for(carrier)
+    compiled = edit_request.compile_request(request, _base())
+
+    assert compiled.affected_spans == ((0, 200),)
+    assert legacy_transaction.patch_for(carrier)["affected_spans"] == [[0, 200]]
+
+
+def test_a_request_that_declares_no_scope_is_measured():
+    """Defect: the declaration replaced the measurement on every request.
+
+    A request that declares nothing is measured, as it always was: the
+    canonical door's behaviour is unchanged for every request that does
+    not declare a scope.
+    """
+    request = edit_request.from_algebra_ops(
+        _operations(), project="Project", timeline="Timeline",
+        expected_base_generation=7)
+    compiled = edit_request.compile_request(request, _base())
+
+    assert compiled.affected_spans == ((100, 120),)
+    assert compiled.conflict_domains == ("picture_transform",)
+
+
+def test_the_declared_capability_governs_the_write_on_the_canonical_door():
+    """Defect: the canonical door derived a SECOND capability for one request.
+
+    The legacy door named the contract that governs the write; the
+    canonical door derived the narrowest registered contract that
+    covers the operations. For the same operations those are two
+    different contracts - `reel.touchup` and `reel.set_properties` -
+    and a write governed by two contracts is judged against one of them
+    at random.
+    """
+    from library.tools import resolve_axi_core
+
+    declared = legacy_transaction.request_for(_carrier())
+    declared_compiled = edit_request.compile_request(declared, _base())
+    assert resolve_axi_core._capability_for(
+        declared, declared_compiled) == "reel.touchup"
+
+    measured = edit_request.from_algebra_ops(
+        _operations(), project="Project", timeline="Timeline",
+        expected_base_generation=7)
+    measured_compiled = edit_request.compile_request(measured, _base())
+    assert resolve_axi_core._capability_for(
+        measured, measured_compiled) == "reel.set_properties"
+
+
+def test_a_declared_scope_survives_preparation():
+    """Defect: preparation dropped the declaration on the way to the plan.
+
+    Preparation binds resolved identities onto a COPY of the request,
+    and the copy is what the plan is compiled from. A copy that lost the
+    declared scope would judge the write against a measurement the
+    caller never asked for.
+    """
+    from library.tools import edit_preparation
+
+    request = edit_request.EditRequest(
+        id="stable-key", project="Project", timeline="Timeline",
+        operations=(edit_request.EditOperation(
+            op="clip.set_property",
+            target=edit_request.EditTarget(name="a.mov"),
+            params={"key": "Pan", "value": 24.0},
+            expected_effect="the clip pans"),),
+        capability="reel.touchup",
+        declared_affected_spans=((100, 120),),
+        declared_conflict_domains=("picture_transform",))
+    bound, _notes = edit_preparation._bind_request(request, (
+        edit_preparation.ResolvedTarget(
+            op_index=0, op="clip.set_property", status="resolved",
+            unique_id="item-9"),))
+
+    assert bound is not None, "the bound copy is what the plan is built from"
+    assert bound.capability == "reel.touchup"
+    assert bound.declared_affected_spans == ((100, 120),)
+    assert bound.declared_conflict_domains == ("picture_transform",)
+
+
+def test_a_declared_scope_survives_the_neutral_form():
+    """Defect: the declaration did not survive the NLE boundary.
+
+    The neutral intent is the request that crosses the boundary, and a
+    declaration that does not cross with it is a declaration the
+    backends cannot read.
+    """
+    from library.tools import intent_neutrality
+
+    request = legacy_transaction.request_for(_carrier())
+    neutral = request.to_neutral()
+    assert neutral.capability == "reel.touchup"
+    assert neutral.declared_affected_spans == ((100, 120),)
+    assert neutral.declared_conflict_domains == ("picture_transform",)
+
+    rebuilt = intent_neutrality.bind(neutral)
+    assert rebuilt.capability == "reel.touchup"
+    assert rebuilt.declared_affected_spans == ((100, 120),)
+    assert rebuilt.declared_conflict_domains == ("picture_transform",)
+
+
+# ── The legacy carrier is recognised by its PROTOCOL ─────────────────
+
+
+def test_a_carrier_is_recognised_without_naming_the_legacy_type():
+    """Defect: a door had to NAME the legacy class to accept a carrier.
+
+    The carrier renders itself through `patch()`, and a patch-shaped
+    mapping is a carrier too. A door that recognises a carrier by its
+    class keeps the legacy type in the front door's signature, which is
+    what keeps the legacy model in the model's own vocabulary.
+    """
+    from library.tools.resolve_axi_core import AxiTransaction
+
+    typed = AxiTransaction(
+        id="stable-key", project="Project", timeline="Timeline",
+        base_generation=7, capability="reel.touchup",
+        affected_spans=((100, 120),), conflict_domains=("picture_transform",),
+        operations=({"op": "clip.set_property", "unique_id": "item-1",
+                     "key": "Pan", "value": 24.0},))
+
+    assert legacy_transaction.is_carrier(typed)
+    assert legacy_transaction.is_carrier(_carrier())
+    assert not legacy_transaction.is_carrier({"id": "stable-key"})
+    assert not legacy_transaction.is_carrier("stable-key")
+
+
+def test_the_legacy_carrier_is_named_only_by_the_canonical_model():
+    """Defect: a production path still names the legacy carrier.
+
+    The carrier is recognised by its protocol, so no production path has
+    to name its class. The one place the name remains is the canonical
+    model's OWN conversion into the carrier, which is the direction the
+    consolidation wants.
+    """
+    sites = inventory.reference_sites()
+    owners = {site.split(":")[0] for site in sites["AxiTransaction"]}
+    assert owners <= {"library/tools/edit_request.py"}, (
+        "the legacy carrier is named outside the canonical model's own "
+        f"conversion: {sorted(owners)}")

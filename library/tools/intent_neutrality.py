@@ -528,6 +528,16 @@ class NeutralIntent:
     preconditions: tuple = ()
     preservation: tuple = ()
     backend_constraints: tuple = ()
+    capability: str = ""
+    """The DECLARED capability contract, when the request declares one.
+
+    AXI-004b: a declaration travels with the intent, so the neutral
+    form and the request it was made from say the same thing. It names
+    no Resolve object, so it does not make the intent less neutral."""
+    declared_affected_spans: tuple = ()
+    """The DECLARED extent, in timeline frames."""
+    declared_conflict_domains: tuple = ()
+    """The DECLARED conflict domains."""
     expected_base_generation: int | None = None
     expected_model_revision: int | None = None
     idempotency_key: str = ""
@@ -551,6 +561,10 @@ class NeutralIntent:
             "preconditions": [copy.deepcopy(c) for c in self.preconditions],
             "preservation": [copy.deepcopy(r) for r in self.preservation],
             "backend_constraints": list(self.backend_constraints),
+            "capability": self.capability,
+            "declared_affected_spans": [list(span) for span in
+                                        self.declared_affected_spans],
+            "declared_conflict_domains": list(self.declared_conflict_domains),
             "expected_base_generation": self.expected_base_generation,
             "expected_model_revision": self.expected_model_revision,
             "idempotency_key": self.idempotency_key,
@@ -688,6 +702,11 @@ def neutralize(request: Any, *,
         preconditions=tuple(request.preconditions),
         preservation=tuple(request.preservation),
         backend_constraints=tuple(request.backend_constraints),
+        capability=str(request.capability or ""),
+        declared_affected_spans=tuple(
+            tuple(span) for span in request.declared_affected_spans),
+        declared_conflict_domains=tuple(
+            str(domain) for domain in request.declared_conflict_domains),
         expected_base_generation=request.expected_base_generation,
         expected_model_revision=request.expected_model_revision,
         idempotency_key=request.idempotency_key,
@@ -752,6 +771,11 @@ def bind(intent: NeutralIntent) -> Any:
         preconditions=tuple(intent.preconditions),
         preservation=tuple(intent.preservation),
         backend_constraints=tuple(intent.backend_constraints),
+        capability=str(intent.capability or ""),
+        declared_affected_spans=tuple(
+            tuple(span) for span in intent.declared_affected_spans),
+        declared_conflict_domains=tuple(
+            str(domain) for domain in intent.declared_conflict_domains),
         idempotency_key=intent.idempotency_key,
     )
 
