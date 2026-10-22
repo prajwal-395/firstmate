@@ -3854,13 +3854,13 @@ test_opencode_cap_backoff_is_blocked() {
   "$ROOT/bin/fm-busy-event.sh" apply "$d/state" feat-cap busy --gen "$gen" \
     --source opencode-plugin --event session-retry
   "$ROOT/bin/fm-opencode-retry.sh" record "$d/state" feat-cap 3 \
-    $(( ($(date +%s) + 79200) * 1000 )) "opencode-go/minimax-m3.1-flash-free" "ses_cap" \
+    $(( ($(date +%s) + 79200) * 1000 )) "opencode-go/muse-spark-1.3-contributor" "ses_cap" \
     || fail "retry record refused the cap fixture"
   local out; out=$(run_crew_state "$d" feat-cap)
   assert_contains "$out" "state: blocked" "cap backoff -> blocked"
   assert_contains "$out" "source: pane" "cap backoff stays pane-sourced"
   assert_contains "$out" "attempt 3" "cap detail names the attempt"
-  assert_contains "$out" "opencode-go/minimax-m3.1-flash-free" "cap detail names the bound model"
+  assert_contains "$out" "opencode-go/muse-spark-1.3-contributor" "cap detail names the bound model"
   assert_not_contains "$out" "state: working" "a capped lane must never read working"
   pass "an opencode lane held in quota-scale retry reads blocked"
 }

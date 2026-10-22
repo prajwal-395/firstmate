@@ -2514,7 +2514,6 @@ test_opencode_second_workspace_pins_launch() {
   rec=$(make_spawn_case profile-second-workspace opencode "$id")
   read_case_record "$rec"
   printf '%s' 'org_01FIXTURESECONDARY00' > "$HOME_DIR/config/opencode-second-org"
-  record_rung_cap "$HOME_DIR" free || fail "record refused free cap"
   record_rung_cap "$HOME_DIR" plus || fail "record refused Plus cap"
   record_rung_cap "$HOME_DIR" go || fail "record refused Go cap"
   datadir=$(make_second_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") \
@@ -2544,7 +2543,6 @@ test_opencode_main_workspace_launch_uses_task_db_without_second() {
   id=profile-main-workspace-z31
   rec=$(make_spawn_case profile-main-workspace opencode "$id")
   read_case_record "$rec"
-  record_rung_cap "$HOME_DIR" free || fail "record refused free cap"
   record_rung_cap "$HOME_DIR" plus || fail "record refused Plus cap"
 
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
@@ -2569,7 +2567,6 @@ test_opencode_main_workspace_pins_launch_when_second_configured() {
   rec=$(make_spawn_case profile-main-pinned opencode "$id")
   read_case_record "$rec"
   printf '%s' "$DUAL_SECOND_ORG_ID" > "$HOME_DIR/config/opencode-second-org"
-  record_rung_cap "$HOME_DIR" free || fail "record refused free cap"
   record_rung_cap "$HOME_DIR" plus || fail "record refused Plus cap"
   datadir=$(make_dual_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") \
     || fail "the fixture login could not be built"
@@ -2606,7 +2603,6 @@ test_pi_opencode_go_routes_main_and_secondary_ladder_rungs() {
   printf '%s' "$DUAL_SECOND_ORG_ID" > "$HOME_DIR/config/opencode-second-org"
   mkdir -p "$HOME_DIR/pinned-pi"
   printf '%s\nopencode-go\n' "$HOME_DIR/pinned-pi" > "$HOME_DIR/config/pi-account"
-  record_rung_cap "$HOME_DIR" free || fail "record refused free cap"
   record_rung_cap "$HOME_DIR" plus || fail "record refused Plus cap"
   datadir=$(make_dual_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") || fail "main fixture login could not be built"
   export FM_FAKE_OPENCODE_DATA="$datadir"
@@ -2633,7 +2629,6 @@ test_pi_opencode_go_routes_main_and_secondary_ladder_rungs() {
   read_case_record "$rec"
   printf '%s\n' on > "$HOME_DIR/config/pi-opencode-go"
   printf '%s' "$DUAL_SECOND_ORG_ID" > "$HOME_DIR/config/opencode-second-org"
-  record_rung_cap "$HOME_DIR" free || fail "record refused free cap"
   record_rung_cap "$HOME_DIR" plus || fail "record refused Plus cap"
   record_rung_cap "$HOME_DIR" go || fail "record refused main Go cap"
   datadir=$(make_dual_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") || fail "secondary fixture login could not be built"
@@ -2671,7 +2666,6 @@ test_pi_go_spawn_refreshes_the_pinned_database_from_the_live_login() {
   read_case_record "$rec"
   printf '%s\n' on > "$HOME_DIR/config/pi-opencode-go"
   printf '%s' "$DUAL_SECOND_ORG_ID" > "$HOME_DIR/config/opencode-second-org"
-  record_rung_cap "$HOME_DIR" free || fail "record refused free cap"
   record_rung_cap "$HOME_DIR" plus || fail "record refused Plus cap"
   record_rung_cap "$HOME_DIR" go || fail "record refused Go cap"
   datadir=$(make_dual_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") || fail "the fixture login could not be built"
@@ -2712,7 +2706,6 @@ test_pi_opencode_go_switch_routes_explicit_dispatch_profile() {
   printf '%s\n' on > "$HOME_DIR/config/pi-opencode-go"
   printf '%s\n' "{\"default\":[{\"harness\":\"opencode\",\"model\":\"$model\",\"provider\":\"opencode-go\"}]}" > "$HOME_DIR/config/crew-dispatch.json"
   printf '%s' "$DUAL_SECOND_ORG_ID" > "$HOME_DIR/config/opencode-second-org"
-  record_rung_cap "$HOME_DIR" free || fail "record refused free cap"
   record_rung_cap "$HOME_DIR" plus || fail "record refused Plus cap"
   datadir=$(make_dual_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") || fail "profile fixture login could not be built"
   export FM_FAKE_OPENCODE_DATA="$datadir"
@@ -2742,7 +2735,6 @@ test_pi_opencode_go_switch_routes_exact_project_rule() {
   printf '%s\n' "{\"rules\":[{\"when\":\"project rule dispatch\",\"projects\":[\"project\"],\"use\":{\"harness\":\"opencode\",\"model\":\"$model\",\"provider\":\"opencode-go\"}}],\"default\":{\"harness\":\"codex\",\"model\":\"gpt-5\",\"effort\":\"high\"}}" \
     > "$HOME_DIR/config/crew-dispatch.json"
   printf '%s' "$DUAL_SECOND_ORG_ID" > "$HOME_DIR/config/opencode-second-org"
-  record_rung_cap "$HOME_DIR" free || fail "record refused free cap"
   record_rung_cap "$HOME_DIR" plus || fail "record refused Plus cap"
   datadir=$(make_dual_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") || fail "project-rule fixture login could not be built"
   export FM_FAKE_OPENCODE_DATA="$datadir"
@@ -2769,8 +2761,7 @@ test_pi_opencode_go_switch_routes_exhausted_ladder_fallback() {
   rec=$(make_spawn_case pi-fallback-opencode opencode "$id")
   read_case_record "$rec"
   printf '%s\n' on > "$HOME_DIR/config/pi-opencode-go"
-  printf '%s\n' "{\"default\":{\"harness\":\"opencode\",\"model\":\"opencode-go/minimax-m3.1-flash-free\",\"provider\":\"opencode-go\",\"dispatch_ladder\":\"opencode\"},\"exhausted_ladder_fallback\":{\"use\":{\"harness\":\"opencode\",\"model\":\"$model\",\"provider\":\"opencode-go\"}}}" > "$HOME_DIR/config/crew-dispatch.json"
-  record_rung_cap "$HOME_DIR" free || fail "record refused free cap"
+  printf '%s\n' "{\"default\":{\"harness\":\"opencode\",\"model\":\"opencode-go/muse-spark-1.3-contributor\",\"provider\":\"opencode-go\",\"dispatch_ladder\":\"opencode\"},\"exhausted_ladder_fallback\":{\"use\":{\"harness\":\"opencode\",\"model\":\"$model\",\"provider\":\"opencode-go\"}}}" > "$HOME_DIR/config/crew-dispatch.json"
   record_rung_cap "$HOME_DIR" plus || fail "record refused Plus cap"
   record_rung_cap "$HOME_DIR" go || fail "record refused Go cap"
   datadir=$(make_dual_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") || fail "fallback fixture login could not be built"
@@ -2790,7 +2781,7 @@ test_pi_opencode_go_switch_routes_exhausted_ladder_fallback() {
 }
 
 test_pi_opencode_go_switch_routes_configured_crew_harness() {
-  local rec id out status launch datadir model=opencode-go/minimax-m3.1-flash-free
+  local rec id out status launch datadir model=opencode-go/muse-spark-1.3-contributor
   command -v sqlite3 >/dev/null 2>&1 || {
     pass "Pi configured-harness routing needs sqlite3 (live spawn proof covers provider setup)"
     return 0
@@ -2810,9 +2801,9 @@ test_pi_opencode_go_switch_routes_configured_crew_harness() {
   assert_grep "model=$model" "$HOME_DIR/state/$id.meta" "configured-harness ladder model changed during routing"
   launch=$(cat "$LAUNCH_LOG")
   assert_contains "$launch" "$FAKEBIN_DIR/pi" "configured OpenCode harness did not launch Pi"
-  assert_contains "$launch" "--model '$model'" "configured-harness free model did not reach Pi"
+  assert_contains "$launch" "--model '$model'" "configured-harness Go model did not reach Pi"
   assert_not_contains "$launch" "opencode --model" "regression: opencode launched while the switch is on for config/crew-harness"
-  pass "config/pi-opencode-go routes the configured OpenCode crew harness to Pi on its normal free rung"
+  pass "config/pi-opencode-go routes the configured OpenCode crew harness to Pi on its normal Go rung"
 }
 
 test_pi_opencode_go_switch_routes_explicit_opencode_harness_model() {
@@ -2910,7 +2901,6 @@ test_opencode_main_launch_refuses_when_pin_unprovable() {
   rec=$(make_spawn_case profile-main-refuses opencode "$id")
   read_case_record "$rec"
   printf '%s' "$DUAL_SECOND_ORG_ID" > "$HOME_DIR/config/opencode-second-org"
-  record_rung_cap "$HOME_DIR" free || fail "record refused free cap"
   record_rung_cap "$HOME_DIR" plus || fail "record refused Plus cap"
   datadir=$(make_mainless_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") \
     || fail "the fixture login could not be built"
@@ -2952,8 +2942,8 @@ test_opencode_unpinned_launch_seeds_task_database_from_live_account() {
     pass "unpinned database backup needs sqlite3 (absent here)"
     return 0
   }
-  id=profile-free-nologin-z35
-  rec=$(make_spawn_case profile-free-nologin opencode "$id")
+  id=profile-ungo-nologin-z35
+  rec=$(make_spawn_case profile-ungo-nologin opencode "$id")
   read_case_record "$rec"
   printf '%s' "$DUAL_SECOND_ORG_ID" > "$HOME_DIR/config/opencode-second-org"
   datadir=$(make_nologin_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") \
@@ -2963,15 +2953,15 @@ test_opencode_unpinned_launch_seeds_task_database_from_live_account() {
     || fail "the machine database account fixture could not be created"
 
   export FM_FAKE_OPENCODE_DATA="$datadir"
-  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model opencode/custom-worker-model)
   status=$?
   unset FM_FAKE_OPENCODE_DATA
-  expect_code 0 "$status" "an unpinned free launch must succeed: $out"
-  assert_grep 'model=opencode-go/minimax-m3.1-flash-free' "$HOME_DIR/state/$id.meta" "the free model was not recorded"
-  assert_not_contains "$(cat "$HOME_DIR/state/$id.meta")" "opencode_workspace" "a free launch must record no workspace marker"
+  expect_code 0 "$status" "an unpinned launch must succeed: $out"
+  assert_grep 'model=opencode/custom-worker-model' "$HOME_DIR/state/$id.meta" "the explicit model was not recorded"
+  assert_not_contains "$(cat "$HOME_DIR/state/$id.meta")" "opencode_workspace" "an unpinned launch must record no workspace marker"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "--model 'opencode-go/minimax-m3.1-flash-free'" \
-    "the launch did not carry the free model id"
+  assert_contains "$launch" "--model 'opencode/custom-worker-model'" \
+    "the launch did not carry the explicit model id"
   assert_contains "$launch" "OPENCODE_DB='$HOME_DIR/state/$id.opencode.db'" \
     "an unpinned OpenCode launch must use its per-task database, not the machine-wide default"
   [ -f "$HOME_DIR/state/$id.opencode.db" ] \
@@ -2985,26 +2975,29 @@ test_opencode_unpinned_launch_seeds_task_database_from_live_account() {
   pass "the unpinned OpenCode launch seeds a private per-task database with the console account"
 }
 
-test_opencode_free_launch_requires_console_login_without_building_a_pin() {
+test_opencode_go_launch_builds_workspace_pins() {
   local rec id out status launch datadir
-  id=profile-free-mainorg-z36
-  rec=$(make_spawn_case profile-free-mainorg opencode "$id")
+  command -v sqlite3 >/dev/null 2>&1 || {
+    pass "workspace pin proof needs sqlite3 (absent here)"
+    return 0
+  }
+  id=profile-go-mainorg-z36
+  rec=$(make_spawn_case profile-go-mainorg opencode "$id")
   read_case_record "$rec"
   printf '%s' "$DUAL_SECOND_ORG_ID" > "$HOME_DIR/config/opencode-second-org"
   printf '%s' "$DUAL_MAIN_ORG_ID" > "$HOME_DIR/config/opencode-main-org"
-  datadir=$(make_nologin_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") \
-    || fail "the no-login fixture could not be built"
+  datadir=$(make_dual_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") \
+    || fail "the fixture login could not be built"
 
   export FM_FAKE_OPENCODE_DATA="$datadir"
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
   status=$?
   unset FM_FAKE_OPENCODE_DATA
-  expect_code 1 "$status" "a free launch must refuse to run without a console login: $out"
-  assert_contains "$out" "requires a console login" \
-    "a free launch without an account must explain the missing console login"
-  [ ! -e "$HOME_DIR/config/opencode-main.db" ] \
-    || fail "a free launch must not build a main pin database"
-  pass "a free launch requires console login without building a paid Go workspace pin"
+  expect_code 0 "$status" "a Go launch with a console login must succeed: $out"
+  assert_grep 'model=opencode-go/muse-spark-1.3-contributor' "$HOME_DIR/state/$id.meta" "the Go model was not recorded"
+  [ -f "$HOME_DIR/config/opencode-main.db" ] \
+    || fail "a Go launch must build its main pin database"
+  pass "a Go launch builds its workspace pins from the console login"
 }
 
 # The shared-server experiment (bin/fm-opencode-server.sh). The fake server
@@ -3113,7 +3106,6 @@ test_opencode_shared_servers_keep_each_workspace_on_its_own_database() {
   datadir=$(make_dual_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") \
     || fail "the fixture login could not be built"
   fm_test_fake_opencode_server "$FAKEBIN_DIR" "$CASE_DIR/fake-server"
-  record_rung_cap "$HOME_DIR" free || fail "record refused free cap"
   record_rung_cap "$HOME_DIR" plus || fail "record refused Plus cap"
 
   export FM_FAKE_OPENCODE_DATA="$datadir"
@@ -3200,7 +3192,7 @@ test_opencode_shared_server_falls_back_to_standalone
 test_opencode_shared_server_session_failure_falls_back_to_standalone
 test_opencode_shared_servers_keep_each_workspace_on_its_own_database
 test_opencode_unpinned_launch_seeds_task_database_from_live_account
-test_opencode_free_launch_requires_console_login_without_building_a_pin
+test_opencode_go_launch_builds_workspace_pins
 test_opencode_workspace_flag_refuses_fresh_spawn
 test_non_cursor_launch_clears_inherited_cursor_markers
 test_relative_home_overrides_launch_with_absolute_cross_process_paths

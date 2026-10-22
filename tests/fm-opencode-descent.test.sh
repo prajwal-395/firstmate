@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Behavior tests for bin/fm-opencode-descent-lib.sh - the running-worker half
-# of the opencode free-then-Codex-then-Go ladder.
+# of the opencode Go-then-Codex Plus ladder.
 #
 # The dispatch gate (bin/fm-opencode-ladder-lib.sh) routes the NEXT spawn; it
-# never looks at a lane again. A lane that starts on free and hits the cap
+# never looks at a lane again. A lane that starts on Go and hits the cap
 # mid-run sits in a vendor retry backoff for hours doing nothing, which the
 # supervisor reads as working. This evaluation re-checks RUNNING lanes against
 # the same cap evidence the dispatch gate uses and moves the honest ones.
@@ -12,24 +12,24 @@
 #   1. A healthy lane, a transient retry, and an expired cap stay silent: the
 #      descent never touches a worker that is making progress or may resume.
 #   2. A quota-scale cap is proven through the REAL record helper
-#      (bin/fm-opencode-retry.sh) fed the recorded vendor refusal below
-#      ("Free usage exceeded, subscribe to Go [retrying in 21h 54m]", 78840s),
-#      so the state machine is exercised against the refusal without spending
-#      paid quota - plus the REAL busy writer (bin/fm-busy-event.sh) latching
+#      (bin/fm-opencode-retry.sh) fed a recorded 21h 54m vendor backoff
+#      (78840s), so the state machine is exercised against the refusal
+#      without spending paid quota - plus the REAL busy writer
+#      (bin/fm-busy-event.sh) latching
 #      session-retry, so a stale sidecar beside a resumed turn never moves a
 #      worker.
-#   3. A proven free cap relaunches the lane on Go through the control plane
-#      (overridable for tests), verifies the durable record followed, clears
-#      the dead session's sidecar, and says `relaunched`.
-#   4. A Go-recorded cap, a secondmate, and a failed relaunch surface as
-#      `refused`, exactly once per episode - the ladder has no third rung, a
+#   3. A proven Go cap relaunches the lane onto Codex Plus through the
+#      control plane (overridable for tests), verifies the durable record
+#      followed, clears the dead session's sidecar, and says `relaunched`.
+#   4. A Plus-recorded cap with nowhere to go, a secondmate, and a failed
+#      relaunch surface as `refused`, exactly once per episode - a
 #      persistent supervision agent is never auto-touched, and a broken move
 #      is never retried blindly.
 #   5. FM_OPENCODE_LADDER_OVERRIDE holds a capped worker where the captain put
 #      it and says `override`, once per episode.
 #   6. A move the record did not follow is reported as `unrecorded`, never as
 #      a success.
-#   7. An unbound cap on a free-recorded lane still relaunches, with the
+#   7. An unbound cap on a Go-recorded lane still relaunches, with the
 #      ambiguity owned in the handoff note - the launch gate's own bias.
 #   8. Off-ladder models are never governed, and the evaluation itself is
 #      rate-limited off the watcher's poll.
@@ -78,16 +78,13 @@ unset FM_CONFIG_OVERRIDE
 RETRY="$ROOT/bin/fm-opencode-retry.sh"
 BUSY="$ROOT/bin/fm-busy-event.sh"
 
-FREE='opencode-go/minimax-m3.1-flash-free'
 GO='opencode-go/muse-spark-1.3-contributor'
 PLUS='gpt-6-luna'
 # The plugin's own vocabulary: OpenCode's event stream reports model.id with
 # NO provider prefix, and recordRetry passes it straight through to the
-# sidecar. Production sidecars (2026-09-19) carry these bare forms, so the
-# regressions below speak them - a fixture in the gate's prefixed vocabulary
-# would be blind to a producer-side mismatch by construction. The bare free
-# id is the captured specimen's model token verbatim.
-FREE_BARE='minimax-m3.1-flash-free'
+# sidecar. Production sidecars (2026-09-19) carry this bare form, so the
+# regressions below speak it - a fixture in the gate's prefixed vocabulary
+# would be blind to a producer-side mismatch by construction.
 GO_BARE='muse-spark-1.3-contributor'
 
 now_s() { date +%s; }
@@ -212,7 +209,7 @@ test_healthy_lane_is_silent() {
   local state out
   state=$(fresh_state healthy)
   stub_env "$state" 0 1
-  write_meta "$state" lane1 opencode "$FREE" scout
+  write_meta "$state" lane1 opencode "$GO" scout
   arm_busy "$state" lane1 session-busy || fail "busy writer refused fixture"
   out=$(run_tick "$state") || fail "tick must never fail a healthy lane"
   [ -z "$out" ] || fail "a healthy lane must stay silent, said: $out"
@@ -224,9 +221,9 @@ test_transient_retry_stays() {
   local state out
   state=$(fresh_state transient)
   stub_env "$state" 0 1
-  write_meta "$state" lane1 opencode "$FREE" scout
+  write_meta "$state" lane1 opencode "$GO" scout
   arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
-  record_cap "$state" lane1 8 "$FREE" || fail "record refused fixture"
+  record_cap "$state" lane1 8 "$GO" || fail "record refused fixture"
   out=$(run_tick "$state") || fail "tick must never fail"
   [ -z "$out" ] || fail "a seconds-long backoff must stay silent, said: $out"
   stub_called && fail "a transient retry must never reach the control plane"
@@ -237,9 +234,9 @@ test_expired_cap_stays() {
   local state out
   state=$(fresh_state expired)
   stub_env "$state" 0 1
-  write_meta "$state" lane1 opencode "$FREE" scout
+  write_meta "$state" lane1 opencode "$GO" scout
   arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
-  record_cap "$state" lane1 -82800 "$FREE" || fail "record refused fixture"
+  record_cap "$state" lane1 -82800 "$GO" || fail "record refused fixture"
   out=$(run_tick "$state") || fail "tick must never fail"
   [ -z "$out" ] || fail "an expired cap must stay silent, said: $out"
   stub_called && fail "an expired cap must never reach the control plane"
@@ -252,11 +249,11 @@ test_stale_sidecar_needs_latch() {
   local state out
   state=$(fresh_state latch)
   stub_env "$state" 0 1
-  write_meta "$state" lane1 opencode "$FREE" scout
+  write_meta "$state" lane1 opencode "$GO" scout
   # Quota-scale sidecar, but the busy record says the turn resumed: the
   # sidecar belongs to a retired observation, not to this worker now.
   arm_busy "$state" lane1 session-busy || fail "busy writer refused fixture"
-  record_cap "$state" lane1 78840 "$FREE" || fail "record refused fixture"
+  record_cap "$state" lane1 78840 "$GO" || fail "record refused fixture"
   out=$(run_tick "$state") || fail "tick must never fail"
   [ -z "$out" ] || fail "a stale sidecar must stay silent, said: $out"
   stub_called && fail "a stale sidecar must never reach the control plane"
@@ -265,21 +262,21 @@ test_stale_sidecar_needs_latch() {
 
 # --- 3. the recorded refusal relaunches onto Codex Plus -----------------------
 
-test_recorded_refusal_relaunches_to_go() {
+test_recorded_refusal_relaunches_to_plus() {
   local state out
   state=$(fresh_state refusal)
   stub_env "$state" 0 1
-  write_meta "$state" lane1 opencode "$FREE" scout
+  write_meta "$state" lane1 opencode "$GO" scout
   arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
-  # Recorded vendor refusal, verbatim from the 2026-09-07 twelve-wide stall:
-  #   Free usage exceeded, subscribe to Go [retrying in 21h 54m]
-  record_cap "$state" lane1 78840 "$FREE" || fail "record refused fixture"
+  # A 21h 54m vendor backoff (78840s) against the Go tier, converted into the
+  # structural `next` timestamp the detector owns.
+  record_cap "$state" lane1 78840 "$GO" || fail "record refused fixture"
   out=$(run_tick "$state") || fail "tick must never fail past the cap"
   case "$out" in
     relaunched' '*) : ;;
-    *) fail "a proven free cap must relaunch, said: ${out:-<silent>}" ;;
+    *) fail "a proven Go cap must relaunch, said: ${out:-<silent>}" ;;
   esac
-  stub_called || fail "a proven free cap must reach the control plane"
+  stub_called || fail "a proven Go cap must reach the control plane"
   case "$(stub_calls)" in
     *'relaunch'*"$PLUS"*) : ;;
     *) fail "the move must be a relaunch onto Codex Plus, called: $(stub_calls)" ;;
@@ -296,7 +293,7 @@ test_recorded_refusal_relaunches_to_go() {
     || fail "the durable record must name Codex Plus after the move"
   [ ! -f "$state/lane1.opencode-retry" ] \
     || fail "the dead session's sidecar must be cleared after the move"
-  pass "the recorded free refusal relaunches the lane onto Codex Plus"
+  pass "the recorded Go refusal relaunches the lane onto Codex Plus"
 }
 
 test_pi_ladder_lane_remains_in_descent_scope_when_opted_in() {
@@ -304,17 +301,16 @@ test_pi_ladder_lane_remains_in_descent_scope_when_opted_in() {
   state=$(fresh_state pi-ladder)
   stub_env "$state" 0 1
   printf '%s\n' on > "$FAKEHOME/config/pi-opencode-go"
-  write_meta "$state" lane1 pi "$FREE" scout
+  write_meta "$state" lane1 pi "$GO" scout
   printf 'dispatch_ladder=opencode\n' >> "$state/lane1.meta"
   arm_busy "$state" lane1 session-retry || fail "busy writer refused Pi fixture"
-  record_cap "$state" lane1 78840 "$FREE" || fail "record refused Pi free cap"
-  "$RETRY" record-cap "$state" plus "$(ms_from_now 78840)" || fail "record refused the Plus cap"
+  record_cap "$state" lane1 78840 "$GO" || fail "record refused Pi Go cap"
   out=$(run_tick "$state") || fail "tick must never fail for an opted-in Pi ladder lane"
   case "$out" in
     relaunched' '*) : ;;
-    *) fail "an opted-in Pi ladder lane with a proven free cap must descend, said: ${out:-<silent>}" ;;
+    *) fail "an opted-in Pi ladder lane with a proven Go cap must descend, said: ${out:-<silent>}" ;;
   esac
-  case "$(stub_calls)" in *'--harness opencode'*"$GO"*) : ;; *) fail "descent did not request the Go rung through fm-spawn: $(stub_calls)" ;; esac
+  case "$(stub_calls)" in *'--harness codex'*"$PLUS"*) : ;; *) fail "descent did not request the Plus rung through the control plane: $(stub_calls)" ;; esac
   pass "an opted-in Pi ladder lane remains eligible for the existing cap descent"
 }
 
@@ -322,17 +318,17 @@ test_descent_uses_configured_codex_plus_effort() {
   local state out config_dir
   state=$(fresh_state configured-effort)
   stub_env "$state" 0 1
-  write_meta "$state" lane1 opencode "$FREE" scout
+  write_meta "$state" lane1 opencode "$GO" scout
   arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
-  record_cap "$state" lane1 78840 "$FREE" || fail "record refused fixture"
+  record_cap "$state" lane1 78840 "$GO" || fail "record refused fixture"
   config_dir="$TMP_ROOT/config-configured-effort"
   mkdir -p "$config_dir"
-  printf '{"default":[{"harness":"opencode","model":"%s"},{"harness":"codex","model":"%s","effort":"high"},{"harness":"opencode-go","model":"%s"}]}\n' \
-    "$FREE" "$PLUS" "$GO" > "$config_dir/crew-dispatch.json"
+  printf '{"default":[{"harness":"opencode","model":"%s","provider":"opencode-go"},{"harness":"codex","model":"%s","effort":"high","provider":"codex"}]}\n' \
+    "$GO" "$PLUS" > "$config_dir/crew-dispatch.json"
   out=$(FM_CONFIG_OVERRIDE="$config_dir" run_tick "$state") || fail "tick must never fail past the cap"
   case "$out" in
     relaunched' '*) : ;;
-    *) fail "a proven free cap must relaunch with configured effort, said: ${out:-<silent>}" ;;
+    *) fail "a proven Go cap must relaunch with configured effort, said: ${out:-<silent>}" ;;
   esac
   case "$(stub_calls)" in
     *'--effort high'*) : ;;
@@ -432,95 +428,96 @@ test_codex_unparseable_reset_records_bounded_cap() {
 
 # --- 3b. the plugin's bare-model vocabulary binds the same rungs -------------
 # PR 129 normalised the dispatch gate for bare sidecar models but left this
-# file's own prefixed-only copies: a bare free cap bound `other` instead of
-# `free`, and a bare-recorded free lane read as off-ladder and stayed silent
-# past a proven cap. These speak the producer's vocabulary on both halves -
-# the sidecar model and the recorded lane model - so either form moves.
+# file's own prefixed-only copies. These speak the producer's vocabulary on
+# both halves - the sidecar model and the recorded lane model - so either
+# form binds the same rung and moves.
 
-test_plugin_vocabulary_free_cap_binds_free() {
+test_plugin_vocabulary_go_cap_binds_go() {
   local state cap bound
   state=$(fresh_state barecap)
-  write_meta "$state" lane1 opencode "$FREE" scout
+  write_meta "$state" lane1 opencode "$GO" scout
   arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
-  # The captured 2026-09-19 specimen's model token verbatim; the horizon is
+  # The captured 2026-09-19 specimen's shape with the Go id: the horizon is
   # recomputed relative to run time through the real record helper because
   # the specimen's own `next` has since expired.
-  record_cap "$state" lane1 78840 "$FREE_BARE" || fail "record refused the bare-model observation"
-  cap=$(fm_opencode_descent_cap "$state" lane1) || fail "a bare-model free cap must meet the trigger"
+  record_cap "$state" lane1 78840 "$GO_BARE" || fail "record refused the bare-model observation"
+  cap=$(fm_opencode_descent_cap "$state" lane1) || fail "a bare-model Go cap must meet the trigger"
   bound=${cap#* }; bound=${bound%% *}
-  [ "$bound" = free ] || fail "a bare-model free cap must bind free, bound: ${bound:-<empty>} (full verdict: $cap)"
-  pass "a free cap in the plugin's bare-model vocabulary binds free"
+  [ "$bound" = go ] || fail "a bare-model Go cap must bind go, bound: ${bound:-<empty>} (full verdict: $cap)"
+  pass "a Go cap in the plugin's bare-model vocabulary binds go"
 }
 
-test_plugin_vocabulary_bare_free_lane_descends() {
+test_plugin_vocabulary_bare_go_lane_descends() {
   local state out
   state=$(fresh_state barelane)
   stub_env "$state" 0 1
   # The lane as a bare-`--model` request records it: the routed tier in the
   # producer's vocabulary, not the gate's prefixed one.
-  write_meta "$state" lane1 opencode "$FREE_BARE" scout
+  write_meta "$state" lane1 opencode "$GO_BARE" scout
   arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
-  record_cap "$state" lane1 78840 "$FREE_BARE" || fail "record refused the bare-model observation"
+  record_cap "$state" lane1 78840 "$GO_BARE" || fail "record refused the bare-model observation"
   out=$(run_tick "$state") || fail "tick must never fail past the cap"
   case "$out" in
     relaunched' '*) : ;;
-    *) fail "a bare-recorded free lane past a bare-model cap must relaunch, said: ${out:-<silent>}" ;;
+    *) fail "a bare-recorded Go lane past a bare-model cap must relaunch, said: ${out:-<silent>}" ;;
   esac
-  stub_called || fail "a bare-recorded free lane must reach the control plane"
+  stub_called || fail "a bare-recorded Go lane must reach the control plane"
   case "$(stub_calls)" in
     *'relaunch'*"$PLUS"*) : ;;
     *) fail "the move must be a relaunch onto Codex Plus, called: $(stub_calls)" ;;
   esac
   [ "$(fm_meta_model "$state" lane1)" = "$PLUS" ] \
-    || fail "the durable record must name Go after the move"
+    || fail "the durable record must name Codex Plus after the move"
   [ ! -f "$state/lane1.opencode-retry" ] \
     || fail "the dead session's sidecar must be cleared after the move"
-  pass "a bare-recorded free lane descends onto Codex Plus past a bare-model cap"
+  pass "a bare-recorded Go lane descends onto Codex Plus past a bare-model cap"
 }
 
-test_plugin_vocabulary_bare_go_lane_refused() {
+test_bare_go_lane_refused_when_plus_capped() {
   local state out
   state=$(fresh_state barego)
   stub_env "$state" 0 1
   write_meta "$state" lane1 opencode "$GO_BARE" scout
   arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
-  # Stripping the prefix must not collapse the rungs: the bare Go id carries
-  # no `-free` suffix, so this cap is a Go cap and the lane has nowhere to go.
+  # The bare Go id binds the Go rung exactly like its prefixed form; with
+  # Codex Plus capped too, the lane has nowhere to go and must surface.
   record_cap "$state" lane1 78840 "$GO_BARE" || fail "record refused a bare Go-bound cap"
+  "$RETRY" record-cap "$state" plus "$(ms_from_now 78840)" || fail "record refused Plus fixture"
   out=$(run_tick "$state") || fail "tick must never fail"
   case "$out" in
     refused' '*) : ;;
-    *) fail "a bare-recorded Go lane must surface, said: ${out:-<silent>}" ;;
+    *) fail "a bare-recorded Go lane past two capped rungs must surface, said: ${out:-<silent>}" ;;
   esac
-  stub_called && fail "a bare-recorded Go lane has nowhere to move to"
-  pass "a bare-recorded Go lane surfaces instead of moving"
+  stub_called && fail "a bare-recorded Go lane has nowhere to move to past two capped rungs"
+  pass "a bare-recorded Go lane surfaces instead of moving past two capped rungs"
 }
 
 # --- 4. nowhere to move, and nobody to move -----------------------------------
 
-test_go_lane_surfaces() {
+test_go_lane_surfaces_when_plus_capped() {
   local state out
   state=$(fresh_state golane)
   stub_env "$state" 0 1
   write_meta "$state" lane1 opencode "$GO" scout
   arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
   record_cap "$state" lane1 78840 "$GO" || fail "record refused fixture"
+  "$RETRY" record-cap "$state" plus "$(ms_from_now 78840)" || fail "record refused Plus fixture"
   out=$(run_tick "$state") || fail "tick must never fail"
   case "$out" in
     refused' '*) : ;;
-    *) fail "a capped Go lane must surface, said: ${out:-<silent>}" ;;
+    *) fail "a capped Go lane past a capped Plus rung must surface, said: ${out:-<silent>}" ;;
   esac
-  stub_called && fail "a capped Go lane has nowhere to move to"
-  pass "a capped Go lane surfaces instead of moving"
+  stub_called && fail "a capped Go lane has nowhere to move to past a capped Plus rung"
+  pass "a capped Go lane surfaces instead of moving past a capped Plus rung"
 }
 
 test_secondmate_surfaces() {
   local state out
   state=$(fresh_state secondmate)
   stub_env "$state" 0 1
-  write_meta "$state" lane1 opencode "$FREE" secondmate
+  write_meta "$state" lane1 opencode "$GO" secondmate
   arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
-  record_cap "$state" lane1 78840 "$FREE" || fail "record refused fixture"
+  record_cap "$state" lane1 78840 "$GO" || fail "record refused fixture"
   out=$(run_tick "$state") || fail "tick must never fail"
   case "$out" in
     refused' '*) : ;;
@@ -549,7 +546,7 @@ test_unknown_model_surfaces() {
   stub_env "$state" 0 1
   write_meta "$state" lane1 opencode '' scout
   arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
-  record_cap "$state" lane1 78840 "$FREE" || fail "record refused fixture"
+  record_cap "$state" lane1 78840 "$GO" || fail "record refused fixture"
   out=$(run_tick "$state") || fail "tick must never fail"
   case "$out" in
     refused' '*) : ;;
@@ -565,9 +562,9 @@ test_failed_relaunch_escalates_once() {
   local state out
   state=$(fresh_state relaunchfail)
   stub_env "$state" 1 0
-  write_meta "$state" lane1 opencode "$FREE" scout
+  write_meta "$state" lane1 opencode "$GO" scout
   arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
-  record_cap "$state" lane1 78840 "$FREE" || fail "record refused fixture"
+  record_cap "$state" lane1 78840 "$GO" || fail "record refused fixture"
   out=$(run_tick "$state") || fail "tick must never fail"
   case "$out" in
     refused' '*) : ;;
@@ -581,7 +578,7 @@ test_failed_relaunch_escalates_once() {
   # refusal evidence arrived with a new vendor timestamp, so the next tick
   # tries again.
   "$RETRY" clear "$state" lane1
-  record_cap "$state" lane1 70000 "$FREE" || fail "record refused fixture"
+  record_cap "$state" lane1 70000 "$GO" || fail "record refused fixture"
   out=$(run_tick "$state") || fail "tick must never fail"
   case "$out" in
     refused' '*) : ;;
@@ -596,17 +593,17 @@ test_override_holds() {
   local state out
   state=$(fresh_state override)
   stub_env "$state" 0 1
-  write_meta "$state" lane1 opencode "$FREE" scout
+  write_meta "$state" lane1 opencode "$GO" scout
   arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
-  record_cap "$state" lane1 78840 "$FREE" || fail "record refused fixture"
-  out=$(FM_OPENCODE_LADDER_OVERRIDE='captain asked for free' run_tick "$state") \
+  record_cap "$state" lane1 78840 "$GO" || fail "record refused fixture"
+  out=$(FM_OPENCODE_LADDER_OVERRIDE='captain asked for Go' run_tick "$state") \
     || fail "tick must never fail"
   case "$out" in
     override' '*) : ;;
     *) fail "the override must hold the worker, said: ${out:-<silent>}" ;;
   esac
   stub_called && fail "an overridden worker must never be moved"
-  out=$(FM_OPENCODE_LADDER_OVERRIDE='captain asked for free' run_tick "$state") \
+  out=$(FM_OPENCODE_LADDER_OVERRIDE='captain asked for Go' run_tick "$state") \
     || fail "tick must never fail"
   [ -z "$out" ] || fail "an override must not wake twice, said: $out"
   pass "the override holds a capped worker and says so once"
@@ -618,9 +615,9 @@ test_unrecorded_move_reported() {
   local state out
   state=$(fresh_state unrecorded)
   stub_env "$state" 0 0
-  write_meta "$state" lane1 opencode "$FREE" scout
+  write_meta "$state" lane1 opencode "$GO" scout
   arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
-  record_cap "$state" lane1 78840 "$FREE" || fail "record refused fixture"
+  record_cap "$state" lane1 78840 "$GO" || fail "record refused fixture"
   out=$(run_tick "$state") || fail "tick must never fail"
   case "$out" in
     unrecorded' '*) : ;;
@@ -637,13 +634,13 @@ test_unbound_cap_relaunches_with_ambiguity() {
   local state out
   state=$(fresh_state unbound)
   stub_env "$state" 0 1
-  write_meta "$state" lane1 opencode "$FREE" scout
+  write_meta "$state" lane1 opencode "$GO" scout
   arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
   record_cap "$state" lane1 78840 || fail "record refused fixture"
   out=$(run_tick "$state") || fail "tick must never fail past the cap"
   case "$out" in
     relaunched' '*) : ;;
-    *) fail "an unbound cap on free must still move, said: ${out:-<silent>}" ;;
+    *) fail "an unbound cap on Go must still move, said: ${out:-<silent>}" ;;
   esac
   case "$(stub_calls)" in
     *'unbound'*|*'no model'*) : ;;
@@ -658,14 +655,14 @@ test_evaluation_rate_limited() {
   local state out
   state=$(fresh_state ratelimit)
   stub_env "$state" 0 1
-  write_meta "$state" lane1 opencode "$FREE" scout
+  write_meta "$state" lane1 opencode "$GO" scout
   arm_busy "$state" lane1 session-busy || fail "busy writer refused fixture"
   out=$(FM_OPENCODE_DESCENT_INTERVAL=3600 fm_opencode_descent_tick "$state" 2>/dev/null) \
     || fail "tick must never fail"
   [ -z "$out" ] || fail "a healthy evaluation must stay silent, said: $out"
   # The cap lands inside the rate-limit window: the next poll must not act.
   arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
-  record_cap "$state" lane1 78840 "$FREE" || fail "record refused fixture"
+  record_cap "$state" lane1 78840 "$GO" || fail "record refused fixture"
   out=$(FM_OPENCODE_DESCENT_INTERVAL=3600 fm_opencode_descent_tick "$state" 2>/dev/null) \
     || fail "tick must never fail"
   [ -z "$out" ] || fail "a rate-limited evaluation must stay silent, said: $out"
@@ -685,11 +682,11 @@ test_evaluation_rate_limited() {
 # the cap verbatim. The descent must move those lanes exactly as it moves an
 # actively-retrying one.
 
-test_idle_after_cap_relaunches_to_go() {
+test_idle_after_cap_relaunches_to_plus() {
   local state out
   state=$(fresh_state idlecap)
   stub_env "$state" 0 1
-  write_meta "$state" lane1 opencode "$FREE" scout
+  write_meta "$state" lane1 opencode "$GO" scout
   arm_idle "$state" lane1 session-idle || fail "busy writer refused fixture"
   # No record_cap: the sidecar is gone by design. The pane tail carries the
   # cap verbatim, wrapped across rendered lines as the incident showed it.
@@ -726,7 +723,7 @@ test_idle_healthy_lane_stays() {
   local state out
   state=$(fresh_state idlehealthy)
   stub_env "$state" 0 1
-  write_meta "$state" lane1 opencode "$FREE" scout
+  write_meta "$state" lane1 opencode "$GO" scout
   arm_idle "$state" lane1 session-idle || fail "busy writer refused fixture"
   printf '%s\n' 'working on the task...' 'done' 'opencode>' > "$FM_PANE_FIXTURES/pane-lane1.txt"
   out=$(run_tick "$state") || fail "tick must never fail"
@@ -739,19 +736,19 @@ test_healthy_lane_is_silent
 test_transient_retry_stays
 test_expired_cap_stays
 test_stale_sidecar_needs_latch
-test_recorded_refusal_relaunches_to_go
+test_recorded_refusal_relaunches_to_plus
 test_pi_ladder_lane_remains_in_descent_scope_when_opted_in
 test_descent_uses_configured_codex_plus_effort
 test_capped_plus_lane_descends_to_go
 test_codex_human_reset_parses_incident_string
 test_codex_human_reset_form_descends
 test_codex_unparseable_reset_records_bounded_cap
-test_plugin_vocabulary_free_cap_binds_free
-test_plugin_vocabulary_bare_free_lane_descends
-test_plugin_vocabulary_bare_go_lane_refused
-test_idle_after_cap_relaunches_to_go
+test_plugin_vocabulary_go_cap_binds_go
+test_plugin_vocabulary_bare_go_lane_descends
+test_bare_go_lane_refused_when_plus_capped
+test_idle_after_cap_relaunches_to_plus
 test_idle_healthy_lane_stays
-test_go_lane_surfaces
+test_go_lane_surfaces_when_plus_capped
 test_secondmate_surfaces
 test_off_ladder_silent
 test_unknown_model_surfaces
@@ -762,9 +759,9 @@ test_filed_descent_off_holds_where_the_tick_runs() {
   local state out
   state=$(fresh_state descent-off-file)
   stub_env "$state" 0 1
-  write_meta "$state" lane1 opencode "$FREE" scout
+  write_meta "$state" lane1 opencode "$GO" scout
   arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
-  record_cap "$state" lane1 78840 "$FREE" || fail "record refused fixture"
+  record_cap "$state" lane1 78840 "$GO" || fail "record refused fixture"
   # The off state the watcher actually reads is a state record, because the
   # watcher is a long-lived process that predates the instruction and never
   # inherits firstmate's environment. Every evaluation below runs with the
@@ -789,22 +786,22 @@ test_recorded_pin_holds_without_the_env_var() {
   local state out
   state=$(fresh_state override-pin-file)
   stub_env "$state" 0 1
-  write_meta "$state" lane1 opencode "$FREE" scout
+  write_meta "$state" lane1 opencode "$GO" scout
   arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
-  record_cap "$state" lane1 78840 "$FREE" || fail "record refused fixture"
+  record_cap "$state" lane1 78840 "$GO" || fail "record refused fixture"
   # The pin firstmate records when it holds a lane on the captain's word is
   # read back where the tick runs, not from an environment the watcher never
   # inherits. The variable stays absent throughout, so this fails if the hold
   # only sticks where the variable is set. Written directly: the production
   # writer is fm-spawn.sh through fm_opencode_pin_task.
-  printf '%s' 'captain: hold free for this demo' > "$state/.opencode-pin-lane1"
+  printf '%s' 'captain: hold Go for this demo' > "$state/.opencode-pin-lane1"
   out=$(unset FM_OPENCODE_LADDER_OVERRIDE; run_tick "$state") || fail "tick must never fail"
   case "$out" in
     override' '*) : ;;
     *) fail "a recorded pin must hold the worker, said: ${out:-<silent>}" ;;
   esac
   case "$out" in
-    *'captain: hold free for this demo'*) : ;;
+    *'captain: hold Go for this demo'*) : ;;
     *) fail "the recorded reason must be printed, said: $out" ;;
   esac
   stub_called && fail "a pinned worker must never be moved"
@@ -820,9 +817,9 @@ test_unbound_cap_relaunches_with_ambiguity
 test_evaluation_rate_limited
 
 # --- 8. the finding outlives the task ----------------------------------------
-# A descent that moves a lane onto Go spends real money proving free is
-# exhausted, then clears the dead session's sidecar with the rest of that
-# task's state. The FINDING (free is capped until the vendor horizon) is a
+# A descent that moves a lane onto Codex Plus spends real money proving Go
+# is exhausted, then clears the dead session's sidecar with the rest of that
+# task's state. The FINDING (Go is capped until the vendor horizon) is a
 # property of the rung, not of the task that discovered it, so it must stay
 # readable after that task's cleanup has run - or the next spawn pays for
 # the same refusal again.
@@ -831,17 +828,17 @@ test_descended_cap_survives_task_cleanup() {
   local state out cap horizon
   state=$(fresh_state survive)
   stub_env "$state" 0 1
-  write_meta "$state" lane1 opencode "$FREE" scout
+  write_meta "$state" lane1 opencode "$GO" scout
   arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
   # 83823s is a measured horizon, not a round number: the 2026-09-21 evening
   # cap event held three lanes on this rung with sidecars agreeing to within
   # the minute (about 23h16m), which is the direct evidence the cap belongs
   # to the rung and the vendor window rather than to any one task.
-  record_cap "$state" lane1 83823 "$FREE" || fail "record refused fixture"
+  record_cap "$state" lane1 83823 "$GO" || fail "record refused fixture"
   out=$(run_tick "$state") || fail "tick must never fail past the cap"
   case "$out" in
     relaunched' '*) : ;;
-    *) fail "a proven free cap must relaunch, said: ${out:-<silent>}" ;;
+    *) fail "a proven Go cap must relaunch, said: ${out:-<silent>}" ;;
   esac
   # That task's cleanup: the tick already cleared the dead session's
   # sidecar; teardown removes the rest of the per-task state (record, busy
@@ -850,11 +847,11 @@ test_descended_cap_survives_task_cleanup() {
     "$state/lane1.busy-gen" "$state/lane1.busy-state" \
     "$state/.opencode-descent-escalated-lane1" \
     "$state/lane1.progress"
-  cap=$(fm_opencode_ladder_free_capped "$state" 2>/dev/null) \
+  cap=$("$RETRY" check-cap "$state" go 2>/dev/null) \
     || fail "the descended cap must still read exhausted after that task's cleanup"
   case "$cap" in
-    free-capped' '*) : ;;
-    *) fail "the gate must report free-capped, said: ${cap:-<silent>}" ;;
+    *'status=blocked'*) : ;;
+    *) fail "the gate must report the Go rung blocked, said: ${cap:-<silent>}" ;;
   esac
   horizon=${cap#*horizon_s=}; horizon=${horizon%% *}
   case "$horizon" in ''|*[!0-9]*) fail "the preserved finding must carry the vendor horizon, said: $cap" ;; esac
@@ -889,6 +886,7 @@ test_go_lane_descends_to_second_workspace() {
   write_meta "$state" lane1 opencode "$GO" scout
   arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
   record_cap "$state" lane1 78840 "$GO" || fail "record refused fixture"
+  "$RETRY" record-cap "$state" plus "$(ms_from_now 78840)" || fail "record refused Plus fixture"
   out=$(FM_CONFIG_OVERRIDE="$cfg" run_tick "$state") || fail "tick must never fail"
   case "$out" in
     relaunched' '*'second workspace'*) : ;;
@@ -913,6 +911,7 @@ test_go_lane_refused_when_second_capped() {
   write_meta "$state" lane1 opencode "$GO" scout
   arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
   record_cap "$state" lane1 78840 "$GO" || fail "record refused fixture"
+  "$RETRY" record-cap "$state" plus "$(ms_from_now 78840)" || fail "record refused Plus fixture"
   "$RETRY" record-cap "$state" go-second "$(ms_from_now 78840)" || fail "record refused fourth-rung fixture"
   out=$(FM_CONFIG_OVERRIDE="$cfg" run_tick "$state") || fail "tick must never fail"
   case "$out" in
@@ -961,6 +960,7 @@ test_secondary_go_lane_refused_when_main_capped() {
   mark_secondary "$state" lane1
   arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
   record_cap "$state" lane1 78840 "$GO" || fail "record refused fixture"
+  "$RETRY" record-cap "$state" plus "$(ms_from_now 78840)" || fail "record refused Plus fixture"
   "$RETRY" record-cap "$state" go "$(ms_from_now 78840)" || fail "record refused main-Go fixture"
   out=$(FM_CONFIG_OVERRIDE="$cfg" run_tick "$state") || fail "tick must never fail"
   case "$out" in
@@ -971,20 +971,20 @@ test_secondary_go_lane_refused_when_main_capped() {
   pass "a capped second-workspace Go lane surfaces when main is capped too"
 }
 
-test_free_lane_overflows_to_second_workspace() {
+test_go_lane_overflows_past_plus_to_second_workspace() {
   local state out cfg
-  state=$(fresh_state freeoverflow)
-  cfg=$(second_config freeoverflow)
+  state=$(fresh_state gooverflow)
+  cfg=$(second_config gooverflow)
   stub_env "$state" 0 1
-  write_meta "$state" lane1 opencode "$FREE" scout
+  write_meta "$state" lane1 opencode "$GO" scout
   arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
-  record_cap "$state" lane1 78840 "$FREE" || fail "record refused fixture"
+  record_cap "$state" lane1 78840 "$GO" || fail "record refused fixture"
   "$RETRY" record-cap "$state" plus "$(ms_from_now 78840)" || fail "record refused Plus fixture"
   "$RETRY" record-cap "$state" go "$(ms_from_now 78840)" || fail "record refused Go fixture"
   out=$(FM_CONFIG_OVERRIDE="$cfg" run_tick "$state") || fail "tick must never fail"
   case "$out" in
     relaunched' '*'second workspace'*) : ;;
-    *) fail "a free lane past three capped rungs must overflow to the second workspace, said: ${out:-<silent>}" ;;
+    *) fail "a Go lane past two capped rungs must overflow to the second workspace, said: ${out:-<silent>}" ;;
   esac
   case "$(stub_calls)" in
     *'--opencode-workspace secondary'*) : ;;
@@ -992,7 +992,7 @@ test_free_lane_overflows_to_second_workspace() {
   esac
   [ "$(fm_meta_get "$state/lane1.meta" opencode_workspace)" = secondary ] \
     || fail "the overflow must be written to the durable record"
-  pass "a free lane overflows past three capped rungs to the second workspace"
+  pass "a Go lane overflows past two capped rungs to the second workspace"
 }
 
 test_descended_cap_survives_task_cleanup
@@ -1000,7 +1000,7 @@ test_go_lane_descends_to_second_workspace
 test_go_lane_refused_when_second_capped
 test_secondary_go_lane_returns_to_main
 test_secondary_go_lane_refused_when_main_capped
-test_free_lane_overflows_to_second_workspace
+test_go_lane_overflows_past_plus_to_second_workspace
 
 # --- 9. stopped-by-design lanes and finished scouts are never relaunched -----
 # The 2026-10-15 incident: the video mate stood two native-engine lanes down
@@ -1016,10 +1016,10 @@ test_stopped_lane_is_never_relaunched() {
   local state out
   state=$(fresh_state stopped-lane)
   stub_env "$state" 0 1
-  write_meta "$state" lane1 opencode "$FREE" ship
+  write_meta "$state" lane1 opencode "$GO" ship
   printf 'spawn_gen=%s\n' 'stopgen1' >> "$state/lane1.meta"
   arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
-  record_cap "$state" lane1 78840 "$FREE" || fail "record refused fixture"
+  record_cap "$state" lane1 78840 "$GO" || fail "record refused fixture"
   fm_stopped_record "$state" lane1 'captain stood down native-engine lanes' \
     || fail "the stopped library refused a bound record"
   out=$(run_tick "$state") || fail "tick must never fail past a stopped lane"
@@ -1034,10 +1034,10 @@ test_spent_stopped_record_rearms_candidacy() {
   local state out
   state=$(fresh_state spent-stop)
   stub_env "$state" 0 1
-  write_meta "$state" lane1 opencode "$FREE" ship
+  write_meta "$state" lane1 opencode "$GO" ship
   printf 'spawn_gen=%s\n' 'stopgen1' >> "$state/lane1.meta"
   arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
-  record_cap "$state" lane1 78840 "$FREE" || fail "record refused fixture"
+  record_cap "$state" lane1 78840 "$GO" || fail "record refused fixture"
   fm_stopped_record "$state" lane1 'captain stood down native-engine lanes' \
     || fail "the stopped library refused a bound record"
   # A relaunch mints a fresh spawn_gen, which spends the predecessor's
@@ -1061,9 +1061,9 @@ test_done_scout_is_never_relaunched() {
   local state out
   state=$(fresh_state done-scout)
   stub_env "$state" 0 1
-  write_meta "$state" lane1 opencode "$FREE" scout
+  write_meta "$state" lane1 opencode "$GO" scout
   arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
-  record_cap "$state" lane1 78840 "$FREE" || fail "record refused fixture"
+  record_cap "$state" lane1 78840 "$GO" || fail "record refused fixture"
   # The finished scout still carries its meta until teardown, so without a
   # completion check it reads as an ordinary capped candidate.
   printf 'working [at=%s]: investigating the brief\n' "$(now_s)" > "$state/lane1.status"

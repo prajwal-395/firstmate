@@ -39,13 +39,13 @@ ms_from_now() {  # <offset-secs> -> epoch ms
 
 test_cap_horizon_is_blocked() {
   local d="$TMP_ROOT/cap"; mkdir -p "$d"
-  "$HELPER" record "$d" lane1 3 "$(ms_from_now 79200)" "opencode-go/minimax-m3.1-flash-free" "ses_abc" \
+  "$HELPER" record "$d" lane1 3 "$(ms_from_now 79200)" "opencode-go/muse-spark-1.3-contributor" "ses_abc" \
     || fail "record refused a well-formed cap observation"
   [ -f "$d/lane1.opencode-retry" ] || fail "record wrote no sidecar"
   local out; out=$("$HELPER" check "$d" lane1) || fail "check refused a live cap sidecar"
   assert_contains "$out" "status=blocked" "22h horizon -> blocked"
   assert_contains "$out" "attempt=3" "attempt is reported"
-  assert_contains "$out" "model=opencode-go/minimax-m3.1-flash-free" "model id is reported"
+  assert_contains "$out" "model=opencode-go/muse-spark-1.3-contributor" "model id is reported"
   pass "a quota-scale backoff horizon classifies blocked"
 }
 

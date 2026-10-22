@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # fm-opencode-descent-lib.sh - move capped workers along the
-# free-then-Codex-then-Go ladder.
+# Go-then-Codex Plus ladder.
 # Usage: . bin/fm-opencode-descent-lib.sh
 # Sourced by bin/fm-watch.sh. Defining functions is all this file does; the
 # only things it pulls in on its own are the libraries below, and only when a
 # caller has not already loaded them.
 #
 # THE HALF THE DISPATCH GATE CANNOT COVER. bin/fm-opencode-ladder-lib.sh routes
-# the NEXT spawn and never looks at a lane again. A lane that starts on free
+# the NEXT spawn and never looks at a lane again. A lane that starts on Go
 # and hits the cap mid-run does not fail: the vendor holds the session in
 # `retry` and re-schedules it for hours (the 2026-09-07 twelve-lane stall),
 # while supervision reads the lane as working for the whole backoff. This file
@@ -45,15 +45,15 @@
 # why every move below is reported as a wake the supervisor sees.
 #
 # THE TRIGGER IS THE VERIFIED RUNG RESET, WITH A SESSION LATCH FOR OPENCODE.
-# OpenCode free and Go sidecars require the busy latch to remain on that exact
+# OpenCode Go sidecars require the busy latch to remain on that exact
 # retry event, so a stale sidecar beside a resumed turn never moves a worker.
 # Codex Plus uses a fresh quota-axi zero with a reset, or a usage-limit pane
 # message that states its reset time. bin/fm-opencode-retry.sh owns rung-record
 # validation and bin/fm-busy-lib.sh owns the OpenCode session latch.
 #
-# WHAT MOVES, AND WHAT ONLY SURFACES. A capped free lane moves to Codex Plus
-# unless Plus is capped, then to the Go tier; a capped Plus lane moves to
-# the Go tier; a capped main-workspace Go lane moves to Go on the other
+# WHAT MOVES, AND WHAT ONLY SURFACES. A capped Go lane moves to Codex Plus
+# unless Plus is capped, then to the Go tier's other workspace while that
+# plan is uncapped; a capped Plus lane moves to the Go tier's other
 # workspace while that plan is uncapped. The Go tier's workspace is the
 # dispatch pick (bin/fm-opencode-ladder-lib.sh
 # fm_opencode_ladder_pick_go_workspace), never a fixed order: the
@@ -69,7 +69,7 @@
 #
 # THERE IS NO CLIMB-BACK FOR RUNNING WORKERS, BY DESIGN. A healthy lane on a
 # later rung is making progress; moving it back would risk its conversation
-# for zero gain. New spawns start at free after earlier cap records expire.
+# for zero gain. New spawns start at Go after earlier cap records expire.
 #
 # THE FINDING OUTLIVES THE TASK. An OpenCode sidecar describes one session's
 # backoff and is cleared with it after a move - but the cap it proved is a
@@ -105,7 +105,7 @@
 # biased toward relaunching, for the captain's own throughput-first reason.
 #
 # THE OVERRIDE. FM_OPENCODE_LADDER_OVERRIDE is the launch gate's deliberate
-# escape and it is honoured here too: a worker held on free past a proven cap
+# escape and it is honoured here too: a worker held on Go past a proven cap
 # on the captain's explicit request is not dragged off it behind their back.
 # Its use is printed, exactly as the launch gate prints it. bin/fm-spawn.sh
 # records the override per task where this evaluation reads it back, because
@@ -217,10 +217,10 @@ fm_opencode_pin_mark() {  # <state-dir> <id>
 
 # fm_opencode_pin_task: pin <id> where firstmate deliberately put it, for
 # <reason>. bin/fm-spawn.sh records this when FM_OPENCODE_LADDER_OVERRIDE
-# holds a launch on free past a proven cap; the tick reads it back instead of
+# holds a launch on Go past a proven cap; the tick reads it back instead of
 # a variable it cannot see. A pin is not drift, so the tick moves a pinned
 # worker nowhere. Per task, not per home: the hold names one lane the captain
-# placed, and a home-wide file would freeze every lane on free past its cap,
+# placed, and a home-wide file would freeze every lane on Go past its cap,
 # including lanes the captain never asked about.
 fm_opencode_pin_task() {  # <state-dir> <id> <reason>
   printf '%s' "$3" > "$(fm_opencode_pin_mark "$1" "$2")" 2>/dev/null
@@ -283,16 +283,15 @@ fm_opencode_descent_when() {  # <horizon>
 #   structural - the sidecar classifies blocked through bin/fm-opencode-retry.sh
 #     AND the busy record still latches the session-retry event that wrote it
 #     (the same two halves bin/fm-crew-state.sh requires before it calls a
-#     lane blocked). <bound> is `free`, `go`, `other`, or `unbound`, from the
+#     lane blocked). <bound> is `go`, `other`, or `unbound`, from the
 #     sidecar's own model binding; <episode> is the vendor's own
 #     scheduled-retry timestamp, which identifies the cap episode.
 #   idle (2026-09-14) - no quota-scale sidecar, but the busy record says the
 #     turn ended on the plugin's idle event AND the lane's pane tail carries
 #     the cap verbatim through bin/fm-opencode-retry.sh scan-text (the text
 #     wins over a merely transient sidecar for an idle lane: the lane is not
-#     retrying, it has stopped). <bound> is `free` when the lane is recorded
-#     on the free tier (the phrase names Go as the remedy, so it is free that
-#     is exhausted), else `unbound`; <horizon_s> is the literal word `unknown`;
+#     retrying, it has stopped). <bound> is `go` when the lane is recorded
+#     on the Go tier, else `unbound`; <horizon_s> is the literal word `unknown`;
 #     <episode> is the text fingerprint scan-text reports. Busy lanes are
 #     deliberately excluded: a working lane with old cap text in its scrollback
 #     is making progress, and moving it would spend the captain's money for
@@ -304,13 +303,12 @@ fm_opencode_descent_cap() {  # <state-dir> <id>
   local state_dir=$1 id=$2 out rec word bound='' horizon='' status='' next=''
   local r_state='' r_source='' r_event='' episode=''
   local meta lane_model lane_bare cap_file scan_out
-  local free_bare go_bare model_bare
+  local go_bare model_bare
   # The sidecar's model is the plugin's own vocabulary (model.id, no provider
-  # prefix); the rung constants carry one. Both sides normalise through the
-  # dispatch gate's shared helper, so either form binds the right rung - the
-  # same mismatch PR 129 fixed at dispatch, which this file inherited from the
-  # same port with its own prefixed-only copy.
-  free_bare=$(fm_opencode_ladder_bare_model "$FM_OPENCODE_LADDER_FREE")
+# prefix); the rung constants carry one. Both sides normalise through the
+# dispatch gate's shared helper, so either form binds the right rung - the
+# same mismatch PR 129 fixed at dispatch, which this file inherited from the
+# same port with its own prefixed-only copy.
   go_bare=$(fm_opencode_ladder_bare_model "$FM_OPENCODE_LADDER_GO")
   [ -n "$state_dir" ] && [ -d "$state_dir" ] || return 1
   [ -x "$_FM_OPENCODE_DESCENT_RETRY" ] || return 1
@@ -322,7 +320,6 @@ fm_opencode_descent_cap() {  # <state-dir> <id>
         model=*)
           model_bare=$(fm_opencode_ladder_bare_model "${word#model=}")
           case "$model_bare" in
-            "$free_bare") bound=free ;;
             "$go_bare") bound=go ;;
             *) bound=other ;;
           esac
@@ -382,7 +379,7 @@ fm_opencode_descent_cap() {  # <state-dir> <id>
   if [ -f "$meta" ]; then
     lane_model=$(fm_meta_get "$meta" model 2>/dev/null) || lane_model=''
     lane_bare=$(fm_opencode_ladder_bare_model "$lane_model")
-    [ "$lane_bare" = "$free_bare" ] && bound=free
+    [ "$lane_bare" = "$go_bare" ] && bound=go
   fi
   printf 'unknown %s %s\n' "$bound" "$episode"
 }
@@ -524,13 +521,12 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
   local plus_bare target_model target_harness target_rung target_cap
   local target_workspace lane_ws recorded_ws expected_ws
   local recorded after next rest hold_reason when
-  local free_bare go_bare
+  local go_bare
   local -a relaunch_args
   # The recorded model is the routed tier the way the launch left it, which
   # may be the plugin's own bare vocabulary when the request named it so; the
   # governance below normalises through the dispatch gate's shared helper, or
   # a bare-recorded lane would read as off-ladder and stay silent past its cap.
-  free_bare=$(fm_opencode_ladder_bare_model "$FM_OPENCODE_LADDER_FREE")
   plus_bare=$(fm_opencode_ladder_bare_model "$FM_OPENCODE_LADDER_PLUS_MODEL")
   go_bare=$(fm_opencode_ladder_bare_model "$FM_OPENCODE_LADDER_GO")
 
@@ -586,7 +582,7 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
     kind=$(fm_meta_get "$meta" kind 2>/dev/null) || kind=''
     model_bare=$(fm_opencode_ladder_bare_model "$model")
     case "$model_bare" in
-      "$free_bare"|"$plus_bare"|"$go_bare") ;;
+      "$plus_bare"|"$go_bare") ;;
       # An empty record stays governed (it is refused loudly below, never
       # moved blind); anything else bare or prefixed outside the pair stays
       # silent as off-ladder.
@@ -626,9 +622,7 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
       ''|*[!0-9]*) : ;;
       *)
         case "$bound" in
-          free|unbound)
-            "$_FM_OPENCODE_DESCENT_RETRY" record-cap "$state_dir" free "$next" 2>/dev/null || true ;;
-          go)
+          go|unbound)
             if [ "$(fm_opencode_lane_workspace "$state_dir" "$id" 2>/dev/null)" = "$FM_OPENCODE_WORKSPACE_SECOND" ]; then
               "$_FM_OPENCODE_DESCENT_RETRY" record-cap "$state_dir" "$FM_OPENCODE_LADDER_GO_SECOND_RUNG" "$next" 2>/dev/null || true
             else
@@ -650,7 +644,7 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
     fi
 
     # The captain's own escape, honoured before any move: a worker held on
-    # free past a proven cap on explicit request is not dragged off it, and
+    # Go past a proven cap on explicit request is not dragged off it, and
     # the hold is said once per episode. The hold is read from the task's
     # recorded pin first and the environment second, because the tick runs
     # where the variable cannot follow it; either source names the same
@@ -681,49 +675,61 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
     target_rung=plus
     [ "$target_model" = "$FM_OPENCODE_LADDER_GO" ] && target_rung=go
     target_cap=$("$_FM_OPENCODE_DESCENT_RETRY" check-cap "$state_dir" "$target_rung" 2>/dev/null) || target_cap=
-    # A capped Go lane descends within the Go tier in either direction: the
-    # other plan is always a candidate while uncapped, so a parked
-    # secondary lane returns to main just as a parked main lane moves to
-    # the second workspace. The model id is the same on both; the workspace
-    # marker is what moves. No climb-back rule is broken: the lane is
-    # parked with no forward progress, not healthy.
+    # A capped Go lane moves forward: to Codex Plus while that rung is
+    # uncapped, else to the Go tier's other workspace while that plan is
+    # uncapped. A parked secondary lane returns to main while main is
+    # uncapped, the mirror move: the lane is parked with no forward progress,
+    # not healthy, so no climb-back rule is broken. The model id is the same
+    # on both workspaces; the workspace marker is what moves.
     if [ "$model_bare" = "$go_bare" ]; then
       lane_ws=$(fm_opencode_lane_workspace "$state_dir" "$id" 2>/dev/null) || lane_ws=$FM_OPENCODE_WORKSPACE_MAIN
       if [ "$lane_ws" = "$FM_OPENCODE_WORKSPACE_SECOND" ]; then
-        if fm_opencode_ladder_go_main_capped "$state_dir"; then
-          if fm_opencode_descent_escalate_once "$state_dir" "$id" "$next"; then
-            printf 'refused %s is on Go on the second workspace %s and it is capped too (%s); Go on the main workspace is capped as well - firstmate decision needed\n' \
-              "$id" "$model" "$when"
-          fi
-          continue
+        if ! fm_opencode_ladder_go_main_capped "$state_dir"; then
+          target_model=$FM_OPENCODE_LADDER_GO
+          target_harness=opencode
+          target_workspace=$FM_OPENCODE_WORKSPACE_MAIN
+          target_rung=$FM_OPENCODE_LADDER_GO_RUNG
+          target_cap=
+        else
+          # Main is capped too: Codex Plus is the only move left. The
+          # Plus verdict is already in target_cap above.
+          case "$target_cap" in *'status=blocked'*)
+            if fm_opencode_descent_escalate_once "$state_dir" "$id" "$next"; then
+              printf 'refused %s is on Go on the second workspace %s and it is capped too (%s); Go on the main workspace and Codex Plus are capped as well - firstmate decision needed\n' \
+                "$id" "$model" "$when"
+            fi
+            continue ;;
+          esac
         fi
-        target_model=$FM_OPENCODE_LADDER_GO
-        target_harness=opencode
-        target_workspace=$FM_OPENCODE_WORKSPACE_MAIN
-        target_rung=$FM_OPENCODE_LADDER_GO_RUNG
-        target_cap=
-      elif [ "$(fm_opencode_ladder_pick_go_workspace "$state_dir" 2>/dev/null)" = "$FM_OPENCODE_WORKSPACE_SECOND" ]; then
-        target_model=$FM_OPENCODE_LADDER_GO
-        target_harness=opencode
-        target_workspace=$FM_OPENCODE_WORKSPACE_SECOND
-        target_rung=$FM_OPENCODE_LADDER_GO_SECOND_RUNG
-        target_cap=
       else
-        if fm_opencode_descent_escalate_once "$state_dir" "$id" "$next"; then
-          if fm_opencode_second_configured; then
-            printf 'refused %s is on the Go tier %s and it is capped too (%s); Go on the second workspace is capped as well - firstmate decision needed\n' \
-              "$id" "$model" "$when"
+        # A main-workspace lane moves to Codex Plus while that rung is
+        # uncapped - the Plus verdict is already in target_cap above - else
+        # to the second workspace while that plan serves.
+        case "$target_cap" in *'status=blocked'*)
+          if [ "$(fm_opencode_ladder_pick_go_workspace "$state_dir" 2>/dev/null)" = "$FM_OPENCODE_WORKSPACE_SECOND" ]; then
+            target_model=$FM_OPENCODE_LADDER_GO
+            target_harness=opencode
+            target_workspace=$FM_OPENCODE_WORKSPACE_SECOND
+            target_rung=$FM_OPENCODE_LADDER_GO_SECOND_RUNG
+            target_cap=
           else
-            printf 'refused %s is on the Go tier %s and it is capped too (%s); the ladder has no later rung - firstmate decision needed\n' \
-              "$id" "$model" "$when"
-          fi
-        fi
-        continue
+            if fm_opencode_descent_escalate_once "$state_dir" "$id" "$next"; then
+              if fm_opencode_second_configured; then
+                printf 'refused %s is on the Go tier %s and it is capped too (%s); Codex Plus and Go on the second workspace are capped as well - firstmate decision needed\n' \
+                  "$id" "$model" "$when"
+              else
+                printf 'refused %s is on the Go tier %s and it is capped too (%s); Codex Plus is capped as well and the ladder has no later rung - firstmate decision needed\n' \
+                  "$id" "$model" "$when"
+              fi
+            fi
+            continue
+          fi ;;
+        esac
       fi
     fi
     if [ "$kind" = secondmate ]; then
       if fm_opencode_descent_escalate_once "$state_dir" "$id" "$next"; then
-        printf 'refused %s is a secondmate on capped free (%s); automatic relaunch never touches a persistent supervision agent - firstmate decision needed\n' \
+        printf 'refused %s is a secondmate on capped Go (%s); automatic relaunch never touches a persistent supervision agent - firstmate decision needed\n' \
           "$id" "$when"
       fi
       continue
@@ -731,7 +737,7 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
 
     case "$target_cap" in
       *'status=blocked'*)
-        if [ "$target_model" = "$FM_OPENCODE_LADDER_PLUS_MODEL" ] && [ "$model_bare" = "$free_bare" ]; then
+        if [ "$target_model" = "$FM_OPENCODE_LADDER_PLUS_MODEL" ] && [ "$model_bare" = "$go_bare" ]; then
           target_model=$FM_OPENCODE_LADDER_GO
           target_harness=opencode
           target_rung=go
@@ -768,14 +774,14 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
       target_rung=$FM_OPENCODE_LADDER_GO_SECOND_RUNG
     fi
 
-    # The move: the proven free cap relaunches the lane onto Go. The handoff
-    # note owns the ambiguity when the cap evidence carries no model binding,
-    # exactly as the dispatch gate's own notice does.
+    # The move: the proven Go cap relaunches the lane onto the next uncapped
+    # rung. The handoff note owns the ambiguity when the cap evidence carries
+    # no model binding, exactly as the dispatch gate's own notice does.
     case "$horizon" in
       ''|*[!0-9]*)
-        note="opencode descent: free tier $FM_OPENCODE_LADDER_FREE is proven exhausted (free-tier cap shown in the lane's pane, no retry horizon on record" ;;
+        note="opencode descent: Go tier $FM_OPENCODE_LADDER_GO is proven exhausted (Go-tier cap shown in the lane's pane, no retry horizon on record" ;;
       *)
-        note="opencode descent: free tier $FM_OPENCODE_LADDER_FREE is proven exhausted (quota-scale retry backoff, $when" ;;
+        note="opencode descent: Go tier $FM_OPENCODE_LADDER_GO is proven exhausted (quota-scale retry backoff, $when" ;;
     esac
     if [ "$bound" = unbound ]; then
       note="$note, with no model binding on the cap evidence - biasing toward Go rather than stalling"

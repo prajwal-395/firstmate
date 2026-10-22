@@ -4,7 +4,7 @@
 # Usage: fm-herdr-opencode-metadata.sh <pane-id> <model-id> [--ttl-ms <N>]
 #
 # Takes the herdr pane ID and the raw OpenCode model ID (e.g.
-# "minimax-m3.1-flash-free") and reports it via herdr pane
+# "muse-spark-1.3-contributor") and reports it via herdr pane
 # report-metadata with a human-readable short name as the "model" token.
 #
 # The --ttl-ms flag (default 120000 = 2 minutes) controls how long the
@@ -38,7 +38,7 @@ command -v herdr >/dev/null 2>&1 || exit 0
 
 # Shorten the raw model ID to a human-readable display name.
 # Examples:
-#   minimax-m3.1-flash-free  ->  minimax m3.1 flash free
+#   muse-spark-1.3-contributor     ->  muse 1.3
 #   big-pickle                       ->  big-pickle
 #   nemotron-3-ultra-free            ->  nemotron 3 ultra free
 #   ling-3.0-flash-fin-free          ->  ling 3.0 flash free
