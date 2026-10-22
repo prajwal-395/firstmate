@@ -357,7 +357,7 @@ test_raw_compound_launch_command_carries_the_switch() {
   rec=$(make_case raw-compound claude raw-compound-a1)
   read_case "$rec"
   printf '%s\n' '{"rules":[{"when":"current events","use":{"harness":"grok","model":"grok-4","effort":"high"}}],"default":{"harness":"codex","model":"gpt-5","effort":"medium"}}' \
-    > "$HOME_DIR/config/crew-dispatch.json"
+    > "$HOME_DIR/config/dispatch-policy.json"
 
   probe_dir="$CASE_DIR/agent-cwd"
   mkdir -p "$probe_dir"

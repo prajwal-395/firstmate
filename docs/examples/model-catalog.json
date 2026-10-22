@@ -1,0 +1,26 @@
+{
+  "models": [
+    {
+      "id": "opencode-go/muse-spark-1.3-contributor",
+      "status": "active",
+      "bills": "go",
+      "last_verified": "2026-10-22",
+      "source": "opencode models"
+    },
+    {
+      "id": "opencode-go/minimax-m3.1-flash-free",
+      "status": "retired",
+      "replaced_by": "opencode-go/muse-spark-1.3-contributor",
+      "bills": "none",
+      "last_verified": "2026-10-22",
+      "source": "opencode models"
+    },
+    {
+      "id": "gpt-6-luna",
+      "status": "active",
+      "bills": "none",
+      "last_verified": "2026-10-22",
+      "source": "codex debug models"
+    }
+  ]
+}

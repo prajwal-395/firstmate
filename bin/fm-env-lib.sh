@@ -3,8 +3,8 @@
 # Usage: . bin/fm-env-lib.sh
 #
 # This file is the single owner of the one-key .env read: the Relay pairing
-# token (bin/fm-x-lib.sh and its callers) and the optional dispatch keys
-# (bin/fm-dispatch-resolve.sh, TYPESAFE_API_KEY and AI_GATEWAY_API_KEY) all
+# token (bin/fm-x-lib.sh and its callers) and the optional Jev keys
+# (TYPESAFE_API_KEY and AI_GATEWAY_API_KEY, read by the Jev-backed tools) all
 # resolve their value through fmx_env_get, so those opt-in secrets in
 # $FM_HOME/.env are parsed by one rule.
 # (bin/fm-mail.sh loads its whole .env block itself under the same env-wins

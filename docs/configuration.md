@@ -813,7 +813,7 @@ An explicit harness argument to `fm-spawn.sh` still overrides either config file
 An explicit `--model` or `--effort` overrides the matching token from `config/secondmate-harness`; for a local route, an explicit harness or raw launch command starts with clean model and effort defaults unless those flags are also passed.
 
 Remote secondmate routes accept verified harness adapters only and reject raw launch commands.
-When `config/crew-dispatch.json` exists, crewmate and scout spawns require an explicit resolved harness instead of automatically falling back to `config/crew-harness`.
+When `config/dispatch-policy.json` exists, crewmate and scout spawns require an explicit resolved harness instead of automatically falling back to `config/crew-harness`.
 
 The inherited-local-material contract is owned by [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md); its harness-relevant consequence is that a secondmate's own crewmates use the primary's dispatch profiles and static harness value.
 Those inherited values are defaults and rules only; `fm-spawn` still permits a consciously chosen explicit runtime outside the config.
@@ -1076,387 +1076,59 @@ The guard reaches only the launched worker, so the captain's own shells and Firs
 A secondmate launch is not guarded, because a secondmate has no task worktree of its own; the crewmates it spawns in its own home are guarded there.
 Regression coverage is in [`tests/fm-git-stash-guard.test.sh`](../tests/fm-git-stash-guard.test.sh).
 
-## Crew dispatch profiles (config/crew-dispatch.json)
-
-`config/crew-dispatch.json` is an optional local, gitignored file containing natural-language rules that firstmate reads before dispatching a crewmate or scout.
-On every fresh crewmate or scout spawn with this file present, `fm-spawn.sh` resolves the written brief and canonical project name through `fm-dispatch-resolve.sh`, then enforces the returned profile. Exact project rules are matched in code. Jev is called only for judgment rules; the configured deterministic default is used when Jev is off, unavailable, invalid, or below its confidence floor.
-An explicit harness, model, effort, or ladder that differs from the selected route is refused unless `--dispatch-override-reason` records the current captain instruction authorizing that profile. A matching explicit profile is accepted, and omitted axes inherit the selected route. Secondmate spawns and relaunches keep their existing routing behavior and do not resolve a fresh dispatch profile.
-Secondmate spawns are exempt and still resolve through `config/secondmate-harness` and its optional model and effort tokens.
-This section is the single owner of the canonical schema and its per-field semantics.
-`AGENTS.md` section 4 owns the always-loaded dispatch intake boundary. In a resolved dispatch array, quota evidence can veto a candidate, and the first eligible candidate in declared order is selected; spawn-time ladder gates still own the rung that launches.
-
-```json
-{
-  "rules": [
-    {
-      "when": "<natural-language condition describing a kind of task>",
-      "match": "judgment",
-      "approval": "captain",
-      "floor": { "scope": "<quota-axi scope>", "min_percent": 20, "provider": "<quota-axi provider>" },
-      "use": [
-        { "harness": "<adapter>", "model": "<optional model>", "effort": "<low|medium|high|xhigh|max|ultra, optional>", "provider": "<optional quota-axi provider>", "floor": { "scope": "<quota-axi scope>", "min_percent": 50 } }
-      ],
-      "why": "<optional rationale that helps firstmate choose>"
-    }
-  ],
-  "default": [
-    { "harness": "<adapter>", "model": "<optional model>", "effort": "<optional effort>" }
-  ],
-  "agy_ladder": ["<agy display name or kebab id, in rung order>"],
-  "exhausted_ladder_fallback": {
-    "include_agy_ladder": true,
-    "agy_effort": "high",
-    "use": { "harness": "<verified adapter>", "model": "<optional model>" }
-  }
-}
-```
-
-Per rule, `when` and `use` are required; the top-level `rules` array itself may be absent or empty for a default-only configuration.
-Each rule may declare exactly one of `projects` or `match`. `projects` is a non-empty array of exact project directory names, and a name may appear in only one rule; those rules are selected by code without a Jev request. `match: "judgment"` marks a rule Jev may choose. For backward compatibility, an older rule with neither field is treated as a judgment rule; any other `match` value, or both fields together, is a configuration error.
-Both `use` and the optional top-level `default` accept either one profile object or a non-empty array of profile objects.
-The single-object form stays fully backward-compatible, and every profile needs `harness`.
-Profile `model` and `effort` fields and rule `why` are optional.
-Rule `approval` and `floor`, and profile `provider` and `floor` are enforced by the dispatch resolver on every fresh spawn with this file present.
-The resolver supplies the fixed neutral Choice option `No listed rule applies to this task.` for a judgment request that matches no listed judgment rule.
-`approval` accepts only `"captain"` and means a task the rule matches is never dispatched from the tool's answer alone.
-A rule `floor` names the quota-axi `provider` and `scope` whose `effectivePercentRemaining` must be at least `min_percent` for the rule's profiles to apply.
-A known percentage below it makes the tool resolve among `default` instead; an absent or unknown row or unmeasured provider makes the floor unverifiable and escalates without authorizing default routing.
-A profile `provider` optionally names the quota-axi provider family whose rows apply to that profile; when present, profile and rule-floor provider IDs must match the strict whole-string pattern `^[a-z0-9]+(-[a-z0-9]+)*\z`.
-Bootstrap validates these route fields whether or not a Jev key is configured, because the resolver still enforces deterministic project and default routes with no key.
-The resolver has authoritative single-provider mappings for `claude`, `codex`, `grok`, `kimi`, `cursor`, `agy`, and `muse`; every other verified harness must declare `provider` explicitly, including multi-provider `pi`, `pi-signed`, `omp`, and `opencode` and unmapped `gemini` and `rovo`.
-Its single-provider table is separate from the frozen legacy mapping used by `fm-quota-choose.sh`, so additions cannot alter no-key routing.
-The resolver returns an actionable configuration error before any request when such a profile omits it.
-A profile `floor` contains only `scope` and `min_percent`, always uses that profile's provider, and makes that one candidate ineligible below `min_percent` on the named scope.
-An absent or unknown named row also makes the candidate unrankable and is reported as an unverifiable floor, not as a known shortfall.
-`ultra` is native-only: the model-aware validation contract and launch mapping are owned by `bin/fm-harness.sh validate-native-effort` and `bin/fm-spawn.sh` respectively.
-An omitted model or effort means the selected harness uses its own default for that axis.
-On a fresh spawn with this file active, the resolver checks quota eligibility and selects the first eligible profile in each array's declared order; it does not rank with `spendPriority`.
-Use `quota-array-dispatch` only for a profile-array decision outside this enforced spawn path.
-If no judgment rule matches, Jev is unavailable, or confidence is low, the resolver uses `default`; if no default is declared it resolves the static crewmate harness from `config/crew-harness`.
-Top-level `agy_ladder` optionally states the agy rung order as display names (or the kebab ids agy accepts), in rung order.
-`bin/fm-agy-ladder-lib.sh` enforces exactly that sequence, with the Opus 4.6 25 percent reserve traveling with the model rather than the rung position.
-`default` then carries only the default dispatch ruling.
-A file without `agy_ladder` whose `default` profiles name agy models keeps resolving through the legacy derivation, and bootstrap names that coupled read as a `CREW_DISPATCH` legacy notice so it is reported rather than silent.
-Except for `ultra`, which refuses unsupported profiles under the native-effort contract above, an effort value the chosen harness does not accept is reported and omitted from task meta and launch flags.
-Bootstrap reports unsupported harness/model/effort combinations as a `CREW_DISPATCH` diagnostic when they are visible in the file.
-See [`docs/examples/crew-dispatch.json`](examples/crew-dispatch.json) for a starting point to copy into local `config/crew-dispatch.json`; its Pi default declares the `claude` provider required by dispatch resolution for that Anthropic model.
-When the file exists, bootstrap validates it with `jq`.
-Valid files stay silent by default; with `FM_BOOTSTRAP_VERBOSE_FACTS=1`, bootstrap emits `BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json`, one `BOOTSTRAP_INFO:` fact per rule, and one fact for the optional default profile set.
-Malformed JSON, malformed rules, an empty or malformed profile array, an unverified harness, or an effort value unsupported by that harness is reported as `CREW_DISPATCH: invalid config/crew-dispatch.json - ...`.
-Malformed `approval`, `floor`, and present `provider` declarations receive the same diagnostic whether or not Jev keys are present, because those fields govern deterministic routes too.
-Missing `jq` is reported through the normal `MISSING: jq` install-consent flow.
-While the file remains present, no crewmate or scout spawn may proceed without the resolver's concrete route; malformed configuration must be reported and corrected rather than selected around.
-Secondmate homes inherit this file from the primary, so a secondmate's own crewmates apply the same dispatch profile behavior.
-
-## Typed dispatch resolution (.env TYPESAFE_API_KEY, .env AI_GATEWAY_API_KEY)
-
-`bin/fm-dispatch-resolve.sh` resolves one concrete crewmate or scout profile from the written brief and project name. It always runs for a fresh spawn when `config/crew-dispatch.json` exists. Without Jev keys, it selects an exact project rule or the deterministic default without a network call. With a Jev key, Jev sees only judgment rules and the task text; exact project rules remain code-selected.
-When no project rule matches, Jev is off, unavailable, returns an invalid answer, or has confidence below 0.6, the deterministic default is selected and reported. These cases do not block dispatch. A malformed or unreadable rules file remains an actionable configuration error.
-This section is the single owner of the tool's operator contract; the script header owns its exact flags and output lines, and "Crew dispatch profiles" above owns the declared rule and profile fields it applies.
-Rules come only from the effective home's `config/crew-dispatch.json`; `FM_CONFIG_OVERRIDE` selects the config directory for tests and specialized setup like the other scripts.
-
-```sh
-bin/fm-dispatch-resolve.sh data/<id>/brief.md --project <name>        # TOON block on stdout
-```
-
-`fm-spawn.sh` invokes the resolve path directly after writing the brief. It supplies the project directory's basename, which is compared exactly against each `projects` array. A matching project rule is selected without Jev; its profiles still pass through quota eligibility checks.
-When Jev is needed, the tool sends the project name and Task section of the brief (Captain's intent plus Firstmate spec) as state and asks one Choice question whose options are only judgment rules plus the fixed neutral option for no matching rule; the model never sees quota, catalogs, `why`, `use`, or approvals.
-An absent rules file, a default-only file, or `rules: []` selects the resolver's synthesized deterministic default; an existing but unreadable or malformed rules file, including a broken symlink, remains an actionable exit 2 configuration error.
-Everything after the answer runs in code: the confidence floor, the matched rule's `approval` and `floor`, each candidate's `provider` and `floor`, and every applicable account-wide and model/product row from one `quota-axi --json` snapshot.
-Quota evidence vetoes but never ranks: any applicable `exhausted_now` row, known zero bound, or known profile-floor shortfall makes that candidate ineligible, with a known shortfall decided before unrelated quota uncertainty is considered, while missing, unknown, or nonnumeric evidence keeps its candidate eligible with the uncertainty disclosed.
-The selected profile is the first eligible profile in the matched rule's (or default's) declared order, and the result says so in its note. Quota evidence vetoes candidates but does not reorder the array.
-A `use` array is written in rung order, and spawn-time gates decide the rung that launches.
-When a default array selects a governed OpenCode or Codex Plus profile, the resolver appends `--dispatch-ladder opencode` so the spawn gate chooses from current cap records.
-The agy array goes through `fm_agy_ladder_gate` in rung order, with a refusal escalated.
-The opencode default order is Codex Plus (`gpt-6-luna` at the effort declared for its Codex profile, or `xhigh` when that profile omits effort), then the Go tier: `opencode-go/muse-spark-1.3-contributor` at the workspace the tier pick selects, plus Go on the second workspace when one is configured (see "Second OpenCode Go workspace" below). The retired free rung (`opencode-go/minimax-m3.1-flash-free`, deprecated by OpenCode on 2026-10-22) is governed no more.
-Codex Plus and Go caps use fresh `quota-axi` zero-availability evidence with a reset time, with Codex Plus also accepting a lane usage-limit message that states its reset, and the main Go workspace also accepting reactive vendor-cap evidence, while the second Go workspace is reactive-only because `quota-axi` exposes a single `opencode-go` row with no workspace dimension.
-The Go tier drains the plan whose overall (monthly) quota resets soonest first, and only when that priority plan hits a shorter limit (the 5-hour window, then the weekly window) does traffic switch to the other plan until that limit resets, then switch back. Each plan's monthly reset comes from gitignored `config/opencode-go-resets` (one `<main|secondary> <ISO-8601>` line per plan, projected forward by calendar month), with the live `quota-axi` monthly window filling the main plan's gap; a plan with neither reads as unknown, and anything timing cannot distinguish stays on main. An unstarted 5-hour window on an idle plan never counts as resetting soonest: idle windows exclude nothing, and only a proven cap moves traffic.
-Each rung's `state/.opencode-cap-<rung>` record is shared by dispatch, spawning, and running-worker descent through `bin/fm-opencode-retry.sh`; each Go workspace keeps its own cap record and reset time, so capping one never marks the other capped.
-Unknown or stale quota data does not count as capped, and a recorded rung becomes eligible again after its reset time.
-If every default OpenCode rung is proven capped (Codex Plus capped and the whole Go tier: the main workspace capped plus the second workspace capped, or the main workspace capped with no second workspace configured), `fm-spawn.sh` resolves the optional `exhausted_ladder_fallback`. It tries the configured profiles in `use` first, then the configured agy ladder as a last resort; any selected agy rung still passes through the agy gate. If the fallback is absent or has no eligible profile, spawn is refused with the cap evidence. This is reached only from the deterministic default OpenCode route, so exact project rules such as Lucie's never use it. The declaration is temporary and can be removed by deleting `exhausted_ladder_fallback`.
-Running workers move across harnesses when their current rung is capped and a later rung is available; a capped Plus lane moves to the Go tier, and a capped Go lane moves to the tier's other workspace while that plan is uncapped, in either direction, through the same pick the dispatch gate uses. Climb-back for running workers is not performed.
-Order only ever decides among candidates quota has not already ruled out, so an exhausted first rung is skipped rather than chosen by position.
-Text output prints every candidate beside its evidence or the reason it is ineligible, including when an approval-gated result emits no profile.
-Duplicate concrete profiles with the same harness, model, and effort inside one rule or default array are configuration errors rather than ties.
-The result is `clear` for a selected judgment rule, `default` for deterministic routing or a Jev fallback, `escalate` for an approval-gated rule, an unverifiable rule floor, or no eligible candidate, or `error` for malformed response metadata, rendering, or quota-axi failure. Jev/API/network failures select and report the deterministic default. Every structured outcome exits 0.
-Response probabilities must contain exactly every offered choice, use numeric values from 0 through 1, and sum to approximately 1 within 0.01.
-Only a usage or configuration error exits 2: an unreadable brief, an existing but unreadable or malformed canonical rules file, or missing `jq`, each reported and never selected around.
-Missing `curl` selects the deterministic default with exit 0 so firstmate uses today's routing.
-The tool never replaces the captain-approval gate or `fm-spawn.sh` validation; `AGENTS.md` section 4 owns the intake contract.
-By accepted design, a `clear` result does not enforce catalog/authentication, reasoning-class, or completion-runway gates.
-`fm-spawn.sh` enforces the returned profile. A different explicit profile requires `--dispatch-override-reason` containing the current captain instruction; the exact reason is stored in task metadata for review.
-
-The optional `exhausted_ladder_fallback` object is independent of Jev and easy to remove. `use` adds one profile or an ordered profile array that is tried first. `include_agy_ladder: true` appends the configured `agy_ladder` candidates using `agy_effort` (default `high`) as the last resort. At least one of those sources must be enabled. Fallback profile declarations use the same validation, provider mapping, quota eligibility, and declared-order rules as ordinary profiles.
-
-## Shared OpenCode servers (config/opencode-shared-server)
-
-This experiment runs OpenCode workers as thin interactive clients (`opencode attach`) on a firstmate-managed `opencode serve`, instead of a full OpenCode runtime per worker.
-The optional local, gitignored `config/opencode-shared-server` file holds exactly one line, `on` or `off`; absent means off, and any other content refuses the spawn.
-It applies to crewmates and scouts only; a secondmate always launches standalone.
-When on, each OpenCode launch starts or reuses one loopback-only server per workspace database: the main Go workspace, the second Go workspace when one is configured, and a default server for every unpinned launch.
-Each pinned server runs on its own private copy of its workspace pin, proven against that workspace before every server start, so the server process is the only OpenCode writer of that copy and per-task copies are not needed.
-Each worker keeps the visible interactive client in its pane and a session of its own, a relaunch gets a fresh session, and the server health is checked before every attach and a dead server restarted.
-A server that cannot start or open the task's session leaves that launch on the standalone path with its per-task database.
-Cleanup ends the task's session, and a server stops only when no remaining worker holds it.
-Writing `off` returns new launches to the standalone path; workers already attached keep their server until they are cleaned up.
-`bin/fm-opencode-server.sh` owns the server lifecycle and its records, and `tests/fm-opencode-shared-server-live-e2e.test.sh` (opt in with `FM_OPENCODE_SHARED_SERVER_LIVE=1`) is the live check of an attached worker's supervision.
-
-## Second OpenCode Go workspace (config/opencode-second-org, config/opencode-main-org)
-
-When one OpenCode account holds a second workspace with its own Go subscription, firstmate spends it as the Go tier's second member: the tier drains the plan whose overall (monthly) quota resets soonest first, and a plan under a shorter cap yields to the other until that limit resets. Order is exhaustion, never an even split.
-Write the second workspace id alone into the gitignored `config/opencode-second-org` (exactly one line).
-The main workspace id needs no hand setup: on the first main Go launch that needs it, firstmate reads it from the machine's own console login and records it alone in the gitignored `config/opencode-main-org`, and a hand-written file there wins when one exists.
-Write each plan's monthly billing reset into the gitignored `config/opencode-go-resets`, one `<main|secondary> <ISO-8601>` line per plan (blank lines and `#` comments ignored); the dates project forward by calendar month, so a past date stays valid as the cycle anchor. A missing file means monthly timing is known only for the main plan through live `quota-axi`, and a second plan with no usable line reads as unknown, which keeps the choice on main exactly as before.
-A missing second-workspace file means the Codex Plus-then-Go ladder with a single Go workspace, while a malformed file refuses the launch that needs it.
-No token, key, or workspace id goes in tracked files, commit messages, or PR bodies.
-On the first launch that needs it, firstmate builds the gitignored pin database beside each id file (`config/opencode-second.db`, `config/opencode-main.db`): a migrated database seeded from this machine's console login and pinned to that workspace.
-On every later launch that needs it the login rows are re-copied from the live database and re-pinned, so the pin never carries a stale token, and a pin that will not refresh is discarded and rebuilt.
-The console refresh token belongs to the live database alone: refreshing inside a copy rotates the token server-side and revokes the live login for every other caller, so the live database is the only place a token is ever refreshed.
-Firstmate therefore refreshes the live login through OpenCode against the live database itself, then copies the fresh rows outward into the pins and the task databases; it never points OpenCode at a copy whose token expired, and a pin holding an expired login is refused with that reason instead of being refreshed in place.
-A Pi launch refreshes every pinned database in the home from that live login, so the pins stay current even though the OpenCode route now runs on Pi and no OpenCode worker runs to refresh them.
-The pin is a copy, never the login itself: a pin path that names the live console database is refused before anything reads or writes either file.
-Before a launch rides its pin, the pinned config must resolve the `opencode` provider to that launch's own workspace; anything else refuses the launch, so a mis-pinned session can never bill the wrong workspace.
-Every Go launch in a home with a configured second workspace rides its own pin, main and secondary alike, so no Go launch ever inherits the machine-wide active workspace; a Go launch whose pin cannot be proven is refused rather than run unpinned.
-The pin applies only to launches that actually bill a Go workspace: every other non-Go model stays outside workspace pinning.
-A home with no second workspace runs the main workspace exactly as before.
-Each standalone launch carries `OPENCODE_DB` at a private task copy of its pin, and an attached launch rides its workspace server's own proven copy (see "Shared OpenCode servers" above), so the vendor attributes the session to that workspace even though the machine-wide active workspace is elsewhere; `opencode console switch` is never used because it would move every worker's next launch at once.
-The paid Go model id is unchanged across the main and secondary workspace rungs; the task record carries `opencode_workspace=secondary` for a secondary lane and nothing for the main workspace, and `bin/fm-control.sh relaunch --opencode-workspace <main|secondary>` moves the pin while a flagless relaunch preserves it.
-Each org id is declared inherited local material, so secondmate homes converge it from the primary under the [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md) primary-authoritative contract and serve the Go tier too. The billing resets in `config/opencode-go-resets` inherit the same way, since billing dates are account facts identical on every machine.
-Each home builds its own pin databases from its own machine's live console login on the first launch that needs them; the databases themselves are never inherited, and a home whose login lacks the workspace refuses that launch rather than billing the wrong one.
-`bin/fm-opencode-second-lib.sh` owns the pin mechanics; `bin/fm-opencode-ladder-lib.sh` owns the rung policy.
-
-The resolver and bootstrap copy an environment-provided key into a non-exported private variable and unset `TYPESAFE_API_KEY` and `AI_GATEWAY_API_KEY` before launching child processes, so each secret is absent from child environments.
-Each key also flows from the primary home's `.env` into every LOCAL secondmate home's `.env` through the primary-authoritative inheritance contract, so mates resolve with Jev too.
-Remote homes never receive keys, a research-charter home stays keyless, and a changed or removed primary value converges on the next push or sync; the [`secondmate-provisioning` skill](../.agents/skills/secondmate-provisioning/SKILL.md) owns that contract and `bin/fm-config-inherit-lib.sh` owns its mechanics.
-The resolver sends the active rung's key to `curl` only as a header read from a file descriptor, never on argv, and nothing prints, logs, or writes either key.
-With both keys present the tool tries the captain's typesafe.ai key first (`jev-latest` at `https://api.typesafe.ai/v1/systemone`) and falls back to the free Vercel AI Gateway rung (`typesafe-ai/jev` at `https://ai-gateway.vercel.sh/typesafe/v1/systemone`) once in the same call when typesafe.ai answers 429 or 401/403; the fallback is per request with no persisted rung record, and the `rung:` output line names whichever rung answered.
-With one key present the tool uses that rung only.
-The resolver fixes the confidence floor at 0.6 and the request timeout at 5 seconds; `TYPESAFE_API_KEY` and `AI_GATEWAY_API_KEY` are its only resolver-specific environment settings.
-The live rule-match evidence is recorded in [`verification/dispatch-resolve.md`](verification/dispatch-resolve.md).
-
-## Pi on OpenCode Go (config/pi-opencode-go)
-
-The optional local, gitignored `config/pi-opencode-go` file holds exactly one line, `on` or `off`; absent means off, and malformed content refuses the spawn.
-When on, every ordinary crewmate or scout route that selects the OpenCode harness is routed to standard Pi, including configured defaults, dispatch profiles, exhausted-ladder fallbacks, explicit harness selection, and relaunches.
-The selected model must be explicitly defined in the worker's Pi provider configuration; otherwise the spawn refuses with the missing provider/model rather than launching OpenCode or substituting another model.
-The OpenCode ladder order, quota caps, workspace choice, and descent remain the same, and the Codex Plus rung remains on Codex.
-Secondmates are unaffected.
-
-Firstmate installs or merges its OpenCode Go provider into the Pi agent directory the worker actually uses: the pinned Pi account directory when a worker account is selected, or Pi's default agent directory otherwise.
-The provider uses the OpenCode Go inference endpoint and the same model id as the OpenCode ladder.
-Muse Spark 1.3 Contributor selects OpenAI Responses for its model-specific protocol.
-Firstmate supplies each task's selected workspace id and stable `x-opencode-session` value through that launch's environment, and uses the existing workspace pin database to create the task's private credential database.
-
-Pi does not refresh OpenCode console credentials itself.
-For each model request, its credential command reads the token from that task's private database first and hands it to Pi when it is comfortably unexpired, so a busy machine answers from the task database without asking OpenCode anything.
-A near-expiry or absent token makes the command ask OpenCode to refresh the canonical console database and copy only the login rows into that task's private database, and the refresh is serialized across tasks so workers do not race the same console refresh token.
-That refresh runs against the live database, the single holder of the console refresh token, and the fresh rows are copied outward; the command also refreshes the home's pinned workspace databases from the same live login, so a re-login reaches them too.
-Pi gives that command a hard 10s budget and discards its stderr, so the command bounds its own work, waits out a contended task database instead of failing on it, and records the failing step beside the task's state when it cannot answer; that record never carries the token.
-Tokens remain in OpenCode databases; the request-time command hands the token directly to Pi without logging or persisting it elsewhere.
-`FM_OPENCODE_LIVE_DB` names the console database outright; when it is set, the lookup never falls back to the machine's own data directory, so a scratch home or a test cannot reach the account of the person running the machine.
-The shared provider entry calls a content-versioned helper installed inside the Pi agent directory, selected through `PI_CODING_AGENT_DIR` or the default `$HOME/.pi/agent` path. Multiple homes and code roots can therefore share the provider without a code-root-specific command. Older helper versions remain installed so workers that already loaded an earlier provider command continue to work after a later install; installation migrates the older code-root-bound managed entry.
-`bin/fm-pi-opencode-go.sh` owns provider installation and request-time credential handling.
-
-## Stow owner resolution (.env TYPESAFE_API_KEY, .env AI_GATEWAY_API_KEY)
-
-`bin/fm-stow-owner-resolve.sh` resolves one stow finding's knowledge owner with typesafe.ai's System One model (Jev), so the owner match the stow pass otherwise reasons out in its own context becomes one short tool turn.
-It is off unless `TYPESAFE_API_KEY` or `AI_GATEWAY_API_KEY` is non-empty in the calling environment or the home's gitignored `.env` holds a matching `KEY=` line; the environment wins, matching the Relay and mail-plane contracts, and the Relay accessor in `bin/fm-env-lib.sh` reads the line.
-Off means one `stow-owner-resolve: off` line on stderr, nothing on stdout, exit 0, and no network call, so the stow pass routes exactly as today.
-This section is the single owner of the tool's operator contract; the script header owns its exact flags and output lines, and `AGENTS.md` section 6 owns the knowledge-routing table its options come from.
-
-```sh
-bin/fm-stow-owner-resolve.sh <finding-file> [--secondmate-home]   # TOON block on stdout
-```
-
-When on, the tool sends the candidate finding text as state and asks one Choice question whose options are the seven fixed knowledge owners plus the fixed neutral `elsewhere-or-drop` option; the model never sees tier defaults, pinning, or aging.
-Everything after the answer runs in code: the fixed 0.6 confidence floor, then the secondmate read-only reroute (`--secondmate-home` plus a `captain-shared-md` answer writes `route-to-primary`), the project-memory gate (a `project-agents-md` answer writes `via-delivery-path`, never a direct edit), while tier defaults and the session-evidence rule apply after routing exactly as today.
-The result is one of `clear` (an `owner:` line plus its `write:` path), `ambiguous` (confidence below the floor), or `error` (API, network, or response failure), and every one of them exits 0; only a usage or configuration error exits 2.
-Every non-clear result routes manually as today.
-The key handling, typesafe-first ladder, fixed floor, and 5-second timeout match the typed dispatch resolver above; `TYPESAFE_API_KEY` and `AI_GATEWAY_API_KEY` are its only resolver-specific environment settings.
-The live owner-match evidence is recorded in [`verification/stow-owner-resolve.md`](verification/stow-owner-resolve.md).
-
-## Typed intake classification (.env TYPESAFE_API_KEY, .env AI_GATEWAY_API_KEY)
-
-`bin/fm-intake-kind.sh` classifies one intake as ship or scout with typesafe.ai's System One model (Jev), so the deliverable-kind call that fires on every intake stops spending supervisor context.
-It shares the dispatch resolver's opt-in gate, typesafe-first ladder, fixed confidence floor 0.6, 5-second timeout, and secret handling: off means one `intake-kind: off` line on stderr, nothing on stdout, exit 0, and no network call, so firstmate classifies exactly as today.
-This section is the single owner of the tool's operator contract; the script header owns its exact flags, output lines, and code-gate word lists, and `AGENTS.md` section 7 owns the ship/scout definitions the question quotes.
-When on, the tool sends the whole intake file (the captain request text plus any report, decision, or PR text the caller concatenated into it) as state and asks one Choice question `kind` with exactly two options, ship (the default: a project change through the selected delivery mode) and scout (knowledge, never a PR).
-Everything after the answer runs in code: an explicit-knowledge-request string gate forces scout regardless of the answer, a diagnostic-evidence gate holds a ship answer whose only basis is a report or finding for authorization, and an existing-evidence advisory flags an informational scout whose answer may already be on disk.
-The confidence floor is asymmetric: an uncertain scout stays scout and never silently becomes code changes, while an uncertain ship returns as `ambiguous` and still passes the existing human-readable checks.
-The result is one of `clear` (a `kind:` line ready for intake routing), `ambiguous` (uncertain ship, back to the manual checks with its lean recorded), `escalate` (evidence held for authorization), or `error` (API, network, or response failure), and every one of them exits 0.
-Response probabilities must contain exactly `scout` and `ship`, use numeric values from 0 through 1, and sum to approximately 1 within 0.01.
-Only a usage or configuration error exits 2: a missing, unreadable, or empty intake file, or missing `jq`, each reported and never selected around.
-Missing `curl` is a normal structured `error` outcome with exit 0 so firstmate classifies as today.
-The offline gate evidence is recorded in [`verification/intake-kind.md`](verification/intake-kind.md); a keyed live run against the same hand-labeled set is still open.
-
-## Typed secondmate routing (.env TYPESAFE_API_KEY, .env AI_GATEWAY_API_KEY)
-
-`bin/fm-mate-route.sh` routes one intake to at most one secondmate with typesafe.ai's System One model (Jev), so the scope-text match that firstmate otherwise reads by hand on every intake becomes one short tool turn.
-It shares the dispatch resolver's opt-in gate, typesafe-first ladder, fixed confidence floor 0.6, 5-second timeout, and secret handling: off means one `mate-route: off` line on stderr, nothing on stdout, exit 0, and no network call, so firstmate routes exactly as today.
-This section is the single owner of the tool's operator contract; the script header owns its exact flags and output lines, "Secondmate routes" above owns the registry format, and `AGENTS.md` section 7 owns the routing rules the gates enforce.
-When on, the tool sends the intake text plus the resolved project as state and asks one Choice question `mate` with one option per registry entry plus the fixed default `No listed scope applies; the main home keeps the work.`; each option carries only that entry's `scope:` text, so the model never sees the non-exclusive `projects:` list and cannot learn the wrong key.
-Everything after the answer runs in code, in order: the local-only gate (a local-only resolved project stays with the main home, and no scope text overrides that), the captain-redirect gate (an explicit redirect wins over the answer, while a redirect to a blocked or unreachable mate escalates instead of routing main), the liveness gate (a blocked or unreachable answer target falls through to the main home), and the 0.6 confidence floor.
-The result is one of `clear` (a `mate:` line naming the mate or main), `ambiguous` (confidence below the floor: the intake returns unrouted with its lean recorded), `escalate` (no usable registry entry, or the captain's redirect target is blocked or unreachable), or `error` (API, network, or response failure), and every one of them exits 0.
-Every non-clear result hands back the unrouted intake with its reason, and firstmate routes by hand as today: `Send in-scope work to the fitting secondmate unless it is blocked or the captain explicitly redirects it; do not read the secondmate's chat because marked routed replies return through its status or referenced document.` plus `If no secondmate scope fits, use the main home or discuss creating an appropriate persistent secondmate.` (`AGENTS.md` section 7).
-Only a usage or configuration error exits 2: a missing, unreadable, or empty intake file, an unreadable registry, a redirect, blocked, or unreachable id naming no registered mate, or missing `jq`, each reported and never selected around.
-Missing `curl` is a normal structured `error` outcome with exit 0 so firstmate routes as today.
-`TYPESAFE_API_KEY` and `AI_GATEWAY_API_KEY` are its only router-specific environment settings.
-
-## Toolchain
-
-On session start the first mate detects what its required toolchain is missing or too old and lists each problem with either an exact install command or manual instructions.
-It installs automatically supported tools only after you say go; manual-only tools remain for you to install from the printed instructions.
-
-Required tools come in two parts: a universal toolchain every home needs regardless of backend, and a per-backend delta that follows the runtime backend actually resolved for this home.
-
-**Universal requirements**
-
-Every home requires:
-
-- node and git.
-- gh, with GitHub authentication through `gh auth login`.
-- no-mistakes v1.46.0 or newer.
-- Compatible gh-axi.
-- chrome-devtools-axi.
-- Compatible tasks-axi, as specified in "Backlog backend" above.
-- Compatible quota-axi.
-
-[`bin/fm-bootstrap.sh`](../bin/fm-bootstrap.sh) owns the axi-family floor policy and the gh-axi and lavish-axi floors, while [`bin/fm-tasks-axi-lib.sh`](../bin/fm-tasks-axi-lib.sh) and [`bin/fm-quota-axi-lib.sh`](../bin/fm-quota-axi-lib.sh) hold their own tools' floor constants.
-This section is the single owner of that universal toolchain list; backend guides' prerequisites point here and add only their backend-specific tools.
-
-In that list, no-mistakes runs the validation pipeline, gh-axi and chrome-devtools-axi cover GitHub and browser operations, and tasks-axi plus quota-axi back backlog mutations and quota-aware array dispatch.
-Lavish is a presentation-only dependency for visual decisions and reports; nonvisual work can proceed with plain text when it is unavailable.
-
-**Backend requirements**
-
-The per-backend delta is required only for the backend resolved from `FM_BACKEND`, then `config/backend`, then runtime auto-detection, then default `tmux`, so a home is never told to install a tool an inactive backend or feature would need.
-`fm_backend_required_tools` in `bin/fm-backend.sh` owns the backend additions:
-
-| Resolved backend | Additional tools |
-| --- | --- |
-| `tmux` | `tmux`, `treehouse` |
-| `herdr` | `herdr`, `jq`, `treehouse` |
-| `zellij` | `zellij`, `jq`, `treehouse` |
-| `orca` | `orca` |
-| `cmux` | `cmux`, `jq`, `treehouse` |
-
-The JSON-emitting adapters (`herdr`, `zellij`, `cmux`) need `jq` because their spawn and liveness paths parse backend JSON.
-Every session-provider-only backend (`tmux`, `herdr`, `zellij`, `cmux`) uses `treehouse` for worktrees.
-
-Backend tool availability uses the adapter's own executable resolver, so bootstrap and spawn agree on supported non-`PATH` locations such as cmux's bundled CLI.
-An unknown resolved backend emits `BACKEND_INVALID` and blocks dispatch instead of silently dropping its dependency delta or falling back to tmux.
-
-Orca provides both the task worktree and terminal endpoint (see "Runtime backend" above), so `backend=orca` requires only `orca` on top of the universal toolchain and skips both `treehouse` and every other backend's session CLI.
-A herdr, zellij, or cmux home is therefore never told `tmux` is missing, and the `treehouse` durable-lease upgrade check runs only for the backends that actually use treehouse.
-
-**Feature-specific requirements**
-
-- When `config/crew-dispatch.json` exists, bootstrap also requires `jq` for dispatch profile validation.
-- When Relay is opted in, bootstrap also requires `curl` and `jq` before arming the relay poll shim.
-
-**Missing-tool diagnostics**
-
-`tasks-axi` and `quota-axi` are essential bootstrap tools in every profile.
-An absent `tasks-axi` reports `MISSING: tasks-axi (install: npm install -g tasks-axi)`; an installed but incompatible one reports `UPGRADE: tasks-axi (installed: <version>, required: <min>, upgrade: npm install -g tasks-axi)`; when `config/backlog-backend` is not `manual`, a home with a configured non-markdown adapter or a markdown backlog refuses lifecycle mutation until compatible `tasks-axi` is on `PATH`, while a manual-backend home keeps its backlog hand-edited.
-An absent `gh-axi` reports `MISSING: gh-axi (install: npm install -g gh-axi && gh-axi setup hooks)`; an installed one below its floor reports `UPGRADE` with both versions and the upgrade command.
-An absent or incompatible `lavish-axi` reports `PRESENTATION_UNAVAILABLE` with its required floor, install command, and explicit text fallback; [`bootstrap-diagnostics`](../.agents/skills/bootstrap-diagnostics/SKILL.md) owns the response and compatibility check before visual use.
-An absent `quota-axi` reports `MISSING: quota-axi (install: npm install -g quota-axi)`; an installed one below its floor reports `UPGRADE` with both versions and the upgrade command; firstmate cannot resolve a profile array without a compatible binary.
-Bootstrap also reports a `TANGLE:` line when `FM_ROOT` is on a named non-default branch; follow the printed checkout remediation rather than treating it as an installable tool problem.
-In a read-only session that did not get the fleet lock, the same line is advisory and omits the checkout command.
-
-**Project refresh at startup**
-
-The locked session-start deferred network stage runs bootstrap's best-effort project clone refresh through `fm-fleet-sync.sh`; [`fm-bootstrap.sh`'s header](../bin/fm-bootstrap.sh) owns the exact clone-refresh overlap, liveness-before-convergence, per-mate concurrency, ordered diagnostic replay, and sequential-fallback contract.
-
-- It emits `FLEET_SYNC:` for skipped refreshes that may matter, recovered self-heals, and `STUCK:` alarms.
-- Normal completed runs keep local-only and no-origin skips silent.
-- If bootstrap kills a timed-out refresh, it replays any completed `fm-fleet-sync.sh` output before the aggregate timeout skip so no finished result is lost.
-
-**Stale Git lock recovery**
-
-A killed refresh (or a teardown process kill) can leave an orphaned `.git/packed-refs.lock` in a clone, which makes the next refresh's fetch fail with Git's `Unable to create '...packed-refs.lock': File exists`.
-On that signature only, `fm-fleet-sync.sh` retries the fetch with a bounded wait for the lock to self-clear, then removes the lock and retries once more only when it can prove the lock stale, exactly like the `fm-teardown.sh` `index.lock` recovery.
-
-It never removes a live lock, leaves any other failure shape untouched, and prints every wait, retry, and removal to stderr plus a one-line `recovered:` summary to stdout on success so that this session-start relay still surfaces the recovery.
-
-**Secondmate sync at startup**
-
-The same deferred network stage performs guarded tracked-file sync and propagates declared inherited local material into each validated live home under that sequencing contract.
-Local routes use direct guarded filesystem operations, while remote routes delegate sync and allowlisted transfer through their configured SSH host without probing any unconfigured fleet.
-
-- It emits `SECONDMATE_SYNC:` only when a home was skipped for an actionable sync reason, inheritance failed, or a divergent shared captain-preference copy was quarantined.
-- When a running home advances and its loaded instruction surface (`AGENTS.md`, `bin/`, or `.agents/skills/`) changed, bootstrap sends the re-read nudge itself through the stable `fm-<id>` selector and reports the exact completed send as `BOOTSTRAP_INFO:`.
-- If that send fails, bootstrap keeps an idempotent retry marker and emits `NUDGE_SECONDMATES:` with the failure reason.
-- The same bootstrap run emits `SECONDMATE_LIVENESS:` only when a registered secondmate is skipped or its relaunch fails; already-live and successfully relaunched secondmates are handled silently.
-
-**Push inherited configuration during a session**
-
-For a mid-session inherited local-material edit where tracked-file sync is not needed, run `bin/fm-config-push.sh`.
-It uses the same live secondmate discovery and propagation helper as bootstrap; its [help](../bin/fm-config-push.sh) owns reporting and exit semantics, and [`fm_config_inherit_items`](../bin/fm-config-inherit-lib.sh) declares the inherited items.
-
-- When an allowlisted config item changes for an already-running local home, it sends the literal-content reread pointer described in [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md); unchanged allowlisted config sends no pointer unless a previous delivery is pending.
-- A changed remote home instead receives one durably recorded marked re-read instruction after the allowlisted bytes have transferred because primary-local generation paths are not meaningful on another host.
-- The locked bootstrap inheritance pass uses the same placement-specific behavior; see `secondmate-provisioning` for the single contract owner.
-- That live discovery starts from `state/*.meta` records with `kind=secondmate`; `data/secondmates.md` only backfills `home=` for older or incomplete meta records.
-- Skipped items, such as a destination checkout that does not yet gitignore the item, are visible warnings but not hard failures.
-
-## Watched tool updates (config/watched-tools.json)
-
-`config/watched-tools.json` is an optional local, gitignored list of the tools this home depends on.
-When it is present and the check is armed, [`bin/fm-tool-update-check.sh`](../bin/fm-tool-update-check.sh) reports two conditions, and keeps them deliberately distinct:
-
-- `<tool> update available` means a newer version exists at the tool's update source.
-- `<tool> update not in effect` means a newer copy is already installed on this host, but `PATH` still resolves an older one.
-
-The second condition is the reason the check exists.
-An update can install correctly and stay inert because an earlier `PATH` entry still holds an older copy, and a check that only asks whether a newer version is published reports that host as up to date.
-
-The script therefore runs every copy of a watched command found on `PATH` and asks it for its own version, rather than trusting one lookup or reading a version out of a directory name.
-It only reports; it never installs, updates, fetches, or changes `PATH`, a version manager, or any installed tool.
-
-This section is the single owner of the canonical schema.
-`bin/fm-tool-update-check.sh` owns probe mechanics, cadence, and the report record.
-
-```json
-{
-  "tools": [
-    {
-      "name": "<label used in the report>",
-      "command": "<optional bare executable name to find on PATH>",
-      "version_args": ["<optional args that make it print its version, default --version>"],
-      "announce_pattern": "<optional extended regex matching the tool's own update announcement>",
-      "announce_args": ["<optional args for the command that carries that announcement, default version_args>"],
-      "git": {
-        "repo": "<optional absolute path to a local clone>",
-        "remote": "<optional remote name, default origin>",
-        "branch": "<optional branch, default the remote's own default branch>"
-      }
-    }
-  ]
-}
-```
-
-**Entry fields and probe behavior**
-
-- Each entry needs a `name` and at least one of `command` or `git`; an entry may carry both.
-- A `command` entry gives the `PATH` comparison above, and adding `announce_pattern` also reads the tool's own update announcement, which is how a tool that already reports its own updates is read rather than reimplemented.
-- The announcement counts as `update available` only when the version it names is newer than the newest installed copy found; a version already installed is reported only as `update not in effect`, so one completed install does not report both in the same sweep. An announcement naming no readable version is reported as an available update as before.
-- A tool does not always announce a new release on the command that prints its version: `no-mistakes --version` prints only the version, while its other commands carry the announcement.
-- `announce_args` names the command to search for the announcement in that case, and it is asked only of the copy `PATH` resolves; without it the version probe's own output is searched.
-- An `announce_pattern` that is not a usable extended regular expression stops `arm`, and during a sweep it is reported as that one tool's own check failure so one broken pattern never stops the other watched tools from being checked.
-- A `git` entry reports how many commits the local clone is behind its remote branch, and stays silent when the clone is current or ahead.
-- An omitted `branch` uses the remote's default branch, taken from the clone's own record of it and otherwise asked of the remote directly, so a `--single-branch` clone still resolves.
-
-Both probe kinds are read-only and bounded, and a probe that cannot answer is reported as a check failure rather than assumed current.
-See [`docs/examples/watched-tools.json`](examples/watched-tools.json) for a starting point to copy into local `config/watched-tools.json`.
-
-**Arm, edit, and disarm**
-
-`FM_TOOL_UPDATE_INTERVAL` (default 900 seconds, `0` to probe on every run) sets how often probes actually run, `FM_TOOL_UPDATE_PROBE_SECS` (default 5) bounds one local git probe, `FM_TOOL_UPDATE_VERSION_PROBE_SECS` (default 15) bounds one command version probe (whose runtime startup already straddles the local bound and stalls further under machine load), `FM_TOOL_UPDATE_GIT_PROBE_SECS` (default 15) bounds one network probe (`git ls-remote`, whose ordinary latency already straddles the local bound), and `FM_TOOL_UPDATE_BUDGET_SECS` (default 25) bounds a whole sweep.
-A sweep that runs out of budget says which tool it did not reach rather than reporting the rest as current.
-The sweep must finish inside `FM_CHECK_TIMEOUT` (default 30), because a run the watcher kills prints nothing and records nothing and would then repeat that silence on every poll.
-So a budget larger than that timeout allows is cut down to what fits instead of being refused, and the cut is reported in the report line.
-A budget that is not a whole number from 1 to 120 is still refused outright.
+## Crew dispatch policy (config/dispatch-policy.json)
+
+`config/dispatch-policy.json` is an optional local, gitignored policy for fresh crewmate and scout spawns.
+The policy is deterministic: exact registered project names match first, one declared `declaration` trigger may match next only when the spawn names it with `--declare <rule-id>`, and the default route applies otherwise.
+A declaration rule never fires by itself, so a rationed profile such as the unshaped-work rule stays off unless the task explicitly declares it; an unknown id, or any id when the policy declares no declaration trigger, is an actionable configuration error.
+A rule has a stable `id`, an explanatory `when`, a `trigger`, and an ordered `use` profile or profile array.
+A project trigger uses `{"kind":"projects","names":["registered-project-name"]}`.
+The unshaped-work rule uses `{"kind":"declaration"}` and no Jev or other model judgment.
+`version` is `1` for this schema.
+Legacy `match`, `projects`, and exhausted-ladder fallback fields are rejected and must be migrated by the operator.
+
+The optional `default_ladder` declares the Codex Plus and Go rung model fillings.
+Its order remains Codex Plus first and OpenCode Go second, with the configured second workspace participating in the same Go tier.
+The Go workspace pick remains monthly-reset-soonest, yielding when its shorter cap is active.
+Quota rows continue to veto exhausted, known-zero, or below-floor profiles, while unknown evidence stays eligible and disclosed.
+The agy ladder remains ordered by `agy_ladder`, and the Claude Opus 4.6 reserve remains 25 percent.
+When every OpenCode rung is proven capped, the spawn is refused with each cap reset named.
+No exhausted-ladder fallback is available.
+
+A route override requires `--captain-route '<harness>[/<model>[/<effort>]]'` together with `--captain-said '<verbatim captain words>'`.
+The route accepts a provider-qualified model such as `pi/opencode-go/muse-spark-1.3-contributor/xhigh`.
+The exact words and the resolved candidate evidence are stored in `state/<id>.meta` for review.
+The old `--dispatch-override-reason`, `--dispatch-ladder`, and environment bypasses are removed.
+Secondmate launches and relaunches do not resolve a new policy route.
+
+## Model catalog (config/model-catalog.json)
+
+The local catalog records available and retired model IDs with billing family, verification date, source, and optional replacement.
+A selected policy route that names a retired ID is refused before launch and names its replacement when one is recorded.
+Models absent from the catalog remain uncatalogued and do not gain quota or availability assumptions.
+Refresh once from the main home with `FM_HOME=<main-home> bin/fm-model-catalog-refresh.sh` after reviewing the main home's OpenCode and Codex accounts.
+The refresh reads `opencode models` and `codex debug models`, marks previously listed IDs that disappeared as retired, and preserves recorded replacements.
+The primary propagates `config/model-catalog.json` to secondmate homes with the ordinary inheritance flow.
+Do not run the refresh in a secondmate home.
+See [`docs/examples/dispatch-policy.json`](examples/dispatch-policy.json) and [`docs/examples/model-catalog.json`](examples/model-catalog.json) for examples.
+
+## Typed dispatch resolution
+
+`bin/fm-dispatch-resolve.sh` resolves one concrete profile from the written brief, the exact registered project name, and an optional `--declare <rule-id>` naming the policy's declaration trigger.
+It uses no network model judgment.
+Quota eligibility and the first eligible profile in declared order are evaluated from one `quota-axi --json` snapshot.
+A retired model in the selected route is rejected before `fm-spawn.sh` launches a worker.
+The resolver's complete candidate evidence is returned to spawn and persisted in the task metadata alongside any ladder evidence.
+
+Rules come from the effective home's `config/dispatch-policy.json`.
+`FM_CONFIG_OVERRIDE` selects the policy directory for tests and specialized setup.
+The resolver is invoked after Firstmate writes the task brief and receives the registered project name, not the symlink target basename.
+A malformed or unreadable policy remains an actionable configuration error.
+Bootstrap validates the policy and reports malformed configuration before dispatch.
+
+Operators migrating a private home must move `config/crew-dispatch.json` to `config/dispatch-policy.json`, add `version: 1`, give each rule an `id` and explicit `trigger`, move the OpenCode rung models into `default_ladder`, remove Jev and exhausted-fallback fields, and create `config/model-catalog.json` with `bin/fm-model-catalog-refresh.sh`.
+`FM_HOME=<home> bin/fm-migrate-dispatch-policy.sh` performs that move mechanically: it writes both files from the legacy policy without deleting it, refuses rather than clobbering a hand edit unless `--force` is given, and merges the catalog without un-retiring a model.
+No script edits a home's live configuration during this migration.
 
 ## Mail plane (.env)
 
@@ -2391,8 +2063,8 @@ FMX_RELAY_URL=https://myfirstmate.io   # optional Relay endpoint override, mainl
 FMX_ENV_FILE=           # optional alternate .env file for direct Relay client invocations; bootstrap still checks $FM_HOME/.env
 FMX_DRY_RUN=            # truthy previews Relay replies and dismissals to state/x-outbox/ without posting or requiring a token
 FMX_X_REPLY_MAX_CHARS=280   # X reply per-message split budget; values below 50 clamp to 50
-TYPESAFE_API_KEY=       # primary Jev key for judgment-only crew dispatch, from the environment or .env; with AI_GATEWAY_API_KEY absent the resolver uses this rung only (docs/configuration.md "Typed dispatch resolution")
-AI_GATEWAY_API_KEY=   # fallback Jev key through Vercel AI Gateway, from the environment or .env; with TYPESAFE_API_KEY absent the resolver uses this rung only, otherwise it answers once per call when typesafe.ai refuses with 429/401/403
+TYPESAFE_API_KEY=       # primary Jev key for model-judgment calls, from the environment or .env
+AI_GATEWAY_API_KEY=   # fallback Jev key through Vercel AI Gateway, from the environment or .env
 FMX_DISCORD_REPLY_MAX_CHARS=1900   # Discord reply per-message split budget; values below 50 clamp to 50, values above 2000 reset to 1900
 FMX_X_THREAD_MAX=25     # maximum messages in one auto-split reply thread
 FMX_FOLLOWUP_MAX_AGE_SECS=604800   # local window for posting Relay completion follow-ups (7 days)

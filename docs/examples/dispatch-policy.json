@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "id": "unshaped",
+      "when": "The task has not been shaped into a more specific route.",
+      "trigger": { "kind": "declaration" },
+      "use": { "harness": "claude", "model": "claude-opus-5-5", "effort": "medium" }
+    }
+  ],
+  "default": [
+    { "harness": "codex", "model": "gpt-6-luna", "effort": "medium", "provider": "codex" },
+    { "harness": "opencode", "model": "opencode-go/muse-spark-1.3-contributor", "effort": "high", "provider": "opencode-go" }
+  ],
+  "default_ladder": [
+    { "id": "plus", "harness": "codex", "model": "gpt-6-luna", "effort": "medium", "provider": "codex" },
+    { "id": "go", "harness": "opencode", "model": "opencode-go/muse-spark-1.3-contributor", "effort": "high", "provider": "opencode-go", "workspaces": ["main", "secondary"], "pick": "monthly-soonest, yield-on-shorter-cap" }
+  ]
+}

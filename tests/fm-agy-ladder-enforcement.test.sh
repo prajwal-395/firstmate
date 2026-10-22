@@ -311,14 +311,14 @@ test_override_launches_and_is_visible() {
   # Without the override, the captain's reserved quarter is unreachable.
   out=$(gate_out "$state" "$RUNG1") || rc=$?
   [ "$rc" -eq 1 ] || fail "Opus below its floor must be refused without the override"
-  assert_contains "$out" "FM_AGY_LADDER_OVERRIDE" "the refusal must name the way past it"
+  assert_contains "$out" "--captain-route" "the refusal must name the way past it"
 
   # Set inside the command substitution's own subshell so the override cannot
   # leak into any later case and quietly pass a test that should refuse.
   rc=0
-  out=$(FM_AGY_LADDER_OVERRIDE='captain asked for the reserve'; export FM_AGY_LADDER_OVERRIDE; fm_agy_ladder_gate "$RUNG1" "$state") || rc=$?
+  out=$(FM_CAPTAIN_OVERRIDE_REASON='captain asked for the reserve'; export FM_CAPTAIN_OVERRIDE_REASON; fm_agy_ladder_gate "$RUNG1" "$state") || rc=$?
   [ "$rc" -eq 0 ] || fail "the override must let the refused launch through (rc=$rc)"
-  assert_contains "$out" "OVERRIDDEN" "the override must announce itself"
+  assert_contains "$out" "overridden" "the override must announce itself"
   assert_contains "$out" "captain asked for the reserve" "the override's stated reason must be printed"
   assert_contains "$out" "is at 8.0%" "the override must still print what it overrode"
 
@@ -326,9 +326,9 @@ test_override_launches_and_is_visible() {
   local empty
   empty=$(fresh_state override-descend)
   rc=0
-  out=$(FM_AGY_LADDER_OVERRIDE=1; export FM_AGY_LADDER_OVERRIDE; fm_agy_ladder_gate "$RUNG2" "$empty") || rc=$?
+  out=$(FM_CAPTAIN_OVERRIDE_REASON=1; export FM_CAPTAIN_OVERRIDE_REASON; fm_agy_ladder_gate "$RUNG2" "$empty") || rc=$?
   [ "$rc" -eq 0 ] || fail "the override must also cover an unproven descent (rc=$rc)"
-  assert_contains "$out" "OVERRIDDEN" "the override must announce itself on a descent too"
+  assert_contains "$out" "overridden" "the override must announce itself on a descent too"
   pass "the override reaches the captain's reserve and every other refusal, and never silently"
 }
 
@@ -337,11 +337,11 @@ test_override_must_be_deliberate() {
   state=$(fresh_state override-empty)
   record "$state" "$RUNG1" 8.0 '4h 0m'
 
-  # An exported-but-empty variable is not an override. Reaching the reserved
+  # An exported-but-empty value is not an override. Reaching the reserved
   # quarter has to be an act, not a leftover in the environment.
   rc=0
-  ( FM_AGY_LADDER_OVERRIDE=; export FM_AGY_LADDER_OVERRIDE; fm_agy_ladder_gate "$RUNG1" "$state" >/dev/null ) || rc=$?
-  [ "$rc" -eq 1 ] || fail "an empty FM_AGY_LADDER_OVERRIDE must not override anything"
+  ( FM_CAPTAIN_OVERRIDE_REASON=; export FM_CAPTAIN_OVERRIDE_REASON; fm_agy_ladder_gate "$RUNG1" "$state" >/dev/null ) || rc=$?
+  [ "$rc" -eq 1 ] || fail "an empty FM_CAPTAIN_OVERRIDE_REASON must not override anything"
   pass "an empty override variable is not an override"
 }
 
@@ -535,7 +535,7 @@ test_an_unavailable_poll_never_stalls_rung_one_but_still_blocks_a_descent() {
   [ "$rc" -eq 1 ] || fail "an unreachable quota read must not authorize a descent (rc=$rc)"
   assert_contains "$out" "a live quota read was attempted just now and did not answer" \
     "the refusal must name the failed live read, not report a bare absence"
-  assert_contains "$out" "FM_AGY_LADDER_OVERRIDE" \
+  assert_contains "$out" "--captain-route" \
     "the refusal must name the way through, so the ladder is not abandoned for a costlier model"
 
   # The two verdicts diverge on identical evidence, which is the asymmetry
@@ -582,6 +582,30 @@ SH
     FM_CONFIG_OVERRIDE="$dir/config" FM_PROJECTS_OVERRIDE="$dir/projects" \
     "$ROOT/bin/fm-spawn.sh" agy-ladder-probe "$dir/projects" --scout \
     --harness agy --model "$model" 2>&1
+}
+
+spawn_agy_override() {  # <state-dir> <model> <captain-words>: the same probe
+  # launch under a validated per-task captain route instead of explicit axes.
+  local state=$1 model=$2 words=$3
+  shift 3
+  local dir="$TMP_ROOT/spawn-override" fakebin
+  mkdir -p "$dir/data" "$dir/config" "$dir/projects" "$state"
+  [ -d "$dir/projects/.git" ] || git init -q "$dir/projects"
+  fakebin=$(fm_fakebin "$dir")
+  cat > "$fakebin/agy" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = models ]; then
+  printf 'claude-opus-4-6-thinking\tClaude Opus 4.6 (Thinking)\n'
+  printf 'gemini-3.8-flash-high\tGemini 3.8 Flash (High)\n'
+fi
+exit 0
+SH
+  chmod +x "$fakebin/agy"
+  env "$@" PATH="$fakebin:$PATH" FM_AGY_QUOTA_POLL=on \
+    FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$dir/data" \
+    FM_CONFIG_OVERRIDE="$dir/config" FM_PROJECTS_OVERRIDE="$dir/projects" \
+    "$ROOT/bin/fm-spawn.sh" agy-ladder-probe "$dir/projects" --scout \
+    --captain-route "agy/$model" --captain-said "$words" 2>&1
 }
 
 test_spawn_refuses_a_ladder_violation() {
@@ -640,8 +664,8 @@ test_spawn_records_the_override() {
   state=$(fresh_state spawn-override)
   record "$state" "$RUNG1" 91.0 '4h 0m'
 
-  out=$(spawn_agy "$state" "$RUNG2" FM_AGY_LADDER_OVERRIDE='captain: drain flash tonight') || rc=$?
-  assert_contains "$out" "OVERRIDDEN by FM_AGY_LADDER_OVERRIDE=captain: drain flash tonight" \
+  out=$(spawn_agy_override "$state" "$RUNG2" 'captain: drain flash tonight') || rc=$?
+  assert_contains "$out" "overridden by the captain for this task: captain: drain flash tonight" \
     "fm-spawn.sh must print the override and its stated reason"
   assert_contains "$out" "no brief at" \
     "the overridden launch must proceed past the gate"
@@ -750,7 +774,7 @@ test_the_refusal_is_the_shared_ledger_and_not_some_other_rule() {
 
 # --- 10. A ladder the gate cannot enforce must be loud -----------------------
 #
-# The rung order came from config/crew-dispatch.json for the first time on
+# The rung order came from config/dispatch-policy.json for the first time on
 # 2026-09-02. _fm_agy_ladder_init falls back to the built-in order rather than
 # refusing, which is right at dispatch time - a home whose config it cannot read
 # still has to launch work - but it is also silent, and a silently ignored

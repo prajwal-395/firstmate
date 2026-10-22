@@ -103,12 +103,12 @@
 # preserved; a missed cap stalls the lane for roughly a day. This file is
 # biased toward relaunching, for the captain's own throughput-first reason.
 #
-# THE OVERRIDE. FM_OPENCODE_LADDER_OVERRIDE is the launch gate's deliberate
+# THE OVERRIDE. FM_CAPTAIN_OVERRIDE_REASON is the launch gate's deliberate
 # escape and it is honoured here too: a worker held on Go past a proven cap
 # on the captain's explicit request is not dragged off it behind their back.
 # Its use is printed, exactly as the launch gate prints it. bin/fm-spawn.sh
-# records the override per task where this evaluation reads it back, because
-# the variable itself never reaches the watcher: the watcher is a long-lived
+# records the captain's words per task where this evaluation reads it back, because
+# no free-standing variable ever reaches the watcher: the watcher is a long-lived
 # process that predates the instruction.
 #
 # FM_OPENCODE_DESCENT=off disables the whole evaluation, leaving the dispatch
@@ -215,8 +215,8 @@ fm_opencode_pin_mark() {  # <state-dir> <id>
 }
 
 # fm_opencode_pin_task: pin <id> where firstmate deliberately put it, for
-# <reason>. bin/fm-spawn.sh records this when FM_OPENCODE_LADDER_OVERRIDE
-# holds a launch on the first rung past a proven cap; the tick reads it back instead of
+# <reason>. bin/fm-spawn.sh records this when a validated --captain-route/--captain-said
+# pair holds a launch on the first rung past a proven cap; the tick reads it back instead of
 # a variable it cannot see. A pin is not drift, so the tick moves a pinned
 # worker nowhere. Per task, not per home: the hold names one lane the captain
 # placed, and a home-wide file would freeze every lane past its cap,
@@ -645,11 +645,9 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
     # The captain's own escape, honoured before any move: a worker held on
     # Go past a proven cap on explicit request is not dragged off it, and
     # the hold is said once per episode. The hold is read from the task's
-    # recorded pin first and the environment second, because the tick runs
-    # where the variable cannot follow it; either source names the same
-    # authority and prints the same reason.
-    hold_reason=${FM_OPENCODE_LADDER_OVERRIDE:-}
-    [ -n "$hold_reason" ] || hold_reason=$(fm_opencode_task_pin "$state_dir" "$id" 2>/dev/null) || hold_reason=
+    # recorded captain-route pin because the tick runs outside the launch
+    # process.
+    hold_reason=$(fm_opencode_task_pin "$state_dir" "$id" 2>/dev/null) || hold_reason=
     if [ -n "$hold_reason" ]; then
       if fm_opencode_descent_escalate_once "$state_dir" "$id" "$next"; then
         printf 'override %s %s is capped (%s) but the captain'"'"'s hold is keeping it there: %s\n' \

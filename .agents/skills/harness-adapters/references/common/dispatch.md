@@ -5,12 +5,12 @@ Load this with the selected tool reference for dispatch, start, or adapter verif
 ## Resolution
 
 Use the router's detection and safety sections for static crew and secondmate harness resolution and all explicit overrides.
-`config/crew-dispatch.json` can override that static default for one crewmate or scout with concrete harness, model, and effort axes.
+`config/dispatch-policy.json` can override that static default for one crewmate or scout with concrete harness, model, and effort axes.
 For a profile array, load `quota-array-dispatch` after establishing harness and provider facts here.
-When the opt-in `bin/fm-dispatch-resolve.sh` is on, its `clear` answer already names the concrete axes; `docs/configuration.md` "Typed dispatch resolution" owns that contract.
+When `config/dispatch-policy.json` is present, `bin/fm-dispatch-resolve.sh` already names the concrete axes in its answer; `docs/configuration.md` "Typed dispatch resolution" owns that contract.
 
 `../secondmate-provisioning/SKILL.md` owns inherited local material.
-Its harness consequence is that a secondmate's workers receive literal `config/crew-harness` and `config/crew-dispatch.json`, while the primary-only `config/secondmate-harness` is never inherited because secondmates do not spawn secondmates.
+Its harness consequence is that a secondmate's workers receive literal `config/crew-harness` and `config/dispatch-policy.json`, while the primary-only `config/secondmate-harness` is never inherited because secondmates do not spawn secondmates.
 A concrete crew value such as `codex` carries that runtime into the secondmate home.
 Unset or `default` carries no concrete value, so its workers use that home's own or detected harness rather than the primary's effective crew harness.
 The inherited dispatch file applies the same best-fit profiles there.
@@ -18,7 +18,7 @@ The inherited dispatch file applies the same best-fit profiles there.
 ## Owners
 
 `../../../bin/fm-spawn.sh` owns launch, autonomy, concrete flags, task-kind compatibility, and worker turn-end wiring.
-Natural-language rules stay with firstmate, while scripts receive concrete axes.
+Declared policy triggers stay with the dispatch policy file, while scripts receive concrete axes.
 
 `../../../bin/fm-busy-lib.sh` owns semantic busy trust.
 Composer shapes, glyphs, placeholders, popups, rendered delivery signals, and the `empty` / `pending` / `pending-unproven` / `unknown` decision belong only to `../../../bin/fm-composer-lib.sh`.

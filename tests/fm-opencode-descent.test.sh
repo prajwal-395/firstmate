@@ -65,7 +65,7 @@ export PATH
 
 # Hermetic home: the Codex Plus effort and the second-workspace pick resolve
 # through FM_CONFIG_OVERRIDE then FM_HOME/config, so the invoking home's real
-# crew-dispatch.json (notably its Codex effort) and opencode-second-org would
+# dispatch-policy.json (notably its Codex effort) and opencode-second-org would
 # otherwise leak into the default assertions below. Every case runs under this
 # empty home; the configured-effort and second-workspace cases set
 # FM_CONFIG_OVERRIDE themselves for the case under test.
@@ -324,7 +324,7 @@ test_descent_uses_configured_codex_plus_effort() {
   config_dir="$TMP_ROOT/config-configured-effort"
   mkdir -p "$config_dir"
   printf '{"default":[{"harness":"opencode","model":"%s","provider":"opencode-go"},{"harness":"codex","model":"%s","effort":"high","provider":"codex"}]}\n' \
-    "$GO" "$PLUS" > "$config_dir/crew-dispatch.json"
+    "$GO" "$PLUS" > "$config_dir/dispatch-policy.json"
   out=$(FM_CONFIG_OVERRIDE="$config_dir" run_tick "$state") || fail "tick must never fail past the cap"
   case "$out" in
     relaunched' '*) : ;;
@@ -596,14 +596,15 @@ test_override_holds() {
   write_meta "$state" lane1 opencode "$GO" scout
   arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
   record_cap "$state" lane1 78840 "$GO" || fail "record refused fixture"
-  out=$(FM_OPENCODE_LADDER_OVERRIDE='captain asked for Go' run_tick "$state") \
+  fm_opencode_pin_task "$state" lane1 'captain asked for Go' || fail "pin refused fixture"
+  out=$(run_tick "$state") \
     || fail "tick must never fail"
   case "$out" in
     override' '*) : ;;
     *) fail "the override must hold the worker, said: ${out:-<silent>}" ;;
   esac
   stub_called && fail "an overridden worker must never be moved"
-  out=$(FM_OPENCODE_LADDER_OVERRIDE='captain asked for Go' run_tick "$state") \
+  out=$(run_tick "$state") \
     || fail "tick must never fail"
   [ -z "$out" ] || fail "an override must not wake twice, said: $out"
   pass "the override holds a capped worker and says so once"
