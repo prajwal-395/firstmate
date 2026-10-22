@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import pathlib
 import tempfile
+import time
+from contextlib import contextmanager
 
 from library.tools.change_scope import Scope, compare
 from library.tools.resolve_lock import assume_sole_writer
@@ -30,6 +32,7 @@ from tests.unit.reels.test_reel_scoped_change import (
     _prepared,
     _write_caption,
 )
+from tests.unit.reels import test_reel_scoped_retime as retime
 
 
 def test_a_one_word_caption_change_writes_one_item_and_rescans_one_row():
@@ -124,5 +127,111 @@ def test_the_counters_separate_the_four_numbers():
     """
     counter = Counter()
     assert counter.as_dict() == {
-        "writes": 0, "scans": 0, "cursor_moves": 0, "renders": 0}
+        "writes": 0, "scans": 0, "cursor_moves": 0, "renders": 0,
+        "item_writes": 0}
     assert CountingTimeline is not None
+
+
+#: The mutating calls a timeline ITEM carries.  Counted apart from the
+#: timeline's own writes: a speed set on a clip is a different write
+#: from a placement, and the punch list's rule is never to combine
+#: denominators.
+ITEM_WRITE_METHODS = ("SetSpeed", "SetProperty", "SetCDL",
+                       "AddFusionComp", "DeleteFusionComp", "SetFusionComp",
+                       "SetClipEnabled", "SetTransform", "SplitAtFrame",
+                       "SetKeyframe")
+
+
+@contextmanager
+def counting_item_writes(counter):
+    """Count the mutating calls the double's timeline ITEMS take.
+
+    The double's item CLASS is patched, not the item: a duplicate of a
+    counted timeline copies its items, and an item-level wrapper would
+    follow the copy and count the original's writes.
+    """
+    from tests import resolve_double as _double
+
+    cls = _double.FakeTimelineItem
+    original = {}
+    for name in ITEM_WRITE_METHODS:
+        method = getattr(cls, name, None)
+        if method is None:
+            continue
+        original[name] = method
+
+        def _make(wrapped, label):
+            def counted(self, *args, **kwargs):
+                counter.item_writes += 1
+                counter.item_write_trace.append(label)
+                return wrapped(self, *args, **kwargs)
+            return counted
+
+        setattr(cls, name, _make(method, name))
+    try:
+        yield counter
+    finally:
+        for name, method in original.items():
+            setattr(cls, name, method)
+
+
+def test_a_one_clip_retime_costs_less_than_the_rebuild_it_replaces(tmp_path):
+    """PERF-003's measurement, before and after, on the same plan.
+
+    BEFORE: the full rebuild of the retimed plan - what the scoped
+    route used to fall back to, because a retime was refused.
+
+    AFTER: the scoped patch - the passage and the clock's tail
+    re-placed, everything else carried over.
+
+    The two are measured the same way, and the RESULT is the same reel:
+    `test_reel_scoped_retime` proves the patched staging equals a fresh
+    full build item for item, so this measures which route costs less
+    to reach that same reel.
+
+    The denominators are kept apart: timeline writes (the counter the
+    scoped route has always been measured by), item writes (the speed
+    the retime sets), and wall seconds.
+    """
+    from library.tools.reel_build import build_reel_timeline
+    from tests.scenarios.test_reel_build import FakeMoment
+
+    old_captions, new_captions = retime._scenario(tmp_path)
+
+    # BEFORE: the rebuild.
+    bulk_counter = Counter()
+    _timeline, _pool, project = retime._world()
+    counted_bulk = CountingProject(project, bulk_counter)
+    bulk_started = time.perf_counter()
+    with assume_sole_writer("measure-bulk"), \
+            counting_item_writes(bulk_counter):
+        build_reel_timeline(
+            counted_bulk, FakeMoment(), retime._clips(), list(
+                new_captions), 23.976, 1080, 1920, str(tmp_path),
+            {"segments": []}, master_timeline=None,
+            program_channels={"1": 1, "2": 1, "3": 1},
+            timeline_name="Reel 99 - scoped retime",
+            ranges=retime._retimed_ranges())
+    bulk_seconds = time.perf_counter() - bulk_started
+
+    # AFTER: the scoped patch, over the reel built before the retime.
+    scoped_counter = Counter()
+    _final, _pool, project, _record = retime._build(
+        tmp_path, old_captions, retime._plain_ranges())
+    prepared = retime._prepared(
+        tmp_path, new_captions, retime._retimed_ranges())
+    counted_scoped = CountingProject(project, scoped_counter)
+    counted_scoped.final_name = "Reel 99 - scoped retime"
+    scoped_started = time.perf_counter()
+    with assume_sole_writer("measure-scoped"), \
+            counting_item_writes(scoped_counter):
+        retime._patch(counted_scoped, _final, prepared, tmp_path)
+    scoped_seconds = time.perf_counter() - scoped_started
+
+    assert scoped_counter.writes < bulk_counter.writes, (
+        f"the scoped retime wrote {scoped_counter.writes} Resolve "
+        f"call(s) against the rebuild's {bulk_counter.writes} "
+        f"({scoped_counter.write_trace} vs {bulk_counter.write_trace})")
+    assert scoped_seconds < bulk_seconds, (
+        f"the scoped retime took {scoped_seconds:.3f}s against the "
+        f"rebuild's {bulk_seconds:.3f}s")

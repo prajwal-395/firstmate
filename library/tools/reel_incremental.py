@@ -248,15 +248,19 @@ def retime_scope(placements_list, fps: float) -> Optional[dict]:
     Measured on the fake Resolve, 2026-10-21: a passage retimed to
     110% occupied record frames 0-87 (its plan's `record_frames`)
     instead of 0-96, and the placement after it moved from frame 96 to
-    frame 87.  So a retime is NOT a span-local change, and the scoped
-    path refuses it - correctly, because patching one clip's speed
-    would leave the reel playing a different length than the plan.
+    frame 87.  So a retime is NOT a span-local change, and the scope
+    of one is the passage plus the interval the clock moved.
+
+    The scoped route SCOPES a retime of one clip: it re-places the
+    passage and the items the clock moved, and reuses everything else
+    (`library/tools/reel_retime_scope.py`).  This function is the
+    refusal's own vocabulary - it names WHICH passage and HOW FAR the
+    clock change reaches, for the retimes the scoped route cannot
+    scope and for the record of the ones it did.
 
     [why](docs/RULE_EVIDENCE.md#the-caption-change-that-rebuilt-the-whole-reel)
 
-    This names the interval that moved, so the refusal says WHICH
-    passage and HOW FAR the clock change reaches, instead of leaving a
-    reader to work it out.  `None` when the plan carries no retime.
+    `None` when the plan carries no retime.
     """
     retimed = [place for place in (placements_list or ())
                if isinstance(place, Mapping) and "rate" in place]
@@ -285,8 +289,10 @@ def retime_scope(placements_list, fps: float) -> Optional[dict]:
         "moved_from_frame": first,
         "moved_to_frame": last,
         "reason": ("a retime changes the reel's clock, so every "
-                   "placement after it moves - the scoped path patches "
-                   "no retime, and a full rebuild places it"),
+                   "placement after it moves - the scoped path "
+                   "re-places the passage and the items the clock "
+                   "moved, and a full rebuild places the reel when it "
+                   "cannot scope that"),
     }
 
 
@@ -324,9 +330,53 @@ def _retime_reason(scope: Mapping) -> str:
         for row in passages) or "a retime"
     return (f"a retime ({named}) changes the reel's clock, so every "
             f"placement after frame {scope.get('moved_from_frame')} "
-            f"moves; patching one clip's speed would leave the reel "
-            f"playing a different length than the plan, and a full "
-            f"rebuild places it")
+            f"moves; the scoped path re-places the passage and the items "
+            f"the clock moved, and a full rebuild places the reel when "
+            f"it cannot scope that")
+
+
+def diff_footage(expected: Mapping[tuple, list],
+                 live: Mapping[tuple, list],
+                 placements_list, fps: float):
+    """What the plan's retime changed, between the live rows and its own.
+
+    A plan with no retime must leave the footage rows exactly as they
+    are: the rows are compared for IDENTITY, as they always were.
+
+    A plan WITH a retime is a clock change, and a clock change has a
+    shape: the passage plays at another rate, and every placement
+    after it moves by the difference.  `reel_retime_scope.diff_rows`
+    proves that shape - the shift is the passage's own length change,
+    the rate explains the new length, and the moved items all start
+    after the passage's old end - and returns the items to re-place.
+
+    A difference that is NOT that shape refuses, by name: the scoped
+    route places a reel it can prove it placed, and a full rebuild
+    places the rest.
+    """
+    from library.tools.reel_retime_scope import (
+        RetimeShapeError,
+        diff_rows,
+        passages_from_placements,
+    )
+
+    try:
+        passages = passages_from_placements(placements_list, fps)
+    except RetimeShapeError as exc:
+        raise IncrementalRefused(str(exc), category="unsupported") from exc
+    if not passages:
+        check_rows_identical(expected, live, "footage")
+        return None
+    try:
+        return diff_rows(expected=expected, live=live, passages=passages,
+                         fps=fps)
+    except RetimeShapeError as exc:
+        scope = retime_scope(placements_list, fps)
+        raise IncrementalRefused(
+            f"the footage rows differ from the plan in a way this "
+            f"retime does not explain - refusing; {exc}; "
+            f"{_retime_reason(scope)}",
+            category="unsupported") from exc
 
 
 # ── overlay spans and sources, per kind ─────────────────────────────
@@ -470,6 +520,11 @@ class IncrementalPlan:
     """The applicable patch: per-kind overlay diffs plus re-run flags."""
     diffs: List[OverlayDiff] = field(default_factory=list)
     touches_overlays: bool = False
+    #: The retime the plan carries, as a scope: the passage it speeds
+    #: up and the items the clock moved.  `None` where the plan
+    #: carries no retime; an EMPTY scope where the timeline already
+    #: holds the plan's retime.
+    footage: Optional[object] = None
 
 
 def _check_incremental_eligibility(freeze_tail, post_header, ledger_rows):
@@ -564,6 +619,11 @@ def _scope_of(plan, prepared, track_plan, fps: float):
     Items are named by what identifies them: a caption card by its
     segment id, an overlay segment by its own.  Intervals are the
     record spans the patch placed at, per row.
+
+    A RETIME names its own items: the passage it re-placed and the
+    items the clock moved.  Both are items the patch touched, and the
+    intervals it moved are the frames between where an item was and
+    where it now sits.
     """
     from library.tools.change_scope import Scope
     from library.tools.reel_build import _angle_key
@@ -618,9 +678,27 @@ def _scope_of(plan, prepared, track_plan, fps: float):
               prepared.video_row_by_angle.get(_angle_key(place["clip"]))
               or prepared.speech_row_by_angle.get(_angle_key(place["clip"])))
              for place in prepared.placements_list}))
+
+    # The retime's own items and intervals: the passage it re-placed and
+    # the frames the clock moved.
+    footage = getattr(plan, "footage", None)
+    if footage is not None and not footage.is_empty:
+        for change in footage.changes:
+            row_name = rows_by_index.get(int(change.row[1]), "")
+            key = (f"{change.row[0]}{change.row[1]}@"
+                   f"{change.new_span[0]}")
+            scope.add_item(key, row=row_name)
+            scope.add_interval(row_name, change.old_span[0],
+                               change.old_span[1])
+            scope.add_interval(row_name, change.new_span[0],
+                               change.new_span[1])
+        scope.note_reuse("footage_items", int(footage.reused))
+
     # WHY the scope is what it is: the kinds the patch actually changed.
     changed = sorted({diff.kind for diff in plan.diffs
                       if diff.replace or diff.added or diff.removed})
+    if footage is not None and not footage.is_empty:
+        changed = sorted(set(changed) | {"retime"})
     scope.reason = (
         f"{', '.join(changed)} changed" if changed
         else "nothing changed - the patch carried the reel over")
@@ -686,16 +764,18 @@ def decide_incremental(*, timeline, track_plan, prepared,
     # Footage: span + source per a-roll/speech row.
     aroll = [row.index for row in track_plan.aroll_rows()]
     speech = [row.index for row in track_plan.speech_rows()]
-    # A retime in the plan moves the reel's clock, so the footage rows
-    # differ; the scope names WHICH passage and how far the change
-    # reaches, so the refusal says so rather than dumping the rows.
-    change_scope = retime_scope(placements_list, fps)
-    check_rows_identical(
-        footage_expected_rows(placements_list, video_row_by_angle,
-                              speech_row_by_angle, fps, _angle_key),
-        {**live_row_inventory(timeline, aroll, "video"),
-         **live_row_inventory(timeline, speech, "audio")},
-        "footage", change_scope)
+    # A retime is a CLOCK change, and a clock change is a SCOPE: the
+    # passage plays at another rate and every placement after it moves
+    # by the difference.  The diff names the passage and the items the
+    # clock moved, so the route re-places exactly those and reuses the
+    # rest - instead of refusing a change it can name.
+    expected_footage = footage_expected_rows(
+        placements_list, video_row_by_angle, speech_row_by_angle, fps,
+        _angle_key)
+    live_footage = {**live_row_inventory(timeline, aroll, "video"),
+                    **live_row_inventory(timeline, speech, "audio")}
+    footage_diff = diff_footage(expected_footage, live_footage,
+                                placements_list, fps)
 
     # Cards, transitions, frame: span + source, identical.
     fixed_card_ids = _check_cards_identical(timeline, track_plan, cards)
@@ -710,11 +790,22 @@ def decide_incremental(*, timeline, track_plan, prepared,
         _check_native_hold(timeline, freeze_tail, video_row_by_angle)
 
     plan = IncrementalPlan()
+    plan.footage = footage_diff
     # Captions are DIFFED, not compared: a caption card is content-named
     # (PR 3048), so a card whose words changed is a different file at
     # the same span.  Every other card on the row is reused.
+    #
+    # A retime moves the clock the captions sit on, so a caption after
+    # the passage moves with it.  That is a PLACEMENT change, and it is
+    # scoped the same way the retime is: the cards that moved are
+    # re-placed, the cards that did not are reused.  It is allowed only
+    # where the change IS a retime - a caption that moved on its own
+    # still refuses, because a card that moved for no stated reason is
+    # a plan this route cannot prove.
     caption_diff = diff_caption_cards(
-        timeline, track_plan, subtitle_segments, fps)
+        timeline, track_plan, subtitle_segments, fps,
+        moved_ok=bool(footage_diff is not None
+                      and not footage_diff.is_empty))
     if (caption_diff.replace or caption_diff.added
             or caption_diff.removed):
         plan.touches_overlays = True
@@ -847,7 +938,7 @@ def caption_source_of(segment: Mapping) -> str:
 
 
 def diff_caption_cards(timeline, track_plan, segments,
-                        fps: float) -> "OverlayDiff":
+                        fps: float, *, moved_ok: bool = False) -> "OverlayDiff":
     """Match the caption row's live cards to the plan's, by (row, span).
 
     A caption card is CONTENT-NAMED (PR 3048: the name carries a
@@ -863,6 +954,15 @@ def diff_caption_cards(timeline, track_plan, segments,
     added another could leave two cards overlapping on one row, and a
     caption row that overlaps is unreadable.  So: added, removed and
     moved captions REFUSE, exactly as they did before.
+
+    `moved_ok` is the ONE exception, and it is the retime's: a retime
+    moves the clock the captions sit on, so every caption after the
+    passage moves with it.  The cards are then paired BY ORDER - the
+    row's cards and the plan's segments, both in play order - and a
+    card whose span changed is re-placed at the plan's span while every
+    card that did not move is reused.  The delete of every moved card
+    happens before any of them is placed, so the row never carries two
+    cards over the same frames.
     """
     row = track_plan.caption_row()
     diff = OverlayDiff(kind="caption")
@@ -889,6 +989,10 @@ def diff_caption_cards(timeline, track_plan, segments,
     except Exception as exc:
         raise IncrementalBroken(
             f"caption row would not list ({exc}) - refusing") from exc
+
+    if moved_ok:
+        return _diff_caption_cards_in_order(
+            live_items, segments, fps, int(row.index))
 
     live_by_span: Dict[tuple, list] = {}
     for item in live_items:
@@ -939,6 +1043,54 @@ def diff_caption_cards(timeline, track_plan, segments,
     return diff
 
 
+def _diff_caption_cards_in_order(live_items, segments, fps: float,
+                                  row_index: int) -> "OverlayDiff":
+    """The caption diff for a change that MOVED the clock under the row.
+
+    The row's cards and the plan's segments are paired BY ORDER: both
+    are in play order, a clock change moves cards forward without
+    reordering them, and the count must agree - a card that appeared or
+    disappeared is a different change and is refused here.
+    """
+    diff = OverlayDiff(kind="caption")
+    live_spans = []
+    for item in live_items:
+        span = _live_span(item)
+        if span is None:
+            raise IncrementalBroken(
+                "caption row holds an item whose span cannot be read - "
+                "refusing")
+        live_spans.append((span, item))
+    live_spans.sort(key=lambda pair: pair[0])
+    planned = []
+    for segment in segments:
+        if not isinstance(segment, Mapping):
+            raise IncrementalBroken(
+                "caption row carries an unreadable segment - refusing")
+        if not caption_source_of(segment):
+            raise IncrementalBroken(
+                f"caption segment {segment.get('segment_id')!r} names no "
+                "artefact - refusing")
+        planned.append((caption_span_frames(segment, fps), segment))
+    planned.sort(key=lambda pair: pair[0])
+    if len(planned) != len(live_spans):
+        raise IncrementalRefused(
+            f"the caption row holds {len(live_spans)} card(s) and the plan "
+            f"places {len(planned)} - a change that adds or drops a "
+            f"caption is not scoped here; a full rebuild places the "
+            f"caption row")
+    for (live_span, live), (want_span, segment) in zip(live_spans, planned):
+        if tuple(live_span) == tuple(want_span):
+            if _file_digest(caption_source_of(segment)) != _file_digest(
+                    _live_raw_path(live)):
+                diff.replace.append((live, dict(segment)))
+            continue
+        diff.removed.append(live)
+        diff.added.append(dict(segment))
+    diff.rows = [int(row_index)]
+    return diff
+
+
 def _check_frame_identical(timeline, track_plan, segments, fps: float,
                            role: str) -> None:
     rows = _kind_rows(track_plan, role)
@@ -963,6 +1115,216 @@ def _check_frame_identical(timeline, track_plan, segments, fps: float,
 def _kind_check(kind: str) -> str:
     return {"explainer": "F21", "semantic visual": "F22",
             "speaker lower third": "F21"}[kind]
+
+
+def _placements_by_row(placements_list, video_row_by_angle,
+                       speech_row_by_angle, angle_of_key) -> dict:
+    """The plan's placements, keyed by the row and the frame they land on.
+
+    The key is `(media type, row index, record frame)`: the row the
+    placement owns and the frame it starts at.  Two placements never
+    share a row and a start frame, so the key names one placement.
+    """
+    out: dict = {}
+    for place in placements_list or ():
+        clip = place.get("clip") if isinstance(place, Mapping) else None
+        if clip is None:
+            continue
+        track_type = getattr(clip, "track_type", "video")
+        key = angle_of_key(clip)
+        row = (video_row_by_angle.get(key) if track_type == "video"
+               else speech_row_by_angle.get(key))
+        if row is None:
+            continue
+        out[(str(track_type), int(row),
+             int(place.get("snapped_record") or 0))] = place
+    return out
+
+
+def _live_item_at(timeline, row, span) -> Optional[object]:
+    """The live item on `row` occupying `span`, or None."""
+    media_type, index = row
+    try:
+        items = timeline.GetItemListInTrack(media_type, int(index)) or []
+    except Exception as exc:
+        raise IncrementalBroken(
+            f"{media_type}{index} would not list ({exc}) - refusing") from exc
+    found = [item for item in items
+             if _live_span(item) == (int(span[0]), int(span[1]))]
+    if len(found) != 1:
+        raise IncrementalBroken(
+            f"{media_type}{index} holds {len(found)} item(s) at "
+            f"[{span[0]}, {span[1]}) - refusing to re-place an item "
+            f"this route cannot name")
+    return found[0]
+
+
+def _live_source_start(item) -> Optional[int]:
+    """The source frame the live item reads from, or None if unreadable.
+
+    An item that cannot say where it reads from is NOT proof of
+    anything: the check that uses this treats an unreadable answer as
+    no answer, and the patch proceeds on the plan's own arithmetic.
+    """
+    try:
+        return int(item.GetSourceStartFrame())
+    except Exception:
+        return None
+
+
+def apply_footage_retime(*, project, pool, timeline, staging_name: str,
+                          fps: float, diff, prepared, track_plan,
+                          video_row_by_angle, speech_row_by_angle,
+                          pool_index=None) -> dict:
+    """Re-place the items a retime changed: the passage, and the clock's tail.
+
+    The passage is re-placed at its new length, over the source the plan
+    names, and the items the clock moved are re-placed at their new
+    start over the source they already carry.  Everything else on the
+    timeline is left exactly as the duplicate carries it.
+
+    The placement goes through the SAME machinery the full build uses -
+    `commit_footage_placements`, with the same op identity, the same
+    batching and the same speech-row sweep - so the scoped route and
+    the rebuild cannot drift on the arithmetic.  The pool items are
+    REUSED: a retime changes no media, so nothing is imported again.
+
+    Returns the record of what it did: the items it replaced, the items
+    it moved, and the items it left alone.
+    """
+    from library.tools.reel_build import (
+        PoolIndex,
+        _angle_key,
+        _assert_placing,
+        _resolve_source_frame_span,
+        _retimed_span,
+        commit_footage_placements,
+        pool_item_for,
+    )
+
+    if diff is None or diff.is_empty:
+        return {"replaced": [], "moved": [], "reused": 0}
+    if pool_index is None:
+        pool_index = PoolIndex(pool, authoritative=True)
+    placements = _placements_by_row(
+        prepared.placements_list, video_row_by_angle, speech_row_by_angle,
+        _angle_key)
+    resolved_channels = getattr(prepared, "resolved_channels", {}) or {}
+
+    doomed: list = []
+    wanted: list = []
+    for change in diff.changes:
+        place = placements.get(
+            (change.row[0], int(change.row[1]), int(change.new_span[0])))
+        if place is None:
+            raise IncrementalBroken(
+                f"the plan places nothing at {change.row[0]}"
+                f"{change.row[1]} frame {change.new_span[0]}, where the "
+                f"retime moves an item - refusing")
+        live = _live_item_at(timeline, change.row, change.old_span)
+        doomed.append(live)
+        wanted.append((change, place, live))
+
+    if doomed:
+        _assert_placing(project, timeline)
+        # One delete pass: the retimed passage and every item the clock
+        # moved leave the staging together, so the row is free for the
+        # re-placement and no card is ever left overlapping another.
+        timeline.DeleteClips(doomed, False)
+
+    video_ops: list = []
+    audio_pairs: list = []
+    pool_items: dict = {}
+    for change, place, live in wanted:
+        clip = place["clip"]
+        angle = _angle_key(clip)
+        dest_row = (video_row_by_angle.get(angle)
+                    if clip.track_type == "video"
+                    else speech_row_by_angle.get(angle))
+        if dest_row is None:
+            raise IncrementalBroken(
+                f"a {clip.track_type} placement has no planned row for "
+                f"angle {angle!r} - refusing")
+        pool_item = pool_item_for(pool, clip.source_file,
+                                  pool_index=pool_index)
+        if not pool_item:
+            raise IncrementalBroken(
+                f"the source for {clip.source_file!r} is not in the media "
+                f"pool - refusing")
+        pool_fps = float(pool_item.GetClipProperty("FPS") or fps)
+        appended_out = place["source_out"]
+        if "rate" in place:
+            # A retimed passage: the record frames it plays are appended
+            # as source, and the speed pass makes those record frames
+            # play the passage.
+            appended_out = (place["source_in"]
+                            + _retimed_span(place, staging_name)[1] / fps)
+        source_in, source_out = _resolve_source_frame_span(
+            place["source_in"], appended_out, pool_fps)
+        # The live item must be the one the plan describes: it plays the
+        # SAME source, from the same frame.  A live item that plays
+        # other source is not the passage the retime is about, and
+        # re-placing it would place material nobody measured.
+        live_source = _live_source_start(live)
+        if live_source is not None and live_source != source_in:
+            raise IncrementalBroken(
+                f"the item on {change.row[0]}{change.row[1]} at "
+                f"[{change.old_span[0]}, {change.old_span[1]}) reads "
+                f"source frame {live_source} where the plan places "
+                f"{source_in} - refusing")
+        if "rate" in place:
+            record_duration = int(place["record_frames"])
+        else:
+            record_duration = int(round(
+                (place["source_out"] - place["source_in"]) * fps))
+        pool_items[str(pool_item.GetUniqueId())] = pool_item
+        op = {
+            "op": "clip.insert",
+            "unique_id": (
+                f"footage:{staging_name}:{clip.track_type}"
+                f":{clip.source_file}:{place['snapped_record']}"),
+            "track_type": clip.track_type,
+            "track_index": dest_row,
+            "record_in": int(place["snapped_record"]),
+            "record_out": int(place["snapped_record"]) + record_duration,
+            "media_pool_item": str(pool_item.GetUniqueId()),
+            "source_in": source_in,
+            "source_out": source_out,
+        }
+        if clip.track_type == "video":
+            video_ops.append(op)
+        else:
+            audio_pairs.append((op, {
+                "target_row": dest_row,
+                "expected_channel": resolved_channels.get(angle, 1),
+                "label": (f"A{dest_row} "
+                          f"{clip.source_file.rsplit('/', 1)[-1]} "
+                          f"@{place['snapped_record']}"),
+                "record_in": int(place["snapped_record"]),
+                "source_file": clip.source_file,
+            }))
+
+    if video_ops or audio_pairs:
+        def append_planned_footage(operations):
+            pool.AppendToTimeline([{
+                "mediaPoolItem": pool_items[op["media_pool_item"]],
+                "startFrame": op["source_in"], "endFrame": op["source_out"],
+                "mediaType": 1 if op["track_type"] == "video" else 2,
+                "trackIndex": op["track_index"],
+                "recordFrame": op["record_in"],
+            } for op in operations])
+        _assert_placing(project, timeline)
+        commit_footage_placements(
+            project, timeline, track_plan, staging_name, video_ops,
+            audio_pairs, append_ops=append_planned_footage)
+
+    return {
+        "replaced": [c.as_dict() for c in diff.retimed],
+        "moved": [c.as_dict() for c in diff.moved],
+        "reused": int(diff.reused),
+        "delta_frames": int(diff.delta),
+        "passages": [p.as_dict() for p in diff.passages],
+    }
 
 
 def apply_overlay_diffs(*, project, pool, timeline, staging_name: str,
@@ -1298,6 +1660,17 @@ def build_staged_incremental(
                 "refusing; a full rebuild places it",
                 category="unsupported")
 
+        # The retime's own re-placement: the passage and the items the
+        # clock moved.  It runs BEFORE the overlays, because the overlay
+        # diff was computed against the plan's spans and the clock is
+        # what moved them.
+        _footage_record = apply_footage_retime(
+            project=project, pool=project.GetMediaPool(), timeline=staging,
+            staging_name=staging_name, fps=fps, diff=plan.footage,
+            prepared=prepared, track_plan=track_plan,
+            video_row_by_angle=prepared.video_row_by_angle,
+            speech_row_by_angle=prepared.speech_row_by_angle)
+
         patch_out = apply_overlay_diffs(
             project=project, pool=project.GetMediaPool(), timeline=staging,
             staging_name=staging_name, fps=fps, width=width, height=height,
@@ -1314,6 +1687,10 @@ def build_staged_incremental(
         build_record = dict(prepared.build_record)
         build_record["stream_enforcement"] = {
             "checked": 0, "deleted": [], "unverified": []}
+        # WHAT THE RETIME TOUCHED: the passage it re-placed, the items
+        # the clock moved, and what it left alone.  A scope nobody can
+        # read is a scope nobody can measure.
+        build_record["footage_retime"] = _footage_record
 
         # Ledger retimes: absolute speeds, re-applied (a no-op where the
         # plan is unchanged, the update where it changed).

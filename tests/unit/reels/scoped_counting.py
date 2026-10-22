@@ -52,6 +52,12 @@ class Counter:
         self.renders = 0
         self.write_trace: list[str] = []
         self.scan_trace: list[str] = []
+        #: The mutating calls a timeline ITEM took, counted apart from
+        #: the timeline's own writes: a speed set on a clip is a
+        #: different write from a placement, and the two are never
+        #: added together.
+        self.item_writes = 0
+        self.item_write_trace: list[str] = []
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -59,12 +65,14 @@ class Counter:
             "scans": self.scans,
             "cursor_moves": self.cursor_moves,
             "renders": self.renders,
+            "item_writes": self.item_writes,
         }
 
     def __repr__(self) -> str:  # pragma: no cover - diagnostic only
         return (f"Counter(writes={self.writes}, scans={self.scans}, "
                 f"cursor_moves={self.cursor_moves}, "
-                f"renders={self.renders})")
+                f"renders={self.renders}, "
+                f"item_writes={self.item_writes})")
 
 
 class CountingTimeline:

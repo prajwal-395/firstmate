@@ -1873,6 +1873,18 @@
   ],
   [
     "library/tools/reel_incremental.py",
+    "apply_footage_retime",
+    "DeleteClips",
+    1
+  ],
+  [
+    "library/tools/reel_incremental.py",
+    "append_planned_footage",
+    "AppendToTimeline",
+    1
+  ],
+  [
+    "library/tools/reel_incremental.py",
     "apply_overlay_diffs",
     "DeleteClips",
     1
