@@ -391,11 +391,37 @@ def method_digests(module_file, layers: dict[str, Iterable[str]],
 
 def layer_key(layer: str, source_digest: str, method: str,
               params: dict) -> str:
-    payload = json.dumps(
+    """One layer's key: source, method, and parameters, canonically hashed.
+
+    The hash is built by :mod:`library.tools.cache_keys`, the one module
+    that constructs cache keys; the payload is unchanged, so stored keys
+    do not move.  ``layer`` decides the KIND (:func:`layer_kind`): the
+    ``windows`` layer carries asking-context in its params and is an
+    interpretation, while ``objects`` and ``picture`` measure the source
+    and are observations.
+    """
+    from library.tools import cache_keys
+
+    return cache_keys.signature_of(
         {"format": STORE_FORMAT, "layer": layer, "source": source_digest,
-         "method": method, "params": params},
-        sort_keys=True, separators=(",", ":"), default=str)
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+         "method": method, "params": params})
+
+
+def layer_kind(layer: str) -> str:
+    """Whether a layer's entry is an observation or an interpretation.
+
+    ``windows`` answers depend on the asking-context filed in their
+    params (the transcript slice, the temporal boundaries, the prompt
+    inputs), so a window measured under one transcript is never served
+    under another.  ``objects`` and ``picture`` measure the source
+    itself and are reusable wherever the source is.  See
+    :mod:`library.tools.cache_keys` for the vocabulary.
+    """
+    from library.tools import cache_keys
+
+    if layer in ("windows", "window"):
+        return cache_keys.INTERPRETATION
+    return cache_keys.OBSERVATION
 
 
 class LayerCache:
@@ -468,9 +494,14 @@ class LayerCache:
         kind = self._cache_kind(layer)
         artifact_id = ""
         if path.is_file():
+            from library.tools import cache_keys
+
             register_cache_artifact_from_environment(
                 path, kind=kind,
-                producer_key=f"{self.source_digest}:{layer}:{path.name}",
+                producer_key=cache_keys.producer_key(
+                    kind, self.source_digest, layer,
+                    self.methods.get(layer, "")[:12] or "unversioned",
+                    path.name),
                 regeneration_method=f"semantic-measurement layer: {layer}",
                 source_available=source_available, compatible=compatible)
             artifact_id = cache_artifact_id_from_environment(path, kind)

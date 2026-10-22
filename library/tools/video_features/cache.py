@@ -26,18 +26,40 @@ class CacheMiss(Exception):
 
 def cache_key(*, source_path: str, byte_size: int, mtime_ns: int,
               start: float, end: float, model_id: str,
-              precision: str) -> str:
-    """Stable key for one interval's derived representation."""
-    canonical = json.dumps({
-        "adapter": ADAPTER_VERSION,
-        "source_path": source_path,
-        "byte_size": byte_size,
-        "mtime_ns": mtime_ns,
-        "start": round(float(start), 3),
-        "end": round(float(end), 3),
-        "model_id": model_id,
-        "precision": precision,
-    }, sort_keys=True)
+              precision: str, source_digest: str | None = None) -> str:
+    """Stable key for one interval's derived representation.
+
+    ``source_digest`` is the content identity of the media
+    (``footage_identity.fingerprint``): when it is given, the key is
+    built from it, and the same bytes file under one key whatever path
+    or working copy they were read from.  Without it the key falls back
+    to the historical path-plus-stat identity - a path that is reused
+    for different bytes under an unchanged mtime then serves one
+    file's tensors for another's, which is the corruption the digest
+    arm removes.  The construction (components and encoding) lives in
+    :mod:`library.tools.cache_keys`, the one module that builds keys.
+    """
+    from library.tools import cache_keys
+
+    if source_digest is not None:
+        # The content-addressed key: what was measured, not where the
+        # file happened to sit.  An observation of the source, keyed by
+        # the canonical four components.
+        return cache_keys.observation_key(
+            source_identity=str(source_digest), model=str(model_id),
+            configuration={"adapter": ADAPTER_VERSION,
+                           "interval": {"start": round(float(start), 3),
+                                        "end": round(float(end), 3)},
+                           "precision": precision},
+            analysis_version=ADAPTER_VERSION).signature()
+    # The historical path-plus-stat identity, byte-identical: entries
+    # already filed under it stay reachable.
+    payload = {"adapter": ADAPTER_VERSION, "source_path": source_path,
+               "byte_size": byte_size, "mtime_ns": mtime_ns,
+               "start": round(float(start), 3),
+               "end": round(float(end), 3), "model_id": model_id,
+               "precision": precision}
+    canonical = json.dumps(payload, sort_keys=True)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 

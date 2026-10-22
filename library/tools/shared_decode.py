@@ -57,7 +57,6 @@ lanes, the measurements and the before/after.
 from __future__ import annotations
 
 import atexit
-import hashlib
 import json
 import os
 import shutil
@@ -78,6 +77,16 @@ ENV_DISABLE = "REN_SHARED_DECODE"
 SCHEMA = "ren_shared_decode/1"
 FFMPEG_TIMEOUT_S = 3600
 TEMP_PREFIX = "ren-shared-decode-"
+
+DECODE_PRODUCER_VERSION = "ren-shared-decode-producer/1"
+"""The decode semantics' own version: bump when :func:`_command` changes.
+
+``SCHEMA`` versions the manifest SHAPE; this versions what the bytes
+MEAN - the ffmpeg command that produced them.  It is part of the cache
+key, so a command change misses rather than serving another command's
+frames.  Built under :mod:`library.tools.cache_keys`, the one module
+that constructs cache keys.
+"""
 
 _TEMP_DIRS: list[str] = []
 
@@ -187,9 +196,37 @@ def cache_root(root: os.PathLike | str | None = None) -> Path:
     return Path(source_memory.memory_root()) / CACHE_DIRNAME
 
 
+def recipe_configuration(recipe: Recipe) -> dict:
+    """What a recipe asks for, in the canonical component vocabulary.
+
+    The sampling recipe (rate and interval), the preprocessing (frame
+    size and pixel format - everything between the stored bytes and the
+    measured pixels), and the producer semantics (whose command
+    decodes it, and which version of that command).  Two recipes that
+differ in any of them have not decoded the same frames.
+    """
+    from library.tools import cache_keys
+
+    payload: dict = {}
+    payload.update(cache_keys.sampling_component(
+        rate_hz=float(recipe.rate_hz), start_s=recipe.start_s,
+        end_s=recipe.end_s))
+    payload.update(cache_keys.preprocessing_component(
+        width=int(recipe.width), height=int(recipe.height),
+        pixel_format=recipe.pixel_format, decoder="ffmpeg"))
+    payload.update(cache_keys.producer_component(
+        producer_id="shared-decode",
+        producer_version=DECODE_PRODUCER_VERSION))
+    return payload
+
+
 def _key(content_digest: str, recipe: Recipe) -> str:
-    return hashlib.sha256(
-        f"{content_digest}|{recipe.signature}".encode()).hexdigest()
+    from library.tools import cache_keys
+
+    return cache_keys.observation_key(
+        source_identity=content_digest, model="ffmpeg-decode",
+        configuration=recipe_configuration(recipe),
+        analysis_version=DECODE_PRODUCER_VERSION).signature()
 
 
 def purge(source_path: str, recipe: Recipe, *,
@@ -274,10 +311,12 @@ def _register(frames_path: Path, content_digest: str, recipe: Recipe,
               frame_count: int, outcome: str = "miss") -> None:
     """Tell the cache lifecycle about the entry, so it can be evicted."""
     try:
-        from library.tools import cache_lifecycle
+        from library.tools import cache_keys, cache_lifecycle
         cache_lifecycle.register_cache_artifact_from_environment(
             str(frames_path), kind="decoded_frame",
-            producer_key=f"shared-decode:{content_digest}:{recipe.signature}",
+            producer_key=cache_keys.producer_key(
+                "shared-decode", content_digest, "ffmpeg-decode",
+                DECODE_PRODUCER_VERSION, recipe.signature),
             regeneration_method="shared_decode: ffmpeg sampled frames",
             source_available=True, compatible=True)
         cache_lifecycle.record_cache_metric(
@@ -318,16 +357,15 @@ def sampled_frames(source_path: str, recipe: Recipe, *,
     entry = _entry_dir(base, content_digest, recipe)
     frames_path = entry / "frames.raw"
     manifest_path = entry / "frames.json"
-    existing = _read_manifest(manifest_path, frames_path, recipe)
-    if existing is not None:
-        return _hit(existing, frames_path, recipe, content_digest, started,
-                    source_path)
+    existing = _read_manifest(manifest_path, frames_path, recipe,
+                              content_digest)
 
     entry.mkdir(parents=True, exist_ok=True)
     lock_path = entry / "decode.lock"
     with _exclusive(lock_path):
         # Another writer may have filled the entry while we waited.
-        existing = _read_manifest(manifest_path, frames_path, recipe)
+        existing = _read_manifest(manifest_path, frames_path, recipe,
+                                  content_digest)
         if existing is not None:
             return _hit(existing, frames_path, recipe, content_digest, started,
                         source_path)
@@ -342,6 +380,8 @@ def sampled_frames(source_path: str, recipe: Recipe, *,
         manifest = {
             "schema": SCHEMA,
             "content_digest": content_digest,
+            "key": _key(content_digest, recipe),
+            "producer_version": DECODE_PRODUCER_VERSION,
             "signature": recipe.signature,
             "recipe": {"rate_hz": float(recipe.rate_hz),
                        "width": int(recipe.width),
@@ -388,7 +428,7 @@ def _independent_frames(source_path: str, recipe: Recipe,
 
 
 def _read_manifest(manifest_path: Path, frames_path: Path,
-                   recipe: Recipe) -> dict | None:
+                   recipe: Recipe, content_digest: str) -> dict | None:
     """The entry's manifest, when it is still the entry we asked for."""
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -397,6 +437,17 @@ def _read_manifest(manifest_path: Path, frames_path: Path,
     if manifest.get("schema") != SCHEMA:
         return None
     if manifest.get("signature") != recipe.signature:
+        return None
+    if manifest.get("producer_version", DECODE_PRODUCER_VERSION) != \
+            DECODE_PRODUCER_VERSION:
+        # Another command's frames: re-decode rather than serve them.
+        return None
+    if manifest.get("content_digest") != content_digest:
+        # Filed under another source's identity: never serve it as this
+        # source's frames, whatever the directory key said.
+        return None
+    if manifest.get("key", _key(content_digest, recipe)) != \
+            _key(content_digest, recipe):
         return None
     try:
         size = frames_path.stat().st_size

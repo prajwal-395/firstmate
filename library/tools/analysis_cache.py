@@ -37,12 +37,12 @@ says whether a measurement that was already made may be used again.
 
 from __future__ import annotations
 
-import hashlib
-import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from library.tools import cache_keys as _canonical
 
 CACHE_FORMAT = "analysis-cache/1"
 """The store's own format, so a reader can refuse a file it does not know."""
@@ -50,8 +50,7 @@ CACHE_FORMAT = "analysis-cache/1"
 CACHE_FILENAME = "analysis_cache.json"
 """The slot the store writes into, beside the source's other measurements."""
 
-KEY_COMPONENTS = ("source_identity", "model", "configuration",
-                  "analysis_version")
+KEY_COMPONENTS = _canonical.KEY_COMPONENTS
 """The four things a cached result is reusable under, in the punch list's order."""
 
 
@@ -62,14 +61,16 @@ def configuration_digest(parts: dict[str, Any]) -> str:
     is not the model or the source: the sample rate, the score threshold,
     the phrases asked about, the window size.  Two requests that differ in
     any of them ask different questions, and the digest is what says so.
+
+    Constructed by :mod:`library.tools.cache_keys`, the one module that
+    builds cache keys; this stays byte-identical so filed measurements
+    do not move.
     """
-    canonical = json.dumps(parts, sort_keys=True, default=str,
-                           ensure_ascii=False)
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return _canonical.configuration_digest(parts)
 
 
 @dataclass(frozen=True)
-class AnalysisKey:
+class AnalysisKey(_canonical.CacheKey):
     """The four things a cached measurement is reusable under.
 
     ``source_identity`` is the content digest of the media (the source's
@@ -77,18 +78,11 @@ class AnalysisKey:
     ``configuration`` is the digest of how it was asked.  ``analysis_version``
     is the version of the analysis itself - the producer's own version
     string, which changes when the method changes.
+
+    A subclass of :class:`library.tools.cache_keys.CacheKey`: the
+    construction lives there, so every cache keys the same four things
+    the same way.  The signatures are byte-identical.
     """
-
-    source_identity: str
-    model: str
-    configuration: str
-    analysis_version: str
-
-    def signature(self) -> str:
-        """The key's own digest: the name the entry is filed under."""
-        joined = (f"{self.source_identity}|{self.model}|"
-                  f"{self.configuration}|{self.analysis_version}")
-        return hashlib.sha256(joined.encode("utf-8")).hexdigest()
 
     def to_dict(self) -> dict[str, str]:
         return {name: getattr(self, name) for name in KEY_COMPONENTS}
@@ -101,15 +95,10 @@ class AnalysisKey:
         file that cannot be trusted to say what it measured, and treating
         it as one would serve it as current.
         """
-        if not isinstance(document, dict):
+        parsed = _canonical.CacheKey.from_dict(document)
+        if parsed is None:
             return None
-        values = {}
-        for name in KEY_COMPONENTS:
-            value = document.get(name)
-            if not isinstance(value, str) or not value.strip():
-                return None
-            values[name] = value
-        return cls(**values)
+        return cls(**parsed.to_dict())
 
 
 def differing_components(cached: Any, wanted: AnalysisKey) -> list[str]:
@@ -119,12 +108,7 @@ def differing_components(cached: Any, wanted: AnalysisKey) -> list[str]:
     non-empty one names what moved, so a reader is told WHY the entry was
     not used instead of only that it was not.
     """
-    key = AnalysisKey.from_dict(cached) if not isinstance(cached, AnalysisKey) \
-        else cached
-    if key is None:
-        return list(KEY_COMPONENTS)
-    return [name for name in KEY_COMPONENTS
-            if getattr(key, name) != getattr(wanted, name)]
+    return _canonical.differing_components(cached, wanted)
 
 
 # ── the store ─────────────────────────────────────────────────────────────

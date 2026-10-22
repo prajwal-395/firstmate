@@ -361,6 +361,18 @@ WINDOW_CLIP_HEIGHT = 720
 
 # Object detection — coarse sweep
 COARSE_FRAME_INTERVAL_S = 5       # 1 frame every 5 seconds
+
+FRAME_PRODUCER_VERSION = "vision-frames/1"
+"""The coarse-frame extraction's own version: bump when the ffmpeg
+command that writes a frame changes.  It is part of the frame cache
+key, so a command change re-extracts rather than serving another
+command's pixels."""
+
+FRAME_EXTRACTION = {"decoder": "ffmpeg", "jpeg_quality": "q:v 2",
+                    "seek": "input", "scale": "source"}
+"""The preprocessing every coarse frame shares: input seek, one JPEG
+at quality 2, source resolution.  Filed in the key so a lane that
+preprocesses differently never reads these frames as its own."""
 COARSE_BATCH_SIZE = 15            # Max frames per model call
 # Local Gemma still passes share the already-loaded in-process model
 # (still_executor="local"), so a 15-image batch OOMs Metal unified
@@ -1205,6 +1217,37 @@ def _source_cache_dir(cache_dir, clip_path):
         return Path(cache_dir).resolve() / clip_path.stem
     return Path(cache_dir).resolve() / digest / clip_path.stem
 
+def frame_cache_subdir(*, policy_version=None, sample_times=None,
+                       interval_s=None) -> str:
+    """The frame directory one extraction plan files under.
+
+    Built by :mod:`library.tools.cache_keys`, the one module that
+    constructs cache keys, from what the frames ARE: the sampling
+    (the policy and its explicit times, or the fixed interval), the
+    preprocessing (the shared ffmpeg extraction), and the producer
+    version.  The fixed-interval plan used to share one directory
+    whatever the interval was, so two intervals' frames overwrote
+    each other; now the interval is in the key.  The adaptive plan
+    used to key on policy and times only; now the extractor version
+    is in it too.
+    """
+    from library.tools import cache_keys
+
+    payload: dict = {"producer": FRAME_PRODUCER_VERSION,
+               "extraction": dict(FRAME_EXTRACTION)}
+    if sample_times is not None:
+        if not policy_version:
+            raise ValueError("policy_version is required with sample_times")
+        payload["sampling"] = {
+            "policy": policy_version,
+            "sample_times": [float(t) for t in sample_times]}
+        prefix = "adaptive"
+    else:
+        payload["sampling"] = {"interval_s": float(interval_s)}
+        prefix = "fixed"
+    return prefix + "_" + cache_keys.signature_of(payload)[:16]
+
+
 def extract_frames(clip_path, duration, cache_dir, interval_s=COARSE_FRAME_INTERVAL_S,
                    *, sample_times=None, policy_version=None, progress=None):
     """Extract fixed-interval or policy-selected frames.
@@ -1237,12 +1280,11 @@ def extract_frames(clip_path, duration, cache_dir, interval_s=COARSE_FRAME_INTER
                      if sample_times is not None else None)
     n_frames = (len(ordered_times) if ordered_times is not None else
                 max(1, int(math.ceil(duration / interval_s))) + 1)
-    cache_subdir = ("adaptive_" + hashlib.sha256(
-        (policy_version + ":" + ",".join(f"{t:.6f}" for t in ordered_times))
-        .encode("utf-8")).hexdigest()[:16] if ordered_times is not None else None)
+    cache_subdir = frame_cache_subdir(
+        policy_version=policy_version, sample_times=ordered_times,
+        interval_s=interval_s)
     frame_dir = _source_cache_dir(cache_dir, clip_path) / "frames"
-    if cache_subdir:
-        frame_dir /= cache_subdir
+    frame_dir /= cache_subdir
     pending = sum(
         not _usable_frame(frame_dir / f"frame_{i:04d}.jpg")
         for i in range(n_frames))
@@ -1297,9 +1339,13 @@ def _record_decoded_frame_cache(frames, regenerated_paths, elapsed,
     for row in frames:
         path = Path(row["path"])
         outcome = "regenerated" if str(path.resolve()) in regenerated else "hit"
+        from library.tools import cache_keys
+
         register_cache_artifact_from_environment(
             path, kind="decoded_frame",
-            producer_key=f"semantic-frame:{source_digest}:{path.name}",
+            producer_key=cache_keys.producer_key(
+                "semantic-frame", source_digest, "ffmpeg-extract",
+                FRAME_PRODUCER_VERSION, path.name),
             regeneration_method="vision_pipeline_v3: ffmpeg frame extraction",
             source_available=source_available, compatible=True)
         record_cache_metric(
