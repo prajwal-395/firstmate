@@ -11251,3 +11251,49 @@ cannot qualify a route under the current schema. The importer preserves this
 archive when it replaces an active row. `tests/contracts/test_axi_qualification_registry.py`
 checks the committed JSON for duplicate keys and checks that all three older
 records remain archived.
+
+## the-arrivals-that-were-one-span
+
+**The rule.** A coarse candidate that measures "the object is NEAR" with ONE
+fixed distance collapses the REPEATED arrivals of a speaker who holds the
+object near their face into ONE span, and a chain that asks for "the second
+time" then has nothing to name. The coarse stage measures the arrivals
+PER TAKE - the hand REACHED the lips, and was RELEASED before the next time -
+with the RELEASE level measured on the take itself, and each contact onset is
+ONE occurrence. `library/tools/contact_onsets.py`;
+`library/tools/event_spans.py` (the `hand_contact_onset` candidate).
+
+**What happened.** The Milestone 0 chain asks for "the second time the
+speaker brings the car keys to his lips" on the whole 85.82 s take of Apple
+001 `IMG_1822`. The M0 whole-clip lane (2026-10-21) found the keys, and the
+frame-exact refinement named the adjudicated arrival of the second arrival
+exactly (0 frames) - but the COARSE stage could not isolate it: `hand_near_mouth`
+asks whether the hand is within 1.5 face widths of the lips, which is true on
+74 of the 89 coarse frames of a take whose speaker holds the keys near his
+face throughout, so all six by-eye arrivals collapsed into ONE 64.78 s span.
+The chain's answer to "the second time" was a 68.167-70.101 s moment in which
+NO arrival is measurable at all, and the second adjudicated arrival sat
+inside the merged span with no occurrence carrying it.
+
+**Why it was a measurement defect and not a product decision.** The report
+called re-measuring the threshold a product decision. The threshold was never
+the question: the question is whether the arrivals are SEPARATE, and they are
+- the speaker releases the keys between them. What the fixed distance could
+not say was where the RELEASE happened, and that is a property of the take.
+
+**What changed.** The coarse stage measures contact ONSETS: the hand reaches
+the lips (the DECLARED contact distance, the same number the refinement's
+arrival rule uses - one reading, in `contact_onsets`) and is released only
+when it passes the take's OWN measured release level (the take's best two-way
+split of its measured distances). The M0 fixture now carries **12 separate
+occurrences** where it carried one merged span; six of them carry an
+adjudicated arrival, and the second adjudicated arrival is occurrence #5 with
+a refined arrival frame of **0 frames** error. The new class is ADDITIVE:
+`hand_near_mouth` keeps its meaning, because it is also a query surface.
+
+**What it does not settle.** The engine measures the HAND and the ground
+truth measures the KEYS the hand holds, so the class's ordinal is not the
+truth's ordinal (the engine finds 12 hand-at-lips contacts; the adjudicated
+six lists 6 keys arrivals, and at least two of the twelve are keys-at-lips
+moments the adjudication omitted - the captain's re-adjudication is owed).
+`docs/benchmarks/2026-10-21-m0-contact-occurrences.md`.

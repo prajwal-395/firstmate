@@ -60,7 +60,7 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
-from library.tools import source_clocks
+from library.tools import contact_onsets, source_clocks
 
 SAMPLE_WIDTH = 384
 """The width a dense sample is decoded at - M2's own thumbnail width.
@@ -543,7 +543,7 @@ that waits for the peak lands seconds after the moment the gesture
 arrived.  The M0 scenario wants the arrival.
 """
 
-CONTACT_DISTANCE_FACE_WIDTHS = 0.25
+CONTACT_DISTANCE_FACE_WIDTHS = contact_onsets.CONTACT_DISTANCE_FACE_WIDTHS
 """The hand-to-lips distance at which the hand is AT the lips.
 
 The coarse lane's own candidate rule fires at
@@ -561,6 +561,11 @@ measure 0.02-0.05 face widths and the frames of the approach measure
 speaker and is not calibrated on the D-01 corpus; it is DECLARED here
 so the number that decides a boundary is visible rather than implicit,
 and ``--contact-distance`` moves it.
+
+The number lives in :mod:`library.tools.contact_onsets`, which is the
+ONE reading of it: the coarse candidate lane's contact level and this
+refinement's arrival rule decide the same moment, so they read the same
+number.
 """
 
 

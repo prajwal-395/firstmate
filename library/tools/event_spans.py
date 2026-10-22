@@ -61,6 +61,18 @@ object_pickup 81 and nod 33 per 1.51 h, against hand_near_mouth's 257.
 Those counts predate merging (same-track spans within `MERGE_MAX_GAP_S`
 now merge) and boundary tightening; the thresholds are unchanged.
 
+**`hand_contact_onset` splits what `hand_near_mouth` merges.**
+`hand_near_mouth` asks whether the hand is NEAR the mouth, with ONE
+fixed distance, and on a take whose speaker holds an object near his
+face the answer is true almost everywhere: the six arrivals of the
+M0 fixture's car keys collapsed into ONE 64.78 s span and the chain
+could not name the second one
+(`docs/benchmarks/2026-10-21-m0-e2e-whole-clip.md`). `hand_contact_onset`
+asks the tighter question - the hand REACHED the lips, and was RELEASED
+before the next time - with the release level MEASURED ON THE TAKE, so
+each arrival is a separate occurrence. One enumeration of the two
+levels: `library/tools/contact_onsets.py`.
+
 **Tiering: cheap filters before any VLM call.** Every candidate span
 carries `tier` (0 = strong evidence, 1 = marginal) and `score`
 (higher = stronger), computed from the same measured geometry that
@@ -110,6 +122,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from library.tools import (
+    contact_onsets,
     conversation_clock,
     face_tracks,
     person_entity,
@@ -149,6 +162,14 @@ silent empty answer would read as "this never happens in the footage"."""
 CANDIDATE_PREDICATES = {
     "hand_near_mouth": "M3 hand joint within HAND_CANDIDATE_MAX_DISTANCE "
                        "face widths of the lips (a candidate, not an answer)",
+    "hand_contact_onset": "one span per measured CONTACT ONSET of the M3 "
+                           "hand joint at the lips: the hand reaches "
+                           "contact (within contact_onsets."
+                           "CONTACT_DISTANCE_FACE_WIDTHS face widths) and is "
+                           "released only when it passes the take's own "
+                           "measured release level, so the repeated "
+                           "arrivals of one take are SEPARATE occurrences "
+                           "(a candidate, not an answer)",
     "hand_raise": "M3 hand joint risen HAND_RAISE_MIN_RISE face heights "
                   "within HAND_RAISE_WINDOW frames, ending above the face's "
                   "centre (a candidate, not an answer)",
@@ -977,6 +998,84 @@ def hand_at_mouth_candidates(m3: dict, assignment: List[List[Optional[str]]]
     return finalize_candidates(spans)
 
 
+def hand_contact_onset_candidates(m3: dict,
+                                  assignment: List[List[Optional[str]]]
+                                  ) -> List[dict]:
+    """Per face track, ONE candidate span per measured CONTACT ONSET.
+
+    The `hand_near_mouth` candidate above asks whether the hand is NEAR
+    the mouth, with ONE fixed distance, and on a take whose speaker
+    holds an object near his face that answer is true almost
+    everywhere - so every arrival of the object collapses into ONE
+    span and a chain that asks for "the second time" has nothing to
+    name (`docs/benchmarks/2026-10-21-m0-e2e-whole-clip.md`).
+
+    This candidate asks the tighter question, per take: the hand
+    REACHED the lips (within
+    `contact_onsets.CONTACT_DISTANCE_FACE_WIDTHS` face widths) and was
+    RELEASED (it passed the take's own measured release level) before
+    the next one. Each onset is one span, so the repeated arrivals are
+    separate occurrences the occurrence identity can number.
+
+    Every span carries the two levels it was measured at, so a reader
+    can see WHICH measurement split the take, and the coarse frame the
+    arrival was SEEN at (`onset_index`), which is not the frame it
+    happened on - `library.tools.frame_exact` is what names that one.
+    """
+    width, height = (m3.get("instrument") or {})["frame_pixels"]
+    times = [f["t"] for f in m3["frames"]]
+    series: Dict[str, List[Tuple[int, float, float]]] = {}
+    boxes: Dict[Tuple[str, int], list] = {}
+    for i, (frame, row) in enumerate(zip(m3["frames"], assignment)):
+        for face, track_id in zip(frame["faces"], row):
+            if track_id is None:
+                continue
+            d = hand_mouth_distance(face, frame["hands"], width, height)
+            if d is None:
+                continue
+            series.setdefault(track_id, []).append((i, times[i], d))
+            boxes[(track_id, i)] = face["box"]
+    occurrences = contact_onsets.occurrences_by_track(series)
+    spans: List[dict] = []
+    for track_id, found in occurrences.items():
+        for occurrence in found:
+            contact_frames = occurrence["contact_frames"]
+            frames = [{"index": f["index"], "t": f["t"], "d": f["distance"],
+                       "box": boxes.get((track_id, f["index"]))}
+                      for f in contact_frames]
+            first = contact_frames[0]["index"]
+            last = contact_frames[-1]["index"]
+            start, end = span_bounds(times, first, last)
+            closest = occurrence["closest_distance"]
+            firm = closest <= contact_onsets.CONTACT_DISTANCE_FACE_WIDTHS / 2.0
+            spans.append({
+                "face_track": track_id,
+                "start": start,
+                "end": end,
+                "frames": frames,
+                "tier": TIER_STRONG if firm else TIER_MARGINAL,
+                "score": round(-closest, 3),
+                "tier_reason": (
+                    f"contact onset: closest approach {closest:.2f} face "
+                    f"widths, release level {occurrence['release_distance']:.2f} "
+                    f"measured on this take"),
+                "onset_index": occurrence["onset_index"],
+                "onset_seconds": round(occurrence["onset_seconds"], 3),
+                "closest_index": occurrence["closest_index"],
+                "closest_seconds": round(occurrence["closest_seconds"], 3),
+                "closest_distance": closest,
+                "contact_distance": occurrence["contact_distance"],
+                "release_distance": round(occurrence["release_distance"], 3),
+            })
+    # The occurrences are NOT merged: two onsets are two onsets because
+    # the hand was RELEASED between them, and a merge that closed a
+    # measured release would rebuild the one span this candidate
+    # exists to split.
+    spans.sort(key=lambda s: (s.get("tier", TIER_STRONG),
+                               -(s.get("score", 0.0) or 0.0), s["start"]))
+    return spans
+
+
 def hand_raise_candidates(m3: dict, assignment: List[List[Optional[str]]]
                           ) -> List[dict]:
     """Per face track, runs of frames where a hand rose
@@ -1215,6 +1314,10 @@ def build_source_events(content_digest: str, source_file: str,
             "hand_raise": {
                 "basis": CANDIDATE_PREDICATES["hand_raise"],
                 "spans": hand_raise_candidates(m3, assignment),
+            },
+            "hand_contact_onset": {
+                "basis": CANDIDATE_PREDICATES["hand_contact_onset"],
+                "spans": hand_contact_onset_candidates(m3, assignment),
             },
             "nod": {
                 "basis": CANDIDATE_PREDICATES["nod"],
