@@ -106,6 +106,7 @@ from __future__ import annotations
 import json
 import math
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 
 from library.tools.resource_leases import (
@@ -555,6 +556,26 @@ def _validate_params(label: str, row: dict, anchor: dict) -> None:
         validate_program(params, label)
 
 
+def _named_by_address(param: str, op_params) -> bool:
+    """Whether a parameter naming items is written as ADDRESSES.
+
+    An operation that names more than one item writes the addresses of
+    those items under the key the plan declares for them (INFRA-004).
+    """
+    from library.tools import intent_neutrality
+
+    key = intent_neutrality.ADDRESSED_MULTI_TARGET_PARAMS.get(param)
+    if not key:
+        return False
+    entry = op_params.get(key)
+    if entry is None:
+        return False
+    entries = ([entry] if isinstance(entry, dict) else list(entry))
+    return bool(entries) and all(
+        isinstance(one, dict) and intent_neutrality.address_in(one)
+        for one in entries)
+
+
 def validate_program(params, label: str = "edit_program") -> None:
     """A program's params: one base generation, one idempotency key, ops.
 
@@ -584,6 +605,8 @@ def validate_program(params, label: str = "edit_program") -> None:
         raise EditLedgerError(
             f"{label} carries no ops - a program is an ordered list of "
             f"algebra ops, never an empty one.")
+    from library.tools import intent_neutrality
+
     for index, op in enumerate(ops):
         op_label = f"{label}.ops[{index}]"
         if not isinstance(op, dict):
@@ -599,6 +622,13 @@ def validate_program(params, label: str = "edit_program") -> None:
             raise EditLedgerError(
                 f"{op_label} ({op_id}) carries no params object")
         missing = [key for key in algebra_op.required if key not in op_params]
+        missing = [key for key in missing
+                   if not (key == "unique_id"
+                           and intent_neutrality.address_in(op_params)
+                           and op_id not in intent_neutrality
+                           .MINTED_IDENTITY_OPS)]
+        missing = [key for key in missing
+                   if not _named_by_address(key, op_params)]
         if missing:
             raise EditLedgerError(
                 f"{op_label} ({op_id}) is missing required params: "
@@ -1360,6 +1390,35 @@ def match_grade_rows(spans: list, transcript: dict, rows: list,
     return matched, stale
 
 
+def _live_address_id(timeline, op_params: Mapping) -> str:
+    """The live instance id an ADDRESS names, or "" when it names none.
+
+    The address is the material the op acts on - the file and the
+    source range - and the live timeline says which instance of it
+    plays that material now.  An address the live timeline does not
+    carry resolves to nothing, and the row is reported unreplayable by
+    name, the way a row that cannot be replayed always was.
+    """
+    source_file = str(op_params.get("source_file") or "")
+    source_in = op_params.get("source_in_frame")
+    source_out = op_params.get("source_out_frame")
+    if not source_file or source_in is None or source_out is None:
+        return ""
+    from library.tools import timeline_addressing
+
+    selector = {
+        "source_file": source_file,
+        "source_in_frame": int(source_in),
+        "source_out_frame": int(source_out),
+        "track_type": str(op_params.get("track_type") or "video"),
+    }
+    try:
+        address = timeline_addressing.resolve_item(timeline, selector)
+    except Exception:  # noqa: BLE001 - an address the live timeline lacks
+        return ""
+    return str(address.resolve_item_id or "")
+
+
 def _replay_program(row: dict, timeline, applied: list,
                     unreplayable: list,
                     project=None) -> tuple[list, list]:
@@ -1399,6 +1458,13 @@ def _replay_program(row: dict, timeline, applied: list,
             continue
         item = None
         unique_id = op_params.get("unique_id")
+        if algebra_op.item and not unique_id:
+            # A program written as an ADDRESS (INFRA-004) names the
+            # material it acts on, not the instance the old generation
+            # held.  The live timeline says which instance plays it now.
+            unique_id = _live_address_id(timeline, op_params)
+            if unique_id:
+                op_params = {**op_params, "unique_id": unique_id}
         if algebra_op.item and unique_id:
             item = edit_algebra._live_item(timeline, unique_id)
             if item is None:

@@ -64,6 +64,23 @@ RESOLVE_SPECIFIC_FIELDS: tuple[str, ...] = (
 #: The schema the neutral intent is published under.
 NEUTRAL_INTENT_SCHEMA = "ren-neutral-intent/1"
 
+#: The operations whose `unique_id` is the identity the NEW item will
+#: carry, not the address of an item that already exists.  No address
+#: can replace those: the engine mints them, and the plan says so.
+MINTED_IDENTITY_OPS: tuple[str, ...] = (
+    "clip.insert", "broll.insert", "compound.create")
+
+#: The parameters that name MORE THAN ONE existing item, and the key a
+#: plan writes their ADDRESSES under instead.  An operation that names a
+#: second item (`clip.join`), links clips (`clip.link`) or builds a
+#: compound (`compound.create`) names those items the way it names the
+#: first one - by the material they play.
+ADDRESSED_MULTI_TARGET_PARAMS: dict[str, str] = {
+    "other_unique_id": "other",
+    "with_unique_ids": "with",
+    "child_unique_ids": "children",
+}
+
 
 def _is_identifier(value: Any) -> bool:
     """Whether a value is an identifier at all (a name is not an id)."""
@@ -265,6 +282,121 @@ def refs_from_snapshot(snapshot: Mapping[str, Any]) -> dict[str, ItemRef]:
             if unique_id:
                 refs[unique_id] = item_ref(clip)
     return refs
+
+
+def material_of(clip: Mapping[str, Any]) -> tuple[str, int, int] | None:
+    """The MATERIAL one recorded clip plays, or None when it says none.
+
+    Three fields, and they are the identity the addressing layer
+    compares across backends (`timeline_addressing.editorial_identity`):
+    the file, and the source range cut out of it.  Two placements of the
+    same cut are the same material; two cuts of the same file are not.
+    """
+    if not isinstance(clip, Mapping):
+        return None
+    source_file = str(clip.get("source_file") or "")
+    source_in = _as_int(clip.get("source_in_frame"))
+    source_out = _as_int(clip.get("source_out_frame"))
+    if not source_file or source_in is None or source_out is None:
+        return None
+    return (source_file, source_in, source_out)
+
+
+def address_in(container: Mapping[str, Any]) -> bool:
+    """Whether a record names the ADDRESS of the item it acts on.
+
+    The model-facing plan's own shape (INFRA-004): the material it
+    plays (the file and the source range) or, for an item that has no
+    material, the placement it occupies (the row and the frames) - and
+    never the instance the item sits on today.  One rule, read by every
+    place that has to accept a plan written this way.
+    """
+    if not isinstance(container, Mapping):
+        return False
+    material = bool(str(container.get("source_file") or "")
+                    and container.get("source_in_frame") is not None
+                    and container.get("source_out_frame") is not None)
+    return material or container.get("record_in") is not None
+
+
+def address_of(entry: Mapping[str, Any]) -> dict:
+    """The NEUTRAL ADDRESS one plan states: what it plays, and where.
+
+    Two forms, and a plan may state either or both:
+
+    * the MATERIAL - the file and the source range cut out of it.
+      This is the identity that survives a rebuild.
+    * the PLACEMENT - the row and the frames the item occupies on it.
+      An item with no material (a caption, an overlay the engine
+      drew) has no file to name, and the placement is what it has.
+
+    The row narrows the answer and never widens it.
+    """
+    if not isinstance(entry, Mapping):
+        return {"material": (), "track_type": "", "track_index": None,
+                "record_in": None, "record_out": None}
+    source_file = str(entry.get("source_file") or "")
+    source_in = _as_int(entry.get("source_in_frame"))
+    source_out = _as_int(entry.get("source_out_frame"))
+    material = ((source_file, source_in, source_out)
+                if source_file and source_in is not None
+                and source_out is not None else ())
+    return {
+        "material": material,
+        "track_type": str(entry.get("track_type") or ""),
+        "track_index": _as_int(entry.get("track_index")),
+        "record_in": _as_int(entry.get("record_in")),
+        "record_out": _as_int(entry.get("record_out")),
+    }
+
+
+def instances_for_address(snapshot: Mapping[str, Any],
+                          address: Mapping[str, Any]) -> tuple[str, ...]:
+    """The recorded instance ids ONE neutral address names.
+
+    This is the BINDING's other direction: the model-facing plan names
+    the material (or the placement), and the recorded timeline says
+    which instance of it the reel holds today.
+
+    An address that matches MORE THAN ONE recorded item is AMBIGUOUS,
+    and the caller refuses it: a plan that names a material twice
+    cannot say which of the two placements it means, and picking one
+    would be a guess about the editor's intent.
+    """
+    if not isinstance(snapshot, Mapping) or not isinstance(address, Mapping):
+        return ()
+    material = tuple(address.get("material") or ())
+    track_type = str(address.get("track_type") or "")
+    track_index = _as_int(address.get("track_index"))
+    record_in = _as_int(address.get("record_in"))
+    record_out = _as_int(address.get("record_out"))
+    if not material and track_index is None and record_in is None:
+        return ()
+    found: list[str] = []
+    for track in snapshot.get("tracks") or ():
+        row_type = str(track.get("type") or "")
+        row_number = _as_int(track.get("index"))
+        for clip in track.get("clips") or ():
+            if material and material_of(clip) != material:
+                continue
+            clip_type = str(clip.get("track_type") or "") or row_type
+            clip_index = _as_int(clip.get("track_index"))
+            if clip_index is None:
+                clip_index = row_number
+            if track_type and clip_type != track_type:
+                continue
+            if track_index is not None and clip_index != track_index:
+                continue
+            if record_in is not None and _as_int(
+                    clip.get("record_in")) != record_in:
+                continue
+            if record_out is not None and _as_int(
+                    clip.get("record_out")) != record_out:
+                continue
+            unique_id = str(clip.get("unique_id") or "")
+            if unique_id:
+                found.append(unique_id)
+    return tuple(found)
 
 
 # ── Capability mismatches: named, never swallowed ────────────────────

@@ -1638,7 +1638,35 @@ def test_the_frozen_timeline_carries_the_reel_s_audio_rows():
     ]}
     rows = edit_spec._timeline_rows(snapshot)
     assert [row["row"] for row in rows] == ["V1", "A1"]
-    assert rows[1]["items"][0]["unique_id"] == "a-1"
+    assert rows[1]["items"][0]["name"] == "LC4932.MXF"
+
+
+def test_the_model_facing_rows_name_the_material_and_never_the_instance():
+    """The defect: the model-facing plan handed the model the Resolve
+    item ids of the reel's items and the prompt asked it to write one
+    back.  A `unique_id` is an EXECUTION ADDRESS - it changes when the
+    reel is rebuilt and means nothing to another NLE - so a plan that
+    carries one is a plan for one instance of one application.
+
+    The rows now name the MATERIAL each item plays, and the binding
+    resolves that material to the instance the reel holds today."""
+    from library.tools import edit_spec
+
+    snapshot = {"tracks": [
+        {"type": "video", "index": 1, "name": "Akshita",
+         "clips": [{"unique_id": "v-1", "name": "LC4932.MXF",
+                    "source_file": "/footage/LC4932.MXF",
+                    "source_in_frame": 12, "source_out_frame": 60,
+                    "record_in": 0, "record_out": 48,
+                    "track_type": "video", "track_index": 1}]},
+    ]}
+    rows = edit_spec._timeline_rows(snapshot)
+    item = rows[0]["items"][0]
+    assert "unique_id" not in item
+    assert item["source_file"] == "/footage/LC4932.MXF"
+    assert item["source_in_frame"] == 12
+    assert item["source_out_frame"] == 60
+    assert item["track_index"] == 1
 
 
 def test_an_unobserved_reel_does_not_ask_a_question_nobody_can_answer():

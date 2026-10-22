@@ -2069,6 +2069,29 @@ def _shadow_store(tmp_path, monkeypatch):
     monkeypatch.setenv("REN_SHADOW_DB", str(tmp_path / "shadow.sqlite3"))
 
 
+def _assert_names_clip_017(params):
+    """The recorded program names the clip by the ADDRESS it occupies.
+
+    INFRA-004: the model-facing plan carries no instance id.  The
+    clip's own row and the frames it occupies are the address, and the
+    binding mints the instance again.
+    """
+    assert "unique_id" not in params
+    assert params["track_type"] == "video"
+    assert params["track_index"] == 1
+    assert params["record_in"] == 108000
+    assert params["record_out"] == 108300
+
+
+def _assert_names_clip_018(params):
+    """The second item of a join is named by its address too."""
+    assert "other_unique_id" not in params
+    assert params["track_type"] == "video"
+    assert params["track_index"] == 1
+    assert params["record_in"] == 108300
+    assert params["record_out"] == 108600
+
+
 def _program_clip(unique_id, name, record_in, record_out):
     return {"unique_id": unique_id, "name": name, "record_in": record_in,
             "record_out": record_out, "duration": record_out - record_in,
@@ -2384,7 +2407,7 @@ def test_a_split_instruction_routes_through_the_program_to_the_algebra(
     assert rows[0]["op"] == "edit_program"
     assert rows[0]["params"]["ops"][0]["op"] == "clip.split"
     assert rows[0]["params"]["ops"][0]["params"]["at_frame"] == 30
-    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+    _assert_names_clip_017(rows[0]["params"]["ops"][0]["params"])
 
 
 def test_a_trim_instruction_routes_through_the_program_to_the_algebra(
@@ -2419,7 +2442,7 @@ def test_a_trim_instruction_routes_through_the_program_to_the_algebra(
     assert rows[0]["params"]["ops"][0]["op"] == "clip.trim"
     assert rows[0]["params"]["ops"][0]["params"]["in_frame"] == 10
     assert rows[0]["params"]["ops"][0]["params"]["out_frame"] == 50
-    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+    _assert_names_clip_017(rows[0]["params"]["ops"][0]["params"])
 
 
 def test_a_delete_instruction_routes_through_the_program_to_the_algebra(
@@ -2451,7 +2474,7 @@ def test_a_delete_instruction_routes_through_the_program_to_the_algebra(
     assert len(rows) == 1
     assert rows[0]["op"] == "edit_program"
     assert rows[0]["params"]["ops"][0]["op"] == "clip.delete"
-    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+    _assert_names_clip_017(rows[0]["params"]["ops"][0]["params"])
 def test_an_insert_instruction_routes_through_the_program_to_the_algebra(
         tmp_path):
     """An insert instruction routes through the edit program to clip.insert.
@@ -2485,6 +2508,9 @@ def test_an_insert_instruction_routes_through_the_program_to_the_algebra(
     assert rows[0]["params"]["ops"][0]["op"] == "clip.insert"
     assert rows[0]["params"]["ops"][0]["params"]["record_in"] == 20
     assert rows[0]["params"]["ops"][0]["params"]["record_out"] == 50
+    # An INSERT names the identity the NEW item will carry, so no
+    # address can replace it: the plan states it and the engine mints
+    # it (INFRA-004).
     assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
 def test_a_join_instruction_routes_through_the_program_to_the_algebra(
         tmp_path):
@@ -2516,8 +2542,8 @@ def test_a_join_instruction_routes_through_the_program_to_the_algebra(
     assert len(rows) == 1
     assert rows[0]["op"] == "edit_program"
     assert rows[0]["params"]["ops"][0]["op"] == "clip.join"
-    assert rows[0]["params"]["ops"][0]["params"]["other_unique_id"] == "clip_018"
-    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+    _assert_names_clip_018(rows[0]["params"]["ops"][0]["params"]["other"])
+    _assert_names_clip_017(rows[0]["params"]["ops"][0]["params"])
 def test_a_ripple_instruction_routes_through_the_program_to_the_algebra(
         tmp_path):
     """A ripple instruction routes through the edit program to clip.ripple.
@@ -2548,7 +2574,7 @@ def test_a_ripple_instruction_routes_through_the_program_to_the_algebra(
     assert rows[0]["op"] == "edit_program"
     assert rows[0]["params"]["ops"][0]["op"] == "clip.ripple"
     assert rows[0]["params"]["ops"][0]["params"]["delta_frames"] == 10
-    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+    _assert_names_clip_017(rows[0]["params"]["ops"][0]["params"])
 def test_a_roll_instruction_routes_through_the_program_to_the_algebra(
         tmp_path):
     """A roll instruction routes through the edit program to clip.roll.
@@ -2579,7 +2605,7 @@ def test_a_roll_instruction_routes_through_the_program_to_the_algebra(
     assert rows[0]["op"] == "edit_program"
     assert rows[0]["params"]["ops"][0]["op"] == "clip.roll"
     assert rows[0]["params"]["ops"][0]["params"]["delta_frames"] == 5
-    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+    _assert_names_clip_017(rows[0]["params"]["ops"][0]["params"])
 def test_a_slip_instruction_routes_through_the_program_to_the_algebra(
         tmp_path):
     """A slip instruction routes through the edit program to clip.slip.
@@ -2610,7 +2636,7 @@ def test_a_slip_instruction_routes_through_the_program_to_the_algebra(
     assert rows[0]["op"] == "edit_program"
     assert rows[0]["params"]["ops"][0]["op"] == "clip.slip"
     assert rows[0]["params"]["ops"][0]["params"]["delta_frames"] == 5
-    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+    _assert_names_clip_017(rows[0]["params"]["ops"][0]["params"])
 def test_a_slide_instruction_routes_through_the_program_to_the_algebra(
         tmp_path):
     """A slide instruction routes through the edit program to clip.slide.
@@ -2641,7 +2667,7 @@ def test_a_slide_instruction_routes_through_the_program_to_the_algebra(
     assert rows[0]["op"] == "edit_program"
     assert rows[0]["params"]["ops"][0]["op"] == "clip.slide"
     assert rows[0]["params"]["ops"][0]["params"]["to_frame"] == 30
-    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+    _assert_names_clip_017(rows[0]["params"]["ops"][0]["params"])
 def test_a_move_instruction_routes_through_the_program_to_the_algebra(
         tmp_path):
     """A move instruction routes through the edit program to clip.move.
@@ -2672,7 +2698,7 @@ def test_a_move_instruction_routes_through_the_program_to_the_algebra(
     assert rows[0]["op"] == "edit_program"
     assert rows[0]["params"]["ops"][0]["op"] == "clip.move"
     assert rows[0]["params"]["ops"][0]["params"]["to_frame"] == 30
-    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+    _assert_names_clip_017(rows[0]["params"]["ops"][0]["params"])
 def test_a_replace_instruction_routes_through_the_program_to_the_algebra(
         tmp_path):
     """A replace instruction routes through the edit program to clip.replace.
@@ -2704,7 +2730,7 @@ def test_a_replace_instruction_routes_through_the_program_to_the_algebra(
     assert rows[0]["op"] == "edit_program"
     assert rows[0]["params"]["ops"][0]["op"] == "clip.replace"
     assert rows[0]["params"]["ops"][0]["params"]["source_file"] == "take_02.mov"
-    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+    _assert_names_clip_017(rows[0]["params"]["ops"][0]["params"])
 def test_an_enable_disable_instruction_routes_through_the_program_to_the_algebra(
         tmp_path):
     """An enable/disable instruction routes through the edit program to
@@ -2736,7 +2762,7 @@ def test_an_enable_disable_instruction_routes_through_the_program_to_the_algebra
     assert rows[0]["op"] == "edit_program"
     assert rows[0]["params"]["ops"][0]["op"] == "clip.set_enabled"
     assert rows[0]["params"]["ops"][0]["params"]["enabled"] is False
-    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+    _assert_names_clip_017(rows[0]["params"]["ops"][0]["params"])
 def test_an_unlink_instruction_routes_through_the_program_to_the_algebra(
         tmp_path):
     """An unlink instruction routes through the edit program to clip.unlink.
@@ -2766,7 +2792,7 @@ def test_an_unlink_instruction_routes_through_the_program_to_the_algebra(
     assert len(rows) == 1
     assert rows[0]["op"] == "edit_program"
     assert rows[0]["params"]["ops"][0]["op"] == "clip.unlink"
-    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+    _assert_names_clip_017(rows[0]["params"]["ops"][0]["params"])
 def test_a_track_add_instruction_routes_through_the_program_to_the_algebra(
         tmp_path):
     """A track-add instruction routes through the edit program to track.add.
@@ -2831,7 +2857,7 @@ def test_a_clip_properties_instruction_routes_through_the_program_to_the_algebra
     assert rows[0]["params"]["ops"][0]["op"] == "clip.set_property"
     assert rows[0]["params"]["ops"][0]["params"]["key"] == "Opacity"
     assert rows[0]["params"]["ops"][0]["params"]["value"] == 0.5
-    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+    _assert_names_clip_017(rows[0]["params"]["ops"][0]["params"])
 def test_a_retime_curves_instruction_routes_through_the_program_to_the_algebra(
         tmp_path):
     """A retime-curves instruction routes through the edit program to
@@ -2865,7 +2891,7 @@ def test_a_retime_curves_instruction_routes_through_the_program_to_the_algebra(
     assert rows[0]["op"] == "edit_program"
     assert rows[0]["params"]["ops"][0]["op"] == "retime.segments"
     assert rows[0]["params"]["ops"][0]["params"]["segments"][1]["percent"] == 50
-    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+    _assert_names_clip_017(rows[0]["params"]["ops"][0]["params"])
 def test_a_keyframes_instruction_routes_through_the_program_to_the_algebra(
         tmp_path):
     """A keyframes instruction routes through the edit program to
@@ -2900,7 +2926,7 @@ def test_a_keyframes_instruction_routes_through_the_program_to_the_algebra(
     assert rows[0]["params"]["ops"][0]["op"] == "picture.keyframe"
     assert rows[0]["params"]["ops"][0]["params"]["param"] == "ZoomX"
     assert rows[0]["params"]["ops"][0]["params"]["keyframes"][1]["value"] == 1.5
-    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+    _assert_names_clip_017(rows[0]["params"]["ops"][0]["params"])
 def test_a_transitions_instruction_routes_through_the_program_to_the_algebra(
         tmp_path):
     """A transitions instruction routes through the edit program to
@@ -2965,8 +2991,8 @@ def test_a_compositing_instruction_routes_through_the_program_to_the_algebra(
     assert len(rows) == 1
     assert rows[0]["op"] == "edit_program"
     assert rows[0]["params"]["ops"][0]["op"] == "compound.create"
-    assert rows[0]["params"]["ops"][0]["params"]["child_unique_ids"] == [
-        "clip_017", "clip_018"]
+    _assert_names_clip_017(rows[0]["params"]["ops"][0]["params"]["children"][0])
+    _assert_names_clip_018(rows[0]["params"]["ops"][0]["params"]["children"][1])
     assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "compound_01"
 def test_a_reframe_instruction_routes_through_the_program_to_the_algebra(
         tmp_path):
@@ -3002,7 +3028,7 @@ def test_a_reframe_instruction_routes_through_the_program_to_the_algebra(
     assert rows[0]["params"]["ops"][0]["op"] == "clip.smart_reframe"
     assert rows[0]["params"]["ops"][0]["params"]["keys"] == [
         "Pan", "Tilt", "ZoomX"]
-    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+    _assert_names_clip_017(rows[0]["params"]["ops"][0]["params"])
 def test_a_mask_track_instruction_routes_through_the_program_to_the_algebra(
         tmp_path):
     """A mask-track instruction routes through the edit program to
@@ -3037,7 +3063,7 @@ def test_a_mask_track_instruction_routes_through_the_program_to_the_algebra(
     assert rows[0]["params"]["ops"][0]["op"] == "mask.track"
     assert rows[0]["params"]["ops"][0]["params"]["track"] == {
         "keyframes": [{"frame": 0, "Center": {"X": 0.4, "Y": 0.5}}]}
-    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+    _assert_names_clip_017(rows[0]["params"]["ops"][0]["params"])
 def test_an_audio_fades_instruction_routes_through_the_program_to_the_algebra(
         tmp_path):
     """An audio-fades instruction routes through the edit program to
@@ -3071,7 +3097,7 @@ def test_an_audio_fades_instruction_routes_through_the_program_to_the_algebra(
     assert rows[0]["params"]["ops"][0]["op"] == "audio.fade"
     assert rows[0]["params"]["ops"][0]["params"]["fade_in"] == 0.5
     assert rows[0]["params"]["ops"][0]["params"]["fade_out"] == 0.5
-    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+    _assert_names_clip_017(rows[0]["params"]["ops"][0]["params"])
 def test_a_grade_nodes_instruction_routes_through_the_program_to_the_algebra(
         tmp_path):
     """A grade-nodes instruction routes through the edit program to
@@ -3108,7 +3134,7 @@ def test_a_grade_nodes_instruction_routes_through_the_program_to_the_algebra(
     assert rows[0]["op"] == "edit_program"
     assert rows[0]["params"]["ops"][0]["op"] == "grade.node_set"
     assert rows[0]["params"]["ops"][0]["params"]["node_index"] == 2
-    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+    _assert_names_clip_017(rows[0]["params"]["ops"][0]["params"])
 def test_a_caption_edits_instruction_routes_through_the_program_to_the_algebra(
         tmp_path):
     """A caption-edits instruction routes through the edit program to
@@ -3141,7 +3167,7 @@ def test_a_caption_edits_instruction_routes_through_the_program_to_the_algebra(
     assert rows[0]["op"] == "edit_program"
     assert rows[0]["params"]["ops"][0]["op"] == "caption_fix"
     assert rows[0]["params"]["ops"][0]["params"]["text"] == "the corrected caption"
-    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+    _assert_names_clip_017(rows[0]["params"]["ops"][0]["params"])
 def test_a_graphics_instruction_routes_through_the_program_to_the_algebra(
         tmp_path):
     """A graphics instruction routes through the edit program to overlay.add.
@@ -3237,7 +3263,7 @@ def test_a_multicam_angle_instruction_routes_through_the_program_to_the_algebra(
     assert rows[0]["op"] == "edit_program"
     assert rows[0]["params"]["ops"][0]["op"] == "multicam.angle"
     assert rows[0]["params"]["ops"][0]["params"]["angle_index"] == 2
-    assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "clip_017"
+    _assert_names_clip_017(rows[0]["params"]["ops"][0]["params"])
 def test_a_compound_nested_instruction_routes_through_the_program_to_the_algebra(
         tmp_path):
     """A compound/nested instruction routes through the edit program to
@@ -3269,6 +3295,8 @@ def test_a_compound_nested_instruction_routes_through_the_program_to_the_algebra
     assert len(rows) == 1
     assert rows[0]["op"] == "edit_program"
     assert rows[0]["params"]["ops"][0]["op"] == "compound.create"
-    assert rows[0]["params"]["ops"][0]["params"]["child_unique_ids"] == [
-        "clip_019", "clip_020"]
+    assert rows[0]["params"]["ops"][0]["params"]["children"][0]["record_in"] == (
+        108600)
+    assert rows[0]["params"]["ops"][0]["params"]["children"][1]["record_in"] == (
+        108750)
     assert rows[0]["params"]["ops"][0]["params"]["unique_id"] == "compound_02"

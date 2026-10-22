@@ -120,6 +120,13 @@ The report and the numbers are in
   instance is exactly the work the AXI-002 router lane owns.  This lane
   gives that lane the boundary to bind against: `ItemRef`, `bind`, and the
   mismatch vocabulary.
+
+  **Changed since:** the model-facing surface was changed by the lane
+  that took this work on - `docs/INFRA_004_MODEL_PLAN_NEUTRALITY.md` -
+  and the evidence is in
+  `docs/evidence/2026-10-22-infra004-model-plan-neutrality.md`.  The
+  rows now name the material, the prompt asks for the material, and the
+  binding resolves it to the instance the recorded reel holds today.
 * **The recorded requests were not rewritten.**  A request that carries a
   Resolve id still carries it, and still executes.  The neutral form is a
   VIEW across the boundary, and the request the router sees is the request

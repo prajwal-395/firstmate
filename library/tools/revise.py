@@ -416,6 +416,7 @@ def classify(spec: dict, frame=None, *, project: str = "",
 
     operations = marker_routing.edit_spec_operations(
         edit_spec.ledger_rows(spec))
+    operations = _bound_operations(operations, project, reel)
     program = any(op["ledger_op"] == "edit_program" for op in operations)
     owners = list(dict.fromkeys(op["owner"] for op in operations
                                 if op["owner"]))
@@ -452,6 +453,36 @@ def classify(spec: dict, frame=None, *, project: str = "",
     return {"verdict": verdict, "route": route, "operations": operations}
 
 
+def _bound_operations(operations: list[dict], project: str,
+                      reel: str) -> list[dict]:
+    """The operations with every ADDRESS resolved to its recorded item.
+
+    INFRA-004: the model-facing plan names the material an operation
+    acts on, and the ROUTER needs the instance.  The recorded reel says
+    which instance of that material it holds today; an address the
+    recorded reel does not carry is left alone, and the router refuses
+    it by name.
+    """
+    if not project or not reel:
+        return operations
+    try:
+        _head, snapshot = _recorded_reel(project, reel)
+    except Exception:  # noqa: BLE001 - an unread reel leaves the addresses
+        return operations
+    bound = []
+    for op in operations:
+        params = op.get("params")
+        if not isinstance(params, Mapping):
+            bound.append(op)
+            continue
+        unique_id = _target_id(params, snapshot)
+        if not unique_id:
+            bound.append(op)
+            continue
+        bound.append({**op, "params": {**params, "unique_id": unique_id}})
+    return bound
+
+
 def _program_ops(spec: dict) -> list[dict]:
     """The program's algebra ops as the patch path takes them: flat."""
     return [{"op": op["op"], **copy.deepcopy(op.get("params") or {})}
@@ -472,14 +503,28 @@ def _missing_targets(operations: Sequence[dict], snapshot: Mapping) -> list[str]
     """
     from library.tools import edit_algebra
 
+    from library.tools import intent_neutrality
+
     known = _items(snapshot)
     missing: list[str] = []
     for op in operations:
         target = str(op.get("unique_id") or "")
-        if not target:
-            continue
         algebra_op = edit_algebra.get(op.get("op"))
         if algebra_op is None or not algebra_op.item:
+            continue
+        if not target:
+            # An ADDRESSED target: the recorded reel must carry the
+            # address, and it must resolve to exactly one recorded item.
+            address = intent_neutrality.address_of(op)
+            if not address["material"] and address["record_in"] is None:
+                continue
+            if not _target_id(op, snapshot):
+                material = address["material"]
+                missing.append(
+                    (f"{material[0]} at frames {material[1]}-{material[2]}"
+                     if material else
+                     f"{address['track_type']}{address['track_index']} at "
+                     f"frame {address['record_in']}"))
             continue
         if target not in known:
             missing.append(target)
@@ -561,21 +606,26 @@ def _compile_revision_program(program: dict, *, project: str, reel: str,
     return request
 
 
-def scope_for(operations: list[dict]) -> dict:
+def scope_for(operations: list[dict], snapshot: Mapping | None = None) -> dict:
     """The declared dirty region: exactly the targets the ops name.
 
     `guarded_apply` refuses an op outside it before Resolve is written
     and restores anything else that moved after, so the scope is the
     region the change may touch and nothing more.
+
+    A target named by MATERIAL is resolved against the recorded reel
+    (INFRA-004): the scope names the item, whether the plan addressed
+    it by its instance or by the material it plays.
     """
     clips, frames, clip_markers = [], [], []
     for op in operations:
-        if op.get("unique_id"):
-            clips.append(str(op["unique_id"]))
+        target = _target_id(op, snapshot or {})
+        if target:
+            clips.append(target)
         if op["op"] in ("marker.add", "marker.delete"):
             frames.append(int(op["frame"]))
         elif op["op"] in ("clip_marker.add", "clip_marker.delete"):
-            clip_markers.append([str(op["unique_id"]), int(op["frame"])])
+            clip_markers.append([target, int(op["frame"])])
     return {"clips": list(dict.fromkeys(clips)),
             "marker_frames": list(dict.fromkeys(frames)),
             "clip_markers": clip_markers}
@@ -715,6 +765,27 @@ def _items(snapshot: dict) -> dict:
     return found
 
 
+def _target_id(op: Mapping, snapshot: Mapping) -> str:
+    """The recorded instance id an operation names, by id or by address.
+
+    An operation that names an instance id names it directly.  One that
+    names the MATERIAL it plays (or the PLACEMENT it occupies) is
+    resolved against the recorded reel, and an address that matches
+    more than one recorded item resolves to nothing: a plan that cannot
+    say which placement it means must not be answered with a guess.
+    """
+    unique_id = str(op.get("unique_id") or "")
+    if unique_id:
+        return unique_id
+    from library.tools import intent_neutrality
+
+    address = intent_neutrality.address_of(op)
+    if not address["material"] and address["record_in"] is None:
+        return ""
+    matches = intent_neutrality.instances_for_address(snapshot, address)
+    return matches[0] if len(matches) == 1 else ""
+
+
 def _clock(seconds: float) -> str:
     minutes, rest = divmod(max(0.0, seconds), 60)
     return f"{int(minutes)}:{rest:04.1f}"
@@ -734,10 +805,10 @@ def region_summary(reel: str, snapshot: dict, operations: list[dict]) -> dict:
     origin = int(snapshot.get("start_frame") or 0)
     changes, categories, rows, starts, ends = [], set(), [], [], []
     for op in operations:
-        hit = items.get(str(op.get("unique_id")))
+        hit = items.get(_target_id(op, snapshot))
         if hit is None:
             frame = op.get("frame")
-            target = str(op.get("unique_id") or "")
+            target = _target_id(op, snapshot) or str(op.get("unique_id") or "")
             if target:
                 rows.append(f"target {target}")
             changes.append({"op": op["op"],
@@ -842,7 +913,7 @@ def _patch(project: str, record: dict, spec: dict, verdict: dict,
             "answer the translation again naming the reel")
     head, snapshot = _recorded_reel(project, reel)
     operations = _program_ops(spec)
-    scope = scope_for(operations)
+    scope = scope_for(operations, snapshot)
     if str(head.generation) != str(program["base_generation"]):
         base = _program_base(program)
         intervening = (_intervening(

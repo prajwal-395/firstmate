@@ -78,6 +78,11 @@ class EditTarget:
     `unique_id` is the shadow snapshot's item id. An empty
     `editorial_identity` with a `unique_id` is addressable but not
     stable across rebuilds; preparation reports that as an assumption.
+
+    INFRA-004: a plan states the MATERIAL it acts on, or the PLACEMENT
+    it occupies (the row and the frames) for an item that has no
+    material - a caption, an overlay the engine drew.  The instance is
+    the binding's business and is filled in at preparation.
     """
 
     unique_id: str = ""
@@ -91,6 +96,10 @@ class EditTarget:
     #: is resolved.
     position: int | None = None
     name: str = ""
+    #: The frames the item occupies on its row: the placement half of
+    #: the neutral address.
+    record_in: int | None = None
+    record_out: int | None = None
 
     @classmethod
     def from_selector(cls, selector: Mapping[str, Any]) -> EditTarget:
@@ -119,6 +128,8 @@ class EditTarget:
             except (TypeError, ValueError) as exc:
                 raise EditRequestError(
                     f"position {position!r} is not an integer") from exc
+        record_in = selector.get("record_in")
+        record_out = selector.get("record_out")
         return cls(
             unique_id=str(selector.get("unique_id") or ""),
             resolve_item_id=str(selector.get("resolve_item_id") or ""),
@@ -127,6 +138,8 @@ class EditTarget:
             track_index=track_index,
             position=position,
             name=str(selector.get("name") or ""),
+            record_in=(None if record_in is None else int(record_in)),
+            record_out=(None if record_out is None else int(record_out)),
         )
 
     @classmethod
@@ -135,6 +148,8 @@ class EditTarget:
         if not isinstance(clip, Mapping):
             raise EditRequestError("a shadow clip must be a mapping")
         track_index = clip.get("track_index")
+        record_in = clip.get("record_in")
+        record_out = clip.get("record_out")
         return cls(
             unique_id=str(clip.get("unique_id") or ""),
             editorial_identity=(),
@@ -142,7 +157,39 @@ class EditTarget:
             track_index=(None if track_index is None
                          else int(track_index)),
             name=str(clip.get("name") or ""),
+            record_in=(None if record_in is None else int(record_in)),
+            record_out=(None if record_out is None else int(record_out)),
         )
+
+    @property
+    def material(self) -> tuple:
+        """The MATERIAL this target names: file, source in, source out.
+
+        The identity the addressing layer compares across backends,
+        without the row role: the plan states WHAT it acts on, and the
+        row narrows it.  Empty when the target names no material.
+        """
+        if not self.editorial_identity:
+            return ()
+        return tuple(self.editorial_identity[:3])
+
+    @property
+    def placement(self) -> tuple:
+        """The PLACEMENT this target names: the row and the frames.
+
+        The address of an item that has no material - a caption, an
+        overlay the engine drew: where it sits and how much of the
+        timeline it occupies.  Empty when the target names no frames.
+        """
+        if self.record_in is None:
+            return ()
+        return (self.track_type, self.track_index, self.record_in,
+                self.record_out)
+
+    @property
+    def has_address(self) -> bool:
+        """Whether this target states a neutral address at all."""
+        return bool(self.material or self.placement)
 
     @property
     def stable_key(self) -> tuple:
@@ -164,6 +211,8 @@ class EditTarget:
             "track_index": self.track_index,
             "position": self.position,
             "name": self.name,
+            "record_in": self.record_in,
+            "record_out": self.record_out,
         }
 
     @classmethod
@@ -172,15 +221,28 @@ class EditTarget:
             raise EditRequestError("an edit target must be a mapping")
         track_index = data.get("track_index")
         position = data.get("position")
+        record_in = data.get("record_in")
+        record_out = data.get("record_out")
+        identity = tuple(data.get("editorial_identity") or ())
+        if not identity and data.get("source_file"):
+            # A target written as an ADDRESS (INFRA-004) states the
+            # material it plays; the identity is read off it, so the
+            # record round trip keeps the address the plan stated.
+            try:
+                identity = timeline_addressing.editorial_identity(data)
+            except ValueError as exc:
+                raise EditRequestError(str(exc)) from exc
         return cls(
             unique_id=str(data.get("unique_id") or ""),
             resolve_item_id=str(data.get("resolve_item_id") or ""),
-            editorial_identity=tuple(data.get("editorial_identity") or ()),
+            editorial_identity=identity,
             track_type=str(data.get("track_type") or ""),
             track_index=(None if track_index is None
                          else int(track_index)),
             position=(None if position is None else int(position)),
             name=str(data.get("name") or ""),
+            record_in=(None if record_in is None else int(record_in)),
+            record_out=(None if record_out is None else int(record_out)),
         )
 
 
@@ -507,11 +569,17 @@ def _check_backend_constraints(constraints: Sequence[str]) -> None:
 def _check_operations(operations: Sequence[EditOperation]) -> None:
     """Refuse unknown ops, missing params and cyclic dependencies.
 
-    A missing `unique_id` on a target that names a clip by name or by
-    track position is not refused here: resolving a name or a position
-    to a stable identity is the preparation stage's job, which records
-    it as an assumption or refuses when it does not resolve.
+    A missing `unique_id` on a target that names a clip by name, by
+    track position, or by the MATERIAL it plays is not refused here:
+    resolving a name, a position or a material to a stable identity is
+    the preparation stage's job, which records it as an assumption or
+    refuses when it does not resolve.
+
+    A material-addressed target is the model-facing plan's own shape
+    (INFRA-004): the plan names the file and the source range, and the
+    instance the material sits on today is resolved at the binding.
     """
+
     count = len(operations)
     for index, op in enumerate(operations):
         entry = edit_algebra.status(op.op)
@@ -521,9 +589,13 @@ def _check_operations(operations: Sequence[EditOperation]) -> None:
         merged = op.to_algebra_op()
         missing = [key for key in entry.param_schema.get("required", ())
                    if key not in merged or merged.get(key) is None]
-        if missing == ["unique_id"] and op.target is not None \
-                and (op.target.name or op.target.position is not None):
-            missing = []
+        missing = [key for key in missing
+                   if not (key == "unique_id" and op.target is not None
+                           and (op.target.name
+                                or op.target.position is not None
+                                or op.target.has_address))]
+        missing = [key for key in missing
+                   if not _named_by_address(key, op.params)]
         if missing:
             raise EditRequestError(
                 f"op {index} ({op.op!r}) is missing required parameters: "
@@ -537,6 +609,28 @@ def _check_operations(operations: Sequence[EditOperation]) -> None:
                 raise EditRequestError(
                     f"op {index} ({op.op!r}) depends on itself")
     _check_acyclic(operations)
+
+
+def _named_by_address(param: str, params: Mapping[str, Any]) -> bool:
+    """Whether a parameter naming items is written as ADDRESSES.
+
+    An operation that names more than one item (`clip.join`,
+    `clip.link`, `compound.create`) writes the addresses of those items
+    under the key the plan declares for them, and the binding fills the
+    instances (INFRA-004).
+    """
+    from library.tools import intent_neutrality
+
+    key = intent_neutrality.ADDRESSED_MULTI_TARGET_PARAMS.get(param)
+    if not key:
+        return False
+    entry = params.get(key)
+    if entry is None:
+        return False
+    entries = ([entry] if isinstance(entry, Mapping) else list(entry))
+    return bool(entries) and all(
+        isinstance(one, Mapping) and intent_neutrality.address_in(one)
+        for one in entries)
 
 
 def _check_acyclic(operations: Sequence[EditOperation]) -> None:
@@ -785,7 +879,8 @@ def route_request(compiled: CompiledEdit, *,
 #: identity key - otherwise it stays a parameter of the op.
 _TARGET_IDENTITY_KEYS = ("unique_id", "resolve_item_id", "track_type",
                          "track_index", "source_file", "source_in_frame",
-                         "source_out_frame", "track_role")
+                         "source_out_frame", "track_role", "record_in",
+                         "record_out")
 
 
 #: The identity keys the flat algebra op carries AGAIN

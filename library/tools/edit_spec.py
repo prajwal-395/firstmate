@@ -277,6 +277,12 @@ def _validate_program(program) -> None:
         if kind == "edit_program":
             missing = [key for key in edit_algebra.get(op_id).required
                        if key not in (params or {})]
+            missing = [key for key in missing
+                       if not (key == "unique_id"
+                               and _address_in(params or {})
+                               and not _mints_its_identity(op_id))]
+            missing = [key for key in missing
+                       if not _named_by_address(key, params or {})]
             if missing:
                 raise EditSpecError(
                     f"{label} ({op_id}) is missing required params: "
@@ -313,6 +319,9 @@ def _validate_program(program) -> None:
                     f"allowed: {sorted(allowed)}")
             missing = [key for key in edit_algebra.get(edit_id).required
                        if key not in edit]
+            missing = [key for key in missing
+                       if not (key == "unique_id" and _address_in(edit)
+                               and not _mints_its_identity(edit_id))]
             if missing:
                 raise EditSpecError(
                     f"reel.opening edits[{index}] ({edit_id}) is missing "
@@ -334,6 +343,65 @@ def _validate_program(program) -> None:
     reel = program.get("reel")
     if reel is not None:
         _nonempty_string(reel, "program.reel")
+
+
+def _named_by_address(param: str, params: Mapping) -> bool:
+    """Whether a parameter naming items is written as ADDRESSES.
+
+    An operation that names more than one item (`clip.link`,
+    `compound.create`) writes the addresses of those items under the
+    key the plan declares for them (INFRA-004).
+    """
+    from library.tools import intent_neutrality
+
+    key = intent_neutrality.ADDRESSED_MULTI_TARGET_PARAMS.get(param)
+    if not key:
+        return False
+    entry = params.get(key)
+    if entry is None:
+        return False
+    entries = ([entry] if isinstance(entry, Mapping) else list(entry))
+    return bool(entries) and all(isinstance(one, Mapping)
+                                 and _address_in(one) for one in entries)
+
+
+def _names_an_existing_item(op_id: str) -> bool:
+    """Whether an operation names an item that already exists.
+
+    An INSERT names the identity the new item will carry, so it has no
+    target to check; every other operation that requires a `unique_id`
+    names an item the reel holds (INFRA-004).
+    """
+    spec = edit_algebra.get(op_id)
+    if spec is None:
+        return False
+    if _mints_its_identity(op_id):
+        return False
+    return "unique_id" in tuple(spec.required)
+
+
+def _mints_its_identity(op_id: str) -> bool:
+    """Whether an operation's `unique_id` is the identity it MINTS.
+
+    An insert names the identity the new item will carry, so no
+    address can replace it (INFRA-004).
+    """
+    from library.tools import intent_neutrality
+
+    return str(op_id) in intent_neutrality.MINTED_IDENTITY_OPS
+
+
+def _address_in(container: Mapping) -> bool:
+    """Whether an operation states the ADDRESS of the item it acts on.
+
+    INFRA-004: the model-facing plan names the material it plays (or
+    the placement it occupies), and the binding resolves that address
+    to the instance the reel holds today.  An operation that states it
+    needs no instance id of its own.
+    """
+    from library.tools import intent_neutrality
+
+    return intent_neutrality.address_in(container)
 
 
 def _validate_candidates(candidates) -> None:
@@ -1905,21 +1973,19 @@ def _current_reel_timeline_id(project_folder: str, project_name: str,
         project_folder, project_name, reel)
 
 
-def _reel_timeline(project_folder: str, reel: str) -> dict:
-    """The reel's picture rows as its newest recorded generation holds them.
+def _reel_snapshot(project_folder: str, reel: str):
+    """The reel's newest recorded generation's snapshot, or a refusal.
 
-    A change to something already on the reel - a caption's size, an
-    overlay switched off, a marker - is an `edit_program` over these
-    items by `unique_id`, based on `generation`. Read off the shadow
-    store, never Resolve; a reel nobody has observed lists nothing and
-    says why, so such a change asks rather than guessing an item.
+    Read off the shadow store, never Resolve.  The returned mapping
+    carries the recorded instance ids, so it is the ENGINE's view of
+    the reel and never the model's: the model-facing rows are built
+    from it and drop every instance id.
     """
     from library.tools import timeline_shadow
 
     if not reel:
-        return {"available": False,
-                "reason": "no single reel is named, so no reel's items "
-                          "are listed"}
+        return None, "", ("no single reel is named, so no reel's items "
+                          "are listed")
     try:
         project_name = _resolve_project_name(project_folder)
         store = timeline_shadow.ShadowStore()
@@ -1929,13 +1995,26 @@ def _reel_timeline(project_folder: str, reel: str) -> dict:
         if head is None:
             raise timeline_shadow.ShadowError(
                 f"no generation recorded for {reel!r}")
-        snapshot = store.snapshot(head)
+        return store.snapshot(head), str(head.generation), ""
     except Exception as exc:  # noqa: BLE001 - an unread reel lists nothing
-        return {"available": False, "reel": reel,
-                "reason": f"the reel's items are not recorded: {exc}"}
+        return None, "", f"the reel's items are not recorded: {exc}"
+
+
+def _reel_timeline(project_folder: str, reel: str) -> dict:
+    """The reel's picture rows as its newest recorded generation holds them.
+
+    A change to something already on the reel - a caption's size, an
+    overlay switched off, a marker - is an `edit_program` over these
+    items by their MATERIAL, based on `generation`. Read off the shadow
+    store, never Resolve; a reel nobody has observed lists nothing and
+    says why, so such a change asks rather than guessing an item.
+    """
+    snapshot, generation, reason = _reel_snapshot(project_folder, reel)
+    if snapshot is None:
+        return {"available": False, "reel": reel, "reason": reason}
     rows = _timeline_rows(snapshot)
     return {"available": True, "reel": reel,
-            "generation": str(head.generation),
+            "generation": generation,
             "fps": snapshot.get("fps"),
             "start_frame": snapshot.get("start_frame"),
             "rows": rows,
@@ -1952,6 +2031,13 @@ def _timeline_rows(snapshot: Mapping) -> list[dict]:
     change to the reel, and a model that cannot see the audio rows cannot
     name the item it wants to change - it can only ask a question nobody
     can answer.
+
+    INFRA-004: a row names the MATERIAL it plays, never the instance.
+    The model-facing plan carries `source_file`, `source_in_frame`,
+    `source_out_frame` and the row; the Resolve item id is an
+    EXECUTION ADDRESS (it changes when the reel is rebuilt and means
+    nothing to another NLE), so the model is shown the address that
+    survives a rebuild and never one that does not.
     """
     rows: list[dict] = []
     for track in snapshot.get("tracks") or []:
@@ -1959,14 +2045,24 @@ def _timeline_rows(snapshot: Mapping) -> list[dict]:
         if not kind.startswith(("v", "a")):
             continue
         prefix = "V" if kind.startswith("v") else "A"
+        items = []
+        for clip in track.get("clips") or []:
+            item = {key: clip.get(key) for key in (
+                "name", "source_file", "source_in_frame",
+                "source_out_frame", "record_in", "record_out",
+                "track_type", "track_index", "speed", "enabled",
+                "transform")}
+            # The ROW belongs to the track, and a recorded clip does not
+            # always repeat it.  The address the model states needs it.
+            if not item.get("track_type"):
+                item["track_type"] = kind
+            if item.get("track_index") is None:
+                item["track_index"] = int(track["index"])
+            items.append(item)
         rows.append({
             "row": f"{prefix}{int(track['index'])}",
             "name": track.get("name") or "",
-            "items": [{key: clip.get(key) for key in (
-                "unique_id", "name", "source_file", "source_in_frame",
-                "source_out_frame", "record_in", "record_out",
-                "track_type", "track_index", "speed", "enabled",
-                "transform")} for clip in track.get("clips") or []],
+            "items": items,
         })
     return rows
 
@@ -2105,11 +2201,12 @@ def prepare_request(project_folder: str, request: str, reel: str = "",
         "implemented or production-enabled; the shared execution planner "
         "will refuse unsupported operations with its reason. Do not invent "
         "parameters absent from the request or observed timeline. "
-        "For an executable operation whose target id is not present in the "
-        "supplied `reel_timeline`, set that operation's `status` to "
+        "For an executable operation whose target is not one of the items "
+        "the supplied `reel_timeline` lists, set that operation's "
+        "`status` to "
         "`needs_clarification`, name the missing target in "
         "`missing_referent`, and ask one direct question in `question`; do "
-        "not substitute or guess a target id. A clarification operation "
+        "not substitute or guess a target. A clarification operation "
         "does not need executable params. "
         "Keep every stated number in its original unit and source it as "
         "requester; preserve feel words as named feels instead of making up "
@@ -2139,12 +2236,18 @@ def prepare_request(project_folder: str, request: str, reel: str = "",
         "anchor cannot be identified. "
         "A change to items already on the reel - a caption's or an "
         "overlay's size or position, an overlay switched off, a marker - "
-        "is a `program` of kind `edit_program` over `reel_timeline`: resolve "
-        "each target to its observed `unique_id` or other exact registry "
-        "address, use matching edit-algebra operations and required params "
-        "from `operation_registry`, set `reel` to the reel and "
-        "`base_generation` to `reel_timeline.generation`. A size or a "
-        "position the editor did not state is the model's decision: say "
+        "is a `program` of kind `edit_program` over `reel_timeline`: name "
+        "each target by the MATERIAL it plays - its `source_file`, "
+        "`source_in_frame`, `source_out_frame` and its row "
+        "(`track_type`, `track_index`), copied exactly as "
+        "`reel_timeline` lists them - use matching edit-algebra "
+        "operations and required params from `operation_registry`, set "
+        "`reel` to the reel and `base_generation` to "
+        "`reel_timeline.generation`. Never write a timeline item id: the "
+        "plan names the material, and the engine resolves which instance "
+        "of it the reel holds today. An operation that names a SECOND "
+        "item (`clip.join`) names it the same way, under `other`. A size "
+        "or a position the editor did not state is the model's decision: say "
         "so in the op's `text`. If `reel_timeline` lists no items, ask "
         "which reel. "
         "For a request to improve, tighten or otherwise change a reel's "
@@ -2164,13 +2267,16 @@ def prepare_request(project_folder: str, request: str, reel: str = "",
         "invent frame values, clip identities, spoken lines or footage. "
         "Return one "
         "`edit_program` containing exactly one `reel.opening` op. Its "
-        "`params` must contain `unique_id` for the opening anchor clip, "
+        "`params` must carry the opening anchor clip's material address "
+        "(`source_file`, `source_in_frame`, `source_out_frame`, "
+        "`track_index`) exactly as `reel_timeline` lists it, "
         "`brief` with the applicable written brief and opening goal, and "
         "`edits` with the selected structural edits in order. Each nested "
         "edit is a complete `clip.trim` or `clip.remove` algebra operation "
-        "using the exact `unique_id` and measured frame parameters from "
-        "`reel_timeline`; use ripple removal only when the whole clip "
-        "should leave the sequence. If the evidence does not establish a "
+        "using that same material address and the measured frame "
+        "parameters from `reel_timeline`; use ripple removal only when "
+        "the whole clip should leave the sequence. If the evidence does "
+        "not establish a "
         "safe boundary, required dialogue, audience or opening goal, return "
         "a direct `needs_clarification` clause instead of guessing. If the "
         "brief supports materially different subjective openings, "
@@ -2273,21 +2379,44 @@ def load_response_spec(project_folder: str, request_id: str) -> dict:
     if source_note_id:
         response["source_note_id"] = source_note_id
     response["available_reels"] = context.get("available_reels", [])
+    timeline = context.get("reel_timeline") or {}
     _clarify_unlisted_program_targets(
-        response, context.get("reel_timeline") or {})
+        response, timeline,
+        snapshot=_recorded_reel_snapshot(project_folder,
+                                         timeline.get("reel"))[0])
     return validate_spec(response)
 
 
-def _clarify_unlisted_program_targets(spec: dict, timeline: dict) -> None:
+def _recorded_reel_snapshot(project_folder: str, reel: str):
+    """The reel's recorded snapshot, or None when no reel is named.
+
+    The snapshot carries the recorded INSTANCE ids, so it is the
+    engine's view of the reel and never the model's: it is read here to
+    translate an instance id a model wrote into the material it stands
+    for.
+    """
+    if not reel:
+        return None, ""
+    snapshot, generation, _reason = _reel_snapshot(project_folder, reel)
+    return snapshot, generation
+
+
+def _clarify_unlisted_program_targets(spec: dict, timeline: dict,
+                                     snapshot: Mapping | None = None) -> None:
     """Turn an executable item op aimed off-timeline into a question.
 
-    A model supplied target is only a lookup hint. If the frozen timeline
-    does not contain that id, no executable operation may carry it forward.
+    A model supplied target is only a lookup hint.  INFRA-004: the
+    model-facing plan names the MATERIAL it acts on, so a target that
+    the recorded reel does not carry is a question, and a target that
+    names an INSTANCE (a Resolve item id) is translated into the
+    material it stands for - the recorded plan carries no instance id,
+    and the binding resolves the material to the instance the reel
+    holds today.
 
-    A reel that was NEVER OBSERVED lists nothing, and then the model has
-    no items to choose from: a question it cannot answer is a question
-    that holds the note for nothing. The request proceeds, and the
-    execution resolves the target against the LIVE timeline, which
+    A reel that was NEVER OBSERVED lists nothing, and then the model
+    has no items to choose from: a question it cannot answer is a
+    question that holds the note for nothing. The request proceeds, and
+    the execution resolves the target against the LIVE timeline, which
     refuses an id that is not there.
     """
     program = spec.get("program")
@@ -2296,29 +2425,219 @@ def _clarify_unlisted_program_targets(spec: dict, timeline: dict) -> None:
     rows = timeline.get("rows") or []
     if not rows:
         return
-    listed = {
-        str(item["unique_id"])
-        for row in rows
-        for item in row.get("items") or []
-        if item.get("unique_id")
-    }
+    listed = [_listed_address(item) for item in _listed_items(rows)]
+    instances = {}
+    if snapshot is not None:
+        for track in snapshot.get("tracks") or ():
+            track_type = str(track.get("type") or "")
+            track_index = track.get("index")
+            for clip in track.get("clips") or ():
+                unique_id = str(clip.get("unique_id") or "")
+                if unique_id:
+                    instances[unique_id] = (clip, track_type, track_index)
     for index, op in enumerate(program.get("ops") or []):
         if op.get("status", "resolved") != "resolved":
             continue
         algebra_op = edit_algebra.get(op.get("op"))
-        if algebra_op is None or not algebra_op.item:
+        if algebra_op is None:
             continue
         params = op.get("params") or {}
+        _translate_further_targets(params, instances)
+        if not _names_an_existing_item(str(op.get("op"))):
+            continue
+        other = params.get("other")
+        if isinstance(other, Mapping):
+            other_address = _address_of_params(other)
+            if other_address:
+                matches = [row for row in listed
+                           if _address_matches(row, other_address)]
+                if len(matches) != 1:
+                    op["status"] = "needs_clarification"
+                    op["missing_referent"] = _address_words(other_address)
+                    op["question"] = (
+                        f"Which item on {program.get('reel') or 'the reel'} "
+                        f"did you mean by {_address_words(other_address)}?")
+                    continue
+        address = _address_of_params(params)
+        if address:
+            matches = [row for row in listed
+                       if _address_matches(row, address)]
+            if len(matches) == 1:
+                continue
+            if not matches:
+                op["status"] = "needs_clarification"
+                op["missing_referent"] = _address_words(address)
+                op["question"] = (
+                    f"Which item on {program.get('reel') or 'the reel'} did "
+                    f"you mean by {_address_words(address)}?")
+                continue
+            op["status"] = "needs_clarification"
+            op["missing_referent"] = _address_words(address)
+            op["question"] = (
+                f"{len(matches)} items on "
+                f"{program.get('reel') or 'the reel'} answer to "
+                f"{_address_words(address)} - which one did you mean?")
+            continue
         target = params.get("unique_id")
         if not isinstance(target, str) or not target.strip():
             continue
-        if target in listed:
+        recorded = instances.get(target)
+        clip = (recorded[0] if recorded else None)
+        if clip is None:
+            op["status"] = "needs_clarification"
+            op["missing_referent"] = f"timeline item {target}"
+            op["question"] = (
+                f"Which item on {program.get('reel') or 'the reel'} did you "
+                f"mean by {target!r}?")
             continue
-        op["status"] = "needs_clarification"
-        op["missing_referent"] = f"timeline item {target}"
-        op["question"] = (
-            f"Which item on {program.get('reel') or 'the reel'} did you "
-            f"mean by {target!r}?")
+        # A recorded instance id: the plan keeps the ADDRESS it stands
+        # for, and the binding mints the instance again.  An item with
+        # no material - a caption the engine drew - is addressed by the
+        # placement it occupies.
+        address = _address_of_clip(clip, recorded[1], recorded[2])
+        if not address:
+            continue
+        params.pop("unique_id", None)
+        for key, value in address.items():
+            params.setdefault(key, value)
+
+
+def _translate_further_targets(params: dict, instances: Mapping) -> None:
+    """Translate the FURTHER items an operation names into addresses.
+
+    An operation that names more than one item (`clip.join`,
+    `clip.link`, `compound.create`) names those items the way it names
+    the first one - by the material they play - so the recorded plan
+    carries no instance id (INFRA-004).
+    """
+    from library.tools import intent_neutrality
+
+    for param, key in intent_neutrality.ADDRESSED_MULTI_TARGET_PARAMS.items():
+        named = params.pop(param, None)
+        if named is None:
+            continue
+        ids = ([named] if isinstance(named, str) else list(named))
+        addresses = []
+        for one in ids:
+            other = instances.get(str(one))
+            if other is None:
+                addresses = []
+                break
+            other_address = _address_of_clip(other[0], other[1], other[2])
+            if not other_address:
+                addresses = []
+                break
+            addresses.append(other_address)
+        if addresses:
+            params.setdefault(key, addresses[0] if len(addresses) == 1
+                              else addresses)
+
+
+def _listed_items(rows) -> list[dict]:
+    """Every item the recorded reel lists, as the model may address it."""
+    items: list[dict] = []
+    for row in rows or ():
+        for item in row.get("items") or ():
+            items.append(item)
+    return items
+
+
+def _listed_address(item: Mapping) -> dict:
+    """One listed item's address: the material it plays and the row."""
+    return {
+        "material": (str(item.get("source_file") or ""),
+                     item.get("source_in_frame"),
+                     item.get("source_out_frame")),
+        "track_index": item.get("track_index"),
+        "track_type": item.get("track_type"),
+        "record_in": item.get("record_in"),
+        "record_out": item.get("record_out"),
+    }
+
+
+def _address_of_params(params: Mapping) -> dict | None:
+    """The address an operation's parameters name, or None.
+
+    The address is the material (the file and the source range) and,
+    for an item that has none, the placement (the row and the frames it
+    occupies).  A record that names neither addresses nothing.
+    """
+    from library.tools import intent_neutrality
+
+    address = intent_neutrality.address_of(params)
+    if not address["material"] and address["record_in"] is None:
+        return None
+    return address
+
+
+def _address_matches(listed: Mapping, address: Mapping) -> bool:
+    """Whether a listed item answers to the address a plan stated.
+
+    The material is the identity; the row and the frames narrow it.
+    """
+    material = tuple(address.get("material") or ())
+    if material:
+        listed_material = tuple(listed.get("material") or ())
+        if listed_material != material:
+            return False
+    track_index = address.get("track_index")
+    if track_index is not None and listed.get("track_index") != track_index:
+        return False
+    track_type = str(address.get("track_type") or "")
+    if track_type and str(listed.get("track_type") or "") != track_type:
+        return False
+    record_in = address.get("record_in")
+    if record_in is not None and listed.get("record_in") != record_in:
+        return False
+    record_out = address.get("record_out")
+    if (record_out is not None
+            and listed.get("record_out") != record_out):
+        return False
+    return True
+
+
+def _address_words(address: Mapping) -> str:
+    """How a neutral address reads in a sentence."""
+    material = tuple(address.get("material") or ())
+    if material:
+        return f"{material[0]} at frames {material[1]}-{material[2]}"
+    return (f"{address.get('track_type') or ''}{address.get('track_index')} "
+            f"at frame {address.get('record_in')}")
+
+
+def _address_of_clip(clip: Mapping, track_type: str = "",
+                     track_index=None) -> dict:
+    """The neutral address of one recorded clip, or {} when it has none.
+
+    The MATERIAL it plays when it has one; the PLACEMENT it occupies
+    when it has not (a caption the engine drew has no file to name).
+    The ROW belongs to the track, and a recorded clip does not always
+    repeat it.
+    """
+    row_type = str(clip.get("track_type") or "") or str(track_type or "")
+    row_index = clip.get("track_index")
+    if row_index is None:
+        row_index = track_index
+    source_file = str(clip.get("source_file") or "")
+    source_in = clip.get("source_in_frame")
+    source_out = clip.get("source_out_frame")
+    if source_file and source_in is not None and source_out is not None:
+        return {
+            "source_file": source_file,
+            "source_in_frame": source_in,
+            "source_out_frame": source_out,
+            "track_type": row_type,
+            "track_index": row_index,
+        }
+    record_in = clip.get("record_in")
+    if record_in is None:
+        return {}
+    return {
+        "track_type": row_type,
+        "track_index": row_index,
+        "record_in": record_in,
+        "record_out": clip.get("record_out"),
+    }
 
 
 def proposal_for_spec(project_folder: str, spec_id: str) -> dict:

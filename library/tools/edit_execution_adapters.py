@@ -2073,6 +2073,27 @@ def _opening_preserved(before: Mapping, live: Mapping,
     return True
 
 
+def _resolve_opening_target(entry: Mapping, snapshot: Mapping) -> str:
+    """The recorded instance id one opening edit names.
+
+    INFRA-004: the model-facing plan names the MATERIAL an edit acts
+    on (or the placement it occupies), and the recorded reel says which
+    instance of it the reel holds today.  An address that matches more
+    than one recorded item, or none, resolves to nothing: the executor
+    refuses rather than guess.
+    """
+    unique_id = str(entry.get("unique_id") or "")
+    if unique_id:
+        return unique_id
+    from library.tools import intent_neutrality
+
+    address = intent_neutrality.address_of(entry)
+    if not address["material"] and address["record_in"] is None:
+        return ""
+    matches = intent_neutrality.instances_for_address(snapshot, address)
+    return matches[0] if len(matches) == 1 else ""
+
+
 def _reel_opening(context) -> dict:
     """Tighten a reel opening through its decided structural edits.
 
@@ -2100,13 +2121,19 @@ def _reel_opening(context) -> dict:
             "reel.opening names no anchor clip unique_id")
     brief, decided = _reel_opening_decided(operation)
 
-    stated = [
-        {**edit, "expected_effect": str(
-            edit.get("expected_effect")
-            or f"tighten opening: apply {edit.get('op')} "
-               f"to {edit.get('unique_id')}")}
-        for edit in decided
-    ]
+    stated = []
+    for index, edit in enumerate(decided):
+        target = _resolve_opening_target(edit, context.snapshot)
+        if not target:
+            raise ValueError(
+                f"reel.opening edit {index} names no recorded item - the "
+                f"material it plays is not on the recorded reel")
+        stated.append(
+            {**edit, "unique_id": target,
+             "expected_effect": str(
+                 edit.get("expected_effect")
+                 or f"tighten opening: apply {edit.get('op')} "
+                    f"to {target}")})
     generation = getattr(context, "generation", None)
     base_generation = (None if generation is None else getattr(
         generation, "generation", None))

@@ -51,6 +51,10 @@ class ResolvedTarget:
     track: str = ""
     record_span: tuple[int, int] | None = None
     note: str = ""
+    #: The further items an operation names (`clip.join`'s other clip,
+    #: `clip.link`'s clips, `compound.create`'s children), when the plan
+    #: named them by their addresses.
+    extra_ids: dict = field(default_factory=dict)
 
     def as_dict(self) -> dict:
         return {
@@ -63,6 +67,7 @@ class ResolvedTarget:
             "record_span": (list(self.record_span)
                             if self.record_span else None),
             "note": self.note,
+            "extra_ids": dict(self.extra_ids),
         }
 
 
@@ -283,6 +288,45 @@ def _resolve_targets(request: EditRequest, base: Mapping[str, Any] | None
                 unique_id=target.unique_id,
                 note="not on the recorded timeline"))
             continue
+        if target.has_address:
+            # An ADDRESSED target: the model-facing plan names the
+            # material it plays (or the placement it occupies), never
+            # the instance - the instance is the binding's business.
+            # The recorded timeline says which instance of that address
+            # the reel holds today; more than one match is AMBIGUOUS and
+            # is refused rather than guessed.
+            matches = intent_neutrality.instances_for_address(
+                base, _address_of(target))
+            if len(matches) == 1:
+                clip = by_id.get(matches[0]) or {}
+                resolved.append(ResolvedTarget(
+                    op_index=index, op=edit_op.op, status="resolved",
+                    unique_id=matches[0],
+                    name=str(clip.get("name") or ""),
+                    track=_row_of(clip),
+                    record_span=_record_span(clip),
+                    note="resolved by address - the plan named the "
+                         "material and the row, not the instance"))
+                continue
+            if not matches:
+                refusals.append(
+                    f"op {index} ({edit_op.op}): no recorded item plays "
+                    f"the address the plan named")
+                resolved.append(ResolvedTarget(
+                    op_index=index, op=edit_op.op, status="missing",
+                    name=target.name,
+                    note="no recorded item plays the address the plan "
+                         "named"))
+                continue
+            refusals.append(
+                f"op {index} ({edit_op.op}): {len(matches)} recorded items "
+                f"play the address the plan named - the plan must say "
+                f"which one")
+            resolved.append(ResolvedTarget(
+                op_index=index, op=edit_op.op, status="ambiguous",
+                name=target.name,
+                note=f"{len(matches)} recorded items play the address"))
+            continue
         # No unique id: match by name on the named track, else by
         # track position, else ambiguous or missing.
         named = [c for c in clips
@@ -316,7 +360,60 @@ def _resolve_targets(request: EditRequest, base: Mapping[str, Any] | None
                 refusals):
             _refuse_unresolved(index, edit_op, spec, target, resolved,
                                refusals)
+    _resolve_second_targets(request, base, resolved, refusals)
     return resolved, assumptions, refusals
+
+
+def _resolve_second_targets(request: EditRequest, base: Mapping[str, Any]
+                             | None, resolved: list[ResolvedTarget],
+                             refusals: list[str]) -> None:
+    """Resolve the FURTHER items an operation names, by their addresses.
+
+    `clip.join` names two clips, `clip.link` names the clips it links,
+    `compound.create` names its children.  The model-facing plan names
+    those items the way it names the first one - by the material they
+    play - so the binding fills the instances the operation needs.
+    """
+    from dataclasses import replace
+
+    if base is None:
+        return
+    for index, edit_op in enumerate(request.operations):
+        params = edit_op.params or {}
+        position = next((row for row, item in enumerate(resolved)
+                         if item.op_index == index), None)
+        if position is None:
+            continue
+        extra: dict[str, list[str]] = {}
+        for param, key in intent_neutrality.ADDRESSED_MULTI_TARGET_PARAMS.items():
+            entry = params.get(key)
+            if entry is None:
+                continue
+            entries = ([entry] if isinstance(entry, Mapping) else list(entry))
+            ids: list[str] = []
+            for one in entries:
+                if not isinstance(one, Mapping):
+                    ids = []
+                    break
+                address = intent_neutrality.address_of(one)
+                if not address["material"] and address["record_in"] is None:
+                    ids = []
+                    break
+                matches = intent_neutrality.instances_for_address(base, address)
+                if len(matches) != 1:
+                    ids = []
+                    break
+                ids.append(matches[0])
+            if not ids:
+                refusals.append(
+                    f"op {index} ({edit_op.op}): the items it names under "
+                    f"{key!r} are not one recorded item each - the plan "
+                    f"must say which ones")
+                continue
+            extra[param] = ids
+        if extra:
+            resolved[position] = replace(resolved[position],
+                                         extra_ids=extra)
 
 
 def _positional_match(index: int, edit_op, target,
@@ -384,6 +481,19 @@ def _refuse_unresolved(index: int, edit_op, spec, target,
             note="no target needed: track/timeline-wide operation"))
 
 
+def _address_of(target: EditTarget) -> dict:
+    """The neutral address one target states, in the resolver's shape."""
+    return intent_neutrality.address_of({
+        "source_file": (target.material[0] if target.material else ""),
+        "source_in_frame": (target.material[1] if target.material else None),
+        "source_out_frame": (target.material[2] if target.material else None),
+        "track_type": target.track_type,
+        "track_index": target.track_index,
+        "record_in": target.record_in,
+        "record_out": target.record_out,
+    })
+
+
 def _row_of(clip: Mapping[str, Any]) -> str:
     track_type = str(clip.get("track_type") or "")
     prefix = "V" if track_type.lower().startswith("v") else (
@@ -418,17 +528,36 @@ def _bind_request(request: EditRequest,
     for index, edit_op in enumerate(request.operations):
         row = by_index.get(index)
         merged = edit_op.to_algebra_op()
+        params = dict(edit_op.params)
+        for key, value in sorted((row.extra_ids if row is not None else {})
+                                 .items()):
+            if merged.get(key):
+                continue
+            # A parameter that names ONE item takes one id; a parameter
+            # that names MANY takes the list.
+            filled = (list(value) if key.endswith("_ids") else value[0])
+            params[key] = filled
+            # The ADDRESS the plan named is the plan's own vocabulary:
+            # the bound request speaks the instance the backend executes.
+            params.pop(intent_neutrality
+                       .ADDRESSED_MULTI_TARGET_PARAMS.get(key, ""), None)
+            notes.append(
+                f"op {index} ({edit_op.op}): {key} {filled!r} filled from "
+                f"the addresses the plan named")
+            changed = True
         if (row is not None and row.unique_id
                 and not merged.get("unique_id")):
             target = edit_op.target
             target = (replace(target, unique_id=row.unique_id)
                       if target is not None
                       else EditTarget(unique_id=row.unique_id))
-            ops.append(replace(edit_op, target=target))
+            ops.append(replace(edit_op, target=target, params=params))
             notes.append(
                 f"op {index} ({edit_op.op}): unique_id "
                 f"{row.unique_id!r} filled from {row.status} resolution")
             changed = True
+        elif params != edit_op.params:
+            ops.append(replace(edit_op, params=params))
         else:
             ops.append(edit_op)
     if not changed:
@@ -446,6 +575,23 @@ def _bind_request(request: EditRequest,
             version=request.version), notes)
     except Exception as exc:  # noqa: BLE001 - a failed bind is an assumption
         return None, [f"bound request invalid, planning as-authored: {exc}"]
+
+
+def bind_request(request: EditRequest,
+                 resolved: Sequence[ResolvedTarget]
+                 ) -> tuple[EditRequest | None, list[str]]:
+    """The request with every resolved identity filled in - the BINDING.
+
+    A model-facing plan names the MATERIAL it acts on; the backends
+    execute an INSTANCE.  This is the one place the two meet: the
+    request the router sees carries the instance the recorded timeline
+    holds for the material the plan named, so the route a request takes
+    does not depend on how the plan addressed its target.
+
+    The request itself is never rewritten - the bound copy is a
+    derivative, and every substitution is recorded as an assumption.
+    """
+    return _bind_request(request, resolved)
 
 
 def _validate_conditions(request: EditRequest) -> list[str]:
@@ -467,6 +613,7 @@ def _validate_conditions(request: EditRequest) -> list[str]:
         if spec is not None and spec.item and (
                 edit_op.target is None or (not edit_op.target.unique_id
                                            and not edit_op.target.name
+                                           and not edit_op.target.has_address
                                            and edit_op.target.position
                                            is None)):
             refusals.append(

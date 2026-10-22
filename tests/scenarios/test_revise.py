@@ -201,12 +201,14 @@ def test_unqualified_caption_size_program_is_refused_before_any_write(
     context = json.loads(json.loads(Path(started["llm_request"]).read_text(
         encoding="utf-8"))["context"])
     # The translation is shown the reel's own items, so its program can
-    # name them by id - never an invented one.
+    # name them by the material they play - never an invented one, and
+    # never an instance id (INFRA-004).
     assert context["reel_timeline"].get("available"), context["reel_timeline"]
     subtitles = next(row for row in context["reel_timeline"]["rows"]
                      if row["name"] == "Subtitles")
-    assert [item["unique_id"] for item in subtitles["items"]] == [
-        "cap-1", "cap-2", "cap-3"]
+    assert [item["record_in"] for item in subtitles["items"]] == [
+        START + 30, START + 90, START + 600]
+    assert all("unique_id" not in item for item in subtitles["items"])
     assert context["reel_timeline"]["generation"] == "1"
 
     _answer(project, started, {
@@ -352,21 +354,24 @@ def test_executable_operation_can_ask_for_a_missing_timeline_target(
 
     started = revise.start(project, "lower the music on the missing clip")
     timeline = edit_spec._reel_timeline(str(project), REEL)
-    listed_ids = {
-        item["unique_id"]
+    listed = {
+        (item.get("source_file"), item.get("record_in"))
         for row in timeline["rows"]
         for item in row["items"]
     }
     missing_id = "audio-clip-not-in-timeline"
-    assert missing_id not in listed_ids
     request = llm_handshake.read_request(started["llm_request"])
     context = json.loads(request["context"])
-    supplied_ids = {
-        item["unique_id"]
+    # The model-facing plan carries no instance id at all (INFRA-004).
+    supplied = {
+        (item.get("source_file"), item.get("record_in"))
         for row in context["reel_timeline"]["rows"]
         for item in row["items"]
     }
-    assert missing_id not in supplied_ids
+    assert supplied == listed
+    assert all("unique_id" not in item
+               for row in context["reel_timeline"]["rows"]
+               for item in row["items"])
     _answer(project, started, {
         "request": "lower the music on the missing clip",
         "program": {

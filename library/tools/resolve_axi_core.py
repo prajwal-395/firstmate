@@ -1860,7 +1860,9 @@ def _prepare_request_plan(request, *, resolve=None):
     if result.refusals:
         raise ValueError(
             "request does not prepare: " + "; ".join(result.refusals))
-    compiled = compile_request(request, snapshot)
+    compiled = compile_request(
+        edit_preparation.bind_request(request, result.resolved)[0]
+        or request, snapshot)
     # Target resolution is part of preparation. Bind its stable identities
     # onto the same compiled operations before routing; the request itself
     # remains the semantic source of truth.
