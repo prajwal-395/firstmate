@@ -1570,6 +1570,12 @@ def _optional_requirement(consumer: str, producer: str, key: str,
 # consumers, and a fourth member would be a second vocabulary.
 
 OPTIONALS: Tuple[Requirement, ...] = (
+    # `select_reels` declares the optional `clip_catalog` input, and the
+    # edit_video DAG routes `catalog.clip_catalog` to it. The bridge uses
+    # it only for report-only source attribution; absence remains valid.
+    _optional_requirement(
+        "select_reels", "catalog", "clip_catalog",
+        "catalogued source spans reel selection may use for attribution"),
     # MECHANISM A.
     # `library/steps/step_2_01_creative_direction/manifest.json`
     # declares `prosody_analysis` OPTIONAL; the DAG maps

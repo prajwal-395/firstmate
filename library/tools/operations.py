@@ -1717,8 +1717,9 @@ _REGISTRY: tuple[Operation, ...] = (
         produces=("reel_selection",),
         # `clip_catalog` is bridge-only evidence (the world-attribution
         # read verifies candidate spans against it); it never reaches
-        # the prompt, so the model's context is unchanged.
-        consumes=("timeline_transcript", "clip_catalog"),
+        # the prompt, so the model's context is unchanged. The optional
+        # DAG edge is recorded for provenance, outside preconditions.
+        consumes=("timeline_transcript",),
     ),
     Operation(
         name="reel.reading_context",

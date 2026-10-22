@@ -121,6 +121,9 @@ UNCAPABLE_LOCK_SITES: dict = {
     "library.tools.query_directed_acquisition:execute_query_acquisition":
         "query-directed evidence refinement is an on-demand evidence-query "
         "service, not a pipeline capability execution",
+    "library.tools.analysis.footage_frames:_embed_selected":
+        "the visual retrieval index is built by `ren search-index`, an "
+        "on-demand search service rather than a pipeline capability",
 }
 
 @dataclass(frozen=True)

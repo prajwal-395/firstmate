@@ -139,7 +139,7 @@
       "measurement": "axi_qualification_registry",
       "task_set": "one row per operation/backend pair"
     },
-    "source_commit": "26a6f28845673bef9afb06d2b00d91635efaa3f0"
+    "source_commit": "00d42877db829f40e856d5bfafc31bd03546078c"
   },
   "records": {
     "audio.gain::resolve_axi": {
