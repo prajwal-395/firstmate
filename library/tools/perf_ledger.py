@@ -74,6 +74,8 @@ from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
+from library.tools import ledger_anomaly
+
 LEDGER_FILE = "perf_ledger.jsonl"
 LEDGER_ENV = "REN_PERF_LEDGER"
 RUN_ENV = "REN_PERF_RUN"
@@ -86,6 +88,10 @@ SPAN = "span"
 COUNT = "count"
 SCHEDULE = "schedule"
 TASK = "task"
+
+#: A duration that cannot be true is recorded under this kind instead
+#: of as a number: see `library/tools/ledger_anomaly.py`.
+ANOMALY = ledger_anomaly.ANOMALY
 
 # Counters are deliberately explicit: call sites that can measure a request
 # use ``count_call``; the report returns zero for an uninstrumented family
@@ -342,6 +348,26 @@ def _append(path, row: dict[str, Any], *, required: bool = False) -> None:
     except (OSError, TypeError, ValueError):
         if required:
             raise
+
+
+def _clamped(row: dict[str, Any]) -> dict[str, Any]:
+    """The row to write: a duration that cannot be true is an anomaly.
+
+    A phase cannot claim more wall time than the run that recorded it
+    has been alive - the run's start is in its own id, so the bound is
+    known without reading anything.  Such a row is a CLOCK MIX-UP, not
+    a measurement (the shipped ledger carries 734 hours of them), and it
+    is written as a typed anomaly: the claimed number is kept, and no
+    reader can charge it to a stage, an engine or a resource.
+    """
+    wall = row.get("wall_s")
+    if not isinstance(wall, (int, float)) or isinstance(wall, bool):
+        return row
+    bound = ledger_anomaly.claim_exceeds_run_wall(
+        float(wall), row.get("run_id"))
+    if bound is None:
+        return row
+    return ledger_anomaly.anomaly_row(row, run_wall_s=bound)
 
 
 def _attach_backends(row: dict[str, Any]) -> None:
@@ -654,7 +680,7 @@ def span(layer: str, **fields: Any) -> Iterator[dict[str, Any]]:
                 "self_peak_rss_mb": _maxrss_mb(resource.RUSAGE_SELF),
             })
             _attach_backends(row)
-            _append(path, row, required=_required_persistence())
+            _append(path, _clamped(row), required=_required_persistence())
 
 
 @contextmanager
@@ -780,7 +806,7 @@ def record(layer: str, wall_s: float, started_at: float | None = None,
     if layer in GRAPHICS_LAYERS:
         count_call("graphics_renders", int(row.get("calls") or 1))
     _attach_backends(row)
-    _append(path, row, required=_required_persistence())
+    _append(path, _clamped(row), required=_required_persistence())
 
 
 def record_reel_edit(reel: str, started_at: float,
@@ -1069,6 +1095,13 @@ def measured(layer: str, **fields: Any):
 
 def read_rows(project_folder, ledger_override=None, *, required: bool = False
               ) -> list[dict[str, Any]]:
+    """The ledger's rows, with every impossible phase clamped.
+
+    The file stays append-only and untouched; what a READER gets is the
+    clamped view, so a phase that claims more wall time than the run
+    that recorded it is a typed anomaly instead of a duration that a
+    cost comparison would charge to an engine.
+    """
     rows = []
     try:
         path = Path(ledger_override) if ledger_override else ledger_path(project_folder)
@@ -1086,7 +1119,7 @@ def read_rows(project_folder, ledger_override=None, *, required: bool = False
     except OSError:
         if required:
             raise
-    return rows
+    return ledger_anomaly.clamp_rows(rows)
 
 
 def run_ids(rows: list[dict[str, Any]]) -> list[str]:
@@ -1147,7 +1180,12 @@ def profile(rows: list[dict[str, Any]], run_id: str) -> dict[str, Any]:
     past 100 - which the report says (`overlap_s`) rather than hides.
     What a capability spent outside every span is charged to the
     capability itself as "(other)".
+
+    A phase that claims more wall time than the run that recorded it is
+    an ANOMALY, not a duration: it is charged to no stage, no engine and
+    no resource, and the profile says so (`anomalies`).
     """
+    rows = ledger_anomaly.clamp_rows(rows)
     caps = [r for r in rows if r.get("run_id") == run_id
             and r.get("kind") == CAPABILITY]
     spans = [r for r in rows if r.get("run_id") == run_id
@@ -1265,6 +1303,7 @@ def profile(rows: list[dict[str, Any]], run_id: str) -> dict[str, Any]:
                     "execution_s")} for r in scheduled_rows],
             },
             "resolve": resolve_kpis(spans, total, caps, counts=counts),
+            "anomalies": ledger_anomaly.summarise(rows, run_id),
             "spans_without_capability_row": sorted(set(by_cap) - cap_names),
             "provenance": perf_report.provenance(rows, run_id),
             **report_sections(rows, run_id)}
@@ -1523,6 +1562,14 @@ def render(report: dict[str, Any]) -> str:
         out.append("Spans with no capability row (the run did not finish "
                    "them, or ran outside a front door): "
                    + ", ".join(report["spans_without_capability_row"]))
+    anomalies = report.get("anomalies") or {}
+    if anomalies.get("count"):
+        out.append("")
+        out.append(
+            f"Anomalies: {anomalies['count']} phase(s) claimed "
+            f"{anomalies['claimed_wall_s']:.1f}s - more than the run that "
+            "recorded them had. They are charged to nothing: "
+            + ", ".join(anomalies.get("layers") or []))
     kpi = report.get("resolve") or {}
     if kpi.get("leases") or kpi.get("blocked_s") or kpi.get("api_s"):
         out.append("")

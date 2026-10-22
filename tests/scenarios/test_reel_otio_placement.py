@@ -194,6 +194,7 @@ def test_the_recorded_build_lands_the_default_builds_timeline(media,
 
 def test_completed_phase_is_written_to_kpi_ledger(monkeypatch):
     from library.tools import perf_ledger
+    from library.tools.reel_otio_placement import start_phase
 
     rows = []
     monkeypatch.setattr(
@@ -202,8 +203,9 @@ def test_completed_phase_is_written_to_kpi_ledger(monkeypatch):
             (layer, wall_s, fields)))
     profile = {"timeline_name": "Reel 09 - scratch"}
 
-    record_duration(profile, "timeline_import_s",
-                     time.perf_counter() - 0.02)
+    started = start_phase()
+    time.sleep(0.02)
+    record_duration(profile, "timeline_import_s", started)
 
     assert profile["timeline_import_s"] >= 0.01
     assert rows == [(

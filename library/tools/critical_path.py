@@ -61,7 +61,7 @@ import json
 import sys
 from typing import Any
 
-from library.tools import perf_ledger, perf_report
+from library.tools import ledger_anomaly, perf_ledger, perf_report
 
 # ── The resources a stage's seconds can be spent on ─────────────────
 #
@@ -601,7 +601,12 @@ def _task_row(rows: list[dict[str, Any]], run_id: str) -> dict[str, Any]:
 
 def _run_window(rows: list[dict[str, Any]], run_id: str
                 ) -> tuple[float, float] | None:
-    """The run's own wall window: when it started and when it ended."""
+    """The run's own wall window: when it started and when it ended.
+
+    A phase that claims more wall time than the run had is an anomaly,
+    not a phase: it must not stretch the window either.
+    """
+    rows = ledger_anomaly.clamp_rows(rows)
     stamps = []
     for row in rows:
         if row.get("run_id") != run_id:
@@ -651,7 +656,13 @@ def analyse_run(rows: list[dict[str, Any]], run_id: str) -> dict[str, Any]:
     carries the DENOMINATOR of every share: the task's instrumented
     wall, and the person-visible latency beside it, so a reader can see
     how much of the wait the instrumented work even covers.
+
+    A phase that claims more wall time than the run that recorded it is
+    an ANOMALY, not a duration: it is charged to no stage, no resource
+    and no family, and the report says how big the mistake was
+    (`anomalies`).
     """
+    rows = ledger_anomaly.clamp_rows(rows)
     spans = [r for r in rows
              if r.get("run_id") == run_id and r.get("kind") == perf_ledger.SPAN
              and str(r.get("layer")) not in perf_ledger.SUMMARY_LAYERS]
@@ -842,6 +853,7 @@ def analyse_run(rows: list[dict[str, Any]], run_id: str) -> dict[str, Any]:
         },
         "waits": waits,
         "queue_holders": holders,
+        "anomalies": ledger_anomaly.summarise(rows, run_id),
         "unattributed_layers": sorted(
             layer for layer in layer_seconds
             if stage_of_span({"layer": layer}) is None),
@@ -966,6 +978,13 @@ def render_run(report: dict[str, Any]) -> list[str]:
     if report.get("unattributed_layers"):
         out.append("    layers no stage claims: "
                    + ", ".join(report["unattributed_layers"]))
+    anomalies = report.get("anomalies") or {}
+    if anomalies.get("count"):
+        out.append(
+            f"    {anomalies['count']} phase(s) claimed "
+            f"{anomalies['claimed_wall_s']:.1f}s, more than the run that "
+            "recorded them had: charged to nothing ("
+            + ", ".join(anomalies.get("layers") or []) + ")")
     return out
 
 

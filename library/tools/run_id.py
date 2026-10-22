@@ -24,6 +24,7 @@ One enumeration, `library/tools/run_id.py`.
 
 from __future__ import annotations
 
+import calendar
 import os
 import re
 import secrets
@@ -34,7 +35,8 @@ import time
 ENV_VAR = "REN_RUN_ID"
 
 # `run-20261010T143022Z-a1b2c3`
-_UNIFIED_RE = re.compile(r"^run-\d{8}T\d{6}Z-[0-9a-f]{6}$")
+_UNIFIED_RE = re.compile(
+    r"^run-(?P<date>\d{8})T(?P<time>\d{6})Z-[0-9a-f]{6}$")
 
 # The provenance scheme this replaces: `20260829T123000-12345`
 # (local time plus pid). Rows in this shape still read everywhere.
@@ -51,6 +53,28 @@ def mint_run_id(now: float | None = None) -> str:
     """
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(now))
     return f"run-{stamp}-{secrets.token_hex(3)}"
+
+
+def started_at(run_id: str | None) -> float | None:
+    """When the run that owns this id started, in epoch seconds (UTC).
+
+    The id carries the run's start in its own name, so every process
+    that knows the id knows the run's age without reading a file.  A
+    legacy id carries no timestamp and reads as `None` - "unknown",
+    never a guess.
+
+    The stamp is truncated to the second, so the answer is never LATER
+    than the true start: a bound derived from it is never tighter than
+    the truth.
+    """
+    match = _UNIFIED_RE.match(str(run_id or ""))
+    if not match:
+        return None
+    stamp = f"{match.group('date')}{match.group('time')}"
+    try:
+        return calendar.timegm(time.strptime(stamp, "%Y%m%d%H%M%S"))
+    except ValueError:
+        return None
 
 
 def current() -> str | None:

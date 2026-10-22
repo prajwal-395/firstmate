@@ -10183,9 +10183,10 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     import os
     import sys
     import time
+    from library.tools import reel_otio_placement as _otio
     # Unconditional: `auto` may resolve to `otio` below, and the profile
     # then needs the whole build's wall time, not just the recording's.
-    build_total_started = time.perf_counter()
+    build_total_started = _otio.start_phase()
 
     if prepared is None:
         prepared = prepare_reel_timeline(
@@ -10221,7 +10222,6 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     if placement_mode not in ("append", "otio", "auto"):
         raise ReelBuildError(f"{name}: placement_mode {placement_mode!r} "
                              f"is neither 'append', 'otio' nor 'auto'")
-    from library.tools import reel_otio_placement as _otio
     requested_placement = placement_mode
     if placement_compatibility_checked:
         if placement_mode == "auto":
@@ -10295,7 +10295,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     profile = pool.profile if recording else None
     if profile is not None:
         profile["timeline_name"] = name
-    recorded_plan_started = time.perf_counter() if recording else None
+    recorded_plan_started = _otio.start_phase() if recording else None
 
     if recording:
         # Nothing exists until the import: the rows and their names are
@@ -10673,7 +10673,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                 f"{name}: a ledger retime falls on a reel whose picture is a "
                 f"span element, which places no footage to set a speed on - "
                 f"the speech alone would play retimed under a sync picture.")
-        retime_started = time.perf_counter()
+        retime_started = _otio.start_phase()
         build_record["ledger_retimes"] = _apply_ledger_retimes(
             timeline, placements_list, fps,
             sorted(set(video_row_by_angle.values())),
@@ -10701,7 +10701,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         # runs after this returns, which is the still recipe's CDL-first
         # order held structurally. Rendered cards sharing the picture rows
         # are matched out by source - a graphic is not footage.
-        grade_started = time.perf_counter()
+        grade_started = _otio.start_phase()
         if grade_cdl or power_grade:
             from library.tools import reel_look as _grade
             footage_sources = {
@@ -11113,7 +11113,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
               f"transform(s)", file=sys.stderr)
         _retime_and_grade()
         if look is not None:
-            punch_started = time.perf_counter()
+            punch_started = _otio.start_phase()
             aimed = _aim_picture()
             _otio.record_duration(profile, "punch_in_s", punch_started)
     else:
@@ -11128,7 +11128,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
               f"punch-in aimed on {aimed}/{placed_shots} shot(s) "
               f"({look['origin']})", file=sys.stderr)
 
-    hold_replay_started = time.perf_counter() if recording else None
+    hold_replay_started = _otio.start_phase() if recording else None
     _hold_and_replay()
     if profile is not None:
         _otio.record_duration(
@@ -11195,7 +11195,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         )
         print(f"── Overlay sweep ({len(_sweep_records)} tight overlay(s)) ──",
               file=sys.stderr)
-        sweep_started = time.perf_counter() if recording else None
+        sweep_started = _otio.start_phase() if recording else None
         # The picture rows ride along for the keep-clear half
         # (`overlay_keep_clear`): which overlays sit over a person or a
         # salient box, REPORTED and never moved.
@@ -11228,7 +11228,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # for why a second call breaks the first). Every call is read
     # back; what did not join is said rather than trusted.
     print("── Link Pass ──", file=sys.stderr)
-    link_started = time.perf_counter() if recording else None
+    link_started = _otio.start_phase() if recording else None
     link_record = link_reel_groups(timeline, track_plan,
                                    offset_links=offset_links)
     if profile is not None:
@@ -11248,7 +11248,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # defect being fixed - the row is deleted, and the deletion is on
     # the record. Delete from the top down so indices below hold
     # still while each deletion lands.
-    occupancy_started = time.perf_counter() if recording else None
+    occupancy_started = _otio.start_phase() if recording else None
     plan_names = {(spec.media_type, spec.index): spec.name
                   for spec in (track_plan.video_tracks
                                + track_plan.audio_tracks)}
@@ -11320,7 +11320,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # the most zoomed-out frame against the same measured window and draw
     # gain before the separate process imports any comps.
     if look is not None and screen_window is not None:
-        coverage_started = time.perf_counter() if recording else None
+        coverage_started = _otio.start_phase() if recording else None
         build_record["motion_coverage"] = verify_motion_screen_coverage(
             name, track_plan, placements_list, video_row_by_angle, timeline,
             motion or [], width, height, screen_window, draw_gain,
@@ -17423,7 +17423,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 with heavy_work_lock(f"reel placement {name}",
                                      "reel.build:apply"):
                     placement_hold_started = (
-                        time.perf_counter()
+                        _otio.start_phase()
                         if placement_mode == "otio" else None)
                     # Lease-contention measurement: one `wait` line per
                     # placement acquisition, ALWAYS including the
@@ -17769,11 +17769,11 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     edit_ids=tuple(
                         promotion_staged_to_final.get(name, name)
                         for _manifest, name, _profile in _batch_comp_entries)):
-                _fusion_started = time.perf_counter()
+                _fusion_started = _otio.start_phase()
                 _comp_results = _look.apply_comps_batch(
                     [(m, n) for m, n, _ in _batch_comp_entries],
                     project_folder, resolve_name)
-                _fusion_total = time.perf_counter() - _fusion_started
+                _fusion_total = _fusion_started.elapsed_s()
                 _per_reel = (_fusion_total / len(_batch_comp_entries)
                              if _batch_comp_entries else 0.0)
                 for _manifest, _name, _profile in _batch_comp_entries:

@@ -76,17 +76,56 @@ class OtioPlacementRefused(RuntimeError):
     """This reel has something the OTIO placement cannot carry."""
 
 
-def record_duration(profile: dict, name: str, started: float, *,
+@dataclass(frozen=True)
+class PhaseStart:
+    """A monotonic START reading, typed so it cannot be an elapsed.
+
+    The defect this types out: a caller passed an ELAPSED AVERAGE where
+    a START belonged, and the recorder subtracted it from the monotonic
+    clock - which on macOS is the MACHINE'S UPTIME.  The phase then
+    reported 134,590 s on a 37-hour-uptime Mac, and every cost
+    comparison read those hours as Resolve time.
+
+    A start and a duration are now different types, and only a start
+    can be recorded as one.
+    """
+
+    at: float
+
+    def elapsed_s(self) -> float:
+        """The seconds since this reading, on the same clock."""
+        return time.perf_counter() - self.at
+
+
+def start_phase() -> PhaseStart:
+    """Take the start reading for a phase."""
+    return PhaseStart(time.perf_counter())
+
+
+def record_duration(profile: dict, name: str, started: PhaseStart, *,
                     persist: bool = True) -> None:
-    """Record and persist one wall-clock phase as soon as it completes."""
-    record_elapsed(profile, name, time.perf_counter() - started,
-                   persist=persist)
+    """Record and persist one wall-clock phase as soon as it completes.
+
+    `started` is a `PhaseStart`, not a number: a bare float could be an
+    elapsed duration by mistake, and the mistake reads as hours.
+    """
+    if not isinstance(started, PhaseStart):
+        raise TypeError(
+            f"the phase {name!r} was given {started!r} where a START "
+            "belongs. A start is a PhaseStart (see start_phase()), never a "
+            "number: subtracting an elapsed from the monotonic clock "
+            "reports the machine's uptime, not the phase's cost.")
+    record_elapsed(profile, name, started.elapsed_s(), persist=persist)
 
 
 def record_elapsed(profile: dict, name: str, seconds: float, *,
                    persist: bool = True) -> None:
-    """Keep a phase in the summary and KPI ledger, even if later work stops."""
-    elapsed = round(max(0.0, seconds), 3)
+    """Keep a phase in the summary and KPI ledger, even if later work stops.
+
+    For a phase whose duration is already known - a batch's per-reel
+    AVERAGE, which is elapsed seconds and never a start.
+    """
+    elapsed = round(max(0.0, float(seconds)), 3)
     profile[name] = elapsed
     if not persist:
         return
@@ -753,24 +792,24 @@ def import_recorded(project, recorder: PlacementRecorder, name: str,
     from library.tools.reel_build import _ensure_bin_path, _timeline_span
     from library.tools.resolve_lock import assert_current_timeline
 
-    started = time.perf_counter()
+    started = start_phase()
     document = compile_recorded(recorder, name, track_plan, fps, width,
                                 height)
     record_duration(recorder.profile, "offline_compile_s", started)
     pool = project.GetMediaPool()
     root_before = _root_file_clips(pool)
     with tempfile.TemporaryDirectory(prefix="reel_otio_") as scratch:
-        started = time.perf_counter()
+        started = start_phase()
         path = otio_compile.write(document, os.path.join(scratch,
                                                         "reel.otio"))
         record_duration(recorder.profile, "otio_file_write_s", started)
-        started = time.perf_counter()
+        started = start_phase()
         dest = _ensure_bin_path(pool, timeline_bin)
         before = pool.GetCurrentFolder()
         try:
             pool.SetCurrentFolder(dest)
             record_duration(recorder.profile, "import_setup_s", started)
-            started = time.perf_counter()
+            started = start_phase()
             # Source clips already in the pool are REUSED, not
             # re-imported: `importSourceClips: True` files a new item
             # at the pool ROOT for every referenced file whenever
@@ -804,7 +843,7 @@ def import_recorded(project, recorder: PlacementRecorder, name: str,
             # switch before anything was recorded; a switch that fails
             # here refuses loudly rather than importing wrong-sized.
             import_started = started
-            switch_started = time.perf_counter()
+            switch_started = start_phase()
             orig_default = switch_project_default(project, width, height)
             mismatch = tuple(orig_default) != (int(width), int(height))
             if mismatch:
@@ -855,22 +894,22 @@ def import_recorded(project, recorder: PlacementRecorder, name: str,
         # is restored read-back. Net mutation: none.
         recorder.profile["mismatch_route"] = True
         try:
-            started = time.perf_counter()
+            started = start_phase()
             assert_current_timeline(project, previous)
             record_duration(recorder.profile, "mismatch_cursor_park_s",
                             started)
-            started = time.perf_counter()
+            started = start_phase()
             from library.tools.resolve_deadline import (
                 apply_timeline_resolution)
             apply_timeline_resolution(timeline, width, height)
             verify_imported_resolution(name, timeline, width, height)
             record_duration(recorder.profile, "mismatch_custom_size_s",
                             started)
-            started = time.perf_counter()
+            started = start_phase()
             assert_current_timeline(project, timeline)
             record_duration(recorder.profile, "mismatch_cursor_return_s",
                             started)
-            started = time.perf_counter()
+            started = start_phase()
             restore_project_default(project, name, orig_default)
             record_duration(recorder.profile, "mismatch_default_restore_s",
                             started)
@@ -896,23 +935,23 @@ def import_recorded(project, recorder: PlacementRecorder, name: str,
         # reel size (measured live 2026-10-08: the import makes the new
         # timeline current during the import) the check below makes no
         # write at all.
-        started = time.perf_counter()
+        started = start_phase()
         size_imported_timeline_before_current(
             project, name, timeline, width, height)
         record_duration(recorder.profile, "imported_resolution_verify_s",
                         started)
-        started = time.perf_counter()
+        started = start_phase()
         assert_current_timeline(project, timeline)
         record_duration(recorder.profile, "timeline_cursor_check_s", started)
 
-    started = time.perf_counter()
+    started = start_phase()
     marker_count = restore_pool_markers(timeline, recorder, name)
     record_duration(recorder.profile, "source_markers_restore_s", started)
     recorder.profile["source_markers_restored"] = marker_count
 
     # Every planned row, under its planned name, and every recorded item
     # where it was recorded - judged by the read-back, never the return.
-    started = time.perf_counter()
+    started = start_phase()
     missing = []
     for row in track_plan.video_tracks + track_plan.audio_tracks:
         if timeline.GetTrackName(row.media_type, row.index) != row.name:
@@ -941,7 +980,7 @@ def import_recorded(project, recorder: PlacementRecorder, name: str,
     # imported timeline's own pool entry, into the ROOT bin"), never
     # the CURRENT folder - so the restore searches every bin, not just
     # the timeline's.
-    started = time.perf_counter()
+    started = start_phase()
     by_path: dict = {}
     folders = [pool.GetRootFolder()]
     while folders:
@@ -958,7 +997,7 @@ def import_recorded(project, recorder: PlacementRecorder, name: str,
     for bin_path, items in by_bin.items():
         _move_into(pool, items, bin_path)
     record_duration(recorder.profile, "pool_organization_s", started)
-    started = time.perf_counter()
+    started = start_phase()
     repaired = relink_imported_items(
         pool, timeline, recorder, track_plan, name)
     record_duration(recorder.profile, "linkage_repair_s", started)
@@ -981,7 +1020,7 @@ def verify_channels(timeline, recorder: PlacementRecorder) -> dict:
     Nothing is deleted: the import placed exactly the named channel."""
     from library.tools.reel_build import _placed_channel, _timeline_span
 
-    started = time.perf_counter()
+    started = start_phase()
     record = {"checked": 0, "deleted": [], "unverified": []}
     wrong = []
     for spec in recorder.specs:
@@ -1075,7 +1114,7 @@ def run_deferred(timeline, recorder: PlacementRecorder, *,
         # cleanly. The append path always has it (its earlier writes
         # created it); make the replay's home before it writes.
         os.makedirs(project_folder, exist_ok=True)
-    started = time.perf_counter()
+    started = start_phase()
     # The item list is indexed ONCE per track, not once per spec: the
     # same items, the same order, the same writes - only the repeated
     # `GetItemListInTrack` calls (~110 per build) go away.
