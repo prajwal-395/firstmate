@@ -1600,11 +1600,11 @@ def cmd_timeline_current(args) -> int:
                     "select the named timeline.",
                     f"{TOOL} timeline current --project \"{project_name}\" "
                     f"--timeline \"{timeline_name}\" --apply")
-    try:
-        resolve = _connect()
-    except AxiError as exc:
-        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=True):
+        try:
+            resolve = _connect()
+        except AxiError as exc:
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         try:
             project = _project(resolve, project_name)
             target, _is_current, note = _target_timeline(

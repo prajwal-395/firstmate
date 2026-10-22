@@ -866,11 +866,10 @@ def test_source_carries_no_cursor_moving_call_outside_writes():
     """The invariant that lets this tool run while builds run.
 
     Reads never move the cursor, and the declared writes assert it
-    (or report it) rather than moving it. Cursor and project-lifecycle
-    movers may not appear anywhere in the module. Every other Resolve
-    writer must be a DECLARED one: a future edit that reaches for a
-    new writer fails here until it is named below, lease-guarded,
-    and covered by a read-back test.
+    (or report it) rather than moving it. The one explicit timeline
+    selection command is a declared cursor write: it takes the exclusive
+    lease before connecting and reads the selected cursor back. Other
+    cursor and project-lifecycle movers remain forbidden here.
     """
     from library.tools.resolve_axi import _RUN_WRITE_PREFIXES
     source = Path(resolve_axi.__file__).read_text(encoding="utf-8")
@@ -882,7 +881,27 @@ def test_source_carries_no_cursor_moving_call_outside_writes():
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute) and node.attr in movers:
             hits.append((node.attr, node.lineno))
-    assert hits == [], f"cursor-moving calls in resolve_axi: {hits}"
+    assert [method for method, _line in hits] == ["SetCurrentTimeline"], (
+        f"unexpected cursor-moving calls in resolve_axi: {hits}")
+    current = next(node for node in tree.body
+                   if isinstance(node, ast.FunctionDef)
+                   and node.name == "cmd_timeline_current")
+    exclusive = next(node for node in ast.walk(current)
+                     if isinstance(node, ast.With)
+                     and any(isinstance(item.context_expr, ast.Call)
+                             and isinstance(item.context_expr.func, ast.Name)
+                             and item.context_expr.func.id == "_lease"
+                             and any(keyword.arg == "exclusive"
+                                     and isinstance(keyword.value, ast.Constant)
+                                     and keyword.value.value is True
+                                     for keyword in item.context_expr.keywords)
+                             for item in node.items))
+    assert any(isinstance(node, ast.Call)
+               and isinstance(node.func, ast.Name)
+               and node.func.id == "_connect"
+               for node in ast.walk(exclusive)), (
+        "timeline current must connect to Resolve after taking its "
+        "exclusive lease")
     declared = {"AddMarker", "AppendToTimeline", "DeleteClips",
                 "SetProperty", "SetSettings", "SetSetting",
                 "ImportMedia", "AddRenderJob", "StartRendering",
@@ -894,7 +913,7 @@ def test_source_carries_no_cursor_moving_call_outside_writes():
                 "PerformAudioClassification", "AnalyzeForIntellisearch",
                 "DetectSceneCuts", "SmartReframe", "CreateMagicMask",
                 "PerformMulticamSmartSwitch", "ReplaceClip",
-                "SetClipsLinked"}
+                "SetClipsLinked", "SetCurrentTimeline"}
     undeclared = []
     # Only invoked attributes are writers: a bare reference such as
     # `except timeline_addressing.AddressingError` matches the "Add"

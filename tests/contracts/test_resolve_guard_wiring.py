@@ -423,6 +423,8 @@ CURSOR_SETTERS = {
         1, "exclusive: build_staged_incremental runs under the build lease"),
     "library/tools/reel_retirement.py": (
         2, "exclusive: delete_exact borrows Qualification under the broker lease"),
+    "library/tools/resolve_axi_core_commands.py": (
+        1, "exclusive: timeline current takes the CLI lease before connecting"),
 }
 
 METHOD = "SetCurrentTimeline"
@@ -459,6 +461,10 @@ def _exclusive_context(node, relative_path) -> bool:
     if not isinstance(node, ast.Call):
         return False
     name = _call_name(node.func)
+    if name == "_lease":
+        exclusive = next((keyword.value for keyword in node.keywords
+                          if keyword.arg == "exclusive"), None)
+        return _explicitly_exclusive(exclusive)
     if name == "cursor_fence":
         return True
     if name == "borrowed" and relative_path == "library/tools/reel_retirement.py":

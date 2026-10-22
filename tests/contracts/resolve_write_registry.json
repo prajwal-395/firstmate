@@ -2065,6 +2065,12 @@
   ],
   [
     "library/tools/resolve_axi_core_commands.py",
+    "cmd_timeline_current",
+    "SetCurrentTimeline",
+    1
+  ],
+  [
+    "library/tools/resolve_axi_core_commands.py",
     "cmd_edit_place",
     "AppendToTimeline",
     1
