@@ -557,6 +557,15 @@ def _window(candidate: Mapping, statement: str) -> dict:
         "best_score": candidate.get("score"),
         "n_frames": len(candidate.get("frames") or ()),
         "verified": True,
+        # The ORIGINAL MEDIA behind the verdict: the recording, and the
+        # extracted frames of it the model was shown.  A reader who
+        # doubts the verdict follows this and looks at the same frames.
+        "original": {
+            "media": candidate.get("filename", ""),
+            "frame_files": [frame.get("file")
+                            for frame in candidate.get("frames") or ()
+                            if frame.get("file")],
+        },
         "justification": {
             "verdict": candidate.get("verdict"),
             "reason": candidate.get("reason"),

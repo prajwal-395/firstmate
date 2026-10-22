@@ -95,6 +95,7 @@ the memory, it does not build it.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -102,6 +103,7 @@ import sys
 import time
 from pathlib import Path
 
+from library.tools import fidelity
 from library.tools.ren_refusal import RenRefusal
 
 import numpy as np
@@ -837,6 +839,11 @@ class FrameIndex:
                 "t": frame["t"],
                 "timecode": self._timecode(frame["t"]),
                 "score": round(float(scores[i]), 4),
+                # The ORIGINAL MEDIA's own frame: the extracted still of
+                # the recording at this second.  It is the pointer a
+                # reader follows to look at the evidence, and it travels
+                # with the candidate so the answer reaches the original.
+                "frame_file": frame.get("file"),
                 "verified": False,
             })
         report["answer_status"] = "found"
@@ -905,6 +912,39 @@ class FrameIndex:
                       per_source_pool: int | None = PER_SOURCE_POOL,
                       repeated_events: int | None = None,
                       temporal: bool = False) -> dict:
+        """The answer, and the resolution it was reached at.
+
+        The answer is the answer this lane has always returned, plus a
+        `fidelity` block that says WHICH resolution answered it and -
+        at the coarse tier - an `escalation` block that says what the
+        next resolution would establish and what it is measured to cost.
+
+        `temporal=True` runs the verification pass, so the answer is the
+        detailed tier's, and its provenance names the coarse ranking it
+        was derived from.  `temporal=False` answers at the coarse tier:
+        the ranked candidates, which say where to look and not whether
+        the shot establishes the query.
+        """
+        report = self._search_ranges(
+            query, top_ranges=top_ranges, pool=pool,
+            merge_gap_s=merge_gap_s, include_actions=include_actions,
+            floor=floor, window_floor=window_floor, max_range_s=max_range_s,
+            max_range_frames=max_range_frames,
+            per_source_pool=per_source_pool,
+            repeated_events=repeated_events, temporal=temporal)
+        return self._with_fidelity(report, query, temporal=temporal)
+
+    def _search_ranges(self, query: str, top_ranges: int = 5,
+                       pool: int = SEARCH_POOL,
+                       merge_gap_s: float = MERGE_GAP_S,
+                       include_actions: bool = False,
+                       floor: float | None = MEASURED_QUERY_FLOOR,
+                       window_floor: float | None = None,
+                       max_range_s: float | None = MAX_RANGE_S,
+                       max_range_frames: int | None = RANGE_SAMPLES,
+                       per_source_pool: int | None = PER_SOURCE_POOL,
+                       repeated_events: int | None = None,
+                       temporal: bool = False) -> dict:
         """Top frame hits merged into time ranges per clip.
 
         The range is the unit a person scrubs: adjacent pool hits on one
@@ -1037,6 +1077,14 @@ class FrameIndex:
         ranges.sort(key=lambda r: -r["best_score"])
         if window_floor is not None:
             ranges = [r for r in ranges if r["best_score"] >= window_floor]
+        # The CANDIDATE SET the verification pass would judge: every
+        # merged range, before the lane presents the top of them.  The
+        # coarse answer presents the top; the escalation verifies the
+        # SAME candidates the one-call path verifies, so the two paths
+        # reach the same answer.  A coarse answer that kept only the
+        # windows it presented would narrow the escalation's pool, and a
+        # narrower pool is a DIFFERENT answer.
+        report["candidate_ranges"] = ranges
         if temporal is False:
             report["ranges"] = self._select_windows(ranges, top_ranges,
                                                     repeats, merge_gap_s)
@@ -1052,11 +1100,172 @@ class FrameIndex:
                     near_miss=(report["results"][0]
                                if report["results"] else None))
             return report
+        # The coarse ranking's identity, taken BEFORE the verification
+        # pass rewrites the ranges: the detailed answer names the coarse
+        # answer it was derived from.
+        report["coarse_report_id"] = self._report_id(report)
         report.update(self._temporal_pass(
             query, ranges, top_ranges, repeats=repeats,
             merge_gap_s=merge_gap_s, required=temporal is True,
             near_miss=(report["results"][0] if report.get("results") else None)))
         return report
+
+    # ── The ladder: which resolution answered, and the way to the next ──
+
+    def _report_id(self, report: dict) -> str:
+        """The identity of one report, so a later answer can name it.
+
+        The identity is what a derived answer carries in its
+        provenance: the coarse ranking that proposed the candidate, so
+        a reader can walk back from a verdict to the ranking and on to
+        the index that ranked it.
+        """
+        payload = json.dumps({
+            "query": report.get("query"),
+            "frames": report.get("frame_count"),
+            "backend": report.get("embed_backend"),
+            "policy": report.get("search_policy"),
+            "ranges": [[row.get("clip_id"), row.get("start"), row.get("end")]
+                       for row in report.get("ranges") or []],
+        }, sort_keys=True, default=str)
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+    def _escalation(self, report: dict, query: str) -> dict:
+        """The request that raises this answer to the next tier.
+
+        The estimate is computed from the COARSE answer alone - no
+        source is read, no model is loaded - so asking what the next
+        tier would cost stays as cheap as the answer the caller has.
+        The candidate count is an UPPER BOUND: the verification pass
+        visits the candidates round robin and stops as soon as the
+        caller's list is full, so it may cost less than this.
+        """
+        from library.tools.retrieval import temporal_rerank
+        from library.tools.span_verification import (
+            MEASURED_SECONDS_PER_INTERVAL_VERDICT,
+        )
+
+        ranges = report.get("candidate_ranges") or report.get("ranges") or []
+        if not ranges:
+            return {}
+        # The candidates the pass would judge: the top three ranges of
+        # each camera, capped by the pass's own ceiling.  It visits the
+        # cameras round robin and stops when the caller's list is full,
+        # so this is an UPPER BOUND on the calls.
+        per_camera: dict = {}
+        for row in ranges:
+            per_camera[row.get("clip_id")] = per_camera.get(row.get("clip_id"), 0) + 1
+        calls = min(sum(min(count, temporal_rerank.CANDIDATES_PER_CLIP)
+                        for count in per_camera.values()),
+                    temporal_rerank.MAX_CANDIDATES)
+        return fidelity.escalation(
+            from_tier=fidelity.TIER_COARSE,
+            request={
+                "lane": "visual_verification",
+                "query": query,
+                "windows": len(report.get("ranges") or []),
+                "candidates": len(ranges),
+                "candidates_at_most": calls,
+            },
+            cost_seconds=calls * MEASURED_SECONDS_PER_INTERVAL_VERDICT,
+            cost_basis=(f"at most {calls} verification call(s) at the "
+                        f"measured {MEASURED_SECONDS_PER_INTERVAL_VERDICT} s "
+                        "each (one local vision model call per candidate)"),
+        )
+
+    def _with_fidelity(self, report: dict, query: str, *,
+                        temporal: bool) -> dict:
+        """The answer, carrying the resolution it was reached at.
+
+        A report that measured nothing (a refused query, a missing
+        index) says so in its coverage rather than pretending to be a
+        coarse answer: a refusal at the coarse tier is still a refusal.
+        """
+        payload = {}
+        try:
+            payload = self.payload
+        except RenRefusal:
+            payload = {}
+        representation = {
+            "index": FRAME_INDEX_FILE,
+            "frames": report.get("frame_count"),
+            "embed_backend": report.get("embed_backend"),
+            "clip_model": report.get("clip_model"),
+            "sampling": payload.get("sampling") or "uniform",
+            "step_s": payload.get("step_s"),
+        }
+        measured = not (report.get("refused") or report.get("error"))
+        coverage = {
+            "ran": measured,
+            "abstained": bool(report.get("abstained")),
+            "windows": len(report.get("ranges") or []),
+            "candidates": len(report.get("results") or []),
+        }
+        derived_from = None
+        if temporal:
+            derived_from = {
+                "tier": fidelity.TIER_COARSE,
+                "report_id": report.get("coarse_report_id")
+                or self._report_id(report),
+                "candidates": len(report.get("results") or []),
+            }
+        block = fidelity.provenance(
+            tier=(fidelity.TIER_DETAILED if temporal
+                  else fidelity.TIER_COARSE),
+            lane="visual_frame_index",
+            representation=representation,
+            derived_from=derived_from,
+            coverage=coverage,
+            cost=((report.get("temporal_pass") or {}).get("cost")
+                  if temporal else None),
+        )
+        out = fidelity.annotate(report, fidelity=block)
+        if not temporal:
+            out["escalation"] = self._escalation(report, query)
+        return out
+
+    def verify_ranges(self, query: str, report: dict, *,
+                      merge_gap_s: float = MERGE_GAP_S,
+                      top_ranges: int | None = None,
+                      repeats: int | None = None,
+                      required: bool = True) -> dict:
+        """The detailed tier, computed from a coarse answer.
+
+        The escalation REUSES the coarse answer's candidates: it does
+        not re-rank the index and does not pay for the ranking again.
+        The coarse answer's own policy is read back, so the escalation
+        cannot quietly widen the pool the coarse answer was made with.
+
+        A report that is already the detailed tier is returned as it
+        is: escalating an answer twice must not verify the same
+        candidates twice.
+
+        `required` is true by default because the caller of an
+        escalation ASKED for the detailed tier: a pass that cannot run
+        is reported as a failure of the requested tier, exactly as it
+        is when the tier was asked for in one call.
+        """
+        if (report.get("fidelity") or {}).get("tier") == fidelity.TIER_DETAILED:
+            return report
+        ranges = list(report.get("candidate_ranges")
+                      or report.get("ranges") or [])
+        if not ranges:
+            return self._with_fidelity(report, query, temporal=True)
+        policy = report.get("search_policy") or {}
+        top = (top_ranges if top_ranges is not None
+               else int(policy.get("top_interval_limit") or 5))
+        per_source = (repeats if repeats is not None
+                      else int(policy.get("windows_per_source") or 1))
+        near_miss = (report.get("results") or [None])[0]
+        detailed = dict(report)
+        detailed["coarse_report_id"] = (report.get("coarse_report_id")
+                                        or self._report_id(report))
+        detailed.update(self._temporal_pass(
+            query, ranges, top, repeats=per_source,
+            merge_gap_s=merge_gap_s, required=required,
+            near_miss=near_miss))
+        return self._with_fidelity(detailed, query, temporal=True)
+
     def _temporal_pass(self, query: str, ranges: list, top_ranges: int,
                        repeats: int = 1, merge_gap_s: float = MERGE_GAP_S,
                        required: bool = False,
@@ -1278,6 +1487,15 @@ class FrameIndex:
             # frame, so the range has to say which frame it was.
             "peak_t": (peak or {}).get("t", start),
             "n_frames": len(members),
+            # The ORIGINAL MEDIA behind this candidate: the recording
+            # the frame was taken from, and the frame itself.  A reader
+            # who wants to look at the evidence follows this and sees
+            # the pixels, not a description of them.
+            "original": {
+                "media": filename,
+                "frame_file": (peak or {}).get("frame_file"),
+                "frame_t": (peak or {}).get("t", start),
+            },
             "verified": False,
         }
 

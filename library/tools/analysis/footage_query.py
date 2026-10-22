@@ -4507,6 +4507,11 @@ def _print_frame_report(report):
     print(f"query: {report['query']!r}  scope={report['scope']}  "
           f"{report['frame_count']} frames indexed  "
           f"answer_status={report['answer_status']}")
+    fidelity_block = report.get("fidelity") or {}
+    if fidelity_block:
+        print(f"fidelity: {fidelity_block.get('tier')} - "
+              f"{fidelity_block.get('resolution')} "
+              f"(establishes {fidelity_block.get('establishes')})")
     if report.get("embed_backend"):
         print(f"backend: {report['embed_backend']}")
     if report.get("error"):
@@ -4547,6 +4552,17 @@ def _print_frame_report(report):
               f"candidates established")
         if pass_record.get("reason"):
             print(f"   {pass_record['reason']}")
+    escalation = report.get("escalation") or {}
+    if escalation:
+        request = escalation.get("request") or {}
+        print(f"\nescalation: {escalation.get('from')} -> "
+              f"{escalation.get('to')} - {escalation.get('establishes')}")
+        print(f"   request: {request.get('lane')} for "
+              f"{request.get('candidates_at_most')} candidate(s) of "
+              f"{request.get('windows')} window(s)")
+        if escalation.get("cost_seconds_estimate") is not None:
+            print(f"   measured cost: {escalation['cost_seconds_estimate']}s "
+                  f"({escalation.get('cost_basis')})")
 
 
 def _print_structured(answer):
@@ -4956,7 +4972,9 @@ def search_json(project_folder, query, *, mode="hybrid", top_k=5, floor=None,
             error=report.get("error"),
             answer_status=report["answer_status"],
             extra={"notice": report["notice"],
-                   "temporal_pass": report.get("temporal_pass")})
+                   "temporal_pass": report.get("temporal_pass"),
+                   "fidelity": report.get("fidelity"),
+                   "escalation": report.get("escalation")})
     if lane == "chunks":
         idx = FootageIndex(project_folder, index_dir=index_dir)
         report = idx.search_chunks(query, top_k=top_k, floor=floor)
@@ -5237,6 +5255,17 @@ def main(argv=None):
                                 "and rejects the ones whose evidence does not "
                                 "establish the query; skipping it returns ranked "
                                 "candidates with no verdict behind them")
+    p_search.add_argument("--fidelity", choices=["coarse", "detailed"],
+                           default=None,
+                           help="with --visual: which resolution answers the "
+                                "question. 'detailed' (the default) puts each "
+                                "candidate shot to the local vision model and "
+                                "returns the ones whose evidence establishes "
+                                "the query; 'coarse' ranks the sampled frames "
+                                "and says where to look. A coarse answer "
+                                "carries the request and the measured cost of "
+                                "the detailed one, so a caller asks for more "
+                                "only when it needs more")
     p_search.add_argument("--mode", choices=["hybrid", "dense", "lexical"], default="hybrid")
     p_search.add_argument("--signal-merge", action="store_true",
                           help="opt in to direct shot-facet and precise OCR-span "
@@ -5669,12 +5698,29 @@ def main(argv=None):
             visual_floor = args.visual_floor
         else:
             visual_floor = LANE_FLOOR
+        # Which resolution answers.  The DEFAULT is the verified tier -
+        # the answer the lane has always given - and 'coarse' is the
+        # caller asking for the cheap one on purpose.  The two are not
+        # the same question and asking for both at once is a refusal,
+        # not a preference.
+        if args.fidelity is not None and args.no_temporal:
+            raise RenRefusal(
+                "--no-temporal and --fidelity detailed ask for two "
+                "different answers",
+                "--no-temporal asks for the coarse tier and --fidelity "
+                "detailed asks for the verified one",
+                "ren search <project> \"<what>\" --visual --fidelity "
+                "coarse, or --fidelity detailed",
+                blocker="ambiguous_intent")
+        tier = args.fidelity or ("coarse" if args.no_temporal
+                                 else "detailed")
+        temporal = tier == "detailed"
         if args.json:
             answer = search_json(args.project, args.query, top_k=args.top_k,
                                  include_actions=args.include_actions,
                                  index_dir=args.index_dir, lane="visual",
                                  visual_floor=visual_floor,
-                                 temporal=not args.no_temporal)
+                                 temporal=temporal)
             print(json.dumps(answer, indent=2))
             return 0
         from library.tools.analysis import footage_frames
@@ -5684,7 +5730,7 @@ def main(argv=None):
         report = vidx.search_ranges(args.query, top_ranges=args.top_k,
                                     include_actions=args.include_actions,
                                     floor=visual_floor,
-                                    temporal=not args.no_temporal)
+                                    temporal=temporal)
         elapsed = time.perf_counter() - started
         if report["refused"] is not None:
             raise RenRefusal(

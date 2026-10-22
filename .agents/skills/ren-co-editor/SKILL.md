@@ -223,6 +223,12 @@ it whenever the goal is about what is IN the footage.
   "..."` finds where in the footage something happens; `--person`
   restricts to one person's spans, `--visual` ranks sampled frames. A
   ranking cannot say "not here": below the dense floor is not-in-footage.
+- `ren search <project> --visual --fidelity coarse` asks the CHEAP tier
+  of the frame lane: the ranked candidates, which say where to look and
+  not whether the shot shows it. That answer carries the ESCALATION -
+  what the verified tier would establish and what it is measured to
+  cost - so ask for `--fidelity detailed` (the default) only when you
+  need the verdict. Every answer says which resolution produced it.
 - `ren search <project> --temporal "<question>"` asks the TYPED EVENT
   layer instead of the ranking: "the second time she opens the box"
   resolves to one event with its own interval, its uncertainty and how

@@ -89,6 +89,26 @@ the extra evidence is worth at this size."""
 
 INTERVAL_VERDICT_MAX_TOKENS = 120
 
+MEASURED_SECONDS_PER_INTERVAL_VERDICT = 81.0
+"""The measured cost of ONE interval verification, on this machine.
+
+Measured 2026-10-21 on the GEO podcast reel (seven camera files,
+3840x2160 MXF at 23.976 fps, the footage the project actually shot)
+with the local vision model (``gemma-4-12b-it-4bit`` through MLX): ten
+interval verifications of four frames each, 81.0 s per call, 810 s in
+total.  Later runs on the same reel measured 13.1-17.8 s per call, so
+81.0 s is the SLOWEST measured and the figure a caller is shown is the
+conservative end of the range.
+
+The cost is in the MODEL, not in the footage: a call shows four frames
+of one interval and asks one question about them, and the model's
+answer is the only thing that can establish the claim.  So the number
+is what a caller is told before it buys the next tier of evidence, and
+it is stated as a MEASUREMENT rather than a guess - a caller that is
+asked to pay 810 s of model time deserves to know that is what it is
+paying.
+"""
+
 VERDICT_MAX_TOKENS = 120
 
 VERIFY_LOCK_OWNER = "span-verification"
