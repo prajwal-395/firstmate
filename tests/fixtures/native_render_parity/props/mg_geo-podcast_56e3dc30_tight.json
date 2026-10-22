@@ -1,0 +1,54 @@
+{
+  "elements": [
+    {
+      "element": "lower_third",
+      "anchor": "bottom_left",
+      "layer": "above",
+      "row": 0,
+      "runs": [
+        {
+          "text": "Akshita Gorti",
+          "type_role": "display",
+          "uppercase": false
+        },
+        {
+          "text": "AI @ Lucie Content",
+          "type_role": "supporting",
+          "uppercase": false
+        }
+      ],
+      "color": "#FFFFFF",
+      "colorBasis": "stated by the plan",
+      "entrance": "draw",
+      "exit": "fade",
+      "timeline_start": 5.17,
+      "timeline_end": 8.67,
+      "timing_basis": "declared",
+      "subject": "",
+      "timelineProgressStart": 0.1563,
+      "timelineProgressEnd": 0.2621,
+      "startFrame": 0,
+      "durationFrames": 84,
+      "asset": "brand/Lucie_Logo_Icon_2023.svg",
+      "footprint": null,
+      "emphasis": null,
+      "why": "first appearance of 'Akshita' in this reel, at 5.17s",
+      "data": {
+        "construction": "aep_comp25",
+        "animationVariant": "soft-focus",
+        "speaker": "Akshita",
+        "colour_basis": "effect.speaker_lower_thirds.speakers['Akshita'].colour"
+      }
+    }
+  ],
+  "fps": 23.976023976023978,
+  "width": 476,
+  "height": 480,
+  "safeArea": {
+    "top": 340,
+    "right": 48,
+    "bottom": 48,
+    "left": 48
+  },
+  "durationInFrames": 84
+}

@@ -175,7 +175,8 @@ def check_p6_mg_all_arms() -> str:
 def check_p7_channel_bug_bounds() -> str:
     """channel_bug emits a bounded image on the template's anchor rule,
     and an unreadable asset refuses loudly instead of a silent None.
-    Ends with C3."""
+    C3 landed: the refusal is `AssetNotDrawn`, so a declared asset that
+    drew no image node can no longer ship as a card without it."""
     from PIL import Image
 
     from library.graphics_ir import lowering
@@ -471,7 +472,8 @@ PROBES: tuple[Probe, ...] = (
           "C2", check_p6_mg_all_arms),
     Probe("P7", "channel-bug-bounds", "static",
           "channel_bug emits bounded image + placement matches template",
-          "boundless asset drops to None silently (census G3)", "C3",
+          "bounded image on the anchor rule (940, 40, 100, 50); an "
+          "unreadable asset refuses by name (AssetNotDrawn)", "C3",
           check_p7_channel_bug_bounds),
     Probe("P8", "flip-honest", "static",
           "flip refuses by name at lowering time (no silent 2D)",
@@ -504,9 +506,9 @@ twelfth probe needs a home; it is artefact-measured, so pixel it is.
 P8's claim is the lowering refusal itself, so it is static)."""
 
 EXPECTED_FAIL_TODAY = frozenset({
-    "P7", "P10", "P12",
+    "P10", "P12",
 })
-"""Probes failing today (score 9/12: P1, P2, P3, P4, P5, P6, P8, P9, P11). ``parity_score`` labels
+"""Probes failing today (score 10/12: P1, P2, P3, P4, P5, P6, P7, P8, P9, P11). ``parity_score`` labels
 these expected-fail and the per-probe tests assert each outcome matches
 its label. When a C-item lands, its probe's check passes and the score
 moves - then remove the id here; the probe's test fails until you do,

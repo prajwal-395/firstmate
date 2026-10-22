@@ -102,6 +102,73 @@ def test_an_uninstrumented_project_switch_family_reads_as_unmeasured():
     assert resolve["project_switches_avoided"] is None
 
 
+def test_a_phase_longer_than_its_run_is_clamped(tmp_path):
+    """A phase cannot outlast the run that recorded it.
+
+    The phantom `otio_placement.fusion_comps_s` read 36 hours of a
+    phase that took under a minute: a start timestamp that was really
+    an elapsed average was subtracted from the monotonic clock, and both
+    `ren profile` and the critical path read it as engine time. The
+    run's own id carries the instant it started, so a phase longer than
+    the run is clamped - and the row says it was clamped.
+    """
+    from library.tools import run_id as run_ids
+
+    ledger = tmp_path / "perf.jsonl"
+    run = run_ids.mint_run_id()
+
+    with perf_ledger.recording(ledger, run, "reel_build"):
+        perf_ledger.record("otio_placement.fusion_comps_s", 131422.0)
+
+    rows = perf_ledger.read_rows(tmp_path, ledger)
+    row = next(r for r in rows
+               if r.get("layer") == "otio_placement.fusion_comps_s")
+    assert row["clamped_from_s"] == pytest.approx(131422.0)
+    assert row["wall_s"] < 5.0, "a phase cannot outlast its run"
+    assert row["wall_s"] < row["clamped_from_s"]
+
+
+def test_a_phase_inside_its_run_is_not_clamped(tmp_path):
+    """The clamp touches the impossible, not the measured.
+
+    The run id carries the instant the run started, so the run's own
+    wall is the ceiling. A phase that fits inside it is left alone.
+    """
+    import time
+
+    from library.tools import run_id as run_ids
+
+    ledger = tmp_path / "perf.jsonl"
+    run = run_ids.mint_run_id(now=time.time() - 30.0)
+
+    with perf_ledger.recording(ledger, run, "reel_build"):
+        perf_ledger.record("otio_placement.fusion_comps_s", 0.5)
+
+    rows = perf_ledger.read_rows(tmp_path, ledger)
+    row = next(r for r in rows
+               if r.get("layer") == "otio_placement.fusion_comps_s")
+    assert "clamped_from_s" not in row
+    assert row["wall_s"] == pytest.approx(0.5)
+
+
+def test_a_run_id_this_module_did_not_mint_is_not_clamped(tmp_path):
+    """An unknown run has no window to clamp against.
+
+    A wrongly clamped row is worse than an unclamped one, so a run id
+    from another scheme is left alone.
+    """
+    ledger = tmp_path / "perf.jsonl"
+
+    with perf_ledger.recording(ledger, "r1", "reel_build"):
+        perf_ledger.record("otio_placement.fusion_comps_s", 131422.0)
+
+    rows = perf_ledger.read_rows(tmp_path, ledger)
+    row = next(r for r in rows
+               if r.get("layer") == "otio_placement.fusion_comps_s")
+    assert "clamped_from_s" not in row
+    assert row["wall_s"] == pytest.approx(131422.0)
+
+
 def test_recording_is_thread_local_and_counts_calls(tmp_path):
     path = tmp_path / "perf.jsonl"
     rows_before = perf_ledger.read_rows(tmp_path, path)

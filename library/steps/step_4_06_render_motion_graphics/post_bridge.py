@@ -211,16 +211,39 @@ def _fframes_fallback_reason(render_props: dict,
     Fail-closed: anything unreadable here routes the card to the
     Remotion render explicitly rather than shipping an FFrames blank.
     An arm with no lowering leaves no group node behind (census G2);
-    an image node with no bounds cannot be drawn (census G3) - both
-    are named, never silently skipped.
+    an image node with no bounds cannot be drawn (census G3); an
+    element that DECLARES an asset and lowers to no image node would
+    ship without that asset - all three are named, never silently
+    skipped.
+
+    The arm check comes first because it is the cheaper and more
+    informative refusal: an arm with no lowering has nothing to lower,
+    whatever its asset says.
     """
     from library.graphics_ir import lowering as _lowering
+
+    for element in render_props.get("elements", []):
+        kind = element.get("element", "")
+        unfaithful = _lowering.MG_FFRAMES_UNCOVERED_ARMS.get(kind)
+        if unfaithful:
+            # The IR lowers this arm, but not as the plan declared it:
+            # shipping it would change the picture.
+            return (f"arm {kind!r} is not drawn as the plan declared it "
+                    f"({unfaithful}); falling back to Remotion")
+        if kind not in _lowering.MG_FFRAMES_COVERED_ARMS:
+            return (f"arm {kind!r} has no FFrames lowering yet; "
+                    f"falling back to Remotion")
 
     try:
         from library.tools import fframes_render as _ff
         resolved = _ff.resolve_props(
             "MotionGraphics", render_props, project_folder or "")
         scene = _lowering.lower_motion_graphics(resolved)
+    except _lowering.AssetNotDrawn as exc:
+        # A declared asset drew no image node: this card cannot ship
+        # FFrames pixels without losing the asset it declares.
+        return (f"a declared asset drew no image node ({exc}); "
+                f"falling back to Remotion")[:300]
     except Exception as exc:
         return (f"FFrames lowering failed ({exc}); "
                 f"falling back to Remotion")[:300]
@@ -231,9 +254,6 @@ def _fframes_fallback_reason(render_props: dict,
               and node.id.startswith("element_")}
     for element in render_props.get("elements", []):
         kind = element.get("element", "")
-        if kind not in _lowering.MG_FFRAMES_COVERED_ARMS:
-            return (f"arm {kind!r} has no FFrames lowering yet; "
-                    f"falling back to Remotion")
         try:
             start = int(element.get("startFrame", 0))
         except (TypeError, ValueError):

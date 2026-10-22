@@ -29,6 +29,7 @@ import os
 import re
 import secrets
 import time
+from datetime import UTC, datetime
 
 # The environment name the runner exports. Children (step subprocesses,
 # the perf ledger) read the run they belong to off this.
@@ -101,3 +102,24 @@ def is_run_id(value: object) -> bool:
     stored value came from.
     """
     return is_unified_run_id(value) or is_legacy_run_id(value)
+
+
+def started_at(run_id: object) -> float | None:
+    """When the run this id names started, in epoch seconds, or None.
+
+    The unified id carries the UTC instant the run was minted at, so a
+    row claiming to have taken longer than the run itself lasted is
+    visibly impossible - the ledger clamps against this (the phantom
+    `otio_placement.fusion_comps_s` phase read 36 hours of a phase that
+    took under a minute). None for an id this module did not mint, and
+    for the legacy scheme, whose timestamp is local time.
+    """
+    if not is_unified_run_id(run_id):
+        return None
+    stamp = str(run_id).split("-")[1]
+    try:
+        moment = datetime.strptime(stamp, "%Y%m%dT%H%M%SZ").replace(
+            tzinfo=UTC)
+    except ValueError:
+        return None
+    return moment.timestamp()

@@ -1,0 +1,97 @@
+{
+  "elements": [
+    {
+      "element": "lower_third",
+      "anchor": "bottom_left",
+      "layer": "above",
+      "row": 0,
+      "runs": [
+        {
+          "text": "Craig Lucie",
+          "type_role": "display",
+          "uppercase": false
+        },
+        {
+          "text": "CEO Lucie Content",
+          "type_role": "supporting",
+          "uppercase": false
+        }
+      ],
+      "color": "#FBF0B8",
+      "colorBasis": "stated by the plan",
+      "entrance": "draw",
+      "exit": "fade",
+      "timeline_start": 0.0,
+      "timeline_end": 3.2,
+      "timing_basis": "declared",
+      "subject": "",
+      "timelineProgressStart": 0.0,
+      "timelineProgressEnd": 0.0424,
+      "startFrame": 0,
+      "durationFrames": 77,
+      "asset": "",
+      "footprint": null,
+      "emphasis": null,
+      "why": "first appearance of 'Craig' in this reel, at 0.0s Truncated to 3.2s from 3.5s: ends where the next speaker's card begins at 3.2s, because two cards cannot occupy one row at one time.",
+      "data": {
+        "construction": "staged_rule",
+        "speaker": "Craig",
+        "colour_basis": "pipeline.speaker_subtitle_styles['Craig'].accentColor",
+        "truncated_for_next": {
+          "hold_seconds": 3.5,
+          "duration_seconds": 3.2,
+          "next_starts_at": 3.2
+        }
+      }
+    },
+    {
+      "element": "lower_third",
+      "anchor": "bottom_left",
+      "layer": "above",
+      "row": 0,
+      "runs": [
+        {
+          "text": "Akshita Gorti",
+          "type_role": "display",
+          "uppercase": false
+        },
+        {
+          "text": "AI @ Lucie Content",
+          "type_role": "supporting",
+          "uppercase": false
+        }
+      ],
+      "color": "#68AEE0",
+      "colorBasis": "captain-provided reference image sample",
+      "entrance": "draw",
+      "exit": "fade",
+      "timeline_start": 3.2,
+      "timeline_end": 6.7,
+      "timing_basis": "declared",
+      "subject": "",
+      "timelineProgressStart": 0.0424,
+      "timelineProgressEnd": 0.0888,
+      "startFrame": 77,
+      "durationFrames": 84,
+      "asset": "",
+      "footprint": null,
+      "emphasis": null,
+      "why": "first appearance of 'Akshita' in this reel, at 3.2s",
+      "data": {
+        "construction": "staged_rule",
+        "speaker": "Akshita",
+        "colour_basis": "pipeline.speaker_subtitle_styles[\"Akshita\"].accentColor"
+      }
+    }
+  ],
+  "fps": 23.976023976023978,
+  "width": 536,
+  "height": 480,
+  "safeArea": {
+    "top": 310,
+    "right": 48,
+    "bottom": 48,
+    "left": 48
+  },
+  "durationInFrames": 161
+}

@@ -1,0 +1,58 @@
+{
+  "elements": [
+    {
+      "element": "lower_third",
+      "anchor": "bottom_left",
+      "layer": "above",
+      "row": 0,
+      "runs": [
+        {
+          "text": "Craig Lucie",
+          "type_role": "display",
+          "uppercase": false
+        },
+        {
+          "text": "CEO Lucie Content",
+          "type_role": "supporting",
+          "uppercase": false
+        }
+      ],
+      "color": "#FBF0B8",
+      "colorBasis": "stated by the plan",
+      "entrance": "draw",
+      "exit": "fade",
+      "timeline_start": 0.02,
+      "timeline_end": 2.82,
+      "timing_basis": "declared",
+      "subject": "",
+      "timelineProgressStart": 0.0005,
+      "timelineProgressEnd": 0.0668,
+      "startFrame": 0,
+      "durationFrames": 67,
+      "asset": "",
+      "footprint": null,
+      "emphasis": null,
+      "why": "first appearance of 'Craig' in this reel, at 0.02s Truncated to 2.8s from 3.5s: ends where the next speaker's card begins at 2.82s, because two cards cannot occupy one row at one time.",
+      "data": {
+        "construction": "staged_rule",
+        "speaker": "Craig",
+        "colour_basis": "pipeline.speaker_subtitle_styles['Craig'].accentColor",
+        "truncated_for_next": {
+          "hold_seconds": 3.5,
+          "duration_seconds": 2.8,
+          "next_starts_at": 2.82
+        }
+      }
+    }
+  ],
+  "fps": 23.976023976023978,
+  "width": 468,
+  "height": 480,
+  "safeArea": {
+    "top": 310,
+    "right": 48,
+    "bottom": 48,
+    "left": 48
+  },
+  "durationInFrames": 67
+}

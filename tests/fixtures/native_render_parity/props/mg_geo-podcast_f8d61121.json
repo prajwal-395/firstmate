@@ -1,0 +1,50 @@
+{
+  "elements": [
+    {
+      "element": "quote_card",
+      "anchor": "top_centre",
+      "layer": "above",
+      "row": 0,
+      "runs": [
+        {
+          "text": "GREAT FOR GOOGLE,",
+          "type_role": "display",
+          "uppercase": false
+        },
+        {
+          "text": "NOT FOR AI",
+          "type_role": "supporting",
+          "uppercase": false
+        }
+      ],
+      "color": "#aabbcc",
+      "colorBasis": "brand palette role 'text' of 'cinematic_narrative'",
+      "entrance": "fade",
+      "exit": "fade",
+      "timeline_start": 23.65,
+      "timeline_end": 28.15,
+      "timing_basis": "word_window:great for Google, not for AI",
+      "subject": "the contrast line the whole reel turns on - keyword writing serves Google, not AI",
+      "timelineProgressStart": 0.4241,
+      "timelineProgressEnd": 0.5048,
+      "startFrame": 0,
+      "durationFrames": 108,
+      "asset": "",
+      "footprint": null,
+      "emphasis": null,
+      "why": "the verdict line arrives mid-answer and the picture shows a talking head, not the two audiences; the card holds the contrast while she explains what AI wants instead",
+      "data": {}
+    }
+  ],
+  "fps": 23.976023976023978,
+  "width": 846,
+  "height": 480,
+  "safeArea": {
+    "top": 48,
+    "right": 48,
+    "bottom": 314,
+    "left": 48
+  },
+  "durationInFrames": 108,
+  "layoutWidth": 750.0
+}

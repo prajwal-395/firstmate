@@ -1,0 +1,55 @@
+{
+  "elements": [
+    {
+      "element": "list_build",
+      "anchor": "top_centre",
+      "layer": "above",
+      "row": 0,
+      "runs": [
+        {
+          "text": "Run the prompts",
+          "type_role": "display",
+          "uppercase": false
+        },
+        {
+          "text": "Run the scenarios",
+          "type_role": "supporting",
+          "uppercase": false
+        },
+        {
+          "text": "Check who cites you",
+          "type_role": "supporting",
+          "uppercase": false
+        }
+      ],
+      "color": "#aabbcc",
+      "colorBasis": "brand palette role 'text' of 'cinematic_narrative'",
+      "entrance": "slide",
+      "exit": "fade",
+      "timeline_start": 18.98,
+      "timeline_end": 25.98,
+      "timing_basis": "word_window:different scenarios",
+      "subject": "what measuring visibility consists of, enumerated as she states it",
+      "timelineProgressStart": 0.4302,
+      "timelineProgressEnd": 0.5889,
+      "startFrame": 0,
+      "durationFrames": 168,
+      "asset": "",
+      "footprint": null,
+      "emphasis": null,
+      "why": "the measurement is a three-part procedure and the viewer keeps none of it from audio alone; the list holds all three while she lands the statistics-citations-quotes close",
+      "data": {}
+    }
+  ],
+  "fps": 23.976023976023978,
+  "width": 846,
+  "height": 480,
+  "safeArea": {
+    "top": 48,
+    "right": 48,
+    "bottom": 188,
+    "left": 48
+  },
+  "durationInFrames": 168,
+  "layoutWidth": 750.0
+}

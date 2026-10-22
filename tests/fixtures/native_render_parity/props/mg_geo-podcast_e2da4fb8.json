@@ -1,0 +1,55 @@
+{
+  "elements": [
+    {
+      "element": "title_lockup",
+      "anchor": "centre",
+      "layer": "above",
+      "row": 0,
+      "runs": [
+        {
+          "text": "Descriptions",
+          "type_role": "display",
+          "uppercase": false
+        },
+        {
+          "text": "Titles",
+          "type_role": "display",
+          "uppercase": false
+        },
+        {
+          "text": "Headers",
+          "type_role": "display",
+          "uppercase": false
+        }
+      ],
+      "color": "#FBF0B8",
+      "colorBasis": "stated by the plan",
+      "entrance": "fade",
+      "exit": "fade",
+      "timeline_start": 52.4,
+      "timeline_end": 58.4,
+      "timing_basis": "word_window:you have your titles, your headers",
+      "subject": "the three things to optimise for GEO, enumerated as she closes on them",
+      "timelineProgressStart": 0.6696,
+      "timelineProgressEnd": 0.7463,
+      "startFrame": 0,
+      "durationFrames": 144,
+      "asset": "",
+      "footprint": null,
+      "emphasis": null,
+      "why": "the close is a three-item checklist and the viewer keeps none of it from audio alone; the list holds all three while she lands the cite-you payoff",
+      "data": {}
+    }
+  ],
+  "fps": 23.976023976023978,
+  "width": 846,
+  "height": 480,
+  "safeArea": {
+    "top": 135,
+    "right": 48,
+    "bottom": 135,
+    "left": 48
+  },
+  "durationInFrames": 144,
+  "layoutWidth": 750.0
+}

@@ -1,0 +1,978 @@
+{
+ "measured_on": "2026-10-21",
+ "source": "the geo-podcast project's own shipped motion-graphics cards: 86 props files and the .mov artefact each one shipped, read only",
+ "method": "ink IoU per frame (alpha > 16), mean over the card: the card as the engine the gate selects draws it today, against the artefact the project shipped. The stored frames are the artefact's INK MASK (alpha > 16), the exact quantity the parity check compares.",
+ "counts": {
+  "cards": 86,
+  "within_0.90_before": 62,
+  "within_0.90_after": 71,
+  "regressed": 0,
+  "lower_third_cards": 10,
+  "lower_third_cards_declaring_a_brand_asset": 2,
+  "lower_thirds_keeping_their_brand_asset_before": 0,
+  "lower_thirds_keeping_their_brand_asset_after": 2
+ },
+ "sample_cards": [
+  "mg_geo-podcast_e2da4fb8",
+  "mg_geo-podcast_f8d61121",
+  "mg_geo-podcast_5ec720c7",
+  "mg_geo-podcast_3fbe2421"
+ ],
+ "cards": [
+  {
+   "card": "mg_geo-podcast_03cfd15b_tight",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9366,
+   "ink_iou_before": 0.9366
+  },
+  {
+   "card": "mg_geo-podcast_058e1d98",
+   "arms": [
+    "beat_accent"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "remotion",
+   "ink_iou": 1.0,
+   "ink_iou_before": 1.0
+  },
+  {
+   "card": "mg_geo-podcast_0ad89bd3",
+   "arms": [
+    "subject_emblem"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "remotion",
+   "ink_iou": 1.0,
+   "ink_iou_before": 1.0
+  },
+  {
+   "card": "mg_geo-podcast_0eb6c00d",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9403,
+   "ink_iou_before": 0.9403
+  },
+  {
+   "card": "mg_geo-podcast_0ef484d3",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9466,
+   "ink_iou_before": 0.9466
+  },
+  {
+   "card": "mg_geo-podcast_1477d297_tight",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9478,
+   "ink_iou_before": 0.9478
+  },
+  {
+   "card": "mg_geo-podcast_175bdcae_tight",
+   "arms": [
+    "quote_card"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.6556,
+   "ink_iou_before": 0.6556
+  },
+  {
+   "card": "mg_geo-podcast_2b0e0e48",
+   "arms": [
+    "quote_card"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.8901,
+   "ink_iou_before": 0.8901
+  },
+  {
+   "card": "mg_geo-podcast_2d5066dd",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9457,
+   "ink_iou_before": 0.9457
+  },
+  {
+   "card": "mg_geo-podcast_30e073e0",
+   "arms": [
+    "list_build",
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.4363,
+   "ink_iou_before": 0.4363
+  },
+  {
+   "card": "mg_geo-podcast_3107ff3d_tight",
+   "arms": [
+    "lower_third"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "remotion",
+   "ink_iou": 1.0,
+   "ink_iou_before": 0.3393
+  },
+  {
+   "card": "mg_geo-podcast_32342f0f",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9456,
+   "ink_iou_before": 0.9456
+  },
+  {
+   "card": "mg_geo-podcast_34ddbba1",
+   "arms": [
+    "stat_callout"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.934,
+   "ink_iou_before": 0.934
+  },
+  {
+   "card": "mg_geo-podcast_35ad5429",
+   "arms": [
+    "subject_emblem"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "remotion",
+   "ink_iou": 1.0,
+   "ink_iou_before": 1.0
+  },
+  {
+   "card": "mg_geo-podcast_3971bc07",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9431,
+   "ink_iou_before": 0.9431
+  },
+  {
+   "card": "mg_geo-podcast_39f376bb",
+   "arms": [
+    "quote_card"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.943,
+   "ink_iou_before": 0.943
+  },
+  {
+   "card": "mg_geo-podcast_3fbe2421",
+   "arms": [
+    "stat_callout"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.936,
+   "ink_iou_before": 0.936
+  },
+  {
+   "card": "mg_geo-podcast_41787e4c",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9424,
+   "ink_iou_before": 0.9424
+  },
+  {
+   "card": "mg_geo-podcast_4295d5fa",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9424,
+   "ink_iou_before": 0.9424
+  },
+  {
+   "card": "mg_geo-podcast_4342fefd",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9541,
+   "ink_iou_before": 0.9541
+  },
+  {
+   "card": "mg_geo-podcast_43c3e0c0_tight",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9439,
+   "ink_iou_before": 0.9439
+  },
+  {
+   "card": "mg_geo-podcast_448dde52",
+   "arms": [
+    "lower_third"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "remotion",
+   "ink_iou": 1.0,
+   "ink_iou_before": 0.3103
+  },
+  {
+   "card": "mg_geo-podcast_454342ff",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9488,
+   "ink_iou_before": 0.9488
+  },
+  {
+   "card": "mg_geo-podcast_463e1c5a",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9416,
+   "ink_iou_before": 0.9416
+  },
+  {
+   "card": "mg_geo-podcast_4648a340",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9442,
+   "ink_iou_before": 0.9442
+  },
+  {
+   "card": "mg_geo-podcast_4afa93b2",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9663,
+   "ink_iou_before": 0.9663
+  },
+  {
+   "card": "mg_geo-podcast_4b156e20_tight",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9505,
+   "ink_iou_before": 0.9505
+  },
+  {
+   "card": "mg_geo-podcast_4c0ccd61",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9313,
+   "ink_iou_before": 0.9313
+  },
+  {
+   "card": "mg_geo-podcast_4f4ceff8",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9453,
+   "ink_iou_before": 0.9453
+  },
+  {
+   "card": "mg_geo-podcast_56e3dc30_tight",
+   "arms": [
+    "lower_third"
+   ],
+   "assets": [
+    "brand/Lucie_Logo_Icon_2023.svg"
+   ],
+   "asset_drawn": false,
+   "engine": "remotion",
+   "ink_iou": 0.3187,
+   "ink_iou_before": 0.0959
+  },
+  {
+   "card": "mg_geo-podcast_580acba8_tight",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9256,
+   "ink_iou_before": 0.9256
+  },
+  {
+   "card": "mg_geo-podcast_5a3d06b9",
+   "arms": [
+    "channel_bug"
+   ],
+   "assets": [
+    "brand/Lucie Social Bug 2024 (NEW) - tight.png"
+   ],
+   "asset_drawn": true,
+   "engine": "fframes",
+   "ink_iou": 1.0,
+   "ink_iou_before": 1.0
+  },
+  {
+   "card": "mg_geo-podcast_5b47c1a6",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9461,
+   "ink_iou_before": 0.9461
+  },
+  {
+   "card": "mg_geo-podcast_5c80d23b",
+   "arms": [
+    "list_build"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9608,
+   "ink_iou_before": 0.9608
+  },
+  {
+   "card": "mg_geo-podcast_5e9c8876",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9295,
+   "ink_iou_before": 0.9295
+  },
+  {
+   "card": "mg_geo-podcast_5e9e12d9_tight",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.7881,
+   "ink_iou_before": 0.7881
+  },
+  {
+   "card": "mg_geo-podcast_5ec720c7",
+   "arms": [
+    "list_build"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9627,
+   "ink_iou_before": 0.9627
+  },
+  {
+   "card": "mg_geo-podcast_61f762ef",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9295,
+   "ink_iou_before": 0.9295
+  },
+  {
+   "card": "mg_geo-podcast_6566dd9b",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9596,
+   "ink_iou_before": 0.9596
+  },
+  {
+   "card": "mg_geo-podcast_69c656fb",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9445,
+   "ink_iou_before": 0.9445
+  },
+  {
+   "card": "mg_geo-podcast_6e0c2285",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9518,
+   "ink_iou_before": 0.9518
+  },
+  {
+   "card": "mg_geo-podcast_6f6f5a55_tight",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9255,
+   "ink_iou_before": 0.9255
+  },
+  {
+   "card": "mg_geo-podcast_758405c4",
+   "arms": [
+    "lower_third"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "remotion",
+   "ink_iou": 1.0,
+   "ink_iou_before": 0.4088
+  },
+  {
+   "card": "mg_geo-podcast_76853f5f_tight",
+   "arms": [
+    "lower_third"
+   ],
+   "assets": [
+    "brand/Lucie_Logo_Icon_2023.svg"
+   ],
+   "asset_drawn": false,
+   "engine": "remotion",
+   "ink_iou": 0.3701,
+   "ink_iou_before": 0.0645
+  },
+  {
+   "card": "mg_geo-podcast_7e0b85aa",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9423,
+   "ink_iou_before": 0.9423
+  },
+  {
+   "card": "mg_geo-podcast_7fd92b38",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.943,
+   "ink_iou_before": 0.943
+  },
+  {
+   "card": "mg_geo-podcast_80f369ba",
+   "arms": [
+    "list_build"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9408,
+   "ink_iou_before": 0.9408
+  },
+  {
+   "card": "mg_geo-podcast_8576b03d_tight",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.7859,
+   "ink_iou_before": 0.7859
+  },
+  {
+   "card": "mg_geo-podcast_865c079e_tight",
+   "arms": [
+    "lower_third"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "remotion",
+   "ink_iou": 1.0,
+   "ink_iou_before": 0.3202
+  },
+  {
+   "card": "mg_geo-podcast_86f22dae_tight",
+   "arms": [
+    "subject_emblem",
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "remotion",
+   "ink_iou": 0.5791,
+   "ink_iou_before": 0.5791
+  },
+  {
+   "card": "mg_geo-podcast_8e511711_tight",
+   "arms": [
+    "lower_third"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "remotion",
+   "ink_iou": 1.0,
+   "ink_iou_before": 0.3103
+  },
+  {
+   "card": "mg_geo-podcast_91eb963a",
+   "arms": [
+    "list_build"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9616,
+   "ink_iou_before": 0.9616
+  },
+  {
+   "card": "mg_geo-podcast_93fe3770_tight",
+   "arms": [
+    "lower_third"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "remotion",
+   "ink_iou": 1.0,
+   "ink_iou_before": 0.3103
+  },
+  {
+   "card": "mg_geo-podcast_96d262bb",
+   "arms": [
+    "stat_callout"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.932,
+   "ink_iou_before": 0.932
+  },
+  {
+   "card": "mg_geo-podcast_987ac9d3_tight",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.8243,
+   "ink_iou_before": 0.5123
+  },
+  {
+   "card": "mg_geo-podcast_9a9b9725",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9484,
+   "ink_iou_before": 0.9484
+  },
+  {
+   "card": "mg_geo-podcast_9ab1f995_tight",
+   "arms": [
+    "lower_third"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "remotion",
+   "ink_iou": 1.0,
+   "ink_iou_before": 0.3393
+  },
+  {
+   "card": "mg_geo-podcast_9b9cb0d8_tight",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.7913,
+   "ink_iou_before": 0.7913
+  },
+  {
+   "card": "mg_geo-podcast_9c3970e0",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9355,
+   "ink_iou_before": 0.9355
+  },
+  {
+   "card": "mg_geo-podcast_9d0bea37",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9472,
+   "ink_iou_before": 0.9472
+  },
+  {
+   "card": "mg_geo-podcast_9db05c61",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9426,
+   "ink_iou_before": 0.9426
+  },
+  {
+   "card": "mg_geo-podcast_a01f1ae8_tight",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9305,
+   "ink_iou_before": 0.9305
+  },
+  {
+   "card": "mg_geo-podcast_a27bae81",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9497,
+   "ink_iou_before": 0.9497
+  },
+  {
+   "card": "mg_geo-podcast_a3814e47_tight",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9224,
+   "ink_iou_before": 0.9224
+  },
+  {
+   "card": "mg_geo-podcast_a6292208",
+   "arms": [
+    "review_panel"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "remotion",
+   "ink_iou": 1.0,
+   "ink_iou_before": 1.0
+  },
+  {
+   "card": "mg_geo-podcast_b2126b9e",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.952,
+   "ink_iou_before": 0.952
+  },
+  {
+   "card": "mg_geo-podcast_b9d18a5b",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9399,
+   "ink_iou_before": 0.9399
+  },
+  {
+   "card": "mg_geo-podcast_bec66f15_tight",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.7824,
+   "ink_iou_before": 0.7824
+  },
+  {
+   "card": "mg_geo-podcast_c3cb68d3",
+   "arms": [
+    "stat_callout"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9357,
+   "ink_iou_before": 0.9357
+  },
+  {
+   "card": "mg_geo-podcast_c501591e_tight",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.7172,
+   "ink_iou_before": 0.7172
+  },
+  {
+   "card": "mg_geo-podcast_c646bad1",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9356,
+   "ink_iou_before": 0.9356
+  },
+  {
+   "card": "mg_geo-podcast_c890ed3f_tight",
+   "arms": [
+    "quote_card",
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.5357,
+   "ink_iou_before": 0.5357
+  },
+  {
+   "card": "mg_geo-podcast_cd3c6674_tight",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9497,
+   "ink_iou_before": 0.9497
+  },
+  {
+   "card": "mg_geo-podcast_cf1d7f68",
+   "arms": [
+    "quote_card"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9448,
+   "ink_iou_before": 0.9448
+  },
+  {
+   "card": "mg_geo-podcast_cf43948a_tight",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9314,
+   "ink_iou_before": 0.9314
+  },
+  {
+   "card": "mg_geo-podcast_d5cb0e3e",
+   "arms": [
+    "subject_emblem"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "remotion",
+   "ink_iou": 1.0,
+   "ink_iou_before": 1.0
+  },
+  {
+   "card": "mg_geo-podcast_dbfbd346",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9447,
+   "ink_iou_before": 0.9447
+  },
+  {
+   "card": "mg_geo-podcast_e1b5df7a",
+   "arms": [
+    "beat_accent"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "remotion",
+   "ink_iou": 1.0,
+   "ink_iou_before": 1.0
+  },
+  {
+   "card": "mg_geo-podcast_e2aafaef",
+   "arms": [
+    "list_build"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.7204,
+   "ink_iou_before": 0.7204
+  },
+  {
+   "card": "mg_geo-podcast_e2da4fb8",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.963,
+   "ink_iou_before": 0.7057
+  },
+  {
+   "card": "mg_geo-podcast_e2fe2476",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9333,
+   "ink_iou_before": 0.9213
+  },
+  {
+   "card": "mg_geo-podcast_ec067b61_tight",
+   "arms": [
+    "quote_card"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.3721,
+   "ink_iou_before": 0.3721
+  },
+  {
+   "card": "mg_geo-podcast_ef805095",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9332,
+   "ink_iou_before": 0.9332
+  },
+  {
+   "card": "mg_geo-podcast_f0cbc3a9",
+   "arms": [
+    "lower_third"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "remotion",
+   "ink_iou": 1.0,
+   "ink_iou_before": 0.3944
+  },
+  {
+   "card": "mg_geo-podcast_f8953e67",
+   "arms": [
+    "title_lockup"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9449,
+   "ink_iou_before": 0.9449
+  },
+  {
+   "card": "mg_geo-podcast_f8d61121",
+   "arms": [
+    "quote_card"
+   ],
+   "assets": [],
+   "asset_drawn": null,
+   "engine": "fframes",
+   "ink_iou": 0.9483,
+   "ink_iou_before": 0.9483
+  }
+ ]
+}

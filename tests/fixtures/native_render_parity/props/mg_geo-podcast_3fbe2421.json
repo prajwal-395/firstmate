@@ -1,0 +1,50 @@
+{
+  "elements": [
+    {
+      "element": "stat_callout",
+      "anchor": "centre",
+      "layer": "above",
+      "row": 0,
+      "runs": [
+        {
+          "text": "2023",
+          "type_role": "display",
+          "uppercase": false
+        },
+        {
+          "text": "GOOGLE'S LIST",
+          "type_role": "supporting",
+          "uppercase": false
+        }
+      ],
+      "color": "#aabbcc",
+      "colorBasis": "brand palette role 'text' of 'cinematic_narrative'",
+      "entrance": "fade",
+      "exit": "fade",
+      "timeline_start": 10.88,
+      "timeline_end": 14.88,
+      "timing_basis": "word_window:a list from 2023",
+      "subject": "the stale year on Google's answer - the figure the reel's whole point rests on",
+      "timelineProgressStart": 0.418,
+      "timelineProgressEnd": 0.5716,
+      "startFrame": 0,
+      "durationFrames": 96,
+      "asset": "",
+      "footprint": null,
+      "emphasis": null,
+      "why": "staleness is the verdict and it is carried by one number heard once; the drawn figure holds while Akshita lands the ChatGPT half, so the viewer reads the comparison instead of reconstructing it from memory",
+      "data": {}
+    }
+  ],
+  "fps": 23.976023976023978,
+  "width": 846,
+  "height": 480,
+  "safeArea": {
+    "top": 183,
+    "right": 48,
+    "bottom": 183,
+    "left": 48
+  },
+  "durationInFrames": 96,
+  "layoutWidth": 750.0
+}

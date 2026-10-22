@@ -3,6 +3,7 @@ import pytest
 from library.graphics_ir.evaluator import evaluate
 from library.graphics_ir.layout import measure_text
 from library.graphics_ir.lowering import (
+    AssetNotDrawn,
     lower_brand_motion,
     lower_full_frame_card,
     lower_motion_graphics,
@@ -361,6 +362,61 @@ def _mg_element(kind, **overrides):
     return element
 
 
+class TestTextArmCase:
+    """A display run draws in the case its plan states.
+
+    The composition's `runStyle` takes the RUN's own `uppercase` flag:
+    copy renders as written unless the run declares `uppercase: true`.
+    The IR uppercased every display run instead, so a lower third whose
+    plan declared `uppercase: false` was drawn `AKSHITA GORTI` where the
+    reel says `Akshita Gorti` - measured at ink IoU 0.096 against the
+    artefact the project shipped (the scout's Reel 26 measurement).
+    A display role is a size and a weight; it is never a case.
+    """
+
+    def _text_props(self, arm, runs):
+        return _mg_arm_props(arm, _mg_element(arm, runs=runs))
+
+    def test_a_display_run_draws_as_written_when_the_plan_says_so(self):
+        props = self._text_props("lower_third", [
+            {"text": "Akshita Gorti", "type_role": "display",
+             "uppercase": False},
+            {"text": "AI @ Lucie Content", "type_role": "supporting",
+             "uppercase": False},
+        ])
+
+        scene = lower_motion_graphics(props)
+
+        by_id = {n.id: n for n in scene.nodes}
+        name = by_id["element_lower_third_0_run_0"]
+        assert name.text.text_transform is None
+        assert name.text.text == "Akshita Gorti"
+
+    def test_a_run_that_declares_uppercase_is_uppercased(self):
+        props = self._text_props("title_lockup", [
+            {"text": "best crm", "type_role": "display", "uppercase": True},
+        ])
+
+        scene = lower_motion_graphics(props)
+
+        title = next(n for n in scene.nodes
+                     if n.id == "element_title_lockup_0_run_0")
+        assert title.text.text_transform == "uppercase"
+
+    def test_the_title_lockup_draws_its_copy_as_written(self):
+        props = self._text_props("title_lockup", [
+            {"text": "What's the best CRM?", "type_role": "display",
+             "uppercase": False},
+        ])
+
+        scene = lower_motion_graphics(props)
+
+        title = next(n for n in scene.nodes
+                     if n.id == "element_title_lockup_0_run_0")
+        assert title.text.text_transform is None
+        assert title.text.text == "What's the best CRM?"
+
+
 class TestContextStampLowering:
     def test_pill_draws_plan_colour_with_white_copy_at_point_eight(self):
         props = _mg_arm_props(
@@ -644,13 +700,20 @@ class TestWebsitePanelLowering:
                     and "stack_" not in n.id]
 
     def test_unreadable_asset_draws_nothing(self):
+        """A declared asset that cannot be drawn is REFUSED, not dropped.
+
+        The card would ship without the asset it declares, and the
+        omission is silent in the picture - so the lowering refuses by
+        name and the caller routes the card to the renderer that draws
+        it.
+        """
         props = _mg_arm_props(
             "website_panel",
             _mg_element("website_panel", asset="/tmp/does-not-exist.png"),
         )
-        scene = lower_motion_graphics(props)
-        assert not [n for n in scene.nodes if "website_panel" in n.id
-                    and "stack_" not in n.id]
+        with pytest.raises(AssetNotDrawn) as refusal:
+            lower_motion_graphics(props)
+        assert "does-not-exist.png" in str(refusal.value)
 
     def test_panel_wraps_address_and_contained_shot(self, tmp_path):
         from PIL import Image

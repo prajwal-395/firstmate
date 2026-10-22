@@ -1,0 +1,54 @@
+{
+  "elements": [
+    {
+      "element": "lower_third",
+      "anchor": "bottom_left",
+      "layer": "above",
+      "row": 0,
+      "runs": [
+        {
+          "text": "Craig Lucie",
+          "type_role": "display",
+          "uppercase": false
+        },
+        {
+          "text": "CEO Lucie Content",
+          "type_role": "supporting",
+          "uppercase": false
+        }
+      ],
+      "color": "#FFFFFF",
+      "colorBasis": "stated by the plan",
+      "entrance": "draw",
+      "exit": "fade",
+      "timeline_start": 0.0,
+      "timeline_end": 3.5,
+      "timing_basis": "declared",
+      "subject": "",
+      "timelineProgressStart": 0.0,
+      "timelineProgressEnd": 0.1058,
+      "startFrame": 0,
+      "durationFrames": 84,
+      "asset": "brand/Lucie_Logo_Icon_2023.svg",
+      "footprint": null,
+      "emphasis": null,
+      "why": "first appearance of 'Craig' in this reel, at 0.0s",
+      "data": {
+        "construction": "aep_comp25",
+        "animationVariant": "soft-focus",
+        "speaker": "Craig",
+        "colour_basis": "effect.speaker_lower_thirds.speakers['Craig'].colour"
+      }
+    }
+  ],
+  "fps": 23.976023976023978,
+  "width": 438,
+  "height": 480,
+  "safeArea": {
+    "top": 342,
+    "right": 48,
+    "bottom": 48,
+    "left": 48
+  },
+  "durationInFrames": 84
+}

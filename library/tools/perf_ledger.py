@@ -758,6 +758,29 @@ def media_decode(source_path, *, purpose: str, media_kind: str,
                 row["source_changed_during_decode"] = changed
 
 
+def _run_wall_ceiling(run_id: str | None) -> float | None:
+    """How long the run that owns a row has been alive, in seconds.
+
+    A phase cannot outlast the run it belongs to: the run's own id
+    carries the instant it was minted at, so the ceiling is the time
+    since then. This is the clamp that keeps a PHANTOM phase out of the
+    ledger - `otio_placement.fusion_comps_s` read 36 hours of a phase
+    that took under a minute, because a start timestamp that was really
+    an elapsed average was subtracted from the monotonic clock, and both
+    `ren profile` and the critical path read it as engine time.
+
+    None when the id names no run this module minted: an unknown run has
+    no window to clamp against, and an unclamped row is better than a
+    wrongly clamped one.
+    """
+    from library.tools.run_id import started_at as _run_started
+
+    began = _run_started(run_id)
+    if began is None:
+        return None
+    return max(0.0, time.time() - began)
+
+
 def record(layer: str, wall_s: float, started_at: float | None = None,
            **fields: Any) -> None:
     """A span for an interval the caller already measured.
@@ -767,11 +790,22 @@ def record(layer: str, wall_s: float, started_at: float | None = None,
     acquisition). The interval ends now unless `started_at` says where
     it began. A leaf: nothing nested inside it is subtracted, but it IS
     subtracted from an enclosing `span`, so its seconds are counted once.
+
+    A phase longer than the run that recorded it is IMPOSSIBLE, and the
+    row says so: the seconds are clamped to the run's own wall and the
+    row carries `clamped_from_s`, so a phantom phase can never be read
+    as engine time and the clamp is visible rather than silent.
     """
     path = _env(LEDGER_ENV)
     if not path:
         return
     wall_s = max(0.0, float(wall_s))
+    run_id = _env(RUN_ENV)
+    ceiling = _run_wall_ceiling(run_id)
+    clamped_from = None
+    if ceiling is not None and wall_s > ceiling:
+        clamped_from = round(wall_s, 3)
+        wall_s = ceiling
     if layer == "media_decode":
         calls = int(fields.get("calls") or 0)
         cache_hits = int(fields.get("cache_hits") or 0)
@@ -797,10 +831,12 @@ def record(layer: str, wall_s: float, started_at: float | None = None,
         stack[-1]["child_wall"] += wall_s
         stack[-1]["children"].append((started_at, started_at + wall_s))
     row = {**fields, "kind": SPAN, "layer": layer,
-           "run_id": _env(RUN_ENV),
+           "run_id": run_id,
            "capability": _env(CAPABILITY_ENV),
            "started_at": round(started_at, 3),
            "wall_s": round(wall_s, 3)}
+    if clamped_from is not None:
+        row["clamped_from_s"] = clamped_from
     if int(row.get("subprocesses") or 0) > 0:
         count_call("subprocess_spawns", int(row["subprocesses"]))
     if layer in GRAPHICS_LAYERS:
@@ -1290,6 +1326,12 @@ def profile(rows: list[dict[str, Any]], run_id: str) -> dict[str, Any]:
             "external_by_engine_s": {
                 k: round(v, 3) for k, v in sorted(external_totals.items())},
             "call_counts": counts,
+            "clamped_phases": [
+                {"layer": str(s.get("layer")),
+                 "wall_s": round(float(s.get("wall_s") or 0.0), 3),
+                 "clamped_from_s": round(
+                     float(s.get("clamped_from_s") or 0.0), 3)}
+                for s in spans if s.get("clamped_from_s")],
             "overlap_s": round(max(0.0, layer_sum - inside), 3),
             "lines": lines, "capabilities": per_capability,
             "scheduled_work": {

@@ -1006,6 +1006,44 @@ def _element_window(el: dict[str, Any]) -> tuple[int, int]:
     return start, start + int(el.get("durationFrames", 1))
 
 
+class AssetNotDrawn(RuntimeError):
+    """An element declared an asset and the lowering drew no image for it.
+
+    The card would ship without the asset it declares: the omission is
+    silent in the picture and nobody reads a log line for it. The IR
+    refuses it here, by name, so the caller routes the card to the
+    renderer that does draw the asset (4.06's gate falls back to
+    Remotion).
+    """
+
+
+def _refuse_undrawn_assets(elements: list[dict[str, Any]],
+                           nodes: list[Node]) -> None:
+    """Refuse an element whose declared asset produced no image node.
+
+    An element that declares an asset and lowers to no image node is a
+    card that would ship WITHOUT the asset: the picture changes and
+    nothing says so. The IR refuses it here, naming the arm and the
+    asset, rather than shipping a card the plan did not describe.
+    """
+    images = [node.id for node in nodes if node.type == NodeType.IMAGE]
+    for el in elements:
+        asset = el.get("asset")
+        if not asset:
+            continue
+        kind = str(el.get("element", ""))
+        try:
+            start = int(el.get("startFrame", 0))
+        except (TypeError, ValueError):
+            start = 0
+        element_id = f"element_{kind}_{start}"
+        if any(image_id.startswith(f"{element_id}_") for image_id in images):
+            continue
+        raise AssetNotDrawn(
+            f"the {kind!r} element declares the asset {asset!r} and the "
+            f"FFrames lowering drew no image node for it")
+
+
 def lower_motion_graphics(props: dict[str, Any]) -> Scene:
     """Lower MotionGraphics props to an IR scene.
 
@@ -1018,6 +1056,10 @@ def lower_motion_graphics(props: dict[str, Any]) -> Scene:
     Text arms sit in their anchor's stack the way the template stacks
     them: a 24px-gap column at the safe area's edge, rows ordered, and
     only the elements live together laid out together.
+
+    An element that declares an asset and lowers to no image node is
+    REFUSED (`AssetNotDrawn`): the card would ship without the asset it
+    declares, and that omission is silent in the picture.
     """
     fps = float(props["fps"])
     width = int(props["width"])
@@ -1069,6 +1111,8 @@ def lower_motion_graphics(props: dict[str, Any]) -> Scene:
                 stack_children.append(group_node.id)
 
         nodes.append(Node(id=f"stack_{anchor}", type=NodeType.GROUP, children=stack_children))
+
+    _refuse_undrawn_assets(elements, nodes)
 
     return Scene(version=1, fps=fps, width=width, height=height,
                  duration=duration_in_frames / fps, nodes=nodes)
@@ -1384,13 +1428,41 @@ class _MGContext:
 _MG_TEXT_ARMS = ("title_lockup", "quote_card", "lower_third")
 
 MG_FFRAMES_COVERED_ARMS = frozenset(
-    (*_MG_TEXT_ARMS, "channel_bug", "list_build", "stat_callout")
+    ("title_lockup", "quote_card", "channel_bug", "list_build", "stat_callout")
 )
-"""MotionGraphics arms FFrames can draw yet (census G2).
+"""MotionGraphics arms FFrames draws AS THE PLAN DECLARED THEM.
 
-An element naming any other arm has no lowering: `_build_mg_element`
-returns None for it, and the 4.06 dispatch routes such a card to the
-Remotion render explicitly rather than shipping FFrames blanks."""
+``lower_third`` is NOT here, and the reason is measured rather than
+guessed: the IR lowers that arm to plain text runs, while the
+composition draws one of three things for it - the staged rule
+construction, the AEP comp25 construction, or the attribution block -
+so a natively drawn lower third is a DIFFERENT picture from the one
+the plan asked for. Against the project's own 86 shipped cards, 10 of
+10 lower thirds differ (mean ink IoU 0.28 against the shipped
+artefact): the staged construction's rule and its wipes, the brand
+typeface and the brand asset are all absent. The arm joins this set
+when the IR draws those constructions.
+
+An element naming any other arm has no lowering at all:
+`_build_mg_element` returns None for it, and the 4.06 dispatch routes
+such a card to the Remotion render explicitly rather than shipping
+FFrames blanks."""
+
+
+MG_FFRAMES_UNCOVERED_ARMS = {
+    "lower_third": (
+        "the IR lowers it to plain text runs and the composition draws "
+        "the staged rule construction, the AEP comp25 construction or "
+        "the attribution block, so a native render is a different "
+        "picture from the one the plan declared"),
+}
+"""Arms the IR lowers but does not draw as the plan declared them.
+
+The gate refuses these by name, with the reason, rather than shipping
+a card that looks different from the one the plan described. The
+reason is the arm's, not a number: what the IR would have to implement
+before the arm can be drawn natively.
+"""
 
 
 def _anchor_parts(anchor: str) -> tuple[str, str]:
@@ -1459,7 +1531,15 @@ def _channel_bug_size(el: dict[str, Any], ctx: _MGContext) -> tuple[float, float
 
 
 def _mg_run_style(run: dict[str, Any], scale: float, ctx: _MGContext) -> dict[str, Any]:
-    """The template's ``runStyle``, as measurement arguments."""
+    """The template's ``runStyle``, as measurement arguments.
+
+    The case is the RUN's own: copy renders as written unless the run
+    declares ``uppercase: true`` - the rule ``runStyle`` states in the
+    composition, and the rule the stat_callout, emblem and counter
+    readings already quote. A display role is a size and a weight, never
+    a case: uppercasing every display run drew ``Akshita Gorti`` as
+    ``AKSHITA GORTI`` where the plan declared ``uppercase: false``.
+    """
     role = run.get("type_role", "supporting")
     display = role == "display"
     return {
@@ -1467,7 +1547,7 @@ def _mg_run_style(run: dict[str, Any], scale: float, ctx: _MGContext) -> dict[st
         "font_file": ctx.font_file,
         "font_weight": TYPE_WEIGHT.get(role, TYPE_WEIGHT["supporting"]),
         "letter_spacing": MG_DISPLAY_LETTER_SPACING if display else 0.0,
-        "text_transform": "uppercase" if display else None,
+        "text_transform": "uppercase" if run.get("uppercase") else None,
     }
 
 

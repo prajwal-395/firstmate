@@ -15,6 +15,7 @@ never baked-in defaults.
 from .easing import apply_easing
 from .evaluator import evaluate, evaluate_property
 from .lowering import (
+    AssetNotDrawn,
     lower_brand_motion,
     lower_full_frame_card,
     lower_motion_graphics,
@@ -57,6 +58,7 @@ from .serialization import (
 
 __all__ = [
     "Animation",
+    "AssetNotDrawn",
     "AudioContent",
     "Bounds",
     "CubicBezierEasing",
