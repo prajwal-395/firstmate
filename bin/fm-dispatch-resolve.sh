@@ -1,83 +1,44 @@
 #!/usr/bin/env bash
 # fm-dispatch-resolve.sh - resolve one concrete crewmate or scout dispatch
-# profile from a task brief with exact project rules and optional Jev judgment.
+# profile from a task brief with exact registered project triggers.
 #
 # Usage:
 #   fm-dispatch-resolve.sh <brief-file> [--project <name>] [--json]
-#   fm-dispatch-resolve.sh --fallback [--json]
 #
-# Jev gate: TYPESAFE_API_KEY or AI_GATEWAY_API_KEY non-empty in this process
-#   environment, else a matching KEY= line in $FM_HOME/.env read with
-#   fmx_env_get, the same accessor as FMX_PAIRING_TOKEN (bin/fm-env-lib.sh).
-#   The environment wins. Without keys, exact project rules and the
-#   deterministic default still resolve; no Jev request is made. Each key
-#   lives in one shell variable and reaches curl as a header read from a file
-#   descriptor, never on argv; nothing logs or writes either key.
-#
-# Ladder: with both keys present the tool tries the captain's typesafe.ai key
-#   first and falls back to the free Vercel AI Gateway rung once, in the
-#   same invocation, when typesafe.ai answers 429 or 401/403. The fallback is
-#   per request with no persisted rung record, so every call re-derives the
-#   answer. With one key present the tool uses that rung only.
-#
-# What it does: project rules are matched by exact project name in code. Jev is
-#   asked only to decide among rules declared with `match: "judgment"`. The
-#   project name and Task section of the brief travel as state; the Choice
-#   options are only those judgment rules plus one fixed generic none option.
-#   When Jev is off, unreachable, or below the confidence floor, the resolver
-#   selects and reports the deterministic default. Typesafe rung: model
-#   jev-latest at https://api.typesafe.ai/v1/systemone, what the tool did
-#   before the ladder. Gateway rung: model typesafe-ai/jev at
-#   https://ai-gateway.vercel.sh/typesafe/v1/systemone. Both rungs accept the
-#   same request and response shapes; only the base URL, model, and key
-#   change. Typesafe.ai answers 429 when exhausted, which descends the ladder
-#   with auth failures (401/403). Jev returns a matched judgment rule, a
-#   probability per option, and confidence. Everything after that is jq: the
-#   confidence
-#   floor, the rule's declared `approval` and `floor`, each profile's declared
-#   `provider` and `floor`, and the quota rows from ONE quota-axi --json
-#   snapshot. Quota evidence vetoes provably exhausted or below-floor
-#   candidates but never ranks them: the clear profile is the FIRST ELIGIBLE
-#   profile in the rule's (or default's) declared rung order, and the
-#   spawn-time ladder gates own which rung actually launches. The model never
-#   sees quota, catalogs, approvals, `why`, `use`, or project-profile mappings.
-#   `--fallback` resolves only the optional exhausted_ladder_fallback declaration,
-#   trying its `use` profiles before optional agy ladder candidates.
+# What it does: project rules are matched by exact registered project name in
+#   code, with no network model judgment. One optional rule with a
+#   `trigger.kind` of `declaration` covers unshaped work; otherwise the
+#   deterministic default applies. Everything after that is jq: the rule's
+#   declared `approval` and `floor`, each profile's declared `provider` and
+#   `floor`, and the quota rows from ONE quota-axi --json snapshot. Quota
+#   evidence vetoes provably exhausted or below-floor candidates but never
+#   ranks them: the clear profile is the FIRST ELIGIBLE profile in the rule's
+#   (or default's) declared rung order, and the spawn-time ladder gates own
+#   which rung actually launches. A retired model id in the selected route is
+#   refused with its recorded replacement before any worker launches.
 #   docs/configuration.md "Crew dispatch profiles" owns the declared fields and
 #   "Typed dispatch resolution" owns this tool's operator contract.
 #
 # Output (stdout, TOON-style block):
 #   dispatch-resolve:
-#     status: clear | default | escalate | error | missing
-#     model/latency_ms/tokens, rung (gateway | typesafe), rule (when excerpt) and confidence, probabilities
+#     status: clear | default | escalate | error
+#     model/latency_ms/tokens, rung (always deterministic), rule (when excerpt) and confidence, probabilities
 #     reason: <why the status is not clear>
 #     candidate: <harness>:<model> provider=.. scope=.. remaining=..% spendPriority=.. runway=.. -> eligible | eligible, unranked: <reason> | not eligible: <reason>
 #     profile: --harness <h> [--model <m>] [--effort <e>]     (clear/default only)
-#   clear/default -> deterministic profile selected from the project rule, Jev, or default
+#   clear/default -> deterministic profile selected from the project rule, the declaration trigger, or default
 #   escalate  -> the rule requires captain approval or no candidate is eligible
-#   error     -> quota-axi failure; Jev failures select the deterministic default
+#   error     -> quota-axi failure, an unusable model catalog, or a retired model in the selected route
 #   --json emits one machine-readable route object for fm-spawn.sh.
 #   Every outcome exits 0 so an intake is never blocked by this tool.
 #   Exit 2 only for a usage or configuration error (unreadable brief, an
 #   existing unreadable rules file, malformed rules, or missing jq), which is
 #   actionable, never selected around.
 #
-# Environment:
-#   TYPESAFE_API_KEY and AI_GATEWAY_API_KEY are the resolver-specific
-#   environment settings. Either one opts the tool in; both together arm the
-#   typesafe-first ladder.
-#
 # Authority: this tool never replaces firstmate's judgment, quota-array-dispatch,
 #   the captain-approval gate, or fm-spawn.sh validation; it publishes one
 #   inspectable answer plus every candidate's evidence, in code.
 set -u
-
-TYPESAFE_API_KEY_PRIVATE=${TYPESAFE_API_KEY:-}
-export -n TYPESAFE_API_KEY_PRIVATE 2>/dev/null || true
-unset TYPESAFE_API_KEY
-AI_GATEWAY_API_KEY_PRIVATE=${AI_GATEWAY_API_KEY:-}
-export -n AI_GATEWAY_API_KEY_PRIVATE 2>/dev/null || true
-unset AI_GATEWAY_API_KEY
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -96,17 +57,9 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 . "$SCRIPT_DIR/fm-quota-axi-lib.sh"
 # shellcheck source=bin/fm-control-lib.sh
 . "$SCRIPT_DIR/fm-control-lib.sh"
-# shellcheck source=bin/fm-env-lib.sh
-. "$SCRIPT_DIR/fm-env-lib.sh"
-# shellcheck source=bin/fm-timing-lib.sh
-. "$SCRIPT_DIR/fm-timing-lib.sh"
+# shellcheck source=bin/fm-model-catalog-lib.sh
+. "$SCRIPT_DIR/fm-model-catalog-lib.sh"
 
-CONFIDENCE_FLOOR=0.6
-TS_MODEL=jev-latest
-TS_BASE=https://api.typesafe.ai
-GW_MODEL=typesafe-ai/jev
-GW_BASE=https://ai-gateway.vercel.sh/typesafe
-TS_TIMEOUT=5
 DEFAULT_WHEN="No listed rule applies to this task."
 
 die() { printf 'error: %s\n' "$1" >&2; exit 2; }
@@ -118,39 +71,22 @@ usage() {
   ' "$0"
 }
 
-BRIEF='' PROJECT='' RULES_PATH="$CONFIG/crew-dispatch.json" RULES=''
+BRIEF='' PROJECT='' RULES_PATH="$CONFIG/dispatch-policy.json" RULES=''
 STATIC_HARNESS_DEFAULT=0
-JSON_MODE=0 FALLBACK_MODE=0
+JSON_MODE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --project) [ $# -ge 2 ] || die "--project needs a value"; PROJECT=$2; shift 2 ;;
     --json) JSON_MODE=1; shift ;;
-    --fallback) FALLBACK_MODE=1; shift ;;
     -h|--help) usage; exit 0 ;;
     -*) die "unknown flag $1" ;;
     *) [ -z "$BRIEF" ] || die "one brief file only"; BRIEF=$1; shift ;;
   esac
 done
 
-# ---- opt-in gate ---------------------------------------------------------------
-if [ -z "$TYPESAFE_API_KEY_PRIVATE" ]; then
-  TYPESAFE_API_KEY_PRIVATE=$(fmx_env_get TYPESAFE_API_KEY "$FM_HOME/.env")
-fi
-if [ -z "$AI_GATEWAY_API_KEY_PRIVATE" ]; then
-  AI_GATEWAY_API_KEY_PRIVATE=$(fmx_env_get AI_GATEWAY_API_KEY "$FM_HOME/.env")
-fi
 # ---- inputs --------------------------------------------------------------------
-[ "$FALLBACK_MODE" -eq 1 ] || [ -n "$BRIEF" ] || die "brief file required (see --help)"
-[ "$FALLBACK_MODE" -eq 1 ] || [ -r "$BRIEF" ] || die "brief file not readable: $BRIEF"
-# Jev matches dispatch rules from the task, not the scaffold: only the Task
-#   section travels, never the whole file, so constant boilerplate cannot
-#   clutter the match signal. A brief with no Task section falls back to the
-#   whole brief, so an unfamiliar shape never breaks the intake.
-BRIEF_TEXT=''
-if [ "$FALLBACK_MODE" -eq 0 ]; then
-  BRIEF_TEXT=$(awk 'BEGIN{f=0} /^# Task([ \t]|$)/{f=1;print;next} f==1 && /^# /{exit} f==1{print}' "$BRIEF")
-  [ -n "$BRIEF_TEXT" ] || BRIEF_TEXT=$(cat "$BRIEF")
-fi
+[ -n "$BRIEF" ] || die "brief file required (see --help)"
+[ -r "$BRIEF" ] || die "brief file not readable: $BRIEF"
 command -v jq >/dev/null 2>&1 || die "jq required"
 RULES=$(mktemp) || die "mktemp failed"
 trap 'rm -f "$RULES"' EXIT
@@ -215,10 +151,14 @@ rules_err=$(jq -r --argjson verified_harnesses "$VERIFIED_HARNESSES" --argjson s
   elif has("rules") and (.rules | type) != "array" then "rules must be an array"
   elif any((.rules // [])[]; type != "object") then "each rule must be an object"
   elif any((.rules // [])[]; (.when | type) != "string" or (.when | length) == 0) then "each rule needs non-empty when"
-  elif any((.rules // [])[]; has("projects") and has("match")) then "each rule must declare projects or match: \"judgment\", not both"
-  elif any((.rules // [])[]; has("match") and .match != "judgment") then "rule match must be \"judgment\" when present"
-  elif any((.rules // [])[]; has("projects") and ((.projects | type) != "array" or (.projects | length) == 0 or any(.projects[]; if type != "string" then true else length == 0 or contains("\n") or contains("\r") end))) then "rule projects must be a non-empty array of single-line project names"
-  elif ([.rules[]?.projects[]?] | length) != ([.rules[]?.projects[]?] | unique | length) then "a project name may appear in only one dispatch rule"
+  elif any((.rules // [])[]; has("match") or has("projects")) then "legacy match/projects selectors are retired; use trigger"
+  elif any((.rules // [])[]; (.id | type) != "string" or (.id | length) == 0) then "each rule needs a non-empty id"
+  elif ([.rules[]?.id] | length) != ([.rules[]?.id] | unique | length) then "rule ids must be unique"
+  elif any((.rules // [])[]; (.trigger | type) != "object" or ((.trigger.kind != "declaration") and (.trigger.kind != "projects"))) then "each rule needs trigger.kind declaration or projects"
+  elif any((.rules // [])[]; .trigger.kind == "declaration" and (has("trigger") | not)) then "declaration rule needs a trigger"
+  elif any((.rules // [])[]; .trigger.kind == "projects" and ((.trigger.names | type) != "array" or (.trigger.names | length) == 0 or any(.trigger.names[]; if type != "string" then true else length == 0 or contains("\n") or contains("\r") end))) then "trigger.names must be a non-empty array of single-line registered project names"
+  elif ([.rules[]?.trigger.names[]?] | length) != ([.rules[]?.trigger.names[]?] | unique | length) then "a project name may appear in only one dispatch rule"
+  elif ([.rules[]? | select(.trigger.kind == "declaration")] | length) > 1 then "only one declaration trigger may be configured"
   elif any((.rules // [])[]; (profiles(.use) | length) == 0) then "each rule needs at least one use profile"
   elif any((.rules // [])[]; has("approval") and .approval != "captain") then "approval must be \"captain\" when present"
   elif any((.rules // [])[]; has("select") and ((.select | type) != "string" or (.select | length) == 0)) then "select must be a non-empty string"
@@ -234,20 +174,11 @@ rules_err=$(jq -r --argjson verified_harnesses "$VERIFIED_HARNESSES" --argjson s
   elif has("default") and duplicate_profiles(profiles(.default)) then "default must not contain duplicate harness, model, and effort profiles"
   elif has("default") and any(profiles(.default)[]; (verified(.harness) | not) and ($static_harness_default != 1)) then "each default profile must name a verified harness"
   elif has("default") and any(profiles(.default)[]; (effort_ok(.harness; .model; .effort) | not)) then "each default profile effort must be supported by its harness and model"
-  elif has("exhausted_ladder_fallback") and .exhausted_ladder_fallback != null and (.exhausted_ladder_fallback | type) != "object" then "exhausted_ladder_fallback must be an object or null"
-  elif (.exhausted_ladder_fallback // null) != null then
-    (.exhausted_ladder_fallback) as $fallback |
-    if ($fallback.include_agy_ladder != null and ($fallback.include_agy_ladder | type) != "boolean") then "exhausted_ladder_fallback.include_agy_ladder must be boolean"
-    elif ($fallback.agy_effort != null and (($fallback.agy_effort | type) != "string" or (effort_ok("agy"; "fallback"; $fallback.agy_effort) | not))) then "exhausted_ladder_fallback.agy_effort must be low, medium, or high"
-    elif ($fallback.use != null and (($fallback.use | type) != "object" and ($fallback.use | type) != "array")) then "exhausted_ladder_fallback.use must be a profile object or non-empty profile array"
-    elif ($fallback.use != null and (profiles($fallback.use) | length) == 0) then "exhausted_ladder_fallback.use must not be empty"
-    elif ($fallback.include_agy_ladder != true and (profiles($fallback.use // null) | length) == 0) then "exhausted_ladder_fallback must include the agy ladder or at least one use profile"
-    elif ($fallback.include_agy_ladder == true and ((.agy_ladder | type) != "array" or (.agy_ladder | length) == 0) and ([profiles(.default // null)[] | select(.harness == "agy" and (.model | type) == "string")] | length) == 0) then "exhausted_ladder_fallback includes agy_ladder but no agy ladder is configured"
-    elif any(profiles($fallback.use // null)[]; profile_bad(.)) then "each exhausted_ladder_fallback.use profile must be well formed"
-    elif any(profiles($fallback.use // null)[]; (verified(.harness) | not)) then "each exhausted_ladder_fallback.use profile must name a verified harness"
-    elif any(profiles($fallback.use // null)[]; (effort_ok(.harness; .model; .effort) | not)) then "each exhausted_ladder_fallback.use profile effort must be supported by its harness and model"
-    elif duplicate_profiles(profiles($fallback.use // null)) then "exhausted_ladder_fallback.use must not contain duplicate profiles"
-    else empty end
+  elif has("default_ladder") and ((.default_ladder | type) != "array" or (.default_ladder | length) != 2) then "default_ladder must declare exactly the plus and go rungs"
+  elif has("default_ladder") and any(.default_ladder[]; (.id != "plus" and .id != "go") or profile_bad(.)) then "default_ladder rungs need unique plus/go ids and valid profiles"
+  elif has("default_ladder") and ([.default_ladder[].id] | unique | sort) != ["go","plus"] then "default_ladder must declare plus and go exactly once"
+  elif has("default_ladder") and any(.default_ladder[]; (verified(.harness) | not) or (effort_ok(.harness; .model; .effort) | not)) then "default_ladder rungs must use verified harnesses and supported effort"
+  elif has("exhausted_ladder_fallback") then "exhausted_ladder_fallback has been retired; remove it"
   else empty end
 ' "$RULES" 2>/dev/null) || die "malformed rules file: $RULES_PATH (not JSON)"
 [ -z "$rules_err" ] || die "malformed rules file: $RULES_PATH - $rules_err"
@@ -256,7 +187,7 @@ missing_provider=$(jq -r '
   def profiles($v): if ($v | type) == "array" then $v elif ($v | type) == "object" then [$v] else [] end;
   ((.rules // [])[] | profiles(.use)[] | select(has("provider") | not) | "use\t\(.harness)"),
   (profiles(.default // null)[] | select(has("provider") | not) | "default\t\(.harness)"),
-  (profiles(.exhausted_ladder_fallback.use // null)[] | select(has("provider") | not) | "exhausted_ladder_fallback\t\(.harness)")
+  ((.default_ladder // [])[] | select(has("provider") | not) | "default_ladder\t\(.harness)")
 ' "$RULES" | while IFS=$'\t' read -r location harness; do
   if [ "$location" = default ] && [ "$STATIC_HARNESS_DEFAULT" = 1 ]; then
     continue
@@ -280,8 +211,7 @@ while IFS= read -r h; do
 done < <(jq -r '
   def profiles($v): if ($v | type) == "array" then $v elif ($v | type) == "object" then [$v] else [] end;
   ([((.rules // [])[]) | profiles(.use)[]] + profiles(.default // null)
-   + profiles(.exhausted_ladder_fallback.use // null)
-   + (if .exhausted_ladder_fallback.include_agy_ladder == true then [{harness:"agy"}] else [] end))
+   + ((.default_ladder // []) | map(select(type == "object"))))
   | map(.harness) | unique | .[]' "$RULES")
 
 emit_error() {
@@ -299,10 +229,8 @@ RESP_FILE=$(mktemp) || die "mktemp failed"
 QUOTA=$(mktemp) || { rm -f "$RESP_FILE"; die "mktemp failed"; }
 trap 'rm -f "$RULES" "$RESP_FILE" "$QUOTA"' EXIT
 LAT_MS=null
-RUNG=local
+RUNG=deterministic
 DEFAULT_REASON=''
-ROUTE_MODE=normal
-NEED_JEV=0
 RESOLUTION_CHOICE=default
 
 make_response() {  # <choice>
@@ -311,118 +239,20 @@ make_response() {  # <choice>
 }
 
 PROJECT_RULE_INDEX=$(jq -r --arg project "$PROJECT" '
-  [.rules | to_entries[] | select((.value.projects // []) | index($project)) | (.key + 1)] | .[0] // empty
+  [((.rules // []) | to_entries[]) | select(.value.trigger.kind == "projects" and (.value.trigger.names // [] | index($project))) | (.key + 1)] | .[0] // empty
 ' "$RULES")
-JUDGMENT_RULE_COUNT=$(jq -r '[.rules[]? | select(.match == "judgment" or ((has("match") | not) and (has("projects") | not)))] | length' "$RULES")
-if [ "$FALLBACK_MODE" -eq 1 ]; then
-  FALLBACK_DECLARED=$(jq -r '(.exhausted_ladder_fallback // null) != null' "$RULES")
-  if [ "$FALLBACK_DECLARED" != true ]; then
-    if [ "$JSON_MODE" -eq 1 ]; then
-      jq -cn '{status:"missing",source:"exhausted_ladder_fallback",reason:"no exhausted_ladder_fallback is configured",profile:null}'
-    else
-      printf 'dispatch-resolve:\n  status: missing\n  source: exhausted_ladder_fallback\n  reason: no exhausted_ladder_fallback is configured\n'
-    fi
-    exit 0
-  fi
-  ROUTE_MODE=fallback
-elif [ -n "$PROJECT_RULE_INDEX" ]; then
+DECLARATION_RULE_INDEX=$(jq -r '[((.rules // []) | to_entries[]) | select(.value.trigger.kind == "declaration") | (.key + 1)] | .[0] // empty' "$RULES")
+if [ -n "$PROJECT_RULE_INDEX" ]; then
   RESOLUTION_CHOICE="rule_$PROJECT_RULE_INDEX"
   DEFAULT_REASON="project '$PROJECT' matched rule_$PROJECT_RULE_INDEX"
-elif [ "$JUDGMENT_RULE_COUNT" -gt 0 ]; then
-  if [ -n "$TYPESAFE_API_KEY_PRIVATE" ] || [ -n "$AI_GATEWAY_API_KEY_PRIVATE" ]; then
-    NEED_JEV=1
-  else
-    DEFAULT_REASON='Jev is off because no resolver key is configured; deterministic default selected'
-  fi
+elif [ -n "$DECLARATION_RULE_INDEX" ]; then
+  RESOLUTION_CHOICE="rule_$DECLARATION_RULE_INDEX"
+  DEFAULT_REASON="declaration trigger selected rule_$DECLARATION_RULE_INDEX"
 else
-  DEFAULT_REASON='no judgment rule applies; deterministic default selected'
+  DEFAULT_REASON='no declared trigger applies; deterministic default selected'
 fi
-if [ "$NEED_JEV" -eq 0 ]; then
-  make_response "$RESOLUTION_CHOICE"
-  if [ -n "$DEFAULT_REASON" ] && [ "$FALLBACK_MODE" -eq 0 ] && [ -z "$PROJECT_RULE_INDEX" ]; then
-    echo "dispatch-resolve: $DEFAULT_REASON" >&2
-  fi
-fi
-
-post_rung() { # <base-url> <model> <key>: one Jev POST; sets HTTP and LAT_MS
-  local base=$1 model=$2 key=$3
-  REQUEST=$(jq -n --arg brief "$BRIEF_TEXT" --arg project "$PROJECT" --arg model "$model" \
-    --arg none_criterion "$DEFAULT_WHEN" --slurpfile rules "$RULES" '
-    ($rules[0]) as $cfg |
-    ([$cfg.rules | to_entries[] | select(.value.match == "judgment" or ((.value | has("match") | not) and (.value | has("projects") | not)))
-      | {key: ("rule_" + ((.key + 1) | tostring)), value: .value.when}] | from_entries) as $criteria |
-    {
-      model: $model,
-      state: {task: {project: $project, brief: $brief}},
-      questions: {
-        rule: {
-          type: "choice",
-          instructions: "Which ONE judgment-required dispatch rule best fits `task`? Project rules are matched by code and are not options here. Pick `default` when no judgment rule applies.",
-          criteria: ($criteria + {default: $none_criterion})
-        }
-      }
-    }')
-  T0=$(fm_timing_now_ms)
-  HTTP=$(printf '%s' "$REQUEST" | curl -sS --max-time "$TS_TIMEOUT" -o "$RESP_FILE" -w '%{http_code}' \
-    -X POST "$base/v1/systemone" -H 'Content-Type: application/json' \
-    -H @/dev/fd/3 3< <(printf 'Authorization: Bearer %s\n' "$key") \
-    --data-binary @- 2>/dev/null) || HTTP=000
-  T1=$(fm_timing_now_ms)
-  LAT_MS=$(( T1 - T0 ))
-}
-primary_declined() { # <http>: 429 or auth failure means "not available now"
-  case "$1" in 429|401|403) return 0 ;; *) return 1 ;; esac
-}
-if [ "$NEED_JEV" -eq 1 ]; then
-  if ! command -v curl >/dev/null 2>&1; then
-    DEFAULT_REASON='Jev is unavailable because curl is not installed; deterministic default selected'
-  elif [ -n "$TYPESAFE_API_KEY_PRIVATE" ]; then
-    post_rung "$TS_BASE" "$TS_MODEL" "$TYPESAFE_API_KEY_PRIVATE"
-    if [ "$HTTP" = 200 ]; then
-      RUNG=typesafe
-    elif primary_declined "$HTTP" && [ -n "$AI_GATEWAY_API_KEY_PRIVATE" ]; then
-      TS_HTTP=$HTTP
-      post_rung "$GW_BASE" "$GW_MODEL" "$AI_GATEWAY_API_KEY_PRIVATE"
-      if [ "$HTTP" = 200 ]; then
-        RUNG=gateway
-      else
-        DEFAULT_REASON="Jev is unavailable after typesafe http $TS_HTTP and gateway http $HTTP; deterministic default selected"
-      fi
-    else
-      DEFAULT_REASON="Jev is unavailable after typesafe http $HTTP; deterministic default selected"
-    fi
-  else
-    post_rung "$GW_BASE" "$GW_MODEL" "$AI_GATEWAY_API_KEY_PRIVATE"
-    if [ "$HTTP" = 200 ]; then RUNG=gateway
-    else DEFAULT_REASON="Jev is unavailable after gateway http $HTTP; deterministic default selected"; fi
-  fi
-  if [ -n "$DEFAULT_REASON" ]; then
-    echo "dispatch-resolve: $DEFAULT_REASON" >&2
-    make_response default
-  elif ! jq -e --slurpfile rules "$RULES" '
-      (([$rules[0].rules | to_entries[] | select(.value.match == "judgment" or ((.value | has("match") | not) and (.value | has("projects") | not)))
-        | "rule_" + ((.key + 1) | tostring)]) + ["default"] | sort) as $choices |
-      (.answers.rule.choice) as $choice |
-      ($choice | type) == "string" and
-      ($choices | index($choice)) != null and
-      (.answers.rule.confidence | type) == "number" and
-      .answers.rule.confidence >= 0 and .answers.rule.confidence <= 1 and
-      (.answers.rule.probabilities | type) == "object" and
-      ((.answers.rule.probabilities | keys | sort) == $choices) and
-      all(.answers.rule.probabilities[]; type == "number" and . >= 0 and . <= 1) and
-      ((.answers.rule.probabilities | [.[]] | add) as $total | $total >= 0.99 and $total <= 1.01) and
-      ((has("usage") | not) or
-        ((.usage | type) == "object" and
-         (.usage.input_tokens | type) == "number" and
-         (.usage.output_tokens | type) == "number"))' \
-    "$RESP_FILE" >/dev/null 2>&1; then
-    DEFAULT_REASON='Jev returned an invalid answer; deterministic default selected'
-    echo "dispatch-resolve: $DEFAULT_REASON" >&2
-    make_response default
-  else
-    :
-  fi
-fi
+make_response "$RESOLUTION_CHOICE"
+[ -z "$DEFAULT_REASON" ] || [ -n "$PROJECT_RULE_INDEX" ] || [ -n "$DECLARATION_RULE_INDEX" ] || echo "dispatch-resolve: $DEFAULT_REASON" >&2
 
 # ---- quota evidence: one quota-axi --json snapshot -----------------------------
 command -v quota-axi >/dev/null 2>&1 || emit_error "quota-axi not installed"
@@ -430,24 +260,14 @@ quota-axi --json > "$QUOTA" 2>/dev/null || emit_error "quota-axi --json failed"
 fm_quota_json_valid < "$QUOTA" || emit_error "quota-axi --json returned an invalid snapshot"
 
 # ---- resolution: declared gates + quota evidence + declared rung order, all in jq -
-RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg rung "$RUNG" --arg none_criterion "$DEFAULT_WHEN" \
-  --arg mode "$ROUTE_MODE" --arg default_reason "$DEFAULT_REASON" --argjson pmap "$PMAP" \
+RESULT=$(jq -n --argjson lat "$LAT_MS" --arg rung "$RUNG" --arg none_criterion "$DEFAULT_WHEN" \
+  --arg default_reason "$DEFAULT_REASON" --argjson pmap "$PMAP" \
   --argjson static_default "$STATIC_HARNESS_DEFAULT" \
   --slurpfile resp "$RESP_FILE" --slurpfile rules "$RULES" --slurpfile quota "$QUOTA" '
   ($resp[0]) as $r | ($rules[0]) as $cfg | ($quota[0]) as $q | ($r.answers.rule) as $a |
   def profiles($v): if ($v | type) == "array" then $v elif ($v | type) == "object" then [$v] else [] end;
-  def agy_ladder_models($config):
-    if ($config.agy_ladder | type) == "array" then $config.agy_ladder
-    else [profiles($config.default // null)[] | select(.harness == "agy" and (.model | type) == "string") | .model]
-    end;
-  def fallback_profiles($config):
-    ($config.exhausted_ladder_fallback // {}) as $fallback |
-    profiles($fallback.use // null)
-    + (if $fallback.include_agy_ladder == true then
-         [(agy_ladder_models($config))[] | {harness:"agy",model:.,effort:($fallback.agy_effort // "high"),provider:"agy"}]
-       else [] end);
   def prov($p): ([$q.providers[] | select(.provider == $p)] | first) // null;
-  def rows($p): (prov($p) | .quotaSemantics.effectiveAvailability // []);
+  def rows($p): if prov($p) == null then [] else (prov($p).quotaSemantics.effectiveAvailability // []) end;
   def bare($m): ($m | split("/") | last);
   def provider_of($c): ($c.provider // $pmap[$c.harness] // null);
   def measured($p):
@@ -520,15 +340,12 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg run
    elif $rule_number != null and $rule_number <= (($cfg.rules // []) | length) then $cfg.rules[$rule_number - 1]
    else null end) as $rule |
   (if $rule == null then "none" else floor_state($rule.floor; $rule.floor.provider) end) as $rule_floor_state |
-  (if $mode == "fallback" then fallback_profiles($cfg)
-   elif $choice != "default" and $rule == null then []
+  (if $choice != "default" and $rule == null then []
    elif $rule == null then profiles($cfg.default // null)
    else profiles($rule.use)
    end) as $answer_use |
-  (if $mode == "fallback" then {source:"exhausted_ladder_fallback",use:fallback_profiles($cfg),note:"OpenCode default ladder exhausted; evaluating configured fallback"}
-   elif $choice != "default" and $rule == null then {invalid: "rule \($choice) is not in the rules file"}
-   elif $a.confidence < ($floor | tonumber) then {source:"default",use:profiles($cfg.default // null),note:"confidence \($a.confidence) below floor \($floor); deterministic default selected"}
-   elif $rule == null then {source: "default", use: profiles($cfg.default // null), note: (if ($default_reason | length) == 0 then "no judgment rule matched; deterministic default selected" else $default_reason end)}
+  (if $choice != "default" and $rule == null then {invalid: "rule \($choice) is not in the rules file"}
+   elif $rule == null then {source: "default", use: profiles($cfg.default // null), note: (if ($default_reason | length) == 0 then "no declared trigger matched; deterministic default selected" else $default_reason end)}
    elif ($rule.approval // "") == "captain" then {source: $choice, escalate: "rule requires the captain'"'"'s explicit approval before dispatch"}
    elif $rule_floor_state == "unknown" then {source: $choice, escalate: "rule \($choice) floor \($rule.floor.provider)/\($rule.floor.scope) is unverifiable"}
    elif $rule_floor_state == "below"
@@ -557,6 +374,20 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg run
      end
   end') || emit_error "resolution failed"
 
+# A retired model must be caught before any worker launch. Check every
+# candidate in the selected rule so a retired fallback cannot strand the next
+# lane when the preferred candidate becomes ineligible.
+fm_model_catalog_check __validate__ "$CONFIG" >/dev/null 2>&1 || emit_error "malformed model catalog"
+while IFS= read -r candidate_model; do
+  [ -n "$candidate_model" ] || continue
+  if catalog_message=$(fm_model_catalog_check "$candidate_model" "$CONFIG" 2>&1); then
+    :
+  else
+    catalog_status=$?
+    [ "$catalog_status" -eq 1 ] && emit_error "$catalog_message" || emit_error "model catalog validation failed: $catalog_message"
+  fi
+done < <(jq -r '(.ladder_models[]? // empty),(.candidates[]?.profile.model // empty)' <<<"$RESULT")
+
 TEXT=$(jq -r '
   def flat: tostring | gsub("[\t\r\n]"; " ");
   def show($value): ($value // "-") | flat;
@@ -578,18 +409,11 @@ TEXT=$(jq -r '
       + "  -> " + (if .unranked then "eligible, unranked: \(.reason | flat): disclosed uncertainty" elif .eligible then "eligible" else "not eligible: \(.reason | flat)" end)),
   (if .chosen then "  profile: --harness \(.chosen.profile.harness | shell_arg)"
       + (if .chosen.profile.model then " --model \(.chosen.profile.model | shell_arg)" else "" end)
-      + (if .chosen.profile.effort then " --effort \(.chosen.profile.effort | shell_arg)" else "" end)
-      + (if .source == "default" and (
-            (.chosen.profile.harness == "codex" and .chosen.profile.model == "gpt-6-luna") or
-            (.chosen.profile.harness == "opencode" and (.chosen.profile.model as $m | (["opencode-go/muse-spark-1.3-contributor"] | index($m) != null)))
-          ) then " --dispatch-ladder opencode" else "" end) else empty end)' <<<"$RESULT") || emit_error "output rendering failed"
+      + (if .chosen.profile.effort then " --effort \(.chosen.profile.effort | shell_arg)" else "" end) else empty end)' <<<"$RESULT") || emit_error "output rendering failed"
 if [ "$JSON_MODE" -eq 1 ]; then
   jq -c '
     def ladder_route:
-      .source == "default" and (
-        (.chosen.profile.harness == "codex" and .chosen.profile.model == "gpt-6-luna") or
-        (.chosen.profile.harness == "opencode" and (.chosen.profile.model as $m | (["opencode-go/muse-spark-1.3-contributor"] | index($m) != null)))
-      );
+      .source == "default" and (.chosen.profile.model as $model | any(.ladder_models[]?; . == $model));
     {
       status,
       source: (if (.source // "") | startswith("rule_") then (.source | sub("^rule_"; "rule:")) else .source end),

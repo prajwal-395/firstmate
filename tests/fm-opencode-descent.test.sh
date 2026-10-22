@@ -596,14 +596,15 @@ test_override_holds() {
   write_meta "$state" lane1 opencode "$GO" scout
   arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
   record_cap "$state" lane1 78840 "$GO" || fail "record refused fixture"
-  out=$(FM_OPENCODE_LADDER_OVERRIDE='captain asked for Go' run_tick "$state") \
+  fm_opencode_pin_task "$state" lane1 'captain asked for Go' || fail "pin refused fixture"
+  out=$(run_tick "$state") \
     || fail "tick must never fail"
   case "$out" in
     override' '*) : ;;
     *) fail "the override must hold the worker, said: ${out:-<silent>}" ;;
   esac
   stub_called && fail "an overridden worker must never be moved"
-  out=$(FM_OPENCODE_LADDER_OVERRIDE='captain asked for Go' run_tick "$state") \
+  out=$(run_tick "$state") \
     || fail "tick must never fail"
   [ -z "$out" ] || fail "an override must not wake twice, said: $out"
   pass "the override holds a capped worker and says so once"

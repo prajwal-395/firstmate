@@ -308,14 +308,13 @@ EOF
   wt_abs=$(cd -P -- "$wt" && pwd -P)
   printf '{"trustedWorkspaces":["%s"]}\n' "$wt_abs" > "$dir/scratch-home/.gemini/antigravity-cli/settings.json"
   if [ -n "$override" ]; then
-    FM_AGY_LADDER_OVERRIDE="$override" \
     env PATH="$fakebin:$PATH" FM_ROOT_OVERRIDE='' FM_HOME="$home" HOME="$dir/scratch-home" \
       FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
       FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
       FM_AGY_CONFIG_HOME="$dir/agy-config" FM_AGY_SETTINGS="$dir/agy-settings.json" \
       FM_AGY_QUOTA_POLL=off FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$wt" TMUX="fake,1,0" \
       "$ROOT/bin/fm-spawn.sh" "$id" "$proj" \
-      --harness agy --model "$RUNG2" --mode no-mistakes --yolo off >/dev/null 2>&1
+      --captain-route "agy/$RUNG2" --captain-said "$override" --mode no-mistakes --yolo off >/dev/null 2>&1
   else
     env PATH="$fakebin:$PATH" FM_ROOT_OVERRIDE='' FM_HOME="$home" HOME="$dir/scratch-home" \
       FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \

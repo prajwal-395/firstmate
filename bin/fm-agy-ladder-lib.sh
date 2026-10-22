@@ -94,7 +94,7 @@
 # work never stalls; a descent is still refused, because nothing proved the rung
 # above spent. The refusal names the failed live read rather than reporting a
 # bare absence, so the reader can tell "never observed" from "could not reach
-# agy just now" and reaches for FM_AGY_LADDER_OVERRIDE instead of quietly
+# agy just now" and reaches for --captain-said instead of quietly
 # abandoning the ladder for a costlier model outside it.
 #
 # HEADROOM FOR LAUNCHES IN FLIGHT. A reading describes the account at the moment
@@ -115,9 +115,10 @@
 # are ALLOWED - but they are reported, because an unranked model is also the
 # obvious way to end up outside the policy without noticing.
 #
-# THE OVERRIDE. FM_AGY_LADDER_OVERRIDE, set to a non-empty reason, turns any
+# THE OVERRIDE. FM_CAPTAIN_OVERRIDE_REASON, set only by a validated per-task
+# --captain-route/--captain-said pair, turns any
 # refusal into a launch and prints what it overrode. It is an environment
-# variable rather than a flag deliberately: config/crew-dispatch.json profiles
+# internal value rather than a free-standing environment bypass: config/dispatch-policy.json profiles
 # carry only harness, model, and effort, so a routine profile-driven dispatch
 # has no way to express it, and reaching the captain's reserved last quarter of
 # Opus 4.6 stays a deliberate act at the command line.
@@ -195,7 +196,7 @@ _fm_agy_ladder_init() {
 
   # The config path: tests override with FM_AGY_LADDER_CONFIG; production uses
   # FM_CONFIG_OVERRIDE (set by fm-spawn.sh's test harness) or FM_HOME/config.
-  config_file="${FM_AGY_LADDER_CONFIG:-${FM_CONFIG_OVERRIDE:-${FM_HOME:+$FM_HOME/config}}/crew-dispatch.json}"
+  config_file="${FM_AGY_LADDER_CONFIG:-${FM_CONFIG_OVERRIDE:-${FM_HOME:+$FM_HOME/config}}/dispatch-policy.json}"
 
   if [ -f "$config_file" ] && command -v jq >/dev/null 2>&1; then
     # The rung order lives in the "agy_ladder" array, in rung order, one display
@@ -562,7 +563,7 @@ fm_agy_ladder_check() {  # <model> <state-dir> [<now>]
         return 1
         ;;
       *)
-        printf 'rung %s (%s) has no current quota reading%s, so rung %s (%s) cannot be shown to be the highest available rung; run rung 1 first, or set FM_AGY_LADDER_OVERRIDE=<reason> rather than leaving the ladder for a model outside it' \
+        printf 'rung %s (%s) has no current quota reading%s, so rung %s (%s) cannot be shown to be the highest available rung; run rung 1 first, or use a validated captain route override rather than leaving the ladder for a model outside it' \
           "$above" "$above_display" "$unreachable" "$rung" "$display"
         return 1
         ;;
@@ -679,12 +680,12 @@ fm_agy_ladder_gate() {  # <model> <state-dir> [<now>]
       out=$(printf 'notice: agy ladder not applied: %s\n' "$reason")
       ;;
     *)
-      if [ -n "${FM_AGY_LADDER_OVERRIDE:-}" ]; then
-        out=$(printf 'notice: agy ladder OVERRIDDEN by FM_AGY_LADDER_OVERRIDE=%s - launching anyway past: %s\n' \
-          "$FM_AGY_LADDER_OVERRIDE" "$reason")
+      if [ -n "${FM_CAPTAIN_OVERRIDE_REASON:-}" ]; then
+        out=$(printf 'notice: agy ladder overridden by the captain for this task: %s; launching past: %s\n' \
+          "$FM_CAPTAIN_OVERRIDE_REASON" "$reason")
       else
         gate=1
-        out=$(printf 'error: agy ladder refuses this launch: %s. Run the highest available rung instead, or set FM_AGY_LADDER_OVERRIDE=<reason> to launch on the captain'"'"'s explicit request (its use is printed).\n' \
+        out=$(printf 'error: agy ladder refuses this launch: %s. Run the highest available rung instead, or use --captain-route with --captain-said to launch on the captain'"'"'s explicit request (its use is recorded).\n' \
           "$reason")
       fi
       ;;

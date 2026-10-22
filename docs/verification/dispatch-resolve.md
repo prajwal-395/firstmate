@@ -2,11 +2,16 @@
 
 Audience: maintainer verification.
 
-This record supports the opt-in `bin/fm-dispatch-resolve.sh` contract owned by [`../configuration.md`](../configuration.md) ("Typed dispatch resolution") and the declared rule and profile fields owned there under "Crew dispatch profiles".
-It records only facts that must be re-established when the typesafe.ai model, its API, or firstmate's dispatch rules change.
+This record supports the deterministic `bin/fm-dispatch-resolve.sh` contract owned by [`../configuration.md`](../configuration.md) ("Typed dispatch resolution") and the declared rule and profile fields owned there under "Crew dispatch profiles".
+It records only facts that must be re-established when firstmate's dispatch rules change.
 Task chronology, the captain's rules, and the briefs themselves stay in the private scout report.
 
-## The API the tool depends on
+## Retired judgment routing
+
+Model-judgment dispatch routing was removed on 2026-10-22 by the dispatch-policy migration: the resolver performs no network judgment call and reads no judgment key.
+The typesafe.ai API notes and live rule-match tables below are historical evidence for that removed path, kept for provenance and never re-established.
+
+## The API the removed path depended on (historical)
 
 Verified 2026-09-16 against `https://api.typesafe.ai`.
 `GET /v1/models` listed `jev-latest` and `jev-preview`, both released 2026-09-10; a `jev-latest` request answered as `jev-1.13.0`.
@@ -15,7 +20,7 @@ Observed error shapes: 401 `authentication_error` for a bad key, 403 when the he
 No rate-limit headers were present on any response; every response carried `x-typesafe-request-id`.
 Observed end-to-end latency from a Mac was 123 to 348 ms per request, with the server's own upstream time at 4 to 60 ms.
 
-## Live rule match against real briefs
+## Live rule match against real briefs (historical)
 
 Run 2026-09-16 with the key injected for the one command through the vault (`av inject +TYPESAFE_API_KEY -- ...`), model `jev-latest`, confidence floor 0.6, timeout 5 s, one `quota-axi --json` snapshot for the whole run.
 Rules: the captain's five-rule file with a captain-authored none option, one `approval: captain` rule, two rule floors on `model:fable`, and declared `provider` on the Pi profiles.
@@ -53,7 +58,7 @@ The maximum latency was one outlier; the next slowest request was 309 ms.
 The differing clear result was a synthetic small tweak that matched the simple-bug-fix rule at 0.90 and selected `cursor-grok-4.6-medium` instead of the hand-labeled `cursor-grok-4.6-high`: the tweak exemption removed from the none-option text belongs in that rule's own `when` text.
 Two default-labeled briefs became ambiguous.
 
-## Task-section payload comparison
+## Task-section payload comparison (historical)
 
 Run 2026-09-21 with the home key, model `jev-latest`, confidence floor 0.6, and one `quota-axi --json` snapshot for the whole run.
 Rules: the captain's live two-rule file (genuinely unshaped work, Lucie work) with the opencode free-first default and no approval rule.
@@ -72,17 +77,10 @@ Shipped 2026-09-21: project name plus Task section, with whole-brief fallback wh
 
 ## Offline behavior
 
-`tests/fm-dispatch-resolve.test.sh` drives the public interface with a fake `curl` that records argv, the request body, the header read from file descriptor 3, and whether the secret reached its environment, plus a fake `quota-axi` that performs the same environment check.
-It proves firstmate can invoke the resolve path without a preflight, rules are snapshotted once from the isolated home's canonical `config/crew-dispatch.json`, and dynamic output fields are flattened to one line.
-It proves the absent key (environment and `.env`) prints one stderr line, nothing on stdout, exits 0, and never invokes `curl` or `quota-axi`.
-It proves absent, default-only, and empty-rules files return `no rules to match` without a model or quota request, while a broken rules-file symlink exits 2 as unreadable.
-It proves the documented starter configuration resolves its Pi default through the declared Claude provider, a `.env` key turns the tool on, and the environment wins over it.
-It proves the key is absent from child environments, never appears on `curl` argv, and arrives only as the bearer header on the descriptor.
-It proves the request uses the fixed endpoint and model, carries only the project, the Task section of the brief, and rule Choice with one option per rule plus the fixed neutral none option, and never carries `why`, `use`, or quota.
-It proves the clear, fixed-floor ambiguous with candidate evidence, escalate (approval with candidate evidence, unverifiable rule floor, no eligible candidate at all), known rule-floor fall-through, known and unverifiable profile-floor evidence, explicit-provider and provider-ID enforcement, authoritative Agy and explicit-provider Gemini routing, partial providers, eligible unranked candidates and their clear-result note, concrete quota vetoes and profile-floor shortfalls taking precedence over uncertainty, and account-wide quota vetoes behave as the contract states.
-It proves declared rung order always decides among the eligible candidates: an exhausted first rung is skipped rather than chosen by position, a free-first default still names the free rung when the paid rung reports better quota, equal quota resolves by order instead of tying, and an all-ineligible result escalates with no profile line.
-It proves missing-curl and quota-axi failures, HTTP 429 and 500, transport failure, malformed usage, zero-mass or malformed probabilities or confidence, malformed or duplicate profile, invalid selector, removed-option rejection, and out-of-range rule ID paths behave as the contract states, with configuration errors exiting 2 before any network call.
-`tests/fm-bootstrap.test.sh` proves bootstrap ignores resolver-only fields without the typed key, validates each malformed shape when the environment or home `.env` activates typed resolution, and prevents an environment-provided key from reaching child processes.
+`tests/fm-dispatch-resolve.test.sh` drives the deterministic interface with a fake `quota-axi` and a fake `curl` that fails any call, proving resolution never touches the network.
+It proves an exact registered-project trigger resolves before the declaration trigger, the declaration trigger routes unshaped work without judgment, and a rules-less policy resolves the deterministic default with the Codex Plus rung first.
+It proves a retired model id in the selected route is refused before spawn with its recorded replacement named, and a policy declaring the retired exhausted-ladder fallback is rejected as malformed.
+`tests/fm-bootstrap.test.sh` proves bootstrap validates the deterministic policy shape, id and trigger selectors, and verified harness/effort pairs without any key.
 
 ```console
 $ bash tests/fm-dispatch-resolve.test.sh | tail -1

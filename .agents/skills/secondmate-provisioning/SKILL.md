@@ -116,7 +116,7 @@ Inheritance copies the literal `config/crew-harness` file, so a secondmate's own
 Inherited `config/backend` becomes that secondmate home's local runtime-backend default for future spawns only; it never retargets, rewrites, migrates, stops, or restarts an already-live worker endpoint.
 A present primary value always converges byte-exact into validated secondmate homes, and primary absence removes the destination so those homes keep runtime auto-detection.
 Explicit per-spawn `--backend` and `FM_BACKEND` remain stronger than every home's local `config/backend`, including an inherited default.
-The two typed-dispatch-resolution keys (`TYPESAFE_API_KEY`, `AI_GATEWAY_API_KEY`) propagate separately from the primary's gitignored `.env` into each LOCAL secondmate home's `.env`, key by key, preserving every other line there.
+The two Jev model-judgment keys (`TYPESAFE_API_KEY`, `AI_GATEWAY_API_KEY`) propagate separately from the primary's gitignored `.env` into each LOCAL secondmate home's `.env`, key by key, preserving every other line there.
 The durable source is the primary `.env` only, never the process environment, and a changed or removed primary value converges on the next push or sync.
 Destination `.env` files stay owner-only, and secrets never enter the literal-content config-reread instruction, which inlines only declared `config/*` items.
 Remote routes never receive keys: the remote sender and receiver derive only from `fm_config_inherit_items`, which never contains them, and the sender refuses to run when the declarations ever overlap.

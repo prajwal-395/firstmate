@@ -69,19 +69,16 @@
 # rung with its own unexpired cap is skipped. If every rung is capped -
 # Codex Plus and the whole Go tier (main capped plus second capped,
 # or main capped with no second workspace) - return 3 marks proven
-# exhaustion so fm-spawn can try a declared default fallback; when
-# none exists, dispatch is refused with every rung and reset time named.
-# The exhausted-ladder fallback is reachable only there, never
-# while either Go workspace can still serve.
+# exhaustion so fm-spawn refuses with every rung and reset time named.
+# No exhausted-ladder fallback exists: a return of 3 is always a refusal.
 #
-# THE OVERRIDE. FM_OPENCODE_LADDER_OVERRIDE, set to a non-empty reason, holds
-# a Plus request on Codex Plus past a proven cap and prints that it did. It is an
-# environment variable rather than a flag deliberately, matching the agy
-# ladder's override: dispatch profiles carry only harness, model, and effort,
-# so holding Plus stays a deliberate act at the command line.
-# FM_OPENCODE_LADDER=off disables the whole gate: the requested model (or Codex
-# Plus when none was requested) passes through unchanged, with a notice naming the
-# kill-switch so a bypass never looks like a decision.
+# THE OVERRIDE. FM_CAPTAIN_OVERRIDE_REASON, set only by a validated per-task
+# --captain-route/--captain-said pair, holds a request past a proven cap and
+# prints that it did. It is an internal value rather than a free-standing
+# environment bypass, matching the agy ladder's override: dispatch profiles
+# carry only harness, model, and effort, so holding a rung stays a deliberate
+# act at the command line. No kill-switch bypass exists: nothing launches
+# past the gate without the captain's recorded words.
 
 # The governed OpenCode model and Codex Plus model. The retired free rung
 # (opencode-go/minimax-m3.1-flash-free, deprecated by OpenCode on 2026-10-22)
@@ -497,6 +494,18 @@ fi
 if ! declare -f fm_opencode_second_org >/dev/null 2>&1; then
   . "$_FM_OPENCODE_LADDER_LIB_DIR/fm-opencode-second-lib.sh"
 fi
+# Load rung fillings from the active home's declared default route. The
+# built-in values below are compatibility defaults for homes not yet migrated.
+fm_opencode_ladder_policy_load() {  # [<config-dir>]
+  local config_dir=${1:-${FM_CONFIG_OVERRIDE:-}} file plus go
+  [ -n "$config_dir" ] || config_dir="${FM_HOME:-.}/config"
+  file="$config_dir/dispatch-policy.json"
+  [ -r "$file" ] && command -v jq >/dev/null 2>&1 || return 0
+  plus=$(jq -r '([.default_ladder[]? | select(.id=="plus") | .model] + [if (.default|type)=="array" then .default[] else .default end | select(.harness=="codex" and (.model|type)=="string" and .model!="") | .model]) | first // empty' "$file" 2>/dev/null) || plus=
+  go=$(jq -r '([.default_ladder[]? | select(.id=="go") | .model] + [if (.default|type)=="array" then .default[] else .default end | select((.provider=="opencode-go") or ((.model|type)=="string" and (.model|startswith("opencode-go/")))) | select((.model|type)=="string" and .model!="") | .model]) | first // empty' "$file" 2>/dev/null) || go=
+  [ -z "$plus" ] || FM_OPENCODE_LADDER_PLUS_MODEL=$plus
+  [ -z "$go" ] || FM_OPENCODE_LADDER_GO=$go
+}
 
 # Lines of rendered pane tail handed to the detector for the idle shape.
 # bin/fm-opencode-retry.sh owns the phrases; this is only the capture width.
@@ -592,8 +601,8 @@ fm_opencode_ladder_free_capped() {  # <state-dir>
 # Prints exactly one line - the effective model id - on stdout. All governed
 # requests pass through the same ordered cap gate: Codex Plus first, then Go.
 # Returns 3 only when
-# every ladder rung is proven capped; callers may then consult the
-# separately declared exhausted-ladder fallback. Other refusals return 1.
+# every ladder rung is proven capped; callers refuse, naming every reset.
+# Other refusals return 1.
 fm_opencode_ladder_model() {  # <requested> <state-dir>
   local requested=${1:-} state_dir=${2:-} explicit=1
   local plus_capped=0 go_capped=0 second_ready=0
@@ -608,10 +617,10 @@ fm_opencode_ladder_model() {  # <requested> <state-dir>
     requested=$FM_OPENCODE_LADDER_PLUS_MODEL
     explicit=0
   fi
-  if [ "${FM_OPENCODE_LADDER:-on}" = off ]; then
+  if [ -n "${FM_CAPTAIN_OVERRIDE_REASON:-}" ]; then
     printf '%s\n' "$requested"
-    printf 'notice: opencode ladder disabled by FM_OPENCODE_LADDER=off - launching on %s unchecked against the ladder caps\n' \
-      "$requested" >&2
+    printf 'notice: opencode ladder overridden by the captain for this task: %s\n' \
+      "$FM_CAPTAIN_OVERRIDE_REASON" >&2
     return 0
   fi
   case "$requested" in
@@ -664,7 +673,7 @@ fm_opencode_ladder_model() {  # <requested> <state-dir>
       && second_ready=1
   fi
   [ "$plus_capped" -eq 1 ] || { printf '%s\n' "$FM_OPENCODE_LADDER_PLUS_MODEL"; return 0; }
-  if [ "$go_capped" -eq 1 ] && [ "$second_ready" -eq 0 ] && [ -z "${FM_OPENCODE_LADDER_OVERRIDE:-}" ]; then
+  if [ "$go_capped" -eq 1 ] && [ "$second_ready" -eq 0 ] && [ -z "${FM_CAPTAIN_OVERRIDE_REASON:-}" ]; then
     local plus_until go_until
     plus_until=$("$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" "$FM_OPENCODE_LADDER_PLUS_RUNG" 2>/dev/null | sed -n 's/.*reset_at=//p')
     go_until=$("$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" "$FM_OPENCODE_LADDER_GO_RUNG" 2>/dev/null | sed -n 's/.*reset_at=//p')
@@ -678,9 +687,9 @@ fm_opencode_ladder_model() {  # <requested> <state-dir>
     printf '\n' >&2
     return 3
   fi
-  if [ -n "${FM_OPENCODE_LADDER_OVERRIDE:-}" ]; then
+  if [ -n "${FM_CAPTAIN_OVERRIDE_REASON:-}" ]; then
     printf '%s\n' "$FM_OPENCODE_LADDER_PLUS_MODEL"
-    printf 'notice: opencode ladder OVERRIDDEN by FM_OPENCODE_LADDER_OVERRIDE=%s - holding Codex Plus past a proven cap\n' "$FM_OPENCODE_LADDER_OVERRIDE" >&2
+    printf 'notice: opencode ladder overridden by the captain for this task: %s\n' "$FM_CAPTAIN_OVERRIDE_REASON" >&2
     return 0
   fi
   if [ "$go_capped" -eq 0 ]; then

@@ -173,12 +173,12 @@
 # worker's turn never waits on a quota read or a picker walk, and the two drivers
 # share one evaluation because fm_agy_descent_tick is single-flight.
 #
-# THE OVERRIDE. FM_AGY_LADDER_OVERRIDE is the launch gate's deliberate escape
+# THE OVERRIDE. FM_CAPTAIN_OVERRIDE_REASON is the launch gate's deliberate escape
 # and it is honoured here too: a worker launched past the ladder on the
 # captain's explicit request is not dragged off its model behind their back.
 # Its use is printed, exactly as the launch gate prints it. bin/fm-spawn.sh
-# records the override per task where this evaluation reads it back, because
-# the variable itself reaches neither driver.
+# records the captain's words per task where this evaluation reads it back, because
+# no free-standing variable reaches either driver.
 
 _FM_AGY_DESCENT_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd 2>/dev/null)" || _FM_AGY_DESCENT_LIB_DIR="."
 if ! declare -f fm_agy_ladder_check >/dev/null 2>&1; then
@@ -553,10 +553,10 @@ fm_agy_descent_needed() {  # <rung> <state-dir> [<now>]
 
 # --- the recorded pin -------------------------------------------------------
 #
-# THE CAPTAIN'S ESCAPE, FILED WHERE THE DRIVERS CAN READ IT. FM_AGY_LADDER_OVERRIDE
+# THE CAPTAIN'S ESCAPE, FILED WHERE THE DRIVERS CAN READ IT. FM_CAPTAIN_OVERRIDE_REASON
 # is the launch gate's deliberate escape: a worker launched past the ladder on
 # the captain's explicit request is not dragged off its model behind their back.
-# The variable itself reaches neither driver - the watcher is a long-lived
+# No free-standing variable reaches either driver - the watcher is a long-lived
 # process that predates the instruction and the turn-end driver is detached
 # into the worker's own process tree with only FM_HOME and FM_STATE_OVERRIDE
 # passed through (bin/fm-spawn.sh) - so the spawn records it per task and the
@@ -577,7 +577,8 @@ fm_agy_pin_mark() {  # <state-dir> <id>
 }
 
 # fm_agy_pin_task: pin <id> where firstmate deliberately put it, for <reason>.
-# bin/fm-spawn.sh records this when FM_AGY_LADDER_OVERRIDE holds a launch past
+# bin/fm-spawn.sh records this when a validated --captain-route/--captain-said pair
+# holds a launch past
 # the ladder; the tick reads it back instead of a variable it cannot see. A
 # pin is not drift, so the tick moves a pinned worker nowhere in either
 # direction.
@@ -1009,13 +1010,11 @@ _fm_agy_descent_tick_locked() {  # <state-dir> <now>
 
     # The captain's own escape, honoured for the descent: a worker they
     # deliberately put past the ladder is not quietly dragged off it.
-    # The hold is read from the task's recorded pin first and the environment
-    # second, because the tick runs where the variable cannot follow it; either
-    # source names the same authority and prints the same reason. Only the
+    # The hold is read from the task's recorded captain-route pin because the
+    # tick runs outside the launch process. Only the
     # downward case is printed, and for the reason the launch gate prints it -
     # a pinned worker below its floor is spending the reserve.
-    hold_reason=${FM_AGY_LADDER_OVERRIDE:-}
-    [ -n "$hold_reason" ] || hold_reason=$(fm_agy_task_pin "$state_dir" "$id" 2>/dev/null) || hold_reason=
+    hold_reason=$(fm_agy_task_pin "$state_dir" "$id" 2>/dev/null) || hold_reason=
     if [ -n "$hold_reason" ]; then
       if [ "$spent" = 1 ]; then
         fm_agy_descent_escalate_once "$state_dir" "$id" \

@@ -100,8 +100,8 @@ make_spawn_case() {
 
 enable_dispatch_profile() {
   local home=$1
-  printf '%s\n' '{"rules":[{"when":"current events","match":"judgment","use":{"harness":"grok","model":"grok-4","effort":"high"}}],"default":{"harness":"codex","model":"gpt-5","effort":"high"}}' \
-    > "$home/config/crew-dispatch.json"
+  printf '%s\n' '{"version":1,"rules":[],"default":{"harness":"codex","model":"gpt-5","effort":"high"}}' \
+    > "$home/config/dispatch-policy.json"
 }
 
 make_seeded_secondmate_home() {
@@ -585,14 +585,14 @@ test_off_rule_profile_override_is_recorded() {
   enable_dispatch_profile "$HOME_DIR"
 
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
-    "$id" "$PROJ_DIR" --harness grok --model grok-4 --effort high \
-    --dispatch-override-reason 'Captain instructed: use Grok for this task.')
+    "$id" "$PROJ_DIR" --captain-route grok/grok-4/high \
+    --captain-said 'Captain instructed: use Grok for this task.')
   status=$?
-  expect_code 0 "$status" "a captain override reason should permit the explicit profile: $out"
+  expect_code 0 "$status" "a captain route should permit the off-route profile: $out"
   assert_meta_profile "$HOME_DIR/state/$id.meta" grok grok-4 high
   assert_grep 'dispatch_override_reason=Captain instructed: use Grok for this task.' "$HOME_DIR/state/$id.meta" \
     "task metadata did not record the captain override reason"
-  pass "a differing explicit profile launches only with its recorded captain instruction"
+  pass "an off-route profile launches only with its recorded captain route"
 }
 
 test_active_dispatch_profile_allows_positional_harness() {
@@ -620,17 +620,18 @@ test_active_dispatch_profile_allows_raw_launch_command() {
 
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
     "$id" "$PROJ_DIR" "custom-agent --flag" \
-    --dispatch-override-reason 'Captain instructed: use custom-agent for this task.')
+    --captain-route custom-agent --captain-said 'Captain instructed: use custom-agent for this task.')
   status=$?
-  expect_code 0 "$status" "a raw launch command with an override reason should pass: $out"
+  expect_code 0 "$status" "a raw launch command with a captain route should pass: $out"
   assert_contains "$out" "spawned $id harness=custom-agent" "spawn did not report raw command harness"
   assert_meta_profile "$HOME_DIR/state/$id.meta" custom-agent default default
   launch=$(cat "$LAUNCH_LOG")
   # A raw launch keeps the captain's own command byte-for-byte downstream,
-  # so it carries the compact-adviser floor and the AI-trailer strip; nothing
-  # else may rewrite the captain's own command.
-  [ "$launch" = "export COMPACT_ADVISER_DISABLE=1; $(task_inbox_export "$HOME_DIR" "$id")$(ai_trailer_hooks_prefix "$HOME_DIR" "$id")custom-agent --flag" ] || fail "raw launch command changed"$'\n'"actual: $launch"
-  pass "a raw launch command requires and records the explicit override reason"
+  # so it carries the compact-adviser floor, the per-task git-stash guard on
+  # PATH, and the AI-trailer strip; nothing else may rewrite the captain's
+  # own command.
+  [ "$launch" = "export COMPACT_ADVISER_DISABLE=1; $(task_inbox_export "$HOME_DIR" "$id")export PATH='$HOME_DIR/state/$id.git-guard':\$PATH; $(ai_trailer_hooks_prefix "$HOME_DIR" "$id")custom-agent --flag" ] || fail "raw launch command changed"$'\n'"actual: $launch"
+  pass "a raw launch command requires and records the captain route"
 }
 
 test_chained_raw_launch_strips_ai_trailer_in_every_step() {
@@ -1000,8 +1001,8 @@ test_batch_preserves_native_ultra() {
   read_case_record "$rec"
   enable_dispatch_profile "$HOME_DIR"
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
-    "$id1=$PROJ_DIR" "$id2=$PROJ_DIR" --harness pi --model codex-native/gpt-6-astra --effort ultra \
-    --dispatch-override-reason 'Captain instructed: use native Pi for this test task.')
+    "$id1=$PROJ_DIR" "$id2=$PROJ_DIR" --captain-route pi/codex-native/gpt-6-astra/ultra \
+    --captain-said 'Captain instructed: use native Pi for this test task.')
   expect_code 0 "$?" "native Ultra batch failed: $out"
   assert_meta_profile "$HOME_DIR/state/$id1.meta" pi codex-native/gpt-6-astra ultra
   assert_meta_profile "$HOME_DIR/state/$id2.meta" pi codex-native/gpt-6-astra ultra
@@ -1887,7 +1888,7 @@ SH
         enabled) expected=$(printf '%s\n' unset "$value" '' unset) ;;
         empty) expected=$(printf '%s\n' unset unset unset unset) ;;
       esac
-      expected="$expected"$'\n'"$HOME_DIR/user-home"$'\n'"$pane_path"$'\nxterm\nsynthetic-pane\n/synthetic/gotmp'
+      expected="$expected"$'\n'"$HOME_DIR/user-home"$'\n'"$HOME_DIR/state/$id.git-guard:$pane_path"$'\nxterm\nsynthetic-pane\n/synthetic/gotmp'
       [ "$result" = "$expected" ] || fail "allowlist=$setting worker environment mismatch: $result"
     done
     pass "allowlist=$setting preserves the operational floor and filters only when opted in"
@@ -2233,7 +2234,7 @@ claude_worker_add_dirs() {  # <home> <id>
 
 claude_expected_launch() {  # <home> <id> <permission-flag> <settings-value>
   local home=$1 id=$2 flag=$3 sval=$4
-  printf '%s' "export COMPACT_ADVISER_DISABLE=1; $(task_inbox_export "$home" "$id")$(ai_trailer_hooks_prefix "$home" "$id")env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude $flag $(claude_worker_add_dirs "$home" "$id")--settings '{\"permissions\":{\"defaultMode\":\"$sval\"},\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}' $CLAUDE_CONTROL_CHANNEL_FLAG 'Read the brief at $home/data/$id/launch-brief.md and follow it exactly.'"
+  printf '%s' "export COMPACT_ADVISER_DISABLE=1; $(task_inbox_export "$home" "$id")export PATH='$home/state/$id.git-guard':\$PATH; $(ai_trailer_hooks_prefix "$home" "$id")env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude $flag $(claude_worker_add_dirs "$home" "$id")--settings '{\"permissions\":{\"defaultMode\":\"$sval\"},\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}' $CLAUDE_CONTROL_CHANNEL_FLAG 'Read the brief at $home/data/$id/launch-brief.md and follow it exactly.'"
 }
 
 test_claude_permission_mode_bypass_matches_absent_launch() {
@@ -2751,17 +2752,17 @@ test_pi_opencode_go_switch_routes_exact_project_rule() {
   pass "config/pi-opencode-go routes exact project OpenCode rules to Pi with the selected model"
 }
 
-test_pi_opencode_go_switch_routes_exhausted_ladder_fallback() {
-  local rec id out status launch datadir model=opencode-go/muse-spark-1.3-contributor
+test_pi_opencode_go_switch_refuses_exhausted_ladder() {
+  local rec id out status datadir model=opencode-go/muse-spark-1.3-contributor
   command -v sqlite3 >/dev/null 2>&1 || {
-    pass "Pi fallback routing needs sqlite3 (live spawn proof covers provider setup)"
+    pass "Pi exhaustion refusal needs sqlite3 (live spawn proof covers provider setup)"
     return 0
   }
   id=pi-fallback-opencode-z39
   rec=$(make_spawn_case pi-fallback-opencode opencode "$id")
   read_case_record "$rec"
   printf '%s\n' on > "$HOME_DIR/config/pi-opencode-go"
-  printf '%s\n' "{\"default\":{\"harness\":\"opencode\",\"model\":\"opencode-go/muse-spark-1.3-contributor\",\"provider\":\"opencode-go\",\"dispatch_ladder\":\"opencode\"},\"exhausted_ladder_fallback\":{\"use\":{\"harness\":\"opencode\",\"model\":\"$model\",\"provider\":\"opencode-go\"}}}" > "$HOME_DIR/config/crew-dispatch.json"
+  printf '%s\n' "{\"version\":1,\"rules\":[],\"default\":[{\"harness\":\"codex\",\"model\":\"gpt-6-luna\",\"effort\":\"medium\",\"provider\":\"codex\"},{\"harness\":\"opencode\",\"model\":\"$model\",\"provider\":\"opencode-go\"}],\"default_ladder\":[{\"id\":\"plus\",\"harness\":\"codex\",\"model\":\"gpt-6-luna\",\"effort\":\"medium\",\"provider\":\"codex\"},{\"id\":\"go\",\"harness\":\"opencode\",\"model\":\"$model\",\"provider\":\"opencode-go\"}]}" > "$HOME_DIR/config/dispatch-policy.json"
   record_rung_cap "$HOME_DIR" plus || fail "record refused Plus cap"
   record_rung_cap "$HOME_DIR" go || fail "record refused Go cap"
   datadir=$(make_dual_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") || fail "fallback fixture login could not be built"
@@ -2769,15 +2770,12 @@ test_pi_opencode_go_switch_routes_exhausted_ladder_fallback() {
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
   status=$?
   unset FM_FAKE_OPENCODE_DATA
-  expect_code 0 "$status" "the enabled switch must route an OpenCode fallback profile to Pi: $out"
-  assert_grep 'harness=pi' "$HOME_DIR/state/$id.meta" "fallback profile was recorded as OpenCode"
-  assert_grep "model=$model" "$HOME_DIR/state/$id.meta" "fallback profile model changed during routing"
-  assert_grep "dispatch_fallback=opencode/$model" "$HOME_DIR/state/$id.meta" "fallback provenance was lost during routing"
-  launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "$FAKEBIN_DIR/pi" "fallback profile did not launch Pi"
-  assert_contains "$launch" "--model '$model'" "fallback model did not reach Pi"
-  assert_not_contains "$launch" "opencode --model" "regression: opencode launched while the switch is on for an exhausted fallback"
-  pass "config/pi-opencode-go routes the exhausted-ladder fallback to Pi without changing its model"
+  expect_code 1 "$status" "an exhausted ladder must refuse even with the Pi switch on: $out"
+  assert_contains "$out" 'OpenCode default ladder exhausted; no exhausted-ladder fallback is available' \
+    "refusal must explain that exhaustion is terminal"
+  [ ! -s "$LAUNCH_LOG" ] || fail "an exhausted ladder launched despite the refusal"
+  assert_absent "$HOME_DIR/state/$id.meta" "a refused spawn must not publish task metadata"
+  pass "an exhausted OpenCode ladder refuses with the Pi switch on instead of falling back"
 }
 
 test_pi_opencode_go_switch_routes_configured_crew_harness() {
@@ -3182,7 +3180,7 @@ test_pi_opencode_go_routes_main_and_secondary_ladder_rungs
 test_pi_go_spawn_refreshes_the_pinned_database_from_the_live_login
 test_pi_opencode_go_switch_routes_explicit_dispatch_profile
 test_pi_opencode_go_switch_routes_exact_project_rule
-test_pi_opencode_go_switch_routes_exhausted_ladder_fallback
+test_pi_opencode_go_switch_refuses_exhausted_ladder
 test_pi_opencode_go_switch_routes_configured_crew_harness
 test_pi_opencode_go_switch_routes_explicit_opencode_harness_model
 test_pi_opencode_go_switch_refuses_model_missing_from_pi_provider_config
