@@ -1410,6 +1410,8 @@ class FrameIndex:
             project_folder=self.project_folder, query=query, ranges=ranges,
             frames_by_clip=frames_by_clip, top_ranges=top_ranges,
             classification=classification, per_source=repeats,
+            event_gap_s=merge_gap_s,
+            source_durations=self._source_durations(),
             different_event=lambda entry, picked, clip_id: (
                 _is_a_different_event(entry, picked, clip_id, merge_gap_s)))
         if result.get("status") == "unavailable":
@@ -1476,6 +1478,29 @@ class FrameIndex:
                 "candidates": result["candidates"],
             },
         }
+
+    def _source_durations(self) -> dict:
+        """How long each source's own recording runs, in seconds.
+
+        The pass reads it to tell a camera that holds the thing ACROSS
+        its recording from one that shows it once in an hour: the share
+        of the recording the established moments span is what separates
+        them, and the recording's own length is the denominator.
+        """
+        out: dict = {}
+        try:
+            frames = self.frames
+        except Exception:  # noqa: BLE001 - no index, no durations
+            return out
+        for frame in frames:
+            clip_id = frame.get("clip_id")
+            try:
+                seconds = float(frame.get("t"))
+            except (TypeError, ValueError):
+                continue
+            if seconds > out.get(clip_id, 0.0):
+                out[clip_id] = seconds
+        return out
 
     def _source_frames(self, clip_ids) -> dict:
         """The measured frame sample of each clip, as the pass sees it.

@@ -144,6 +144,39 @@ the camera is not it, and it bounds the cost of one query.
 MAX_CANDIDATES = 24
 """How many candidates one query may inspect, whatever the cameras say."""
 
+MAX_WINDOWS_PER_SOURCE = 3
+"""How many candidate windows ONE source may hold in the answer.
+
+Three is the number of shots an editor will look at before they decide
+the camera is not it, and it is the number of DISTINCT MOMENTS one
+source may be inspected at (`CANDIDATES_PER_CLIP`).  A source that the
+evidence establishes at one moment holds one window; a source that the
+evidence establishes at several moments may hold several, because the
+thing the editor asked for is THERE, AGAIN AND AGAIN, and one window of
+it is one sighting of a passage the editor has to scrub.
+"""
+
+MOMENTS_PER_SOURCE = 2
+"""How many distinct moments of one source the pass inspects.
+
+Two: the moment the source was asked about, and the next one that shows
+it AGAIN.  The second is what makes the answer's extra slot for a
+source EVIDENCE rather than a guess - the pass puts the second moment
+to the model, and the slot is taken only if the model establishes the
+query there too.  It is also the cost: one extra model call per source
+that holds a slot.
+"""
+
+EVENT_GAP_S = 15.0
+"""Two moments of one source further apart than this are two events.
+
+The lane's merge gap (`library.tools.analysis.footage_frames.MERGE_GAP_S`),
+the same number: the gap is the tolerance for ONE missed extraction, so
+two sightings that close are the same sighting.  The pass cannot import
+the lane's constant (the lane imports this module), so the number is
+declared here and the lane's value is passed in by the caller.
+"""
+
 MIN_INTERVAL_FRAMES = 2
 """A candidate shown one frame is not an inspection.
 
@@ -317,14 +350,48 @@ def _nearest(frames: Sequence[Mapping], t: float, limit: int) -> list[dict]:
     return sorted(ordered, key=lambda f: f["t"])
 
 
+def is_a_different_event(entry: Mapping, chosen: Sequence[Mapping],
+                         event_gap_s: float = EVENT_GAP_S) -> bool:
+    """Is this moment of one source a DIFFERENT event from the ones chosen?
+
+    The lane's own test (`library.tools.analysis.footage_frames.
+    _is_a_different_event`), spelled here so this module can choose the
+    moments it inspects without importing the lane: a moment further
+    apart than the gap from ANY of the chosen ones is its own event.
+    """
+    start = _num(entry.get("start"))
+    end = _num(entry.get("end"))
+    if start is None or end is None:
+        return False
+    for other in chosen:
+        other_start = _num(other.get("start"))
+        other_end = _num(other.get("end"))
+        if other_start is None or other_end is None:
+            continue
+        gap = max(start - other_end, other_start - end)
+        if gap > event_gap_s:
+            return True
+    return False
+
+
 def candidate_intervals(ranges: Sequence[Mapping], classification: Mapping,
                         frames_by_clip: Mapping[str, Sequence[Mapping]],
-                        per_clip: int = CANDIDATES_PER_CLIP
+                        per_clip: int = CANDIDATES_PER_CLIP,
+                        event_gap_s: float = EVENT_GAP_S
                         ) -> dict[str, list[dict]]:
     """The candidate intervals the pass may inspect, per camera.
 
-    One candidate per shot, per camera: the shots the lane merged are
-    what the editor is offered, so they are what the pass judges.  The
+    **The candidates of one camera are DISTINCT MOMENTS of it.**  The
+    shots the lane merged are slices of a passage, and three adjacent
+    slices of one passage are ONE sighting - the lane's merge gap says
+    so, and a pass that inspects three of them puts the same question
+    to the model three times and learns nothing.  So the candidates are
+    the camera's best moment, and then its best moments that are a
+    DIFFERENT event from the ones already chosen: the moments at which
+    the camera shows the thing AGAIN.
+
+    The WINDOW the pass presents is that shot, UNCHANGED - the pass selects
+    and justifies, it does not re-shape the lane's geometry.  The
     WINDOW the pass presents is that shot, UNCHANGED - the pass selects
     and justifies, it does not re-shape the lane's geometry.  A shot of
     no length stays a shot of no length: the pass says which frames it
@@ -348,8 +415,15 @@ def candidate_intervals(ranges: Sequence[Mapping], classification: Mapping,
     for clip_id, entries in by_clip.items():
         entries = sorted(entries,
                          key=lambda e: -(_num(e.get("best_score")) or 0.0))
+        chosen: list[Mapping] = []
+        for entry in entries:
+            if len(chosen) >= per_clip:
+                break
+            if chosen and not is_a_different_event(entry, chosen, event_gap_s):
+                continue
+            chosen.append(entry)
         candidates = []
-        for entry in entries[:per_clip]:
+        for entry in chosen:
             start = _num(entry.get("start"))
             end = _num(entry.get("end"))
             if start is None:
@@ -392,44 +466,62 @@ def candidate_intervals(ranges: Sequence[Mapping], classification: Mapping,
 
 
 def select(candidates: Sequence[Mapping], top_ranges: int,
-           per_source: int = 1, different_event=None) -> list[dict]:
+           per_source: int = 1, different_event=None,
+           max_per_source: int = MAX_WINDOWS_PER_SOURCE,
+           source_durations: Mapping[str, float] | None = None) -> list[dict]:
     """The windows the pass presents, and why each one is there.
 
-    **Cameras first, then moments.**  The lane's rule is that the editor
-    is not shown the same camera five times, and it stays: one window
-    per camera while there are cameras to spend the slots on, and a
-    second window of a camera only when the query asks for more than
-    one occurrence of the thing and the second window is a DIFFERENT
-    event.
+    **The camera that holds the thing ACROSS ITS RECORDING comes
+    first.**  The lane's rule was one window per camera, and it stays a
+    RULE: a camera holds one window for one moment.  What changed is
+    what a camera that the evidence establishes at SEVERAL moments is
+    worth.  The evidence - the verdicts, not the similarity score - says
+    how many moments a camera holds, and a camera that holds the thing
+    across a SHARE OF ITS OWN RECORDING may take more than one of the
+    editor's slots: the editor asked for a passage and scrubs a
+    passage, and a camera that shows the thing once in an hour does not
+    hold one.
 
-    What the pass adds is what happens when there are FEWER cameras with
-    an established window than there are slots: the leftover slot goes
-    to another moment of a camera that has already contributed, and that
-    moment must be a different event - the same test the lane applies
-    to a camera's second window.  A slot the editor asked for is not
-    left empty while a camera with a fifth sighting sits unshown.
+    The order the cameras are served in is therefore the number of
+    moments they hold, then the share of their own recording those
+    moments span, and the score breaks the last tie.  The leftovers - a
+    slot the cameras with moments did not fill - go to the best
+    remaining established moment, as before.
 
     A window is presented only when the pass established it.  A
     candidate whose evidence did not establish the requested thing is
     not offered with a lower rank: it is not offered.
     """
-    verified = [c for c in candidates if c.get("verdict") == "yes"]
+    verified = sorted(
+        (c for c in candidates if c.get("verdict") == "yes"),
+        key=lambda c: -(_num(c.get("score")) or 0.0))
     limit = max(0, top_ranges)
     cap = max(1, per_source)
+    durations = source_durations or {}
+    by_clip: dict[str, list[dict]] = {}
+    for candidate in verified:
+        by_clip.setdefault(candidate["clip_id"], []).append(candidate)
+    order = sorted(
+        by_clip,
+        key=lambda clip: (-len(by_clip[clip]),
+                          -_span_share(by_clip[clip], durations.get(clip)),
+                          -(_num(by_clip[clip][0].get("score")) or 0.0)))
     picked: list[dict] = []
     seen: dict = {}
-    for candidate in verified:
-        clip_id = candidate["clip_id"]
-        taken = seen.get(clip_id, 0)
-        if taken >= cap:
-            continue
-        if taken and different_event is not None and not different_event(
-                candidate, picked, clip_id):
-            continue
-        seen[clip_id] = taken + 1
-        picked.append(candidate)
-        if len(picked) >= limit:
-            return picked
+    for clip_id in order:
+        taken = 0
+        allowance = min(max_per_source, max(cap, len(by_clip[clip_id])))
+        for candidate in by_clip[clip_id]:
+            if taken >= allowance:
+                break
+            if taken and different_event is not None and not different_event(
+                    candidate, picked, clip_id):
+                continue
+            seen[clip_id] = taken + 1
+            taken += 1
+            picked.append(candidate)
+            if len(picked) >= limit:
+                return _by_score(picked)
     for candidate in verified:
         if len(picked) >= limit:
             break
@@ -439,7 +531,71 @@ def select(candidates: Sequence[Mapping], top_ranges: int,
                 candidate, picked, candidate["clip_id"]):
             continue
         picked.append(candidate)
-    return picked
+    return _by_score(picked)
+
+
+def _by_score(picked: Sequence[Mapping]) -> list[dict]:
+    """The windows in the order the editor reads them: best first.
+
+    The editor's first pick is the first window, so the order is the
+    SCORE order - the lane never changed that, and the order the
+    cameras were served in is not the order the editor is shown.
+    """
+    return sorted(picked, key=lambda c: -(_num(c.get("score")) or 0.0))
+
+
+def _span_share(entries: Sequence[Mapping], duration: float | None) -> float:
+    """The share of a source's own recording its established moments span.
+
+    A camera whose moments are established across most of its recording
+    shows the thing throughout it; a camera with two moments in an hour
+    of take does not.  The share is what tells them apart, and it is
+    measured from the moments the evidence established.
+    """
+    if not entries or not duration:
+        return 0.0
+    starts = [_num(e.get("start")) for e in entries]
+    ends = [_num(e.get("end")) for e in entries]
+    starts = [s for s in starts if s is not None]
+    ends = [e for e in ends if e is not None]
+    if not starts or not ends:
+        return 0.0
+    span = max(ends) - min(starts)
+    return max(0.0, min(1.0, span / float(duration)))
+
+
+def _represented(candidates: Sequence[Mapping], top_ranges: int,
+                 per_source: int, different_event,
+                 source_durations: Mapping[str, float] | None = None) -> set:
+    """The cameras that hold a slot in the answer as it stands."""
+    return {c.get("clip_id") for c in
+            select(candidates, top_ranges, per_source=per_source,
+                   different_event=different_event,
+                   source_durations=source_durations)}
+
+
+def _settled(candidates: Sequence[Mapping], per_camera: Mapping,
+             top_ranges: int, per_source: int, different_event,
+             source_durations: Mapping[str, float] | None = None) -> bool:
+    """Is the answer settled: full, and every camera in it judged again?
+
+    The pass stops when the editor's list is full AND every camera that
+    holds a slot has been judged at its second moment - the moment
+    that shows the query AGAIN.  A camera that holds no slot is not
+    judged again: its first moment was judged and it did not earn one.
+    """
+    picked = select(candidates, top_ranges, per_source=per_source,
+                    different_event=different_event,
+                    source_durations=source_durations)
+    if len(picked) < top_ranges:
+        return False
+    for clip_id in {c.get("clip_id") for c in picked}:
+        entries = per_camera.get(clip_id) or []
+        want = min(MOMENTS_PER_SOURCE, len(entries))
+        got = sum(1 for c in candidates if c.get("clip_id") == clip_id)
+        if got < want:
+            return False
+    return True
 
 
 def rerank(*, project_folder, query: str, ranges: Sequence[Mapping],
@@ -447,16 +603,22 @@ def rerank(*, project_folder, query: str, ranges: Sequence[Mapping],
            top_ranges: int = 5, classification: Mapping | None = None,
            verify=None, per_clip: int = CANDIDATES_PER_CLIP,
            max_candidates: int = MAX_CANDIDATES, per_source: int = 1,
+           event_gap_s: float = EVENT_GAP_S,
+           source_durations: Mapping[str, float] | None = None,
            different_event=None) -> dict:
     """Inspect the candidate intervals and present the justified ones.
 
-    **Cameras are visited round robin, and the pass stops as soon as the
-    editor's list is full.**  One camera's best three shots are not more
-    informative than the other cameras' best shots, and a query that is
-    answered by the first camera inspected must not cost three calls per
-    camera to find out.  So the candidates are inspected one per camera
-    at a time, and the pass stops the moment the selection holds as many
-    windows as the editor asked for.
+    **Cameras are visited round robin, and each of them is judged at the
+    moments that show the query AGAIN.**  One camera's best three shots
+    are not more informative than the other cameras' best shots, and a
+    query that is answered by the first camera inspected must not cost
+    three calls per camera to find out.  So the candidates are inspected
+    one per camera at a time; and then the cameras that hold a slot are
+    judged at their SECOND moment - the moment that shows the query
+    again - because that is what lets a camera that shows the thing
+    repeatedly take a second of the editor's slots.  The pass stops the
+    moment the list is full and every camera in it has been judged
+    twice.
 
     `verify` is the callable that puts one candidate to the model; it
     defaults to the shipped interval verifier.  It is an argument so a
@@ -466,13 +628,14 @@ def rerank(*, project_folder, query: str, ranges: Sequence[Mapping],
     classification = classification or classify(query)
     started = time.perf_counter()
     per_camera = candidate_intervals(ranges, classification, frames_by_clip,
-                                     per_clip=per_clip)
+                                     per_clip=per_clip, event_gap_s=event_gap_s)
     statement = classification["statement"]
     order = sorted(per_camera,
                    key=lambda clip: -(_num(per_camera[clip][0].get("score"))
                                       if per_camera[clip] else 0.0))
     inspected: list[dict] = []
     calls = 0
+    deepening: set = set()
     if not any(candidate.get("frames")
                for candidates in per_camera.values()
                for candidate in candidates):
@@ -492,9 +655,18 @@ def rerank(*, project_folder, query: str, ranges: Sequence[Mapping],
                        "project's sources"),
         }
     for depth in range(per_clip):
+        progressed = False
         for clip_id in order:
             entries = per_camera.get(clip_id) or []
             if depth >= len(entries):
+                continue
+            if depth and clip_id not in deepening:
+                # A camera that holds no slot is not judged again: its
+                # first moment was judged and it did not earn one.
+                # The set of cameras to judge again is taken ONCE, when
+                # the first round is done: a camera that loses its slot
+                # to a camera that shows the thing AGAIN must not be
+                # starved of its own second moment by that very thing.
                 continue
             candidate = entries[depth]
             if calls >= max_candidates:
@@ -507,15 +679,31 @@ def rerank(*, project_folder, query: str, ranges: Sequence[Mapping],
                          "seconds": verdict.get("seconds"),
                          "cached": verdict.get("cached")}
             inspected.append(candidate)
-            if len(select(inspected, top_ranges, per_source=per_source,
-                          different_event=different_event)) >= top_ranges:
+            progressed = True
+            if depth and _settled(inspected, per_camera, top_ranges,
+                                  per_source, different_event,
+                                  source_durations):
                 break
-        if len(select(inspected, top_ranges, per_source=per_source,
-                      different_event=different_event)) >= top_ranges:
+        if depth:
+            if _settled(inspected, per_camera, top_ranges, per_source,
+                        different_event, source_durations):
+                break
+            # The next round judges the cameras that hold a slot NOW.
+            deepening = _represented(inspected, top_ranges, per_source,
+                                     different_event, source_durations)
+            continue
+        if not progressed:
             break
+        # The first round is done: the cameras that hold a slot are the
+        # ones judged again, and that set is taken ONCE, so a camera that
+        # loses its slot to a camera that shows the thing AGAIN is not
+        # starved of its own second moment by that very thing.
+        deepening = _represented(inspected, top_ranges, per_source,
+                                 different_event, source_durations)
     inspected.sort(key=lambda c: -(c.get("score") or 0.0))
     picked = select(inspected, top_ranges, per_source=per_source,
-                    different_event=different_event)
+                    different_event=different_event,
+                    source_durations=source_durations)
     verified = [c for c in inspected if c.get("verdict") == "yes"]
     seconds = sum(float(c.get("seconds") or 0.0) for c in inspected)
     fresh = [c for c in inspected if c.get("cached") is False]

@@ -253,9 +253,11 @@ def test_the_pass_stops_when_the_editors_list_is_full():
     """The pass costs a model call per candidate, so it must stop.
 
     Two cameras with three candidates each would be six calls if the
-    pass inspected everything; a list of two windows is full after the
+    pass inspected everything.  A list of two windows is full after the
     first camera's two candidates are established, and the rest of the
-    budget is not spent.
+    budget is not spent - but the camera that holds a slot is judged at
+    its SECOND moment first, because that is what lets a camera that
+    shows the query again take a second slot.
     """
     frames = {"clip_001": _frames([100.0, 110.0, 120.0, 300.0, 310.0, 320.0]),
               "clip_002": _frames([50.0, 60.0, 70.0])}
@@ -270,7 +272,83 @@ def test_the_pass_stops_when_the_editors_list_is_full():
                         ranges=_ranges(), frames_by_clip=frames, top_ranges=2,
                         verify=verify)
     assert len(result["ranges"]) == 2
-    assert len(asked) == 2, "the pass must stop when the list is full"
+    assert len(asked) == 3, (
+        "the pass must judge the second moment of a camera that holds a "
+        "slot, and must stop there")
+    assert {c["clip_id"] for c in asked} == {"clip_001", "clip_002"}
+    assert sum(1 for c in asked if c["clip_id"] == "clip_001") == 2, (
+        "the camera that holds a slot is judged at its second moment")
+
+
+def test_a_camera_that_shows_the_query_again_holds_two_of_the_slots():
+    """The second slot is EVIDENCE, not a guess.
+
+    A camera whose moments are established at two different places
+    shows the thing the editor asked for TWICE, and it may take two of
+    the editor's slots - the editor scrubs a passage, not one frame.
+    A camera whose evidence establishes one moment holds one slot, so
+    the slots are not spent on five windows of one camera.
+    """
+    frames = {"clip_001": _frames([100.0, 110.0, 300.0, 310.0]),
+              "clip_002": _frames([50.0, 60.0])}
+    ranges = [
+        {"clip_id": "clip_001", "filename": "A.MXF", "start": 100.0,
+         "end": 120.0, "best_score": 0.30, "peak_t": 100.0, "n_frames": 2,
+         "timecode": "01:40.000-02:00.000"},
+        {"clip_id": "clip_001", "filename": "A.MXF", "start": 300.0,
+         "end": 320.0, "best_score": 0.29, "peak_t": 300.0, "n_frames": 2,
+         "timecode": "05:00.000-05:20.000"},
+        {"clip_id": "clip_002", "filename": "B.MXF", "start": 50.0,
+         "end": 70.0, "best_score": 0.28, "peak_t": 50.0, "n_frames": 2,
+         "timecode": "00:50.000-01:10.000"},
+    ]
+
+    def verify(candidates, statement):
+        return [{"answer": "yes", "reason": "yes", "seconds": 1.0,
+                 "cached": False} for _ in candidates]
+
+    result = tr.rerank(project_folder="/nowhere", query="the open laptop",
+                        ranges=ranges, frames_by_clip=frames, top_ranges=2,
+                        verify=verify)
+    windows = result["ranges"]
+    assert len(windows) == 2
+    assert [w["clip_id"] for w in windows] == ["clip_001", "clip_001"], (
+        "the camera that shows the query twice takes both slots")
+    assert windows[0]["start"] == 100.0 and windows[1]["start"] == 300.0, (
+        "the two slots are two DIFFERENT moments of that camera")
+
+
+def test_the_candidates_judged_are_distinct_moments_and_not_slices():
+    """Three slices of ONE passage are not three candidates.
+
+    The lane's ranges are slices of a passage, and two slices that
+    close are one sighting - the merge gap says so.  So the pass judges
+    the camera's best moment, and then the moments that show the query
+    AGAIN: judging three adjacent slices of one passage puts the same
+    question to the model three times and learns nothing.
+    """
+    frames = {"clip_001": _frames([100.0, 110.0, 120.0, 130.0, 140.0,
+                                   150.0, 300.0, 310.0])}
+    ranges = [
+        {"clip_id": "clip_001", "filename": "A.MXF", "start": 100.0,
+         "end": 110.0, "best_score": 0.30, "peak_t": 100.0, "n_frames": 2,
+         "timecode": "01:40.000-01:50.000"},
+        {"clip_id": "clip_001", "filename": "A.MXF", "start": 110.0,
+         "end": 120.0, "best_score": 0.29, "peak_t": 110.0, "n_frames": 2,
+         "timecode": "01:50.000-02:00.000"},
+        {"clip_id": "clip_001", "filename": "A.MXF", "start": 120.0,
+         "end": 130.0, "best_score": 0.28, "peak_t": 120.0, "n_frames": 2,
+         "timecode": "02:00.000-02:10.000"},
+        {"clip_id": "clip_001", "filename": "A.MXF", "start": 300.0,
+         "end": 310.0, "best_score": 0.27, "peak_t": 300.0, "n_frames": 2,
+         "timecode": "05:00.000-05:10.000"},
+    ]
+    classification = {"event": False, "statement": "the open laptop"}
+    per_clip = tr.candidate_intervals(ranges, classification, frames,
+                                      per_clip=3)
+    starts = [c["start"] for c in per_clip["clip_001"]]
+    assert starts == [100.0, 300.0], (
+        "the judged candidates are the camera's distinct moments")
 
 
 def test_the_cost_of_the_pass_is_recorded():
