@@ -337,12 +337,11 @@ fm_lint_worker() {  # <manifest> <output-dir> <shard-index>
       FM_LINT_WORKER_ARGS+=(--extended-analysis=false)
     fi
     : > "$output.out"
-    for path in "${roots[@]}"; do
+    for entry in "${root_entries[@]}"; do
+      index=${entry%%"$tab"*}
+      path=${entry#*"$tab"}
       invocation_rc=0
-      "$FM_LINT_SHELLCHECK" "${shellcheck_args[@]}" -- "$path" >> "$output.out" 2>&1 &
-      FM_LINT_WORKER_SHELLCHECK_PID=$!
-      wait "$FM_LINT_WORKER_SHELLCHECK_PID" || invocation_rc=$?
-      FM_LINT_WORKER_SHELLCHECK_PID=
+      fm_lint_run_root "$index" "$path" "$output_dir" "$shard_index" || invocation_rc=$?
       if [ "$rc" -eq 0 ] && [ "$invocation_rc" -ne 0 ]; then
         rc=$invocation_rc
       fi
@@ -758,6 +757,22 @@ case "$JOBS" in
   *) printf 'fm-lint.sh: jobs must be 1 or 2, got %s.\n' "$JOBS" >&2; exit 2 ;;
 esac
 
+case "$PARTITION" in
+  '')
+    if [ "$PARTITION_REQUESTED" -eq 1 ]; then
+      printf 'fm-lint.sh: --partition requires 1of2 or 2of2.\n' >&2
+      exit 2
+    fi
+    ;;
+  1of2|2of2)
+    if [ "$FAST" -eq 1 ] || [ "$#" -gt 0 ]; then
+      printf 'fm-lint.sh: --partition requires full canonical lint; omit --fast and explicit paths.\n' >&2
+      exit 2
+    fi
+    ;;
+  *) printf 'fm-lint.sh: --partition must be 1of2 or 2of2, got %s.\n' "$PARTITION" >&2; exit 2 ;;
+esac
+
 if [ -n "$SHARD_INDEX" ]; then
   case "$SHARD_INDEX" in
     ''|*[!0-9]*) printf 'fm-lint.sh: shard index must be 0 or 1, got %s.\n' "$SHARD_INDEX" >&2; exit 2 ;;
@@ -1054,6 +1069,33 @@ else
   ROOTS_LOG=$TMP_ROOT/roots.tsv
 fi
 : > "$ROOTS_LOG"
+# The per-root envelope in force for this run is recorded beside the roots
+# themselves, so a retained roots log names the bounds its roots ran under.
+if [ "$BOUND_MECH" != none ]; then
+  bounds_applied=1
+  root_deadline_meta=$ROOT_SECONDS
+  root_grace_meta=$ROOT_GRACE
+  root_memory_meta=$ROOT_MEMORY_KIB
+else
+  bounds_applied=0
+  root_deadline_meta=unbounded
+  root_grace_meta=unbounded
+  root_memory_meta=unbounded
+fi
+{
+  printf 'format\t%s\n' 'fm-lint-roots-v1'
+  printf 'meta\t%s\t%s\n' 'shellcheck_version' "$resolved"
+  printf 'meta\t%s\t%s\n' 'platform' "$(uname -s) $(uname -m)"
+  printf 'meta\t%s\t%s\n' 'mode' "$ANALYSIS_MODE"
+  printf 'meta\t%s\t%s\n' 'partition' "${PARTITION:-all}"
+  printf 'meta\t%s\t%s\n' 'jobs' "$JOBS"
+  printf 'meta\t%s\t%s\n' 'bounds_enforced' "$bounds_applied"
+  printf 'meta\t%s\t%s\n' 'root_deadline_seconds' "$root_deadline_meta"
+  printf 'meta\t%s\t%s\n' 'root_kill_grace_seconds' "$root_grace_meta"
+  printf 'meta\t%s\t%s\n' 'root_memory_limit_kib' "$root_memory_meta"
+  printf 'meta\t%s\t%s\n' 'timing_mechanism' "$BOUND_MECH"
+} >> "$ROOTS_LOG"
+
 worker=0
 while [ "$worker" -lt "$SHARD_COUNT" ]; do
   : > "$TMP_ROOT/manifest.$worker"
@@ -1139,27 +1181,18 @@ fm_lint_run_worker() {  # <worker-index>
     if [ "$(uname)" = Darwin ]; then
       exec "$PERL_BIN" -e 'setpgrp(0, 0) or die "setpgrp: $!"; exec @ARGV or die "exec: $!"' \
         /usr/bin/time -lp -o "$timing" \
-        env FM_LINT_INTERNAL=1 FM_LINT_INTERNAL_FAST="$FAST" \
-        FM_LINT_INTERNAL_FOLLOW_SOURCES="$FOLLOW_SOURCES" FM_LINT_INTERNAL_EXCLUDE="$EXCLUDE_CODES" \
-        FM_LINT_RSS_LIMIT_KIB="$FM_LINT_RSS_LIMIT_KIB" \
-        FM_LINT_SHELLCHECK="$SHELLCHECK_BIN" \
+        env "${worker_env[@]}" \
         "${BASH:-bash}" "$SELF" --internal-worker "$manifest" "$OUTPUT_DIR" "$worker_index"
     else
       exec "$PERL_BIN" -e 'setpgrp(0, 0) or die "setpgrp: $!"; exec @ARGV or die "exec: $!"' \
         /usr/bin/time -f 'wall_seconds=%e\nuser_seconds=%U\nsystem_seconds=%S\nmax_rss_kib=%M' -o "$timing" \
-        env FM_LINT_INTERNAL=1 FM_LINT_INTERNAL_FAST="$FAST" \
-        FM_LINT_INTERNAL_FOLLOW_SOURCES="$FOLLOW_SOURCES" FM_LINT_INTERNAL_EXCLUDE="$EXCLUDE_CODES" \
-        FM_LINT_RSS_LIMIT_KIB="$FM_LINT_RSS_LIMIT_KIB" \
-        FM_LINT_SHELLCHECK="$SHELLCHECK_BIN" \
+        env "${worker_env[@]}" \
         "${BASH:-bash}" "$SELF" --internal-worker "$manifest" "$OUTPUT_DIR" "$worker_index"
     fi
   else
     [ -z "$TELEMETRY" ] || printf 'timing_unavailable=1\n' > "$timing"
     exec "$PERL_BIN" -e 'setpgrp(0, 0) or die "setpgrp: $!"; exec @ARGV or die "exec: $!"' \
-      env FM_LINT_INTERNAL=1 FM_LINT_INTERNAL_FAST="$FAST" \
-      FM_LINT_INTERNAL_FOLLOW_SOURCES="$FOLLOW_SOURCES" FM_LINT_INTERNAL_EXCLUDE="$EXCLUDE_CODES" \
-      FM_LINT_RSS_LIMIT_KIB="$FM_LINT_RSS_LIMIT_KIB" \
-      FM_LINT_SHELLCHECK="$SHELLCHECK_BIN" \
+      env "${worker_env[@]}" \
       "${BASH:-bash}" "$SELF" --internal-worker "$manifest" "$OUTPUT_DIR" "$worker_index"
   fi
 }

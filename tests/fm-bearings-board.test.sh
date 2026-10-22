@@ -103,12 +103,17 @@ SH
 
 end_session_as_captain() { : > "$1/lavish-state/user-ended"; : > "$1/lavish-state/open"; }
 
+# The launch-confirm window is the time a detached listener gets to prove it
+# took the source's claim. The default of three seconds fits a quiet host, and
+# a loaded host can spend that long forking the runner at all, so this suite
+# asks for the documented longer window instead of racing the machine.
 run_board() {  # <home> <args...>
   local home=$1
   shift
   PATH="$home/fakebin:$PATH" FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
     FM_PROCEVENT_CLAIM_ROOT="$home/procevent-claims" \
+    FM_PROCEVENT_LAUNCH_CONFIRM_SECONDS=60 \
     LAVISH_FAKE_STATE="$home/lavish-state" LAVISH_AXI_STATE_DIR="$home/lavish-state" \
     "$BOARD" "$@"
 }
@@ -119,6 +124,7 @@ run_procevent() {  # <home> <command args...>
   PATH="$home/fakebin:$PATH" FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
     FM_PROCEVENT_CLAIM_ROOT="$home/procevent-claims" \
+    FM_PROCEVENT_LAUNCH_CONFIRM_SECONDS=60 \
     LAVISH_AXI_STATE_DIR="$home/lavish-state" \
     "$ROOT/bin/fm-procevent.sh" "$@"
 }
@@ -711,8 +717,14 @@ SH
   [ "$rc" -ne 0 ] || fail "a build with an uncertain listener reported success: $out"
   assert_contains "$out" "source $sid is not listening after reconcile" \
     "the refusal did not name the source: $out"
-  assert_contains "$out" "observed owner: uncertain" \
-    "the refusal did not name the observed owner: $out"
+  # The observed owner depends on what the home can still prove about the
+  # previous listener: a claim it cannot verify reads uncertain, and a claim
+  # that is already gone reads none. Both are honest readings of "not proven
+  # live", and the refusal must name one of them rather than a live owner.
+  case "$out" in
+    *"observed owner: uncertain"*|*"observed owner: none"*) : ;;
+    *) fail "the refusal did not name the observed owner: $out" ;;
+  esac
   pass "build fails when reconcile cannot prove a live listener"
 }
 

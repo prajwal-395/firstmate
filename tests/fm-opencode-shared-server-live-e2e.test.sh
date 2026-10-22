@@ -77,14 +77,14 @@ unset FM_ROOT_OVERRIDE FM_STATE_OVERRIDE FM_DATA_OVERRIDE FM_CONFIG_OVERRIDE FM_
 capture() { "$REAL_TMUX" -S "$SOCKET" capture-pane -p -t "$TARGET"; }
 classify() { fm_busy_classify tmux "$TARGET" opencode "$ID" "$H/state"; }
 wait_file() {
-  local path=$1 i
-  for i in $(seq 1 480); do [ -s "$path" ] && return 0; sleep 0.5; done
+  local path=$1 _
+  for _ in $(seq 1 480); do [ -s "$path" ] && return 0; sleep 0.5; done
   fail "timed out waiting for ${path##*/}"
 }
 wait_classify() {
-  local want=$1 i
+  local want=$1 _
   # A relaunched worker may redo earlier inbox work, so allow a long turn.
-  for i in $(seq 1 600); do [ "$(classify)" = "$want" ] && return 0; sleep 0.5; done
+  for _ in $(seq 1 600); do [ "$(classify)" = "$want" ] && return 0; sleep 0.5; done
   fail "busy state never read '$want' (last: $(classify))"
 }
 wait_file "$WT/answer.txt"

@@ -250,7 +250,7 @@ EOF
 }
 
 test_opencode_plugin_unawaited_events_end_idle() {
-  local rec id=busy-oc-order out state plugin events=() n
+  local rec id=busy-oc-order out state plugin events=()
   rec=$(make_spawn_case oc-order opencode "$id")
   read_case_record "$rec"
   out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR")
@@ -259,7 +259,7 @@ test_opencode_plugin_unawaited_events_end_idle() {
   plugin="$WT_DIR/.opencode/plugins/fm-busy-state.js"
   # A turn's burst of busy statuses, then its close. Dispatched without
   # awaiting, each write is its own process; the last word must be idle.
-  for n in $(seq 1 12); do events+=("$(oc_status ses_main busy)"); done
+  for _ in $(seq 1 12); do events+=("$(oc_status ses_main busy)"); done
   events+=("$(oc_status ses_main idle)" "$(oc_idle ses_main)")
   out=$(drive_oc_plugin_unawaited "$plugin" "${events[@]}") || fail "unawaited drive failed: $out"
   out=$(classify opencode "$id" "$state")

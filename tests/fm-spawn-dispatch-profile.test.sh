@@ -2114,8 +2114,6 @@ SH
     fi
     expect_code 0 "$?" "$kind worker spawn failed: $out"
     launch=$(cat "$LAUNCH_LOG")
-    envelope="$CASE_DIR/prompt-envelope"
-    encoded="$CASE_DIR/encoded-prompt"
     prompt="$CASE_DIR/prompt"
     brief_content="$CASE_DIR/brief-content"
     FM_ROLE_ARGV="$prompt" FM_ROLE_CONTENT="$brief_content" PATH="$FAKEBIN_DIR:$PATH" \

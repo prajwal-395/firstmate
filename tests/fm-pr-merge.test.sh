@@ -17,6 +17,14 @@ PR_MERGE="$ROOT/bin/fm-pr-merge.sh"
 TMP_ROOT=$(fm_test_tmproot fm-pr-merge-tests)
 BASE_PATH=$PATH
 
+# Every script this suite runs addresses this scratch home, never the home the
+# checkout happens to sit in. A checkout that is itself a live firstmate home
+# would otherwise hand this suite that home's session lock and its merge
+# authority records, and the merge would wait on a live session instead of on
+# its own fixture.
+FM_HOME=$(fm_test_scratch_home fm-pr-merge)
+export FM_HOME
+
 # The GitLab fixture. A placeholder host that resolves nowhere, and a namespace
 # deeper than one group, because a GitLab project has no owner/repository pair.
 MR_HOST=gitlab.example

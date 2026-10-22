@@ -79,6 +79,14 @@ CREW_STATE="$ROOT/bin/fm-crew-state.sh"
 TMP_ROOT=$(fm_test_tmproot fm-crew-state)
 fm_git_identity fmtest fmtest@example.invalid
 
+# Every script this suite runs addresses this scratch home, never the home the
+# checkout happens to sit in. A checkout that is itself a live firstmate home
+# would otherwise hand this suite that home's session lock and its remote
+# secondmate routes, and the helper would wait on a live session instead of on
+# its own fixture.
+FM_HOME=$(fm_test_scratch_home fm-crew-state)
+export FM_HOME
+
 # A real git repo checked out on <branch>, so the helper's branch attribution
 # (git symbolic-ref) resolves like it would for a live crew worktree.
 # Stamp origin/main at the current HEAD so a later ship done: is not refused

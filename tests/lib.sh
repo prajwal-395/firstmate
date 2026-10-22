@@ -279,6 +279,19 @@ fm_test_tmproot() {
   printf '%s\n' "$root"
 }
 
+# fm_test_scratch_home <name>: create a scratch operational home and print its
+# path. A suite that exports it as FM_HOME addresses THAT home and never the
+# home its checkout happens to sit in: a checkout that is itself a live
+# firstmate home would otherwise hand the suite that home's session lock, its
+# backlog, and its remote secondmate routes, and a suite that waits on any of
+# those waits on a live session instead of on its own fixture.
+fm_test_scratch_home() {  # <name>
+  local home="$FM_TEST_TMPDIR/scratch-${1:-home}.$$"
+  mkdir -p "$home/state" "$home/data" "$home/config" "$home/projects" || return 1
+  printf '%s\n' "$home" >> "$FM_TEST_CLEANUP_REGISTRY" || return 1
+  printf '%s\n' "$home"
+}
+
 trap fm_test_cleanup EXIT
 trap 'fm_test_cleanup; exit 130' INT
 trap 'fm_test_cleanup; exit 143' TERM

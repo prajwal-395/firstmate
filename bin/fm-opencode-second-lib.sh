@@ -629,8 +629,10 @@ fm_opencode_live_login_refresh() {  # <live-db> [lock-dir]
   lock="$lock_dir/opencode-pi-token.lock"
   lib="$_FM_OPENCODE_SECOND_LIB_DIR/$(basename "${BASH_SOURCE[0]}")"
   if command -v lockf >/dev/null 2>&1; then
+    # shellcheck disable=SC2016 # Positional parameters expand in the child shell.
     lockf -t 20 "$lock" bash -c '. "$1"; shift; fm_opencode_live_login_refresh_unlocked "$@"' _ "$lib" "$live"
   elif command -v flock >/dev/null 2>&1; then
+    # shellcheck disable=SC2016 # Positional parameters expand in the child shell.
     flock -w 20 "$lock" bash -c '. "$1"; shift; fm_opencode_live_login_refresh_unlocked "$@"' _ "$lib" "$live"
   else
     fm_opencode_live_login_refresh_unlocked "$live"
@@ -874,8 +876,10 @@ fm_opencode_workspace_locked() {  # <workspace> <config-dir> <function> <args...
   timeout=${FM_OPENCODE_LOCK_TIMEOUT:-120}
   case "$timeout" in ''|*[!0-9]*) timeout=120 ;; esac
   if command -v lockf >/dev/null 2>&1; then
+    # shellcheck disable=SC2016 # Positional parameters expand in the child shell.
     lockf -t "$timeout" "$lock" bash -c '. "$1"; shift; "$@"' _ "$lib" "$fn" "$workspace" "$@"
   elif command -v flock >/dev/null 2>&1; then
+    # shellcheck disable=SC2016 # Positional parameters expand in the child shell.
     flock -w "$timeout" "$lock" bash -c '. "$1"; shift; "$@"' _ "$lib" "$fn" "$workspace" "$@"
   else
     echo "error: OpenCode workspace pin requires lockf or flock for concurrency safety" >&2

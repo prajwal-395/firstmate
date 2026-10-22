@@ -1259,11 +1259,13 @@ test_tick_leaves_settled_records_alone() {
   lib="$ROOT/bin/fm-wake-lib.sh"
   bash -c '. "$1"; fm_lock_acquire_wait "$2" && : > "$3"; exec sleep 300' _ \
     "$lib" "$state/.pending-reply-00005e7700000000.lock" "$home/held" &
+  # shellcheck disable=SC2031 # The background job's pid is read in this shell.
   holder=$!
   for _ in $(seq 1 100); do [ -e "$home/held" ] && break; sleep 0.1; done
   [ -e "$home/held" ] || { kill "$holder" 2>/dev/null; fail "foreign holder never took the lock"; }
 
   fm_pending_reply_tick "$state" &
+  # shellcheck disable=SC2031 # The background job's pid is read in this shell.
   tick_pid=$!
   for _ in $(seq 1 600); do
     case "$(ps -p "$tick_pid" -o stat= 2>/dev/null)" in ''|Z*) ticked=1; break ;; esac

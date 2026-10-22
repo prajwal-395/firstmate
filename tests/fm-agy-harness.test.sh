@@ -634,7 +634,7 @@ test_agy_launch_carries_the_brief_with_model_effort_and_autonomy() {
     --model gemini-3.8-flash-low --effort low)
   rc=$?
   expect_code 0 "$rc" "agy spawn with a listed model should succeed"
-  launch=$(cat "$CASE_DIR/launch.log")
+  launch=$(fm_test_launch_script "$(cat "$CASE_DIR/launch.log")")
   assert_contains "$launch" "$FAKEBIN_DIR/agy" "agy launch did not pin the resolved absolute binary"
   assert_contains "$launch" "--prompt-interactive" "agy launch did not carry the brief via --prompt-interactive"
   assert_contains "$launch" "--model 'gemini-3.8-flash-low'" "agy launch did not carry the requested model"
@@ -660,7 +660,7 @@ test_agy_effort_xhigh_is_omitted_from_launch_and_meta() {
     --model gemini-3.8-flash-low --effort xhigh)
   rc=$?
   expect_code 0 "$rc" "agy spawn with an unsupported effort should still succeed"
-  launch=$(cat "$CASE_DIR/launch.log")
+  launch=$(fm_test_launch_script "$(cat "$CASE_DIR/launch.log")")
   assert_not_contains "$launch" "--effort" "agy launch passed a known-bad effort value"
   meta="$HOME_DIR/state/$id.meta"
   assert_not_contains "$(cat "$meta")" 'effort=xhigh' "agy meta must not record omitted xhigh"
@@ -700,28 +700,42 @@ test_agy_unreachable_listing_launches_unvalidated() {
   # listing as unknown rather than as proof of absence, and launches silent:
   # no refusal naming the catalogue, and the requested model still carried.
   assert_not_contains "$out" "is not available from" "an unreachable listing was read as proof of absence"
-  assert_contains "$(cat "$CASE_DIR/launch.log")" "--model 'gemini-3.8-flash-low'" \
+  assert_contains "$(fm_test_launch_script "$(cat "$CASE_DIR/launch.log")")" "--model 'gemini-3.8-flash-low'" \
     "an unreachable listing dropped the requested model instead of launching it unvalidated"
   pass "fm-spawn: an unreachable agy listing establishes nothing and launches"
 }
 
 test_agy_hung_listing_is_cut_off_and_launches() {
-  local id rec out rc started elapsed
+  local id rec out rc started elapsed baseline_started baseline baseline_id baseline_rec saved_rec
   id="agy-hanglisting-z8-$$"
   rec=$(make_agy_spawn_case hanglisting "$id")
   read_agy_spawn_record "$rec"
+  # The same spawn without the hung listing is the baseline: the spawn's own
+  # work (the worktree, the git plumbing) costs whatever this host costs, and
+  # only the DIFFERENCE says whether the hung listing was cut off. An absolute
+  # ceiling would race the machine instead of the probe.
+  baseline_id="agy-baseline-z8-$$"
+  baseline_rec=$(make_agy_spawn_case baseline "$baseline_id")
+  saved_rec="$CASE_DIR|$HOME_DIR|$PROJ_DIR|$WT_DIR|$FAKEBIN_DIR"
+  read_agy_spawn_record "$baseline_rec"
+  baseline_started=$(date +%s)
+  run_agy_spawn "$CASE_DIR" "$HOME_DIR" "$PROJ_DIR" "$WT_DIR" \
+    "$FAKEBIN_DIR" "$baseline_id" --model gemini-3.8-flash-low >/dev/null 2>&1 || true
+  baseline=$(( $(date +%s) - baseline_started ))
+  read_agy_spawn_record "$saved_rec"
   rc=0
   started=$(date +%s)
   out=$(FM_FAKE_AGY_MODELS_HANG=1 FM_AGY_PROBE_TIMEOUT=2 run_agy_spawn "$CASE_DIR" "$HOME_DIR" "$PROJ_DIR" "$WT_DIR" \
     "$FAKEBIN_DIR" "$id" --model gemini-3.8-flash-low) || rc=$?
   elapsed=$(( $(date +%s) - started ))
   expect_code 0 "$rc" "a hung model listing must not block the spawn"
-  [ "$elapsed" -lt 20 ] || fail "the model probe was not cut off by its bound (took ${elapsed}s)"
+  [ "$elapsed" -lt $((baseline + 20)) ] \
+    || fail "the model probe was not cut off by its bound (took ${elapsed}s against a ${baseline}s baseline)"
   # The ported probe (fm_agy_bounded_output) is silent on every path: a hung
   # listing is cut off and launches unvalidated with no timeout notice.
   assert_not_contains "$out" "is not available from" "a hung listing was read as proof of absence"
   [ -s "$CASE_DIR/launch.log" ] || fail "a hung listing produced no launch command"
-  assert_contains "$(cat "$CASE_DIR/launch.log")" "--model 'gemini-3.8-flash-low'" \
+  assert_contains "$(fm_test_launch_script "$(cat "$CASE_DIR/launch.log")")" "--model 'gemini-3.8-flash-low'" \
     "a hung listing dropped the requested model instead of launching it unvalidated"
   pass "fm-spawn: a hung agy listing is cut off by the shared bound and launches unvalidated"
 }

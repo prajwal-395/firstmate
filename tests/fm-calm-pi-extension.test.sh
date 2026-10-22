@@ -44,8 +44,10 @@ wait_for_text() {
   while [ "$i" -lt 120 ]; do
     # Include recent scrollback: expanding a long restored transcript can move
     # the asserted tool output above the current viewport while the footer and
-    # editor remain visible.
-    tmux -L "$TMUX_SOCKET" capture-pane -p -t "$TMUX_SESSION" -S -600 >"$file" 2>/dev/null || true
+    # editor remain visible. The window is wide because a Calm toggle can
+    # re-render a long transcript in one go, and a row that was on screen
+    # before the toggle can end up further back than a narrow window shows.
+    tmux -L "$TMUX_SOCKET" capture-pane -p -t "$TMUX_SESSION" -S -5000 >"$file" 2>/dev/null || true
     grep -Fq "$text" "$file" 2>/dev/null && return 0
     sleep 0.05
     i=$((i + 1))
@@ -4608,7 +4610,8 @@ JS
     CURRENT_FROM_FIRSTMATE_E2E \
     CURRENT_LAUNCH_BRIEF_E2E
   do
-    assert_contains "$(cat "$restored_snapshot")" "$restored" "second /calm did not restore current operational kind $restored"
+    wait_for_text "$restored_snapshot" "$restored" \
+      || fail "second /calm did not restore current operational kind $restored"
   done
   assert_contains "$(cat "$restored_snapshot")" "Warning: CALM_TRANSIENT_DIAGNOSTIC" "second /calm dropped a transient diagnostic"
   assert_contains "$(cat "$restored_snapshot")" " Error:" "second /calm dropped the synthetic delivery diagnostic"
@@ -4699,7 +4702,11 @@ JS
   boat_water_changed=0
   boat_water_first=$(grep -F '╲▁▁▁╱' "$boat_frame_one" | head -1)
   active_screen_wait=0
-  while [ "$active_screen_wait" -lt 60 ]; do
+  # The water animates on its own cadence, so the window waits for a changed
+  # frame rather than for a fixed delay. A loaded host can spend seconds
+  # between two frames, and the property under test is that the water moves at
+  # all while the boat holds its column, not how fast a quiet host moves it.
+  while [ "$active_screen_wait" -lt 600 ]; do
     tmux -L "$TMUX_SOCKET" capture-pane -p -t "$TMUX_SESSION" >"$boat_water_snapshot"
     boat_water_line=$(grep -F '╲▁▁▁╱' "$boat_water_snapshot" | head -1)
     boat_column_two=$(awk 'index($0,"╲▁▁▁╱"){print index($0,"╲▁▁▁╱"); exit}' "$boat_water_snapshot")
