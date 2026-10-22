@@ -255,9 +255,11 @@ meta_value() {  # <key>
 
 WT=$(meta_value worktree)
 KIND=$(meta_value kind)
+MODE=$(meta_value mode)
 HARNESS=$(meta_value harness)
 REMOTE_HOST=$(meta_value remote_host)
 [ -n "$KIND" ] || KIND=ship
+[ -n "$MODE" ] || MODE=no-mistakes
 
 # Mate-watcher quiet detail (heartbeat backstop): for a local secondmate task,
 # the same model-aware verdict the primary watcher poll tick consults is
@@ -1170,9 +1172,9 @@ NM_DAEMON_ANSWER=""
 RUN_DEAD_DAEMON=""
 COARSE_STATUS=""
 SELECTED_RUN_ID=""
-# Scouts and secondmates never drive a no-mistakes validation of their own
-# worktree, so skip the lookup for them and read state from pane/log directly.
-if [ "$KIND" = ship ] && [ -n "$CREW_BRANCH" ] && command -v no-mistakes >/dev/null 2>&1; then
+# Scouts, secondmates, and ships whose recorded mode is not no-mistakes never drive a no-mistakes validation of their own
+# worktree, so skip the lookup for them and read state from pane/log directly. Any other mode must never invoke the no-mistakes binary, so the daemon is never started by supervision of such a task.
+if [ "$KIND" = ship ] && [ "$MODE" = no-mistakes ] && [ -n "$CREW_BRANCH" ] && command -v no-mistakes >/dev/null 2>&1; then
   RUN_OUT=$(nm_run axi status)
   if [ "$(strip_quotes "$(printf '%s\n' "$RUN_OUT" | sed -n 's/^error: //p')")" = "repo not initialized (run 'no-mistakes init' first)" ]; then
     RUN_OUT=""
