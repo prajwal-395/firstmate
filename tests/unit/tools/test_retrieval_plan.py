@@ -347,8 +347,14 @@ def test_only_the_lanes_the_plan_names_are_run():
 
 def test_a_question_that_mentions_sound_asks_the_sound_lane():
     stub = _StubIndex()
-    _search(stub, "where does he laugh")
-    assert stub.asked == ["text", "sound"]
+    report = _search(stub, "where does he laugh")
+    assert "sound" in stub.asked, (
+        "a question that mentions sound must ask the sound lane")
+    assert stub.asked == ["sound"], (
+        "R02: the plan names no textual requirement, so no text "
+        "embedding pass runs - transcript rows are not sound "
+        "evidence, and the skipped lane says so in "
+        f"{report['lanes'].get('text')}")
 
 
 def test_a_relational_question_is_not_answered_by_a_text_lane_alone():

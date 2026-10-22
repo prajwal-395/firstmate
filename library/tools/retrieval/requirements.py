@@ -174,6 +174,7 @@ cue: it routes the search to the frame lane for a line about training."""
 SOUND_EVENT_CUES = (
     "laugh", "laughs", "laughing", "laughter", "giggle", "giggles",
     "chuckle", "chuckles", "applause", "clap", "claps", "clapping",
+    "bark", "barks", "barking", "barked",
     "cheer", "cheers", "sigh", "sighs", "gasp", "gasps", "cough",
     "coughs", "sneeze", "sneezes", "scream", "screams", "shout",
     "shouts", "yell", "yells", "door", "doors", "slam", "slams", "bang",

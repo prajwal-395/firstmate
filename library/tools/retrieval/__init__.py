@@ -34,6 +34,9 @@ The modules here are one subsystem, not five:
   source references (VI-006).
 * `search` - run the lanes the plan names, and answer the plan
   (`search_footage`).
+* `contract` - the one logical retrieval contract every entry point
+  routes through (R02): which lanes a plan needs, lookup vs semantic
+  pass classes, and the shared evidence envelope.
 * `calibration` - a score means a probability, or it says it does not
   (VI-004).
 * `verify` - the top candidates are re-read at higher fidelity before
@@ -50,6 +53,17 @@ it is.
 
 from library.tools.retrieval.calibration import calibrate
 from library.tools.retrieval.consequence import edit_consequence
+from library.tools.retrieval.contract import (
+    ENTRY_POINTS,
+    MODALITY_ROUTES,
+    RetrievalEvidence,
+    RetrievalRequest,
+    RouteDecision,
+    envelope_complete,
+    evidence_from_row,
+    route_plan,
+    text_backstop_needed,
+)
 from library.tools.retrieval.coverage import (
     absence_verdict,
     coverage_sufficiency,
@@ -72,6 +86,10 @@ __all__ = [
     "MODALITIES",
     "RetrievalPlan",
     "RetrievalRequirement",
+    "MODALITY_ROUTES",
+    "RetrievalEvidence",
+    "RetrievalRequest",
+    "RouteDecision",
     "absence_verdict",
     "calibrate",
     "compare",
@@ -79,9 +97,13 @@ __all__ = [
     "decompose",
     "dedupe_windows",
     "edit_consequence",
+    "envelope_complete",
+    "evidence_from_row",
     "requirement_coverage_flags",
     "requirement_kinds",
+    "route_plan",
     "search_footage",
     "supporting_evidence",
+    "text_backstop_needed",
     "verify_candidates",
 ]
