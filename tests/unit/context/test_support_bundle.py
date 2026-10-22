@@ -402,7 +402,7 @@ def test_doctor_section_matches_doctor_json_shape(monkeypatch, tmp_path):
     section = support_bundle.doctor_section()
     assert set(section) == {
         "ren", "runtime_backends", "checks", "required_failures",
-        "capabilities"}
+        "capabilities", "readiness"}
     from ren.version import build_info
     assert section["ren"]["version"] == build_info()["version"]
     assert section["ren"]["channel"] == build_info()["channel"]

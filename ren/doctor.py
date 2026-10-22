@@ -41,7 +41,7 @@ import subprocess
 import sys
 import textwrap
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from ren.engine_root import find_engine_root, require_engine_root
@@ -97,6 +97,14 @@ class Check:
     a check that could not run is not one. Reading `undetermined` as a
     failing need is what made the worker manifest advertise a capable
     machine as missing macOS (PR 1871 review)."""
+    measured: dict = field(default_factory=dict)
+    """The machine facts this line measured, travelling with it.
+
+    A fact nobody measured is absent from here, which is how a reader
+    tells "the Resolve build is 21.1.0.14" from "the Resolve build was
+    never read".  `library/tools/capability_readiness.py` reads the
+    environment from these facts, so every surface that asks the doctor
+    reads ONE environment instead of probing again."""
 
 
 # ── Resolve ──────────────────────────────────────────────────────────
@@ -205,7 +213,26 @@ def resolve_checks(probe: dict) -> list:
                         "edition, install DaVinci Resolve Studio",
                         undetermined=True)
     connection.need, edition.need = "resolve.scripting", "resolve.studio"
+    connection.measured = _resolve_facts(probe)
     return [connection, edition]
+
+
+def _resolve_facts(probe: dict) -> dict:
+    """The machine facts this probe measured.
+
+    Three states, like every other check: the app answered (True), the
+    app is not there or its scripting module is not loadable (False), or
+    the app did not answer and nobody can say (None).  A probe that
+    timed out is not a measurement of absence.
+    """
+    if probe.get("connected"):
+        return {"resolve_connected": True,
+                "resolve_version": probe.get("version", "")}
+    if probe.get("timed_out"):
+        return {"resolve_connected": None, "resolve_version": None}
+    if not probe.get("running") or not probe.get("module"):
+        return {"resolve_connected": False, "resolve_version": None}
+    return {"resolve_connected": None, "resolve_version": None}
 
 
 # ── Python ───────────────────────────────────────────────────────────
@@ -966,7 +993,8 @@ def memory_check() -> Check:
                      f"{total:.1f} GB unified memory; the vision model "
                      f"resides at ~{gemma:.1f} GB, leaving "
                      f"{total - gemma:.1f} GB headroom",
-                     need="hardware.memory")
+                     need="hardware.memory",
+                     measured={"total_memory_gb": total})
     if total >= machine_needs.MEMORY_MINIMUM_GB:
         return Check("memory", False,
                      f"{total:.1f} GB unified memory - below the "
@@ -976,13 +1004,15 @@ def memory_check() -> Check:
                      "a machine with "
                      f"{machine_needs.MEMORY_RECOMMENDED_GB} GB or more is "
                      "the target",
-                     need="hardware.memory")
+                     need="hardware.memory",
+                     measured={"total_memory_gb": total})
     return Check("memory", False,
                  f"{total:.1f} GB unified memory - below the "
                  f"{machine_needs.MEMORY_MINIMUM_GB} GB minimum; the vision "
                  f"model needs ~{gemma:.1f} GB resident and cannot be held",
                  "the vision pass cannot run on this machine",
-                 need="hardware.memory")
+                 need="hardware.memory",
+                 measured={"total_memory_gb": total})
 
 
 # ── Running it ───────────────────────────────────────────────────────
@@ -1164,6 +1194,104 @@ def capability_report(checks: list) -> dict:
         for capability in sorted(machine_needs.CAPABILITY_NEEDS)}
 
 
+def readiness(checks: list, capability: str | None = None) -> dict:
+    """What this machine can actually perform, per capability.
+
+    The join of three axes, each read from the registry that owns it
+    (`library/tools/capability_readiness.py`): the DEPENDENCY axis the
+    checks above already judged, the EXECUTOR axis (the qualification
+    registry: can this machine run the capability's edit operations in
+    production) and the RESOURCE axis (the scheduler's reservations).
+
+    The doctor keeps its own reading of the dependency axis - a need no
+    check answered is not a failure here - so the readiness row and the
+    Capabilities table above it never disagree.
+    """
+    from library.tools import capability_readiness
+    failing, undetermined, covered = capability_readiness.need_states(checks)
+    environment = capability_readiness.environment_from_checks(checks)
+    return capability_readiness.report(
+        failing_needs=failing, undetermined_needs=undetermined,
+        covered_needs=covered, environment=environment,
+        capability_ids=[capability] if capability else None,
+        require_measured=False)
+
+
+def _readiness_lines(report: dict, limit: int = 12) -> list:
+    """The readiness of every capability that is not simply available.
+
+    Bounded on purpose: the JSON carries every row, and the prose
+    carries the ones a reader can act on.
+    """
+    from library.tools import machine_needs
+    rows = report["capabilities"]
+    counts = report["summary"]["states"]
+    order = (machine_needs.AVAILABLE, machine_needs.DEGRADED,
+             machine_needs.UNKNOWN, machine_needs.UNAVAILABLE)
+    width = max((len(row["id"]) for row in rows.values()), default=4)
+    lines = ["", "Readiness (what this Mac can actually perform):"]
+    lines.append("  " + ", ".join(f"{counts.get(state, 0)} {state}"
+                                   for state in order)
+                 + f" of {len(rows)} capabilities.")
+    not_ready = [row for row in rows.values()
+                 if row["state"] != machine_needs.AVAILABLE]
+    for row in not_ready[:limit]:
+        lines.append(f"  {row['state'].ljust(11)}  {row['id'].ljust(width)}  "
+                     f"{row['reason']}")
+    if len(not_ready) > limit:
+        lines.append(f"  ... and {len(not_ready) - limit} more "
+                     "(`ren doctor --json` names every one)")
+    return lines
+
+
+def _readiness_for(row: dict) -> list:
+    """One capability's readiness, in full."""
+    from library.tools import capability_readiness
+    lines = [f"  readiness: {row['state']}"]
+    if row["reason"]:
+        lines.append(f"    {row['reason']}")
+    features = row["features"]
+    if features["operations"]:
+        lines.append(f"    features: {len(features['ready'])} of "
+                     f"{len(features['operations'])} declared edits can run "
+                     "in production here")
+        if features["unavailable"]:
+            lines.append("    unavailable here: "
+                         + ", ".join(features["unavailable"]))
+        if features["unknown"]:
+            lines.append("    undetermined here: "
+                         + ", ".join(features["unknown"]))
+        if features["conditions"]:
+            lines.append("    timeline conditions (a property of the "
+                         "timeline, not of this Mac; `resolve-axi support "
+                         "<operation> --conditions ...` answers them):")
+            grouped: dict = {}
+            for condition in features["conditions"]:
+                values = grouped.setdefault(condition["field"], [])
+                if condition["value"] not in values:
+                    values.append(condition["value"])
+            for field, values in grouped.items():
+                lines.append(f"      {field}: "
+                             + ", ".join(str(value) for value in values))
+    qualification = row["qualification"]
+    if qualification["required_resolve_version"]:
+        lines.append("    qualification: earned on Resolve "
+                     + ", ".join(qualification["required_resolve_version"])
+                     + "; this machine runs "
+                     + (qualification["installed_resolve_version"]
+                        or "an unread Resolve"))
+    for reservation in row["resources"]:
+        headroom = reservation["headroom_gb"]
+        lines.append(f"    reservation: {reservation['profile']} holds "
+                     f"{reservation['ram_gb']} GB; this machine keeps "
+                     f"{'an unmeasured' if headroom is None else headroom} "
+                     "GB above the scheduler's floor")
+    if features["state"] == capability_readiness.NOT_APPLICABLE:
+        lines.append("    features: the capability declares no edit "
+                     "operation, so no executor runs here")
+    return lines
+
+
 def _line(check: Check, width: int) -> list:
     from library.tools.machine_needs import BASELINE
     if check.ok:
@@ -1196,6 +1324,27 @@ def summary_line(checks: list) -> str:
             f"{len(by_verdict[machine_needs.UNAVAILABLE])} unavailable.")
 
 
+def _readiness_brief(checks: list) -> str:
+    """One line: how many capabilities this Mac can actually deliver.
+
+    Empty when every capability can: a healthy machine says nothing
+    about a thing that is not broken, and the budgeted default keeps
+    only what needs acting on.
+    """
+    from library.tools import machine_needs
+    report = readiness(checks)
+    counts = report["summary"]["states"]
+    total = len(report["capabilities"])
+    ready = counts.get(machine_needs.AVAILABLE, 0)
+    if ready == total:
+        return ""
+    parts = [f"{counts.get(state, 0)} {state}"
+             for state in (machine_needs.UNAVAILABLE, machine_needs.UNKNOWN,
+                           machine_needs.DEGRADED) if counts.get(state)]
+    return (f"Readiness: {ready} of {total} capabilities can be delivered "
+            "here (" + ", ".join(parts) + ").")
+
+
 def render_brief(checks: list) -> str:
     """The budgeted default: only FAIL/WARN rows plus the summary line.
 
@@ -1214,6 +1363,9 @@ def render_brief(checks: list) -> str:
     if not lines:
         lines = ["All checks passed."]
     lines.append(summary_line(checks))
+    brief = _readiness_brief(checks)
+    if brief:
+        lines.append(brief)
     lines.append("(`ren doctor --all` prints every check; `--json` prints the report.)")
     return "\n".join(lines)
 
@@ -1263,6 +1415,7 @@ def render(checks: list) -> str:
     failed = required_failures(checks)
     lines += ["", summary_line(checks),
               "`ren doctor --for <capability>` checks one capability's needs."]
+    lines += _readiness_lines(readiness(checks))
     return "\n".join(lines)
 
 
@@ -1294,6 +1447,7 @@ def render_for(capability: str, checks: list) -> str:
         lines.append(f"{capability}: {verdict}")
     lines += [f"  without {need}: {why}" for need, why in degraded.items()]
     lines += [f"  could not determine {need}" for need in undetermined_missing]
+    lines += _readiness_for(readiness(checks, capability)["capabilities"][capability])
     return "\n".join(lines)
 
 
@@ -1327,6 +1481,9 @@ def render_for_brief(capability: str, checks: list) -> str:
         lines.append(f"{capability}: {verdict}")
     lines += [f"  without {need}: {why}" for need, why in degraded.items()]
     lines += [f"  could not determine {need}" for need in undetermined_missing]
+    row = readiness(checks, capability)["capabilities"][capability]
+    lines.append(f"  readiness: {row['state']}"
+                 + (f" - {row['reason']}" if row["reason"] else ""))
     return "\n".join(lines)
 
 
@@ -1360,17 +1517,24 @@ def main(argv=None, probe=None) -> int:
                         if check.undetermined and check.need}
         verdict, missing, degraded, undetermined_missing = \
             machine_needs.availability(args.capability, failing, undetermined)
+        readiness_report = readiness(checks, args.capability)
         if args.json:
             print(json.dumps({"ren": ren_build,
                               "runtime_backends": runtime_backends,
                               "capability": args.capability, "verdict": verdict,
                               "missing": list(missing), "degraded": degraded,
                               "undetermined": list(undetermined_missing),
+                              "readiness": readiness_report,
                               "checks": [asdict(check) for check in checks]}, indent=1))
         else:
             print(render_for(args.capability, checks) if args.all
                   else render_for_brief(args.capability, checks))
-        return 1 if verdict == machine_needs.UNAVAILABLE else 0
+        # A capability this machine cannot DELIVER is not available, even
+        # when every need it names is satisfied: the executor is what
+        # does the work, and an executor that cannot run here is the
+        # answer a caller needs.
+        state = readiness_report["capabilities"][args.capability]["state"]
+        return 1 if state == machine_needs.UNAVAILABLE else 0
 
     checks = run_checks(probe)
     failed = required_failures(checks)
@@ -1383,6 +1547,7 @@ def main(argv=None, probe=None) -> int:
             "capabilities": {c: {"verdict": v, "missing": list(m), "degraded": d,
                                 "undetermined": list(u)}
                              for c, (v, m, d, u) in capability_report(checks).items()},
+            "readiness": readiness(checks),
         }, indent=1))
     else:
         print(render(checks) if args.all else render_brief(checks))

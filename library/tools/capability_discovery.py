@@ -115,6 +115,50 @@ class _View:
         """The needs some check answered."""
         return {check.need for check in self.checks or () if check.need}
 
+    def readiness(self, capability_id: str) -> dict:
+        """What this machine can actually perform for this capability.
+
+        The join: the needs, the executor's qualification and the
+        machine's resources.  The dependency axis answers "does this
+        machine have what the capability needs"; this one answers "can
+        the capability be delivered here" - the edit operation's
+        qualification, the Resolve build the evidence was earned on, and
+        the memory the scheduler's reservation needs.  A capability this
+        machine cannot deliver may not be advertised as supported,
+        whatever its needs say.
+
+        Read from `library/tools/capability_readiness.py`, which joins
+        the three registries that own the facts; nothing here declares
+        an operation, a backend or a qualification.
+        """
+        from library.tools import capability_readiness, machine_needs
+        unmeasured = {"state": capability_readiness.NOT_MEASURED,
+                      "reason": "",
+                      "features": {"state": capability_readiness.NOT_MEASURED,
+                                   "operations": [], "ready": [],
+                                   "unavailable": [], "unknown": []},
+                      "resources": []}
+        if not self.measured:
+            return unmeasured
+        failing, undetermined = self.failing()
+        environment = capability_readiness.environment_from_checks(self.checks)
+        try:
+            row = capability_readiness.capability_readiness(
+                capability_id, failing_needs=failing,
+                undetermined_needs=undetermined,
+                covered_needs=self.covered_needs(), environment=environment)
+        except machine_needs.UnknownCapability:
+            # An id the needs table does not hold is not measured.
+            return unmeasured
+        features = row["features"]
+        return {"state": row["state"], "reason": row["reason"],
+                "features": {"state": features["state"],
+                             "operations": list(features["operations"]),
+                             "ready": list(features["ready"]),
+                             "unavailable": list(features["unavailable"]),
+                             "unknown": list(features["unknown"])},
+                "resources": row["resources"]}
+
     def verdict(self, capability_id: str) -> dict:
         """The capability's verdict on this machine.
 
@@ -143,13 +187,19 @@ class _View:
                 "undetermined": list(undetermined_missing)}
 
     def supported(self) -> list:
-        """Every capability this machine can perform, in registry order."""
+        """Every capability this machine can perform, in registry order.
+
+        A capability whose executor cannot run here is not on this list
+        however well its needs are met: the needs are what the machine
+        has, and the executor is what does the work.
+        """
         if not self.measured:
             return []
         if self._supported is not None:
             return self._supported
         supported = [capability_id for capability_id in self.ids()
-                     if self.verdict(capability_id)["verdict"] == "available"]
+                     if self.verdict(capability_id)["verdict"] == "available"
+                     and self.readiness(capability_id)["state"] != "unavailable"]
         self._supported = supported
         return supported
 
@@ -190,6 +240,7 @@ class _View:
             "missing": verdict["missing"],
             "degraded": verdict["degraded"],
             "undetermined": verdict["undetermined"],
+            "readiness": self.readiness(capability_id),
             "how_to_run": _how_to_run(capability_id, spec),
             "guidance": None,
         }
@@ -287,6 +338,9 @@ def _why_for(row: dict) -> str:
     if row["degraded"]:
         return ("an optional need it runs without is missing: "
                 + ", ".join(row["degraded"]))
+    readiness = row.get("readiness") or {}
+    if readiness.get("state") == "unavailable":
+        return readiness.get("reason") or "this machine cannot deliver it here"
     return "this machine was never measured for it"
 
 
@@ -297,7 +351,10 @@ def _guidance_for(row: dict, view: _View, by_id: dict) -> dict | None:
     is nothing to guide.  Otherwise the record names what is missing,
     what still works, and what to run instead.
     """
-    if row["verdict"] == "available" and not row["degraded"]:
+    readiness = row.get("readiness") or {}
+    readiness_state = readiness.get("state")
+    if (row["verdict"] == "available" and not row["degraded"]
+            and readiness_state in (None, "available", "not_applicable")):
         return None
     if row["verdict"] == "unavailable":
         status = guidance_module.UNAVAILABLE
@@ -309,6 +366,21 @@ def _guidance_for(row: dict, view: _View, by_id: dict) -> dict | None:
         status = guidance_module.UNDETERMINED
         what = (f"this Mac could not be measured for {row['id']}: "
                 f"{', '.join(row['undetermined'])} could not be determined.")
+        fix = ("run `ren doctor` and read the UNKNOWN rows; an "
+               "undeterminable answer is not a measured absence.")
+    elif readiness_state == "unavailable":
+        # Every need is met and the work still cannot be delivered: the
+        # executor's own qualification, or this machine's memory, says so.
+        status = guidance_module.UNAVAILABLE
+        what = (f"this Mac cannot deliver {row['id']} here: "
+                f"{readiness.get('reason') or 'the machine cannot run it'}.")
+        fix = (f"run `ren doctor --for {row['id']}` for the executor's "
+               "qualification and what this machine runs.")
+    elif readiness_state == "unknown":
+        status = guidance_module.UNDETERMINED
+        what = (f"this Mac could not be measured for the executor of "
+                f"{row['id']}: "
+                f"{readiness.get('reason') or 'the executor could not be determined'}.")
         fix = ("run `ren doctor` and read the UNKNOWN rows; an "
                "undeterminable answer is not a measured absence.")
     elif row["verdict"] == "degraded":
@@ -504,9 +576,14 @@ def render_catalog(payload: dict) -> str:
     lines = [f"{payload['count']} capabilities", ""]
     for row in rows:
         scope = ",".join(row["scopes"]) or row["kind"]
+        readiness = (row.get("readiness") or {}).get("state")
+        suffix = ""
+        if readiness not in (None, "available", "not_applicable",
+                             "not_measured"):
+            suffix = f"  (readiness: {readiness})"
         lines.append(f"{row['id'].ljust(width)}  {scope:<12} "
                      f"{(row['cost_class'] or '-'):<6} "
-                     f"{row['verdict']:<12} {row['summary']}")
+                     f"{row['verdict']:<12} {row['summary']}{suffix}")
     return "\n".join(lines)
 
 
@@ -544,6 +621,29 @@ def render_record(row: dict) -> str:
         lines.append(f"  missing:  {', '.join(row['missing'])}")
     if row["undetermined"]:
         lines.append(f"  unknown:  {', '.join(row['undetermined'])}")
+    readiness = row.get("readiness") or {}
+    if readiness.get("state") not in (None, "available", "not_applicable",
+                                      "not_measured"):
+        lines.append(f"  readiness: {readiness['state']}"
+                     + (f" - {readiness['reason']}"
+                        if readiness.get("reason") else ""))
+    features = readiness.get("features") or {}
+    if features.get("operations"):
+        lines.append(f"  production edits: {len(features['ready'])} of "
+                     f"{len(features['operations'])} declared edits can "
+                     "run in production here")
+        if features.get("unavailable"):
+            lines.append("  unavailable here: "
+                         + ", ".join(features["unavailable"]))
+        if features.get("unknown"):
+            lines.append("  undetermined here: "
+                         + ", ".join(features["unknown"]))
+    for reservation in readiness.get("resources") or ():
+        lines.append(f"  reservation: {reservation['profile']} holds "
+                     f"{reservation['ram_gb']} GB; this machine has "
+                     f"{reservation['available_gb']} GB available")
+        if reservation.get("reason"):
+            lines.append(f"    {reservation['reason']}")
     if row["how_to_run"]:
         lines.append("  run:")
         for command in row["how_to_run"]:

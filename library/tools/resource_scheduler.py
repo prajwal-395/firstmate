@@ -344,6 +344,62 @@ def _older_waiter_can_run(older_demand: Dict[str, int],
     return available - reserved - older_memory >= _memory_floor_gb(total)
 
 
+def memory_headroom_gb(total: float) -> float:
+    """The RAM a machine of `total` GB can reserve while keeping the floor.
+
+    The public reading of the memory floor rule, for a caller that has a
+    TOTAL and not a live reading: the floor is the same one admission
+    keeps, so a machine-level report and the scheduler agree on what
+    fits.  A total that cannot be measured yields 0.0 - a reservation
+    nobody can prove fits is refused, which is what admission does.
+    """
+    if total <= 0:
+        return 0.0
+    return max(0.0, total - _memory_floor_gb(total))
+
+
+def admission_verdict(demand_gb: float) -> dict:
+    """Whether a RAM-reserving job of this size fits on this machine NOW.
+
+    The public reading of the admission rule, for a caller that REPORTS
+    rather than queues: the live available memory, the swap state, and
+    the refusal the scheduler would give.  A report that said a
+    reservation fits while the scheduler refused it would be the
+    disagreement this exists to prevent - and on a paging machine the
+    two readings are far apart (PROD-006, 2026-10-22: 93% of the swap
+    device in use and 6.7 GB of 24 GB available, where the TOTAL says
+    21.6 GB of headroom).
+
+    `fits` is None when the machine could not be measured: an
+    unmeasured answer is not a pass, and it is not a refusal either.
+    """
+    reading = _memory_available_gb()
+    if reading is None or reading[1] <= 0:
+        return {"fits": None, "measured": False, "available_gb": None,
+                "total_gb": None, "headroom_gb": None,
+                "swap_used_gb": None, "swap_total_gb": None,
+                "reason": "this machine's memory could not be measured"}
+    available, total = reading
+    headroom = max(0.0, available - _memory_floor_gb(total))
+    used, swap_total = _swap_state_gb()
+    refusal = _swap_refusal_reason(demand_gb)
+    fits = refusal is None and demand_gb <= headroom
+    if refusal:
+        reason = refusal
+    elif fits:
+        reason = ""
+    else:
+        reason = (f"the machine has {available:.1f} GB of {total:.0f} GB "
+                  f"available and the scheduler keeps "
+                  f"{_memory_floor_gb(total):.1f} GB of headroom, so a "
+                  f"{demand_gb:g} GB reservation does not fit")
+    return {"fits": fits, "measured": True, "available_gb": available,
+            "total_gb": total, "headroom_gb": headroom,
+            "swap_used_gb": used, "swap_total_gb": swap_total,
+            "reason": reason}
+
+
+
 def _maximum_memory_demand_gb() -> float:
     """Largest reservation that can fit while preserving the memory floor."""
     reading = _memory_available_gb()
@@ -351,7 +407,7 @@ def _maximum_memory_demand_gb() -> float:
         # Without a machine measurement, do not queue a request that cannot
         # be proven satisfiable. Admission itself will still fail closed.
         return 0.0
-    return max(0.0, reading[1] - _memory_floor_gb(reading[1]))
+    return memory_headroom_gb(reading[1])
 
 
 def _capability_demand(phase, cap: Dict[str, int]) -> Dict[str, int]:
