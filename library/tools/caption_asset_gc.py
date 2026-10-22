@@ -379,6 +379,11 @@ _LEDGER_ENTRY_KEYS = (
     # like a render that never tried tight.
     "tight_fallback",
     "frames",
+    # What the caption parity gate refused for this card, if it
+    # refused. Carried because the ledger is the only record a staging
+    # render leaves, and a card the native renderer was not allowed to
+    # publish must not read exactly like a card it published.
+    "parity_gate",
     "source_in_frame",
     "source_out_frame",
     "total_frames",

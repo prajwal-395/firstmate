@@ -686,6 +686,30 @@ class _SharedPersistentEngine:
             self._engine = None
 
 
+def _gated_native_engine(engine):
+    """The native caption engine behind the caption parity gate.
+
+    The native renderer draws the caption layer, and the engine is part
+    of the render's reuse key: switching engines re-renders every card
+    OVER the artefact the project shipped.  The gate compares the new
+    pixels against the ones that shipped and refuses a card that would
+    change the delivered picture, so the layer can move to the native
+    renderer without a word of the delivered video changing by accident.
+
+    One seam, unchanged: the gate WRAPS the engine, so nothing
+    downstream can tell a gated engine from an ungated one.
+    """
+    from library.tools.caption_parity_gate import gated
+
+    return gated(engine)
+
+
+def _parity_refusals_since(engine, count: int) -> list:
+    """The gate's refusals recorded since *count* entries were there."""
+    refusals = getattr(engine, "refusals", None) or []
+    return [refusal.as_record() for refusal in refusals[count:]]
+
+
 def _default_unit_engine(remotion_dir: str, container: str,
                          project_folder: str = ""):
     """The renderer a unit-level render uses when the caller passed none.
@@ -708,10 +732,12 @@ def _default_unit_engine(remotion_dir: str, container: str,
             "caption renderer: FFrames "
             f"(selected by {_engines.USER_SETTING_KEY} or the project's "
             "pipeline.graphics_renderer); each card renders through the "
-            "precompiled ren-graphics-fframes binary.")
+            "precompiled ren-graphics-fframes binary, behind the caption "
+            "parity gate.")
         from library.tools.fframes_render import FFramesCaptionRenderer
-        return FFramesCaptionRenderer(project_folder or "",
-                                      remotion_dir=remotion_dir)
+        return _gated_native_engine(
+            FFramesCaptionRenderer(project_folder or "",
+                                   remotion_dir=remotion_dir))
     if _engines.is_hyperframes(project_folder or None):
         _note_once(
             "hyperframes-caption",
@@ -1152,6 +1178,13 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
             "count": total_frames,
         }
 
+    parity: dict = {"refusals": []}
+    """What the caption parity gate refused for THIS card, if it refused.
+
+    A holder rather than a name, because the entry is built by a
+    closure that may run before the render has happened.
+    """
+
     def entry(provenance: str, **extra) -> dict:
         """One segment's manifest entry.  `provenance` is never defaulted."""
         if provenance not in PROVENANCES:
@@ -1187,6 +1220,11 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
             "tight_fallback": tight_fallback,
             # Where a sequence lives. None for stitched video.
             "frames": _frames_record(),
+            # What the caption parity gate refused for this card, if it
+            # refused: the native render drew a different picture than
+            # the artefact this project shipped, so the shipped one
+            # stayed and the new pixels were discarded.
+            "parity_gate": parity["refusals"],
         }
         record.update(extra)
         return record
@@ -1400,8 +1438,14 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
     # An adopted name shares its inode with another stem's file: the
     # render must write a fresh one, never through the link.
     _detach_link(overlay_path)
+    _refusals_before = len(getattr(engine, "refusals", None) or [])
     ok, error = engine.render(props_path, overlay_path,
                               sequence=is_frames)
+    # What the caption parity gate refused, if it refused: a card the
+    # native renderer would have published as a different picture than
+    # the one this project shipped.
+    parity_refusals = _parity_refusals_since(engine, _refusals_before)
+    parity["refusals"] = parity_refusals
     if not ok:
         print(f"    WARN: Render failed: {error[:200]}",
               file=sys.stderr)
@@ -1891,10 +1935,12 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
     elif _engines.is_fframes(project_folder or None):
         print("caption renderer: FFrames "
               f"(selected by {_engines.USER_SETTING_KEY} or the project's "
-              "pipeline.graphics_renderer)", file=sys.stderr)
+              "pipeline.graphics_renderer), behind the caption parity gate",
+              file=sys.stderr)
         from library.tools.fframes_render import FFramesCaptionRenderer
-        engine = FFramesCaptionRenderer(project_folder or "",
-                                        remotion_dir=remotion_dir)
+        engine = _gated_native_engine(
+            FFramesCaptionRenderer(project_folder or "",
+                                   remotion_dir=remotion_dir))
         owns_engine = True
     elif _engines.is_hyperframes(project_folder or None):
         # The selected graphics engine draws, whatever renderer_kind
@@ -2344,10 +2390,12 @@ def rerender_and_swap(project_folder: str, pairs: list,
     if _engines.is_fframes(project_folder or None):
         print("caption renderer: FFrames "
               f"(selected by {_engines.USER_SETTING_KEY} or the project's "
-              "pipeline.graphics_renderer)", file=sys.stderr)
+              "pipeline.graphics_renderer), behind the caption parity gate",
+              file=sys.stderr)
         from library.tools.fframes_render import FFramesCaptionRenderer
-        engine = FFramesCaptionRenderer(
-            project_folder, remotion_dir=remotion_dir)
+        engine = _gated_native_engine(
+            FFramesCaptionRenderer(
+                project_folder, remotion_dir=remotion_dir))
     elif _engines.is_hyperframes(project_folder or None):
         print("caption renderer: HyperFrames "
               f"(selected by {_engines.USER_SETTING_KEY} or the project's "

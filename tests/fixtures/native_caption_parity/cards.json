@@ -1,0 +1,235 @@
+{
+  "measured_on": "2026-10-22",
+  "source": "the geo-podcast project's own shipped caption cards: the props file step 4.05 wrote and the .mov artefact it shipped, read only",
+  "method": "ink IoU per frame (alpha > 16), mean over the card: the card as the native renderer (ren-graphics-fframes) draws it, against the artefact the project shipped. The reference engine is Remotion's SubtitleOverlay as the repository draws it today. The measure is the one library/tools/caption_parity_gate.py makes at publish time.",
+  "population": 1278,
+  "sample": 24,
+  "floor": 0.9,
+  "counts": {
+    "native_within_floor": 24,
+    "reference_within_floor": 23,
+    "cards": 24
+  },
+  "seconds": {
+    "native_mean": 4.322,
+    "reference_mean": 7.421
+  },
+  "cards": [
+    {
+      "segment_id": "sub_akshita_01e8a260-b88e-470e-b966_835029-835819_147899d8",
+      "frames": 39,
+      "native_vs_shipped_mean_iou": 0.9735,
+      "native_vs_shipped_min_iou": 0.8982,
+      "native_seconds": 11.198,
+      "reference_vs_shipped_mean_iou": 0.9586,
+      "reference_seconds": 5.942
+    },
+    {
+      "segment_id": "sub_akshita_070cad29-bb46-414f-8481_4058695-4062145_af2c3e66",
+      "frames": 54,
+      "native_vs_shipped_mean_iou": 0.9394,
+      "native_vs_shipped_min_iou": 0.0,
+      "native_seconds": 9.756,
+      "reference_vs_shipped_mean_iou": 0.9307,
+      "reference_seconds": 5.881
+    },
+    {
+      "segment_id": "sub_akshita_151c19f3-c604-408b-bc2f_162098-168318_c24d8a14",
+      "frames": 64,
+      "native_vs_shipped_mean_iou": 0.949,
+      "native_vs_shipped_min_iou": 0.8948,
+      "native_seconds": 3.627,
+      "reference_vs_shipped_mean_iou": 0.9415,
+      "reference_seconds": 5.534
+    },
+    {
+      "segment_id": "sub_akshita_2a7de572-3bc3-447a-8ff0_2737944-2739714_fa86b6d0",
+      "frames": 47,
+      "native_vs_shipped_mean_iou": 0.9631,
+      "native_vs_shipped_min_iou": 0.8937,
+      "native_seconds": 2.158,
+      "reference_vs_shipped_mean_iou": 0.9498,
+      "reference_seconds": 4.415
+    },
+    {
+      "segment_id": "sub_akshita_3c19b403-4504-4442-b195_4531663-4534183_0c6c5ec8",
+      "frames": 67,
+      "native_vs_shipped_mean_iou": 0.9145,
+      "native_vs_shipped_min_iou": 0.0,
+      "native_seconds": 2.973,
+      "reference_vs_shipped_mean_iou": 0.9055,
+      "reference_seconds": 7.386
+    },
+    {
+      "segment_id": "sub_akshita_42025822-cfe8-4c42-8137_4624725-4641365_b953202a",
+      "frames": 50,
+      "native_vs_shipped_mean_iou": 0.9381,
+      "native_vs_shipped_min_iou": 0.0,
+      "native_seconds": 3.785,
+      "reference_vs_shipped_mean_iou": 0.928,
+      "reference_seconds": 8.046
+    },
+    {
+      "segment_id": "sub_akshita_49169f04-6a81-4fee-b5c4_4398709-4417639_a5969b34",
+      "frames": 61,
+      "native_vs_shipped_mean_iou": 0.9325,
+      "native_vs_shipped_min_iou": 0.0,
+      "native_seconds": 3.82,
+      "reference_vs_shipped_mean_iou": 0.9163,
+      "reference_seconds": 8.16
+    },
+    {
+      "segment_id": "sub_akshita_5ae8f521-647e-49c6-bf3d_512712-513552_fa2b0e15",
+      "frames": 44,
+      "native_vs_shipped_mean_iou": 0.9626,
+      "native_vs_shipped_min_iou": 0.898,
+      "native_seconds": 3.45,
+      "reference_vs_shipped_mean_iou": 0.9506,
+      "reference_seconds": 5.657
+    },
+    {
+      "segment_id": "sub_akshita_61a14903-464b-4997-9efd_3674961-3683101_502d40cb",
+      "frames": 54,
+      "native_vs_shipped_mean_iou": 0.9561,
+      "native_vs_shipped_min_iou": 0.8889,
+      "native_seconds": 4.392,
+      "reference_vs_shipped_mean_iou": 0.9512,
+      "reference_seconds": 6.737
+    },
+    {
+      "segment_id": "sub_akshita_77d27eae-3f80-4513-ab85_3468787-3476157_d8f41588",
+      "frames": 61,
+      "native_vs_shipped_mean_iou": 0.9321,
+      "native_vs_shipped_min_iou": 0.0,
+      "native_seconds": 4.554,
+      "reference_vs_shipped_mean_iou": 0.9173,
+      "reference_seconds": 6.235
+    },
+    {
+      "segment_id": "sub_akshita_91fa13b1-1ad3-4e25-b84b_1945804-1958374_4a267fcd",
+      "frames": 44,
+      "native_vs_shipped_mean_iou": 0.9209,
+      "native_vs_shipped_min_iou": 0.0,
+      "native_seconds": 3.855,
+      "reference_vs_shipped_mean_iou": 0.9051,
+      "reference_seconds": 6.372
+    },
+    {
+      "segment_id": "sub_akshita_9aeb99e4-0279-4996-a126_4285082-4297442_d8184241",
+      "frames": 46,
+      "native_vs_shipped_mean_iou": 1.0,
+      "native_vs_shipped_min_iou": 1.0,
+      "native_seconds": 4.688,
+      "reference_vs_shipped_mean_iou": 0.9584,
+      "reference_seconds": 5.814
+    },
+    {
+      "segment_id": "sub_akshita_a758d42e-f4eb-4ab2-936e_761441-766161_e83eecf4",
+      "frames": 65,
+      "native_vs_shipped_mean_iou": 0.9314,
+      "native_vs_shipped_min_iou": 0.0,
+      "native_seconds": 3.289,
+      "reference_vs_shipped_mean_iou": 0.9153,
+      "reference_seconds": 5.879
+    },
+    {
+      "segment_id": "sub_akshita_bd97deab-7a26-47f7-897a_1601503-1618703_6c025832",
+      "frames": 69,
+      "native_vs_shipped_mean_iou": 0.9445,
+      "native_vs_shipped_min_iou": 0.8937,
+      "native_seconds": 3.325,
+      "reference_vs_shipped_mean_iou": 0.9306,
+      "reference_seconds": 5.508
+    },
+    {
+      "segment_id": "sub_akshita_d76da50e-0416-4246-a4c1_870387-878957_a4804869",
+      "frames": 75,
+      "native_vs_shipped_mean_iou": 0.9381,
+      "native_vs_shipped_min_iou": 0.0,
+      "native_seconds": 3.069,
+      "reference_vs_shipped_mean_iou": 0.9156,
+      "reference_seconds": 14.32
+    },
+    {
+      "segment_id": "sub_akshita_e3b3e7e7-bf0f-4d21-9a00_3048003-3052253_bf810c47",
+      "frames": 48,
+      "native_vs_shipped_mean_iou": 0.9216,
+      "native_vs_shipped_min_iou": 0.0,
+      "native_seconds": 3.673,
+      "reference_vs_shipped_mean_iou": 0.9022,
+      "reference_seconds": 6.443
+    },
+    {
+      "segment_id": "sub_akshita_e7ffe52d-669a-4a23-8950_1644860-1648390_5ba6c2f4",
+      "frames": 60,
+      "native_vs_shipped_mean_iou": 0.9351,
+      "native_vs_shipped_min_iou": 0.0,
+      "native_seconds": 3.844,
+      "reference_vs_shipped_mean_iou": 0.924,
+      "reference_seconds": 5.912
+    },
+    {
+      "segment_id": "sub_craig_1dbf3034-e6cb-4d69-91c1_95444-98884_266bf53f",
+      "frames": 29,
+      "native_vs_shipped_mean_iou": 0.9441,
+      "native_vs_shipped_min_iou": 0.8812,
+      "native_seconds": 0.626,
+      "reference_vs_shipped_mean_iou": 0.9244,
+      "reference_seconds": 5.313
+    },
+    {
+      "segment_id": "sub_craig_426a9095-92d4-4d14-972c_463064-473214_111b4f07",
+      "frames": 64,
+      "native_vs_shipped_mean_iou": 0.9328,
+      "native_vs_shipped_min_iou": 0.0,
+      "native_seconds": 6.122,
+      "reference_vs_shipped_mean_iou": 0.9157,
+      "reference_seconds": 6.162
+    },
+    {
+      "segment_id": "sub_craig_55943966-8fe7-4501-b9f1_3563029-3564759_bb4033f3",
+      "frames": 65,
+      "native_vs_shipped_mean_iou": 0.9312,
+      "native_vs_shipped_min_iou": 0.0,
+      "native_seconds": 1.638,
+      "reference_vs_shipped_mean_iou": 0.919,
+      "reference_seconds": 7.097
+    },
+    {
+      "segment_id": "sub_craig_7b1a6b77-a3ec-4ca5-b8e1_625346-632906_7058cf26",
+      "frames": 40,
+      "native_vs_shipped_mean_iou": 0.937,
+      "native_vs_shipped_min_iou": 0.8997,
+      "native_seconds": 2.377,
+      "reference_vs_shipped_mean_iou": 0.9178,
+      "reference_seconds": 4.116
+    },
+    {
+      "segment_id": "sub_craig_7f916f66-6446-4b9c-a8ec_1707813-1709303_91de7a99",
+      "frames": 60,
+      "native_vs_shipped_mean_iou": 0.9634,
+      "native_vs_shipped_min_iou": 0.9023,
+      "native_seconds": 3.825,
+      "reference_vs_shipped_mean_iou": 0.9404,
+      "reference_seconds": 7.309
+    },
+    {
+      "segment_id": "sub_craig_942f8d8e-7288-4193-911e_928557-940897_108d133f",
+      "frames": 80,
+      "native_vs_shipped_mean_iou": 0.9351,
+      "native_vs_shipped_min_iou": 0.0,
+      "native_seconds": 7.983,
+      "reference_vs_shipped_mean_iou": 0.6812,
+      "reference_seconds": 22.42
+    },
+    {
+      "segment_id": "sub_craig_e6090373-2cf5-4e9d-bfb9_481263-485713_53aedd48",
+      "frames": 63,
+      "native_vs_shipped_mean_iou": 0.9552,
+      "native_vs_shipped_min_iou": 0.8856,
+      "native_seconds": 5.69,
+      "reference_vs_shipped_mean_iou": 0.942,
+      "reference_seconds": 11.445
+    }
+  ]
+}
