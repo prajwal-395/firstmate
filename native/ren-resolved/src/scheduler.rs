@@ -40,6 +40,12 @@ pub struct Pending {
     pub executed: bool,
     pub qualification: bool,
     pub locality: String,
+    /// The job's DECLARED budget: the seconds it may hold the one
+    /// Resolve (`library/tools/resolved/job_budget.py`). The daemon
+    /// enforces it by killing a worker that has held the machine past
+    /// it, which is the only bound a wedged Resolve call can be given
+    /// from outside the process it wedges.
+    pub budget_seconds: f64,
 }
 
 fn effective_rank(job: &Pending, now: f64) -> f64 {

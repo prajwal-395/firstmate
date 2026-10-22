@@ -241,6 +241,35 @@ def _drop_cached_connection():
     _resolve_cache = None
 
 
+def _remaining(budget: float, started: float) -> float:
+    """What is left of this job's budget, in seconds."""
+    return budget - (time.monotonic() - started)
+
+
+def _call_timeout(budget: float, started: float, job_id: str = "",
+                  kind: str = ""):
+    """The per-call deadline for this job, capped by what is left.
+
+    `None` means the module default - the bound every Resolve call
+    already runs under (`resolve_deadline.TIMELINE_SETTING_TIMEOUT_S`).
+    A budget smaller than that default caps the call instead, so a job
+    with almost nothing left does not spend the default inside one
+    call. A budget that is already gone refuses the job here, at the
+    first call, rather than letting the call run.
+    """
+    from library.tools.resolve_deadline import TIMELINE_SETTING_TIMEOUT_S
+    from library.tools.resolved import job_budget
+
+    remaining = _remaining(budget, started)
+    if remaining <= 0:
+        raise job_budget.JobBudgetExceeded(
+            job_budget.refusal_message(job_id, kind, budget,
+                                       budget - remaining))
+    if remaining < TIMELINE_SETTING_TIMEOUT_S:
+        return remaining
+    return None
+
+
 def _execute_job(job: dict) -> dict:
     """Run one broker job under the instance lease; return the observation.
 
@@ -249,15 +278,29 @@ def _execute_job(job: dict) -> dict:
     connection opened between leases is a client nobody scheduled. The
     worker takes it here because the daemon is a Rust process and the
     flock lives in Python.
+
+    THE JOB'S BUDGET (`job_budget`). A job that may hold the one
+    Resolve says how long it may hold it, and the worker enforces it
+    at the three places it can be enforced from in here: the
+    per-call deadline is capped by what is left of the budget, the job
+    stops at its next safe checkpoint once the budget is gone, and a
+    job that comes back after the budget is reported as a refusal
+    rather than as a result. What the worker CANNOT do is interrupt a
+    Resolve call that blocks without releasing the GIL - that is the
+    daemon's kill, and the daemon is what frees the machine.
     """
     from library.tools import resolve_lock
     from library.tools.resolved import cancellation
+    from library.tools.resolved import job_budget
     from library.tools.resolved import jobs as job_kinds
 
     kind = job["kind"]
     purpose = f"ren-resolved {kind} {job['id']}"
     exclusive = job["mode"] == "exclusive"
+    budget = job_budget.budget_for(kind, job.get("params") or {})
+    started = time.monotonic()
     cancellation.begin(job["id"])
+    cancellation.declare_budget(job["id"], budget)
     try:
         with resolve_lock.resolve_lease(purpose, exclusive=exclusive):
             resolve = _connect_cached()
@@ -266,7 +309,9 @@ def _execute_job(job: dict) -> dict:
                     DeadlineProxy, deadline_proxy)
                 if not isinstance(resolve, DeadlineProxy):
                     resolve = deadline_proxy(
-                        resolve, label=f"{kind} {job['id']}")
+                        resolve, label=f"{kind} {job['id']}",
+                        timeout_s=_call_timeout(budget, started, job["id"],
+                                                kind))
             if job["qualification"]:
                 if kind in job_kinds.BORROWING_QUALIFICATION_KINDS:
                     # These fixed Qualification jobs borrow and restore
@@ -286,11 +331,39 @@ def _execute_job(job: dict) -> dict:
                 # the broker has let go of its turn.
                 return _reply(job["id"], True)
             result = job_kinds.run(job, resolve)
+            elapsed = time.monotonic() - started
+            if elapsed > budget:
+                # The job came back, but it came back late. The result
+                # is kept - the work may have landed - and the receipt
+                # says the job overran its declared budget.
+                return _reply(
+                    job["id"], False,
+                    error=job_budget.refusal_message(
+                        job["id"], kind, budget, elapsed),
+                    refused=True,
+                    result=job_budget.refusal_receipt(
+                        job["id"], kind, budget, elapsed),
+                    blocker=job_budget.JobBudgetExceeded.BLOCKER,
+                    next_action=job_budget.JobBudgetExceeded.NEXT_ACTION)
             return _reply(job["id"], True, result=result)
     except cancellation.CancelRequested as exc:
         return _reply(job["id"], False, error=str(exc),
                       result=exc.result,
                       extra={"cancelled": True})
+    except job_budget.JobBudgetExceeded as exc:
+        elapsed = time.monotonic() - started
+        receipt = job_budget.refusal_receipt(
+            job["id"], kind, budget, elapsed)
+        if getattr(exc, "result", None) is not None:
+            # The job stopped at a checkpoint that carries its own
+            # result - a committed write, most of the time. The work
+            # may have LANDED, so the receipt keeps it beside the
+            # refusal instead of dropping it.
+            receipt["job_result"] = exc.result
+        return _reply(job["id"], False, error=str(exc), refused=True,
+                      result=receipt,
+                      blocker=job_budget.JobBudgetExceeded.BLOCKER,
+                      next_action=job_budget.JobBudgetExceeded.NEXT_ACTION)
     except job_kinds.JobRefused as exc:
         return _reply(job["id"], False, error=str(exc), refused=True,
                       result=exc.result, blocker=exc.blocker,

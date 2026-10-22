@@ -791,6 +791,18 @@ def report_progress(job_id: str, progress: str, path=None) -> dict:
     return call({"op": "progress", "id": job_id, "progress": progress}, path)
 
 
+def cancel(job_id: str, path=None) -> dict:
+    """Cancel a job that has not started.
+
+    A QUEUED job is dropped by the broker without running it, and its
+    receipt says so. A RUNNING job is asked to stop at its runner's
+    declared safe checkpoint, and the broker refuses when the kind has
+    no safe stop path - the machine stays shielded rather than being
+    cut in the middle of a write.
+    """
+    return call({"op": "cancel", "id": job_id}, path)
+
+
 def result(job_id: str, wait: float = 0.0, path=None,
            until_done: bool = False, deadline: float = 300.0) -> dict:
     """The job's receipt.

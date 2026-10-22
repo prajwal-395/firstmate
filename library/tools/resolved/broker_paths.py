@@ -32,6 +32,105 @@ import os
 import tempfile
 from pathlib import Path
 
+#: The machine-wide lock that says "a broker is serving this machine".
+#:
+#: It lives in a FIXED path, not in the temp dir a process may be
+#: pointed at: the whole point is that two brokers in DIFFERENT temp
+#: dirs - a sandboxed install, a clean-install check, a lane with
+#: TMPDIR unset - can see each other. Two brokers against the one
+#: Resolve blocked project switches for every other lane (measured
+#: 2026-10-21: the PROD-001 clean-install check started a second broker
+#: under /tmp and left it serving for seven hours, with two workers).
+MACHINE_BROKER_LOCK_DIR = Path("/tmp")
+MACHINE_BROKER_LOCK_NAME = "ren-resolved-broker-{uid}.lock"
+
+#: A test's override for the machine-broker lock file. The lock is
+#: machine-wide by design; a test that must not take the machine's
+#: claim points it at its own file.
+MACHINE_BROKER_LOCK_ENV = "PIPELINE_RESOLVE_MACHINE_BROKER_LOCK"
+
+
+class MachineBrokerHeld(RuntimeError):
+    """Another broker is already serving this machine.
+
+    One Resolve, one broker: a second broker would drive the same
+    Resolve through a second lease, and the two would move the cursor
+    under each other. The refusal names the holder, so the reader knows
+    which broker to stop.
+    """
+
+    def __init__(self, holder: int = 0):
+        self.holder = holder
+        named = (f" (pid {holder})" if holder else
+                 " (the holder's pid could not be read)")
+        super().__init__(
+            f"ren-resolved: another broker is already serving this "
+            f"machine{named} - one broker serves one machine, so this one "
+            f"refuses to serve; stop the other broker, or give this one a "
+            f"private broker directory")
+
+
+def machine_broker_lock_path() -> Path:
+    """The machine-wide lock file, per user."""
+    override = os.environ.get(MACHINE_BROKER_LOCK_ENV)
+    if override:
+        return Path(override)
+    uid = os.getuid() if hasattr(os, "getuid") else 0
+    return MACHINE_BROKER_LOCK_DIR / MACHINE_BROKER_LOCK_NAME.format(uid=uid)
+
+
+def is_own_default_socket(target) -> bool:
+    """Whether `target` is the socket a PLAIN client on this machine reaches.
+
+    The plain client's socket is the temp dir's, with no redirection
+    honoured: a broker that serves THERE is the machine's broker. A
+    broker that serves anywhere else is a private one - the
+    qualification harness's, a lane's own, a check's sandbox - and the
+    machine's broker is not its business.
+
+    So the test is about the socket, not about how the broker was
+    started: the client always passes the socket path explicitly, so
+    "it was named on the command line" says nothing.
+    """
+    return _same_path(target, Path(tempfile.gettempdir()) / SOCKET_NAME)
+
+
+def claim_the_machine_broker(target):
+    """Claim the machine's one broker, or refuse to serve.
+
+    Returns the lock handle - keep it for the process's life, or the
+    lock is released with it - or `None` where this broker is a private
+    one and the machine's broker is somebody else's business.
+
+    Raises `MachineBrokerHeld` where another broker already holds the
+    machine.
+    """
+    if not is_own_default_socket(target):
+        return None
+    import fcntl
+
+    path = machine_broker_lock_path()
+    handle = open(path, "a+", encoding="utf-8")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        holder = _read_the_holder(path)
+        handle.close()
+        raise MachineBrokerHeld(holder) from None
+    handle.seek(0)
+    handle.truncate()
+    handle.write(f"{os.getpid()}\n")
+    handle.flush()
+    return handle
+
+
+def _read_the_holder(path: Path) -> int:
+    """The pid that holds the machine's broker, or 0."""
+    try:
+        return int(path.read_text(encoding="utf-8").strip() or 0)
+    except (OSError, ValueError):
+        return 0
+
 #: The socket the broker serves on.
 SOCKET_NAME = "ren-resolved.sock"
 #: The queue and job state, beside the socket.

@@ -25,9 +25,18 @@ Usage:
         [--keep] [--json] [--no-upgrade]
 
 The sandbox lives under /tmp by default and is removed at the end unless
-`--keep` says otherwise. Nothing outside the sandbox is written: the
-live install at `~/.local/share/vep` is only ever READ, and the check
-refuses to run if the sandbox would land inside it.
+`--keep` says otherwise. The live install at `~/.local/share/vep` is only
+ever READ, and the check refuses to run if the sandbox would land inside
+it.
+
+THE BROKER THIS CHECK STARTS IS STOPPED ON EXIT. A check that leaves a
+broker running takes the one Resolve with it: the PROD-001 check started
+a second broker under /tmp and left it serving for seven hours, with two
+workers, and it blocked Resolve project switches for every other lane
+(measured 2026-10-21). The sandbox's broker is PRIVATE - its socket is
+inside the sandbox, so the machine's broker is never taken away - and it
+drives the MACHINE's Resolve lease, so a check never puts a second writer
+on the one Resolve.
 """
 
 from __future__ import annotations
@@ -159,7 +168,16 @@ def install(archive: Path, sandbox: Path) -> subprocess.CompletedProcess:
 
 
 def sandbox_env(sandbox: Path) -> dict:
-    """The environment a customer shell has after the install."""
+    """The environment a customer shell has after the install.
+
+    The BROKER is private to the sandbox: the installed engine's broker
+    binds a socket inside the sandbox, so the check never serves the
+    machine's socket and never takes the machine's broker away from the
+    lanes that use it. The Resolve INSTANCE lease is the machine's,
+    though - one Resolve, one lease - so the sandbox's broker queues
+    behind the machine's work instead of driving the one Resolve beside
+    it.
+    """
     home = sandbox / "home"
     prefix = sandbox / "vep"
     env = {
@@ -167,11 +185,123 @@ def sandbox_env(sandbox: Path) -> dict:
         "PATH": f"{prefix}/bin:{os.environ.get('PATH', '/usr/bin:/bin')}",
         "PIPELINE_VEP_HOME": str(prefix),
         "PIPELINE_REN_NATIVE_CACHE": str(prefix / "native" / "ren-native"),
+        "PIPELINE_RESOLVE_BROKER_DIR": str(broker_dir(sandbox)),
+        "PIPELINE_RESOLVE_INSTANCE_DIR": str(machine_instance_dir()),
     }
     venv_python = prefix / "venv-py312" / "bin" / "python3"
     if venv_python.is_file():
         env["PIPELINE_PYTHON"] = str(venv_python)
     return env
+
+
+def broker_dir(sandbox: Path) -> Path:
+    """Where the sandbox's own broker keeps its files."""
+    return sandbox / "broker"
+
+
+def machine_instance_dir() -> Path:
+    """The machine's Resolve instance directory - the one lease.
+
+    The lease is per MACHINE, not per checkout: the sandbox's broker
+    shares it, so a check never puts a second writer on the one
+    Resolve. This mirrors `resolve_lock.instance_lock_dir` outside the
+    test suite.
+    """
+    override = os.environ.get("PIPELINE_RESOLVE_INSTANCE_DIR")
+    if override:
+        return Path(override)
+    return Path(tempfile.gettempdir())
+
+
+def _broker_socket(sandbox: Path) -> Path:
+    """The socket the sandbox's own broker serves on."""
+    return broker_dir(sandbox) / "ren-resolved.sock"
+
+
+def _ask_the_broker(sandbox: Path, request: dict, timeout: float = 10.0
+                    ) -> dict:
+    """One request to the sandbox's own broker, or {} where there is none.
+
+    Plain sockets on purpose: the check must never reach the machine's
+    broker, and it must never be able to stop it by accident.
+    """
+    import socket
+
+    target = _broker_socket(sandbox)
+    if not target.exists():
+        return {}
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            sock.settimeout(timeout)
+            sock.connect(str(target))
+            with sock.makefile("r", encoding="utf-8") as stream:
+                sock.sendall((json.dumps(request) + "\n").encode("utf-8"))
+                line = stream.readline()
+        if not line:
+            return {}
+        return json.loads(line)
+    except (OSError, ValueError):
+        return {}
+
+
+def stop_the_broker(sandbox: Path) -> str:
+    """Stop the broker THIS CHECK started, and only that one.
+
+    A check that starts a broker must stop it on exit: the PROD-001
+    clean-install check started a second broker under /tmp and left it
+    serving for seven hours, with two workers, and it blocked Resolve
+    project switches for every other lane (measured 2026-10-21).
+
+    The broker is stopped BY ITS OWN PID: the socket is the sandbox's
+    own, the pid is the one that answered on it, and nothing here can
+    reach the machine's broker. Where the broker does not stop when
+    asked, that exact pid is signalled - never a pattern, never the
+    machine's broker.
+    """
+    import signal
+
+    answer = _ask_the_broker(sandbox, {"op": "ping"})
+    pid = int(answer.get("pid") or 0)
+    if not pid:
+        return "no broker was serving in the sandbox"
+    _ask_the_broker(sandbox, {
+        "op": "shutdown",
+        "requester": "ren_clean_install_check: the sandbox's own broker"})
+    deadline = time.time() + 15.0
+    while time.time() < deadline:
+        if not _pid_alive(pid):
+            return f"stopped the sandbox's broker (pid {pid})"
+        time.sleep(0.1)
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        pass
+    deadline = time.time() + 5.0
+    while time.time() < deadline and _pid_alive(pid):
+        time.sleep(0.1)
+    if _pid_alive(pid):
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+    return f"stopped the sandbox's broker (pid {pid})"
+
+
+def _pid_alive(pid: int) -> bool:
+    """Whether an exact pid is still running - a zombie reads as dead."""
+    try:
+        out = subprocess.run(
+            ["ps", "-o", "stat=", "-p", str(pid)],
+            capture_output=True, encoding="utf-8", check=False).stdout.strip()
+        if out:
+            return not out.startswith("Z")
+    except OSError:
+        pass
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
 
 
 def ren(sandbox: Path, args, *, timeout=900):
@@ -497,6 +627,8 @@ def main() -> int:
         alone_env = {
             "HOME": str(sandbox / "home"),
             "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "PIPELINE_RESOLVE_BROKER_DIR": str(broker_dir(sandbox)),
+            "PIPELINE_RESOLVE_INSTANCE_DIR": str(machine_instance_dir()),
         }
         alone = run(
             [sandbox / "vep" / "current" / "bin" / "ren", "--version"],
@@ -522,6 +654,15 @@ def main() -> int:
         if not args.no_upgrade:
             _check_upgrade(sandbox, report)
     finally:
+        # THE BROKER THIS CHECK STARTED IS STOPPED HERE. A check that
+        # starts a broker and leaves it running takes the one Resolve
+        # with it: the PROD-001 check started a second broker under /tmp
+        # and left it serving for seven hours, with two workers, and it
+        # blocked project switches for every other lane.
+        try:
+            print(f"Stopping the sandbox's own broker: {stop_the_broker(sandbox)}")
+        except Exception as exc:  # noqa: BLE001 - the cleanup never fails the check
+            print(f"could not stop the sandbox's broker: {exc}")
         if args.json:
             print(json.dumps(
                 {"sandbox": str(sandbox),

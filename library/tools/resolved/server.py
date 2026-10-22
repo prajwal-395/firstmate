@@ -74,6 +74,11 @@ LEASE_CONTENTION_WAIT_S = 30.0
 #: same cadence the lease itself polls the flock with.
 LEASE_CONTENTION_POLL_S = 0.25
 
+#: The machine-wide claim this broker holds, for as long as it serves.
+#: It is a file handle, and a file handle that goes out of scope
+#: releases the lock with it - so the broker keeps it here.
+_MACHINE_BROKER_CLAIM = None
+
 
 def _log_broker(message: str) -> None:
     """One timestamped line on stderr: the broker's stdio is its log
@@ -505,15 +510,50 @@ class Broker:
         the scripting handshake is refused outside a lease
         (`resolve_locale`), and a connection opened between leases is a
         client nobody scheduled.
+
+        THE JOB'S BUDGET (`job_budget`): a job declares how long it may
+        hold the one Resolve, and this is where the declaration is
+        enforced - at the job's safe checkpoints, and on the way out, so
+        a job that came back late is refused rather than reported as a
+        result. The bound that FREES a wedged machine is the Rust
+        daemon's (it kills the worker); this daemon runs the job in
+        this process, so it can only stop the job where the job is safe
+        to stop.
         """
         from library.tools import resolve_lock
+        from library.tools.resolved import job_budget
         cancellation.begin(job["id"])
+        cancellation.declare_budget(
+            job["id"],
+            job_budget.budget_for(job["kind"], job.get("params") or {}))
+        started = time.monotonic()
         activity_token = resolve_lock._activity_job_id.set(job["id"])
         try:
-            return self._run_under_lease(job)
+            state, result, error = self._run_under_lease(job)
+            if state == "done":
+                elapsed = time.monotonic() - started
+                budget = job_budget.budget_for(
+                    job["kind"], job.get("params") or {})
+                if elapsed > budget:
+                    return (
+                        "rejected",
+                        job_budget.refusal_receipt(
+                            job["id"], job["kind"], budget, elapsed),
+                        job_budget.refusal_message(
+                            job["id"], job["kind"], budget, elapsed))
+            return state, result, error
         except CancelRequested as exc:
             clear(job["id"])
             return "cancelled", exc.result, str(exc)
+        except job_budget.JobBudgetExceeded as exc:
+            elapsed = time.monotonic() - started
+            receipt = job_budget.refusal_receipt(
+                job["id"], job["kind"],
+                job_budget.budget_for(job["kind"], job.get("params") or {}),
+                elapsed)
+            if getattr(exc, "result", None) is not None:
+                receipt["job_result"] = exc.result
+            return "rejected", receipt, str(exc)
         except job_kinds.JobRefused as exc:
             return "rejected", exc.result, str(exc)
         except Exception as exc:                              # noqa: BLE001
@@ -795,11 +835,27 @@ def serve(path: Path | None = None, connect=None) -> None:
     socket path left the earlier one holding a socket nobody could
     reach (measured 2026-10-05, when a watcher respawned a branch
     broker within a second of a deliberate restart).
+
+    AND ONE BROKER SERVES THE MACHINE. A broker on the socket a plain
+    client reaches CLAIMS the machine (a machine-wide lock), and a
+    second one refuses while the first holds it: two brokers against
+    the one Resolve move the cursor under each other and block project
+    switches for every lane (measured 2026-10-21: the PROD-001
+    clean-install check started a second broker under /tmp and left it
+    serving for seven hours, with two workers). A PRIVATE broker - one
+    on a socket of its own - is left alone: the qualification
+    harness's broker and a lane's own are both allowed beside the
+    machine's.
     """
     from library.tools.resolved import client
     path = Path(path or socket_path())
     path.parent.mkdir(parents=True, exist_ok=True)
     _refuse_a_broker_pointed_at_a_worker_worktree(path, client)
+    global _MACHINE_BROKER_CLAIM
+    try:
+        _MACHINE_BROKER_CLAIM = broker_paths.claim_the_machine_broker(path)
+    except broker_paths.MachineBrokerHeld as held:
+        raise SystemExit(str(held)) from held
     # The stale-worker guard at startup: a broker whose code predates
     # the shadow DB schema refuses to serve, with the restart remedy,
     # instead of failing every first-record shadow write while re-reads

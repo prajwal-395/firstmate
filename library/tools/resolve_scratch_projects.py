@@ -1288,6 +1288,28 @@ def _slot_holder(records: list[dict]) -> dict | None:
     return records[-1] if records else None
 
 
+def slot_holder() -> dict | None:
+    """The LIVE holder of the machine's scratch-origin slot, or None.
+
+    The newest record, when it belongs to a writer that is still alive
+    and is not this one. A record of this writer's own session is not a
+    holder (we are inside it), and a record whose owner has exited is
+    not one either (the next writer takes that session back).
+
+    This is the READ the caller needs before it queues work that moves
+    the machine: it says whether the machine is inside somebody else's
+    session, without touching Resolve.
+    """
+    record = _slot_holder(_read_ledger())
+    if record is None:
+        return None
+    if _held_by_us(record):
+        return None
+    if not _owner_alive(record):
+        return None
+    return record
+
+
 def wait_for_origin_slot(timeout: float | None = None,
                          poll: float = SLOT_POLL_SECONDS) -> dict:
     """Wait for the scratch-origin slot, the way the instance lease queues.

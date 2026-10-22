@@ -97,6 +97,22 @@ fn main() {
         server::Probe::Absent => {}
     }
 
+    // ONE BROKER SERVES THE MACHINE. A broker on the socket a plain
+    // client reaches claims the machine (a machine-wide lock), and a
+    // second one refuses while the first holds it: two brokers against
+    // the one Resolve move the cursor under each other and block
+    // project switches for every lane (measured 2026-10-21: the PROD-001
+    // clean-install check started a second broker under /tmp and left it
+    // serving for seven hours, with two workers). A PRIVATE broker -
+    // one on a socket of its own - is left alone.
+    let machine_claim = match server::claim_the_machine_broker(&socket_path) {
+        Ok(claim) => claim,
+        Err(message) => {
+            eprintln!("{message}");
+            std::process::exit(1);
+        }
+    };
+
     let store = match store::JobStore::open(&db_path) {
         Ok(store) => Arc::new(store),
         Err(exc) => {
@@ -145,6 +161,7 @@ fn main() {
         broker_now(),
         std::process::id()
     );
+    drop(machine_claim);
     daemon.watchdog.stop();
     daemon.broker.stop();
     daemon.stop();

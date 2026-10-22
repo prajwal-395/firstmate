@@ -26,6 +26,9 @@ pub struct JobView {
     pub qualification: bool,
     pub mode: String,
     pub executed: bool,
+    /// The job's declared budget, in seconds: how long it may hold the
+    /// one Resolve before the daemon stops it.
+    pub budget_seconds: f64,
 }
 
 /// A submission's outcome: the job's id and whether it coalesced.
@@ -265,6 +268,7 @@ impl Broker {
                 executed: shape.executed,
                 qualification,
                 locality: shape.locality.clone(),
+                budget_seconds: shape.budget_seconds,
             },
         );
         if let Some(key) = &shape.coalesce_key {
@@ -349,6 +353,10 @@ impl Broker {
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string(),
+            budget_seconds: result
+                .get("budget_seconds")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(DEFAULT_BUDGET_SECONDS),
             description: result
                 .get("description")
                 .and_then(|v| v.as_str())
@@ -656,7 +664,14 @@ struct PreparedShape {
     interrupt_policy: String,
     description: String,
     progress: String,
+    budget_seconds: f64,
 }
+
+/// The budget a job carries when its shape names none. The same number
+/// as `library/tools/resolved/job_budget.py`'s default: the shape
+/// always carries one, so this is only the fallback for a worker that
+/// answered without it.
+const DEFAULT_BUDGET_SECONDS: f64 = 300.0;
 
 fn schedule_loop(state: Arc<(Mutex<State>, Condvar)>, store: Arc<JobStore>) {
     let (lock, cond) = &*state;
@@ -717,7 +732,7 @@ fn execute_loop(
 ) {
     let (lock, cond) = &*state;
     loop {
-        let job_id = {
+        let (job_id, budget_seconds) = {
             let mut state = lock.lock().unwrap();
             loop {
                 if state.stopping {
@@ -725,7 +740,15 @@ fn execute_loop(
                 }
                 if let Some(id) = state.executor_queue.first().cloned() {
                     state.executor_queue.remove(0);
-                    break id;
+                    // The job's DECLARED budget travels with it: the
+                    // budget is the shape's, and the shape is what the
+                    // submission gate decided.
+                    let budget = state
+                        .running
+                        .get(&id)
+                        .map(|job| job.budget_seconds)
+                        .unwrap_or(DEFAULT_BUDGET_SECONDS);
+                    break (id, budget);
                 }
                 let (next, _) = cond
                     .wait_timeout(state, std::time::Duration::from_secs(1))
@@ -747,6 +770,7 @@ fn execute_loop(
             qualification: job.qualification,
             mode: job.mode.clone(),
             executed: job.executed,
+            budget_seconds,
         };
         let (job_state, result, error) = run_job(&view, &execution_worker);
         let (lock, cond) = &*state;
@@ -803,20 +827,87 @@ fn finish_job(
 ///
 /// The worker holds the instance lease for the whole job, connection
 /// included - the daemon is a Rust process and the flock lives in Python.
+///
+/// THE JOB'S BUDGET. A job declares how long it may hold the one
+/// Resolve, and the daemon is what enforces it: a worker that has not
+/// answered within the budget is KILLED, which is the only way a
+/// Resolve call that blocks without releasing the GIL can be stopped
+/// (measured 2026-10-21: a wedged call held the machine for 15 minutes,
+/// and the only way out was for a lane to kill the worker's process by
+/// hand). The job's receipt is then a TYPED REFUSAL - the budget, the
+/// elapsed time, the kind of block and the next action - exactly what
+/// the Python worker writes when it stops a job at a safe checkpoint.
 fn run_job(
     view: &JobView,
     worker: &std::sync::Mutex<worker::Worker>,
 ) -> (String, Option<Value>, String) {
     let request = worker::job_request(view);
-    let response = match worker.lock().unwrap().run(&request) {
+    if !view.executed {
+        // A GRANT: the caller's own turn, checked and handed back. It
+        // is not the daemon's to end, so it carries no budget.
+        let response = match worker.lock().unwrap().run(&request) {
+            Ok(response) => response,
+            Err(exc) => return ("failed".to_string(), None, exc),
+        };
+        let (state, result, error) = response.into_job_outcome();
+        if state == "done" {
+            return ("granted".to_string(), result, error);
+        }
+        return (state, result, error);
+    }
+    let budget = view.budget_seconds.max(1.0);
+    let started = crate::store::now();
+    let response = match worker.lock().unwrap().run_with_timeout(
+        &request,
+        std::time::Duration::from_secs_f64(budget),
+    ) {
         Ok(response) => response,
-        Err(exc) => return ("failed".to_string(), None, exc),
+        Err(exc) => {
+            if exc.starts_with(worker::TIMEOUT_ERROR) {
+                // The worker held the machine past the job's declared
+                // budget. It has been killed (killing it releases the
+                // instance flock), and the job is refused with the
+                // budget it broke.
+                let elapsed = crate::store::now() - started;
+                return (
+                    "rejected".to_string(),
+                    Some(budget_refusal(view, budget, elapsed)),
+                    budget_message(view, budget, elapsed),
+                );
+            }
+            return ("failed".to_string(), None, exc);
+        }
     };
     let (state, result, error) = response.into_job_outcome();
-    if state == "done" && !view.executed {
-        return ("granted".to_string(), result, error);
-    }
     (state, result, error)
+}
+
+/// The typed refusal receipt a job that overran its budget leaves.
+///
+/// The same body the Python worker writes (`job_budget.refusal_receipt`),
+/// so a reader does not have to know which daemon served the job.
+fn budget_refusal(view: &JobView, budget: f64, elapsed: f64) -> Value {
+    serde_json::json!({
+        "refusal": "JobBudgetExceeded",
+        "blocker": "resource_contention",
+        "next_action": "wait_for_the_resource",
+        "blocking_reason": "something else is holding the resource",
+        "job_id": view.id,
+        "kind": view.kind,
+        "budget_seconds": budget,
+        "elapsed_seconds": elapsed,
+        "state": "rejected",
+    })
+}
+
+/// The one sentence the receipt and the operator both read.
+fn budget_message(view: &JobView, budget: f64, elapsed: f64) -> String {
+    format!(
+        "the {} job {} held Resolve for {:.1}s, past its declared budget \
+         of {:.1}s - the machine is freed and the job is refused rather \
+         than left holding it",
+        view.kind, view.id, elapsed, budget
+    )
 }
 
 /// Cancel a queued grant whose owner is gone.
@@ -1176,6 +1267,7 @@ mod tests {
                     executed: false,
                     qualification: false,
                     locality: "none".to_string(),
+                    budget_seconds: DEFAULT_BUDGET_SECONDS,
                 },
             );
             reap_dead_owners(&mut state, &store);
@@ -1220,6 +1312,7 @@ mod tests {
                     executed: false,
                     qualification: false,
                     locality: "none".to_string(),
+                    budget_seconds: DEFAULT_BUDGET_SECONDS,
                 },
             );
             reap_dead_owners(&mut state, &store);
@@ -1279,6 +1372,7 @@ mod tests {
                     executed: true,
                     qualification: false,
                     locality: "none".to_string(),
+                    budget_seconds: DEFAULT_BUDGET_SECONDS,
                 },
             );
             reap_dead_owners(&mut state, &store);
@@ -1384,6 +1478,7 @@ mod tests {
                     executed: true,
                     qualification: false,
                     locality: "none".to_string(),
+                    budget_seconds: DEFAULT_BUDGET_SECONDS,
                 },
             );
             reap_dead_owners(&mut state, &store);
@@ -1472,6 +1567,7 @@ mod tests {
                     executed: true,
                     qualification: true,
                     locality: "project".to_string(),
+                    budget_seconds: DEFAULT_BUDGET_SECONDS,
                 },
             );
         }
@@ -1497,5 +1593,91 @@ mod tests {
         std::env::remove_var("PIPELINE_RESOLVE_LOCK_DIR");
         std::env::remove_var(crate::server::BROKER_DIR_TOLD_ENV);
         std::fs::remove_dir_all(scratch).unwrap();
+    }
+
+    /// A worker interpreter that reads one request and never answers.
+    ///
+    /// The daemon spawns `PIPELINE_PYTHON -m library.tools.resolved.worker`;
+    /// pointed at this script the arguments are ignored, one request line
+    /// is consumed, and no answer ever comes. This is the shape of the
+    /// defect: a job wedged inside Resolve, at 0% CPU, holding the one
+    /// Resolve and the whole queue.
+    fn stuck_interpreter(dir: &std::path::Path) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let script = dir.join("stuck-worker.sh");
+        std::fs::write(&script, "#!/bin/sh\nread line\nexec sleep 60\n").unwrap();
+        #[cfg(unix)]
+        {
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        script
+    }
+
+    /// THE DEFECT (measured 2026-10-21): a broker job had no upper
+    /// bound on its run. A `resolve.ui_transaction` job whose submitter
+    /// had died ran 1412 s in a broker worker at 0% CPU and held the
+    /// whole queue - six jobs - until a lane killed the worker by hand.
+    ///
+    /// The bound ends exactly that case: the worker is killed (which
+    /// gives the one Resolve back) and the job's receipt is a TYPED
+    /// refusal - the budget, the elapsed time, the kind of block and
+    /// the next action.
+    #[test]
+    fn a_job_that_overruns_its_budget_is_refused_with_a_typed_receipt() {
+        let dir = std::env::temp_dir().join(format!(
+            "ren-budget-{}-{}",
+            std::process::id(),
+            crate::store::now().to_bits()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = stuck_interpreter(&dir);
+        let previous = std::env::var_os("PIPELINE_PYTHON");
+        std::env::set_var("PIPELINE_PYTHON", &script);
+        let worker = std::sync::Mutex::new(worker::Worker::new());
+        let view = JobView {
+            id: "job-1".to_string(),
+            kind: "resolve.ui_transaction".to_string(),
+            params: serde_json::json!({}),
+            project: "Ren Scratch - test".to_string(),
+            timeline: "Reel 01".to_string(),
+            qualification: false,
+            mode: "exclusive".to_string(),
+            executed: true,
+            budget_seconds: 1.0,
+        };
+        let started = std::time::Instant::now();
+        let (state, result, error) = run_job(&view, &worker);
+        let wall = started.elapsed();
+        match previous {
+            Some(value) => std::env::set_var("PIPELINE_PYTHON", value),
+            None => std::env::remove_var("PIPELINE_PYTHON"),
+        }
+        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(state, "rejected", "the overrun was not a refusal");
+        assert!(
+            error.contains("declared budget"),
+            "the receipt did not name the budget: {error}"
+        );
+        let receipt = result.expect("the refusal carried no receipt");
+        assert_eq!(
+            receipt.get("refusal").and_then(|v| v.as_str()),
+            Some("JobBudgetExceeded")
+        );
+        assert_eq!(
+            receipt.get("blocker").and_then(|v| v.as_str()),
+            Some("resource_contention")
+        );
+        assert_eq!(
+            receipt.get("next_action").and_then(|v| v.as_str()),
+            Some("wait_for_the_resource")
+        );
+        assert_eq!(
+            receipt.get("budget_seconds").and_then(|v| v.as_f64()),
+            Some(1.0)
+        );
+        assert!(
+            wall < std::time::Duration::from_secs(30),
+            "the daemon wedged {wall:?} on a job that overran its budget"
+        );
     }
 }

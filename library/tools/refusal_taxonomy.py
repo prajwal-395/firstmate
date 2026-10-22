@@ -257,8 +257,17 @@ FAMILY_BLOCKERS = {
         "insufficient_evidence",
     "library.tools.resolve_session.SessionProjectRefused": "unsafe_state",
     "library.tools.resolved.client.ShutdownRefused": "unsafe_state",
+    "library.tools.resolved.job_budget.JobBudgetExceeded":
+        "resource_contention",
     "library.tools.resolve_deadline.ResolveCallTimeout": "resource_contention",
     "library.tools.resolve_lock.ResolveBusy": "resource_contention",
+    # PERF-001's family: the class declares the same blocker, and the
+    # refusal inventory counts a family as classified only when the
+    # taxonomy names it (measured 2026-10-21: the inventory read 118
+    # classified of 119 families, and the gate that checks it had been
+    # red since).
+    "library.tools.resolve_project_open.ProjectOpenRefused":
+        "resource_contention",
     "library.tools.resolve_swapback.SwapbackRefused": "unsafe_state",
     "library.tools.resolve_watchdog.ResolveDegraded": "resource_contention",
     "library.tools.resolved.client.TestSpawnRefused": "unsafe_state",

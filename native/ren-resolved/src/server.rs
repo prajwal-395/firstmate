@@ -39,6 +39,97 @@ pub const BROKER_DIR_TOLD_ENV: &str = "REN_RESOLVED_BROKER_DIR";
 /// The instance directory's override, as `resolve_lock` spells it.
 pub const INSTANCE_DIR_ENV: &str = "PIPELINE_RESOLVE_INSTANCE_DIR";
 
+/// The machine-wide lock that says "a broker is serving this machine".
+///
+/// It lives in a FIXED path, not in the temp dir a process may be
+/// pointed at: the whole point is that two brokers in DIFFERENT temp
+/// dirs - a sandboxed install, a clean-install check, a lane with
+/// TMPDIR unset - can see each other. Two brokers against the one
+/// Resolve blocked project switches for every other lane (measured
+/// 2026-10-21: the PROD-001 clean-install check started a second broker
+/// under /tmp and left it serving for seven hours, with two workers).
+pub const MACHINE_BROKER_LOCK_DIR: &str = "/tmp";
+pub const MACHINE_BROKER_LOCK_NAME: &str = "ren-resolved-broker-{uid}.lock";
+
+/// A test's override for the machine-broker lock file. The lock is
+/// machine-wide by design; a test that must not take the machine's
+/// claim points it at its own file.
+pub const MACHINE_BROKER_LOCK_ENV: &str = "PIPELINE_RESOLVE_MACHINE_BROKER_LOCK";
+
+/// The machine-wide lock file, per user.
+pub fn machine_broker_lock_path() -> std::path::PathBuf {
+    if let Some(path) = env_path(MACHINE_BROKER_LOCK_ENV) {
+        return path;
+    }
+    // SAFETY: getuid takes no arguments and cannot fail.
+    let uid = unsafe { libc::getuid() };
+    std::path::PathBuf::from(MACHINE_BROKER_LOCK_DIR).join(
+        MACHINE_BROKER_LOCK_NAME.replace("{uid}", &uid.to_string()))
+}
+
+/// Whether `path` is the socket a PLAIN client on this machine reaches.
+///
+/// The plain client's socket is the temp dir's, with no redirection
+/// honoured: a broker that serves THERE is the machine's broker. A
+/// broker that serves anywhere else is a private one - the
+/// qualification harness's, a lane's own, a check's sandbox - and the
+/// machine's broker is not its business.
+pub fn is_own_default_socket(path: &Path) -> bool {
+    let plain = std::env::temp_dir().join(SOCKET_NAME);
+    let left = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let right = std::fs::canonicalize(&plain).unwrap_or(plain);
+    left == right
+}
+
+/// Claim the machine's one broker, or refuse to serve.
+///
+/// Returns the lock file - keep it for the process's life, or the lock
+/// is released with it - or `None` where this broker is a private one
+/// and the machine's broker is somebody else's business. The error
+/// names the holder, so the reader knows which broker to stop.
+pub fn claim_the_machine_broker(
+    path: &Path,
+) -> Result<Option<std::fs::File>, String> {
+    use std::fs::OpenOptions;
+    if !is_own_default_socket(path) {
+        return Ok(None);
+    }
+    let lock_path = machine_broker_lock_path();
+    let handle = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(&lock_path)
+        .map_err(|exc| format!("ren-resolved: cannot open {lock_path:?}: {exc}"))?;
+    // SAFETY: handle owns this valid descriptor for the entire call.
+    if unsafe { libc::flock(handle.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        let holder = std::fs::read_to_string(&lock_path)
+            .ok()
+            .and_then(|text| text.trim().parse::<i64>().ok())
+            .unwrap_or(0);
+        let named = if holder > 0 {
+            format!(" (pid {holder})")
+        } else {
+            " (the holder's pid could not be read)".to_string()
+        };
+        return Err(format!(
+            "ren-resolved: another broker is already serving this machine{named} \
+             - one broker serves one machine, so this one refuses to serve; \
+             stop the other broker, or give this one a private broker directory"
+        ));
+    }
+    {
+        use std::io::{Seek, SeekFrom, Write};
+        let mut handle = &handle;
+        let _ = handle.seek(SeekFrom::Start(0));
+        let _ = handle.set_len(0);
+        let _ = write!(handle, "{}\n", std::process::id());
+        let _ = handle.flush();
+    }
+    Ok(Some(handle))
+}
+
 /// The lock directory: `PIPELINE_RESOLVE_LOCK_DIR`, else the system temp -
 /// the same rule as `resolve_lock.lock_dir`. The broker's socket,
 /// database and cancel markers live in `broker_dir`, not here.
@@ -941,6 +1032,56 @@ mod lease_tests {
         assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
         assert!(lease_probe_in(&directory).0.is_none());
         assert!(directory.join(LEASE_NAME).exists());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    /// THE DEFECT (measured 2026-10-21): the PROD-001 clean-install
+    /// check started a second broker and left it serving for seven
+    /// hours, with two workers, and it blocked Resolve project switches
+    /// for every other lane.
+    ///
+    /// One broker serves the machine: the second one is refused while
+    /// the first holds the claim.
+    #[test]
+    fn a_second_broker_refuses_to_claim_the_machine() {
+        let directory = std::env::temp_dir().join(format!(
+            "ren-resolved-claim-test-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        // A test's own claim file: the machine's claim is not this
+        // test's to take.
+        std::env::set_var(
+            MACHINE_BROKER_LOCK_ENV,
+            directory.join("machine-broker.lock"));
+        let plain = std::env::temp_dir().join(SOCKET_NAME);
+        let first = claim_the_machine_broker(&plain).unwrap();
+        assert!(first.is_some(), "the machine's broker did not claim it");
+        let second = claim_the_machine_broker(&plain);
+        let message = match second {
+            Ok(_) => panic!("a second broker claimed the machine"),
+            Err(message) => message,
+        };
+        assert!(
+            message.contains("one broker serves one machine"),
+            "the refusal did not say why: {message}"
+        );
+        std::env::remove_var(MACHINE_BROKER_LOCK_ENV);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    /// A broker on a socket of its own is not the machine's broker: the
+    /// qualification harness's broker and a lane's own are both allowed
+    /// beside the machine's.
+    #[test]
+    fn a_private_broker_does_not_claim_the_machine() {
+        let directory = std::env::temp_dir().join(format!(
+            "ren-resolved-private-test-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        std::env::set_var(
+            MACHINE_BROKER_LOCK_ENV,
+            directory.join("machine-broker.lock"));
+        let private = directory.join(SOCKET_NAME);
+        assert!(claim_the_machine_broker(&private).unwrap().is_none());
+        std::env::remove_var(MACHINE_BROKER_LOCK_ENV);
         std::fs::remove_dir_all(directory).unwrap();
     }
 }

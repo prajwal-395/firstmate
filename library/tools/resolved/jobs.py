@@ -81,6 +81,7 @@ import json
 import os
 
 from library.tools import protocol_conformance, refusal_taxonomy
+from library.tools.resolved import job_budget
 from library.tools.resolved.scheduler import EXCLUSIVE, PRIORITIES, SHARED
 
 #: The ONE project a test or qualification job may touch. Live-Resolve
@@ -630,6 +631,17 @@ def prepare(kind: str, params: dict, qualification: bool = False) -> dict:
         shape = reel_ending_copy.prepare(params)
     else:
         shape = dict(_resolve_axi_shape(params), executed=True)
+    # THE JOB'S BUDGET. A job that may hold the one Resolve says how
+    # long it may hold it, before it is queued: the kind's declared
+    # budget (`job_budget.BUDGETS`) unless the CALLER declared one.
+    # A declared budget that is not a budget is refused here, at the
+    # submission gate, rather than half-honoured at execution.
+    try:
+        shape["budget_seconds"] = job_budget.budget_for(kind, params)
+    except job_budget.BudgetRefused as exc:
+        raise JobRefused(
+            str(exc), blocker="unsupported_operation",
+            next_action="supply_the_missing_parameter") from exc
     requested = params.get("priority")
     if requested is not None:
         if requested not in PRIORITIES:

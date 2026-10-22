@@ -11810,12 +11810,24 @@ def _normalize(argv: list) -> list:
     return argv
 
 
-def _through_broker(client, argv: list) -> int:
+def _through_broker(client, argv: list, keep_the_slot: bool = False) -> int:
     """Run this command line inside ren-resolved, and print what it did.
 
     Where the broker is serving it owns Resolve, so the command queues
     with every other Resolve job, and an identical read already in
     flight from another agent is joined rather than repeated.
+
+    `keep_the_slot` is the scratch-lifecycle path: the job moves the
+    machine into (or out of) a scratch project, so it must not START
+    while another writer holds the scratch-origin slot. A job that
+    starts against a held slot waits for it INSIDE the broker's turn,
+    and a wait inside a turn holds the one Resolve against every other
+    lane (measured 2026-10-21: three `project scratch open` jobs held
+    the machine's turn for the whole 900 s lease timeout each). So
+    while the job is still QUEUED the caller watches the slot, and a
+    slot another live writer has taken CANCELS the queued job - the
+    broker drops a queued job without running it - and the caller goes
+    back to waiting for the slot outside the turn.
     """
     from library.tools.resolve_lock import default_owner
     submitted = None
@@ -11825,8 +11837,13 @@ def _through_broker(client, argv: list) -> int:
                             "caller": default_owner()},
             owner=default_owner())
         job = client.result(submitted["id"], wait=0.0)
-        while job["state"] in ("queued", "running"):
-            job = client.result(submitted["id"], wait=60.0)
+        while job.get("state") in ("queued", "running"):
+            watching = keep_the_slot and job.get("state") == "queued"
+            if watching and _slot_taken():
+                client.cancel(submitted["id"])
+                return _slot_held_code()
+            job = client.result(submitted["id"],
+                                wait=5.0 if watching else 60.0)
     except (ConnectionError, client.BrokerError) as exc:
         # The refusal names the JOB and the broker's last error: a lane
         # cannot tell a transient refusal from a broker that died, and
@@ -11885,6 +11902,52 @@ def _scratch_slot_needed(name: str, args) -> bool:
     """Whether this command has to wait for the scratch-origin slot."""
     return (name == "cmd_project_scratch"
             and getattr(args, "scratch_command", "") in _SCRATCH_SLOT_COMMANDS)
+
+
+def _slot_taken() -> bool:
+    """Whether another live writer holds the machine's scratch-origin slot.
+
+    The ledger is a file, so this reads it without touching Resolve and
+    without holding anything.
+    """
+    from library.tools import resolve_scratch_projects as scratch
+    try:
+        return scratch.slot_holder() is not None
+    except Exception:  # noqa: BLE001 - an unreadable ledger is not a block
+        return False
+
+
+def _slot_held_code() -> int:
+    """The exit code a held slot answers with."""
+    from library.tools import resolve_scratch_projects as scratch
+    return scratch.SLOT_HELD_EXIT_CODE
+
+
+def _holds_the_broker_turn() -> bool:
+    """Whether this process already HOLDS the one Resolve's turn.
+
+    Inside the broker's executor the turn is held: the job is running
+    now and every other lane waits behind it. A session holds it too,
+    for the whole operation.
+
+    And a wait for the scratch-origin slot in EITHER of those places
+    holds the very turn the holder of the slot needs: the holder is
+    inside Resolve and needs this turn to restore the origin and
+    release the slot (measured 2026-10-21: three `project scratch
+    open` jobs held the machine's turn for the whole 900 s lease
+    timeout each, and every other lane waited behind them). So the
+    wait belongs to the caller, outside the turn, and the command
+    inside the turn refuses FAST - with its own exit code, which the
+    caller retries on.
+    """
+    from library.tools.resolved import client
+    if client.in_broker():
+        return True
+    from library.tools import resolve_session
+    try:
+        return bool(resolve_session.claim_held())
+    except Exception:  # noqa: BLE001 - an unreadable claim is not a block
+        return False
 
 
 def _wait_for_the_scratch_slot(deadline: float) -> dict:
@@ -11977,12 +12040,14 @@ def _main_impl(argv=None) -> int:
         if submit and not client.in_broker():
             return _submit_through_broker(client, argv)
         if client.serving():
-            if scratch_slot:
+            if scratch_slot and not _holds_the_broker_turn():
                 return _run_with_the_scratch_slot(
-                    lambda: _through_broker(client, argv), deadline)
+                    lambda: _through_broker(client, argv,
+                                            keep_the_slot=True),
+                    deadline)
             return _through_broker(client, argv)
     try:
-        if scratch_slot:
+        if scratch_slot and not _holds_the_broker_turn():
             return _run_with_the_scratch_slot(
                 lambda: _dispatch(func, args), deadline)
         return _dispatch(func, args)

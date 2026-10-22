@@ -48,6 +48,15 @@ pub struct WorkerResponse {
 /// answers another request is skipped rather than believed.
 const MAX_ANSWER_LINES: usize = 16;
 
+/// The error a timed-out request answers with.
+///
+/// The daemon reads this to tell a job that OVERRAN ITS BUDGET from a
+/// worker that died for another reason: the first is a typed refusal
+/// about the job, the second is a broken worker. The message is the
+/// only thing that tells them apart, so it is named here rather than
+/// spelled at the call site.
+pub const TIMEOUT_ERROR: &str = "the Resolve worker did not answer within";
+
 impl WorkerResponse {
     /// The observation as a job outcome: `ok` carries the result, a refusal
     /// carries the refusal's fields, a failure carries only the error.
@@ -414,6 +423,7 @@ pub fn job_request(job: &crate::broker::JobView) -> Value {
             "qualification": job.qualification,
             "mode": job.mode,
             "executed": job.executed,
+            "budget_seconds": job.budget_seconds,
         },
     })
 }

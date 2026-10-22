@@ -107,4 +107,9 @@ pub struct JobShape {
     pub coalesce_key: Option<String>,
     #[serde(default)]
     pub qualification: bool,
+    /// The job's DECLARED budget: the seconds it may hold the one
+    /// Resolve before the broker stops it. Absent means the kind's
+    /// own budget (`library/tools/resolved/job_budget.py`).
+    #[serde(default)]
+    pub budget_seconds: Option<f64>,
 }

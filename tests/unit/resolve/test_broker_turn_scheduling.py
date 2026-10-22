@@ -291,3 +291,140 @@ def test_the_workflow_job_carries_the_media_facts(monkeypatch, tmp_path):
     with pytest.raises(JobRefused):
         prepare_broker_job(dict(base, media_fps=24.0,
                                 media_total_frames=0))
+
+
+# ── the turn, and the wait that must not happen inside it ────────────
+
+
+def test_a_command_inside_the_brokers_turn_does_not_wait_for_the_slot(
+        monkeypatch):
+    """THE DEFECT: the wait ran inside the turn.
+
+    A `project scratch open` job that waits for the scratch-origin slot
+    while it HOLDS the broker's turn holds the one Resolve against
+    every other lane for the length of the wait - and the holder of the
+    slot is inside Resolve and needs that very turn to restore the
+    origin and release it (measured 2026-10-21: three such jobs held
+    the machine's turn for the whole 900 s lease timeout each, and
+    every other lane waited behind them).
+
+    So inside the turn the command does not wait: it runs, and it
+    refuses FAST (its own exit code) if the slot is somebody else's.
+    The wait belongs to the caller, outside the turn.
+    """
+    waited = []
+    monkeypatch.setattr(scratch, "wait_for_origin_slot",
+                        lambda **kwargs: waited.append(kwargs))
+    monkeypatch.setattr(client, "ensure", lambda *args, **kwargs: None)
+    monkeypatch.setattr(client, "in_broker", lambda: True)
+    dispatched = []
+    monkeypatch.setattr(
+        commands, "_dispatch",
+        lambda func, args: dispatched.append(func) or 0)
+
+    code = commands._main_impl(
+        ["project", "scratch", "open", "Ren Scratch - other", "--apply"])
+
+    assert waited == [], "the command waited for the slot inside the turn"
+    assert dispatched, "the command did not run at all"
+    assert code == 0
+
+
+def test_the_caller_outside_the_turn_still_waits_for_the_slot(monkeypatch):
+    """The wait is not removed: it moves to where it costs nothing.
+
+    The caller holds no turn, so a wait there holds the machine
+    against nobody - and the holder of the slot is free to finish and
+    release it.
+    """
+    waited = []
+    monkeypatch.setattr(scratch, "wait_for_origin_slot",
+                        lambda **kwargs: waited.append(kwargs) or {
+                            "released": True, "stale": False,
+                            "timed_out": False})
+    monkeypatch.setattr(client, "ensure", lambda *args, **kwargs: None)
+    monkeypatch.setattr(client, "in_broker", lambda: False)
+    monkeypatch.setattr(commands, "_dispatch", lambda func, args: 0)
+
+    commands._main_impl(
+        ["project", "scratch", "open", "Ren Scratch - other", "--apply"])
+
+    assert waited, "the caller outside the turn did not wait for the slot"
+
+
+def test_a_queued_scratch_job_is_cancelled_when_the_slot_is_taken(
+        monkeypatch):
+    """The job must not START against a slot another writer holds.
+
+    A job that starts against a held slot waits for it inside the
+    broker's turn, and a wait inside a turn holds the one Resolve
+    against every other lane. So while the job is still QUEUED the
+    caller watches the slot, and a slot another live writer has taken
+    cancels the queued job - the broker drops a queued job without
+    running it - and the caller goes back to waiting outside the turn.
+    """
+    cancelled = []
+
+    class FakeClient:
+        def submit(self, kind, params, owner=None):
+            return {"id": "job-1", "coalesced": False}
+
+        def result(self, job_id, wait=0.0):
+            return {"id": job_id, "state": "queued", "error": ""}
+
+        def cancel(self, job_id):
+            cancelled.append(job_id)
+            return {"job": {"id": job_id, "state": "cancelled"}}
+
+    monkeypatch.setattr(commands, "_slot_taken", lambda: True)
+
+    code = commands._through_broker(
+        FakeClient(), ["project", "scratch", "open", "Ren Scratch - other"],
+        keep_the_slot=True)
+
+    assert cancelled == ["job-1"], "the queued job was left to start"
+    assert code == scratch.SLOT_HELD_EXIT_CODE
+
+
+def test_a_queued_job_is_left_alone_when_the_slot_is_free(monkeypatch):
+    """The guard cancels nothing when there is nothing to cancel."""
+    cancelled = []
+
+    class FakeClient:
+        def __init__(self):
+            self.calls = 0
+
+        def submit(self, kind, params, owner=None):
+            return {"id": "job-1", "coalesced": False}
+
+        def result(self, job_id, wait=0.0):
+            self.calls += 1
+            if self.calls == 1:
+                return {"id": job_id, "state": "queued", "error": ""}
+            return {"id": job_id, "state": "done", "error": "",
+                    "result": {"stdout": "", "stderr": "", "exit_code": 0}}
+
+        def cancel(self, job_id):
+            cancelled.append(job_id)
+            return {"job": {"id": job_id, "state": "cancelled"}}
+
+    monkeypatch.setattr(commands, "_slot_taken", lambda: False)
+    monkeypatch.setattr(
+        scratch, "wait_for_origin_slot",
+        lambda **kwargs: {"released": True, "stale": False,
+                          "timed_out": False})
+    monkeypatch.setattr(
+        commands, "_wait_for_the_scratch_slot",
+        lambda deadline: {"released": True, "stale": False,
+                          "timed_out": False})
+
+    def run():
+        return commands._through_broker(
+            FakeClient(),
+            ["project", "scratch", "open", "Ren Scratch - other"],
+            keep_the_slot=True)
+
+    code = commands._run_with_the_scratch_slot(run, 0.0)
+
+    assert cancelled == [], "a job was cancelled with nothing to cancel"
+    assert code != scratch.SLOT_HELD_EXIT_CODE

@@ -4,6 +4,15 @@
   "description": "The schedulable fields of one submission (`jobs.prepare`'s shape):\nwhat the queue and the scheduler need to know.",
   "type": "object",
   "properties": {
+    "budget_seconds": {
+      "description": "The job's DECLARED budget: the seconds it may hold the one\nResolve before the broker stops it. Absent means the kind's\nown budget (`library/tools/resolved/job_budget.py`).",
+      "type": [
+        "number",
+        "null"
+      ],
+      "format": "double",
+      "default": null
+    },
     "coalesce_key": {
       "type": [
         "string",
