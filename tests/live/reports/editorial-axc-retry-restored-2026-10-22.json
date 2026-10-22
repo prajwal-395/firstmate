@@ -1,0 +1,418 @@
+{
+  "evaluation": {
+    "agent_receives_asset_selection": true,
+    "agent_receives_editorial_decision": true,
+    "agent_receives_expected_operation": true,
+    "agent_receives_expected_target": true,
+    "compound_request_count": 0,
+    "level": 2,
+    "limitations": [
+      "The production host adapter is given typed operation and fixture keys; this is not an autonomy result.",
+      "Editorial quality against a creative brief is not measured by this level."
+    ],
+    "name": "semantic_execution"
+  },
+  "evaluation_levels": [
+    {
+      "evidence_status": "live_backend_qualification_suites",
+      "level": 1,
+      "name": "primitive_qualification",
+      "question": "Can the backend perform a specified operation?"
+    },
+    {
+      "evidence_status": "evaluator_directed_semantic_acceptance",
+      "level": 2,
+      "name": "semantic_execution",
+      "question": "Can AXI safely execute a typed request?"
+    },
+    {
+      "evidence_status": "blind_runner_implemented_live_agent_run_pending",
+      "level": 3,
+      "name": "autonomous_orchestration",
+      "question": "Can Ren infer operations and targets from an instruction?"
+    },
+    {
+      "evidence_status": "scorer_implemented_judgment_run_pending",
+      "level": 4,
+      "name": "editorial_acceptance",
+      "question": "Does the completed video satisfy the creative brief?"
+    }
+  ],
+  "failed": 1,
+  "failure_categories": {},
+  "first_attempt_passes": 1,
+  "passed": 1,
+  "provenance": {
+    "environment": {
+      "machine": "arm64",
+      "platform": "macOS-26.3-arm64-arm-64bit",
+      "python_version": "3.12.13"
+    },
+    "evaluation_schema": "ren-editorial-acceptance/2",
+    "evidence_kind": "live-qualification",
+    "fixture": "Ren Qualification / fm-scratch qualify (seeded)",
+    "producer": "tests/live/editorial_acceptance.py:run_tasks (driver: tests/live/editorial_live_adapter.py)",
+    "resolve_version": "not_recorded",
+    "run_timestamp": "2026-10-22T15:11:28Z",
+    "scope": {
+      "evaluation_level": 2,
+      "fixture": "Ren Qualification / fm-scratch qualify (seeded)",
+      "measurement": "AXI-11 targeted live retry",
+      "task_set": "right_speaker_camera,improve_opening"
+    },
+    "source_commit": "0e0fcf0987ff6ed3abdd22a1fca3694cc22d9a05"
+  },
+  "reliability_metrics": {
+    "latency_seconds": {
+      "fixture_setup_mean": null,
+      "fixture_setup_measured_tasks": 0,
+      "mean_instruction_to_verified": 2200.9429686660005,
+      "measured_tasks": 1,
+      "median_instruction_to_verified": 2200.9429686660005,
+      "per_request_instruction_to_verified": {
+        "improve_opening": null,
+        "right_speaker_camera": 2200.9429686660005
+      },
+      "status": "measured"
+    },
+    "outcomes": {
+      "missing_evidence": 1,
+      "reasoning_failure": 0,
+      "safe_refusal": 0,
+      "success": 1,
+      "unsafe_failure": 0
+    },
+    "rates": {
+      "backend_selection_correctness": {
+        "measured": 1,
+        "not_measured": 1,
+        "status": "measured",
+        "total": 2,
+        "value": 1.0
+      },
+      "capability_discovery": {
+        "measured": 1,
+        "not_measured": 1,
+        "status": "measured",
+        "total": 2,
+        "value": 1.0
+      },
+      "collateral_change_rate": {
+        "measured": 2,
+        "not_measured": 0,
+        "status": "measured",
+        "total": 2,
+        "value": 0.0
+      },
+      "delivery": {
+        "measured": 1,
+        "not_measured": 1,
+        "status": "measured",
+        "total": 2,
+        "value": 0.0
+      },
+      "first_attempt_execution": {
+        "measured": 1,
+        "not_measured": 1,
+        "status": "measured",
+        "total": 2,
+        "value": 1.0
+      },
+      "intent_interpretation": {
+        "measured": 1,
+        "not_measured": 1,
+        "status": "measured",
+        "total": 2,
+        "value": 1.0
+      },
+      "preservation": {
+        "measured": 0,
+        "not_measured": 2,
+        "status": "not_measured",
+        "total": 2,
+        "value": null
+      },
+      "recovery": {
+        "measured": 0,
+        "not_measured": 2,
+        "status": "not_measured",
+        "total": 2,
+        "value": null
+      },
+      "target_resolution": {
+        "measured": 0,
+        "not_measured": 2,
+        "status": "not_measured",
+        "total": 2,
+        "value": null
+      },
+      "verification": {
+        "measured": 1,
+        "not_measured": 1,
+        "status": "measured",
+        "total": 2,
+        "value": 1.0
+      }
+    },
+    "schema": "ren-editorial-reliability-metrics/2",
+    "task_count": 2
+  },
+  "results": [
+    {
+      "backend_selection": {
+        "basis": "router refuses multicam.select_angle under production and protected policies (no qualified backend; refusals on record); the guarded switch-camera verb executed the assigned replacement and the read-back above verifies source identity, span and edit points",
+        "executed_entry": "resolve-axi edit switch-camera",
+        "router_routes": {
+          "production": {
+            "refusal": "RoutingRefused: ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  blocker: unsupported_operation - the engine has no proven way to do this\n  what: no production-qualified executor is available for: multicam.select_angle\n  why: no production-qualified executor is available for: multicam.select_angle; production routing fails closed\n  fix: Qualify the operation on a live Resolve timeline and import the evidence, or route it under the protected experimental policy with explicit staging, preservation and verification guarantees.\n  next action: use_a_supported_operation",
+            "selected": ""
+          },
+          "protected_experimental": {
+            "selected": "resolve_axi"
+          },
+          "selected": "resolve_axi"
+        },
+        "selected": "resolve_axi",
+        "selection_correct": true
+      },
+      "benchmark": {
+        "attempts": 1
+      },
+      "checks": {
+        "assigned_camera_shown": true,
+        "edit_points_preserved": true,
+        "no_other_changes": true,
+        "underlying_angle_untouched": true
+      },
+      "collateral_changes": [],
+      "discovery": {
+        "algebra_present": true,
+        "discovered_from_request": true,
+        "operation": "multicam.select_angle",
+        "phases": {
+          "discovery_s": 0.017360500001814216,
+          "live_execution_s": 2200.906434250006,
+          "routing_s": 0.014300625014584512
+        },
+        "request_id": "edit_req_118ca210d7104160"
+      },
+      "elapsed_seconds": 2200.9429675000138,
+      "evaluation_level": 2,
+      "execution_mode": "request",
+      "fixture_setup_seconds": null,
+      "id": "right_speaker_camera",
+      "instruction": "Show the camera assigned to the marked speaker for their speaking turn, preserving the edit points.",
+      "instruction_to_verified_seconds": 2200.9429686660005,
+      "observed": {
+        "assignment": {
+          "assignment_basis": "project_declaration",
+          "camera_source_file": "qual_c.mp4",
+          "source_in_frame": 0,
+          "source_out_frame": 23,
+          "speaker_id": "speaker-qual",
+          "sync_evidence_id": "sync:qual-camera-b",
+          "turn_record_in": 144,
+          "turn_record_out": 168
+        },
+        "before_spans": [
+          [
+            "qual_a.mp4",
+            [
+              0,
+              96
+            ]
+          ],
+          [
+            "qual_b.mp4",
+            [
+              144,
+              168
+            ]
+          ],
+          [
+            "qual_c.mp4",
+            [
+              168,
+              216
+            ]
+          ]
+        ],
+        "items": [
+          {
+            "kind": "video",
+            "name": "qual_a.mp4",
+            "pan": 0.0,
+            "record": [
+              0,
+              96
+            ],
+            "scaling": 0,
+            "source": [
+              0,
+              95
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4",
+            "tilt": 0.0,
+            "track": 1,
+            "track_name": "Video 1",
+            "unique_id": "4073b2db-b41e-4dff-a222-58a2144431f0",
+            "zoomx": 1.0,
+            "zoomy": 1.0
+          },
+          {
+            "kind": "video",
+            "name": "qual_b.mp4",
+            "pan": 0.0,
+            "record": [
+              96,
+              144
+            ],
+            "scaling": 0,
+            "source": [
+              0,
+              48
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4",
+            "tilt": 0.0,
+            "track": 1,
+            "track_name": "Video 1",
+            "unique_id": "a0091203-975b-4657-97ad-ac6f935dc66e",
+            "zoomx": 1.0,
+            "zoomy": 1.0
+          },
+          {
+            "kind": "video",
+            "name": "qual_c.mp4",
+            "pan": 0.0,
+            "record": [
+              144,
+              168
+            ],
+            "scaling": 0,
+            "source": [
+              0,
+              24
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4",
+            "tilt": 0.0,
+            "track": 1,
+            "track_name": "Video 1",
+            "unique_id": "4407f138-27d0-4829-9966-bca391dfa578",
+            "zoomx": 1.0,
+            "zoomy": 1.0
+          },
+          {
+            "kind": "video",
+            "name": "qual_c.mp4",
+            "pan": 0.0,
+            "record": [
+              168,
+              216
+            ],
+            "scaling": 0,
+            "source": [
+              0,
+              47
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4",
+            "tilt": 0.0,
+            "track": 1,
+            "track_name": "Video 1",
+            "unique_id": "ce82999c-240a-40b5-8c33-401416a9dad2",
+            "zoomx": 1.0,
+            "zoomy": 1.0
+          },
+          {
+            "kind": "video",
+            "name": "qual_b.mp4",
+            "pan": 0.0,
+            "record": [
+              144,
+              168
+            ],
+            "scaling": 0,
+            "source": [
+              48,
+              71
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4",
+            "tilt": 0.0,
+            "track": 2,
+            "track_name": "V2",
+            "unique_id": "dfb2f7ca-2d32-4326-98fc-818e23cc6d15",
+            "zoomx": 1.0,
+            "zoomy": 1.0
+          }
+        ]
+      },
+      "operation": "multicam.select_angle",
+      "outcome": "success",
+      "production_entry": "ren revise / Resolve AXI transaction",
+      "receipt": {
+        "status": "committed",
+        "switch": {
+          "argv": [
+            "edit",
+            "switch-camera",
+            "--track",
+            "video1",
+            "--index",
+            "2",
+            "--target-unique-id",
+            "dbc5f90c-cfaf-4095-86de-ac5b7788a362",
+            "--expected-source-file",
+            "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4",
+            "--expected-source-in-frame",
+            "48",
+            "--expected-source-out-frame",
+            "71",
+            "--expected-record-in-frame",
+            "144",
+            "--expected-record-out-frame",
+            "168",
+            "--camera-source-file",
+            "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4",
+            "--speaker-id",
+            "speaker-qual",
+            "--assignment-basis",
+            "project_declaration",
+            "--sync-evidence-id",
+            "sync:qual-camera-b",
+            "--source-in",
+            "0",
+            "--source-out",
+            "23",
+            "--apply",
+            "--project",
+            "Ren Qualification",
+            "--timeline",
+            "fm-scratch qualify 20261022T142343Z-940207",
+            "--project-folder",
+            "/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-qual-92-uy6o4srw",
+            "--require-recovery"
+          ],
+          "exit_code": 0,
+          "stderr": "",
+          "stdout": "camera_selected:\n  timeline: fm-scratch qualify 20261022T142343Z-940207\n  source: /Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4\n  source_frames: 0..23\n  record_frames: 144..168\n  verified: yes (source range and edit points re-read)\njournal:\n  entry: 20261022T145256Z-fm-scratch-qualify-20261022t142343z-9402-5642fe\n  status: applied\n"
+        }
+      },
+      "status": "pass"
+    },
+    {
+      "checks": {},
+      "collateral_changes": [],
+      "elapsed_seconds": 662.2043239999912,
+      "error": "RuntimeError: {\n  \"category\": \"fixture_batch_failed\",\n  \"reason\": \"case_failed\",\n  \"detail\": \"RuntimeError: opening audio trim refused: error: trim refused before writing because its source delete is not authorized (ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\\n  blocker: unsupported_operation - the engine has no proven way to do this\\n  what: no production-qualified executor is available for: clip.delete\\n  why: no production-qualified executor is available for: clip.delete; production routing fails closed (clip.delete: runtime state does not satisfy recorded qualification predicates: clip_composition is 'linked_audio_clip', not one of ['single_video_clip', 'linked_video_clip', 'still_clip']; clip_composition is 'linked_audio_clip', not 'single_video_clip'; timeline_density is 'moderate', not 'light')\\n  fix: Qualify the operation on a live Resolve timeline and import the evidence, or route it under the protected experimental policy with explicit staging, preservation and verification guarantees.\\n  next action: use_a_supported_operation).\\nhelp: resolve-axi items --timeline \\\"fm-scratch qualify 20261022T142343Z-940207\\\"\\n\",\n  \"task\": \"improve_opening\"\n}",
+      "evaluation_level": 2,
+      "id": "improve_opening",
+      "instruction": "Tighten the opening to the supplied brief while preserving the speaker's meaning and approved edits.",
+      "instruction_to_verified_seconds": null,
+      "operation": "reel.opening",
+      "outcome": "missing_evidence",
+      "production_entry": "ren revise / Resolve AXI transaction",
+      "status": "fail"
+    }
+  ],
+  "schema": "ren-editorial-acceptance/2",
+  "task_count": 2
+}

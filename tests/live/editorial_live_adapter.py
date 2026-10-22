@@ -2596,6 +2596,7 @@ def _multicam_evidence(case: dict, started: float,
     after = case["after"]
     turns = [row for row in after
              if row["kind"] == "video"
+             and row["track"] == 1
              and row["record"] == case["turn_span"]]
     turn = turns[0] if len(turns) == 1 else {}
     others_before = sorted(

@@ -2101,11 +2101,11 @@ def run_batch(*, stamp: str | None = None,
               .replace("__AXI_PLACEMENT__", repr(PLACEMENT_FRAME))
               .replace("__AXI_ROW__", repr(OVERLAY_ROW)))
     script = _case_script() + script
-    # The batch waits BEHIND the other lanes' exclusive sessions: the
-    # machine's broker queue is shared, and a lane that gives up early
-    # loses its turn to the next one.  The wait is long on purpose.
+    # The batch waits behind the other lanes' exclusive sessions. The
+    # qualification harness keeps its submitting owner alive while it
+    # polls the shared queue, with no fixed give-up deadline.
     receipt = small._qualification_batch(
-        script, timeline=timeline, wait_seconds=5400, timeout_seconds=5500)
+        script, timeline=timeline)
     stdout = small.result_stdout(receipt)
     payload: dict = {}
     start = stdout.find("{\n")

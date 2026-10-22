@@ -13,6 +13,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
 import zlib
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
@@ -224,8 +225,7 @@ def duplicate_command(timeline: str, source: str) -> list[str]:
             "--timeline", source, "--name", timeline, "--apply"]
 
 
-def _qualification_batch(script: str, *, wait_seconds: int = 900,
-                         timeout_seconds: int = 960,
+def _qualification_batch(script: str, *, poll_seconds: int = 30,
                          timeline: str | None = None,
                          source: str | None = None) -> dict:
     """Run all production edits in one switching qualification borrow.
@@ -292,8 +292,7 @@ def _qualification_batch(script: str, *, wait_seconds: int = 900,
         try:
             index = 0
             while index < len(attempts):
-                receipt = _submit_session(attempts[index], wait_seconds,
-                                          timeout_seconds)
+                receipt = _submit_session(attempts[index], poll_seconds)
                 if receipt.get("state") == "done" and receipt.get("result"):
                     return receipt
                 detail = _failure_detail(receipt)
@@ -328,30 +327,81 @@ def _failed_step(receipt: dict) -> int | None:
     return None
 
 
-def _submit_session(steps: list[dict], wait_seconds: int,
-                    timeout_seconds: int) -> dict:
+def _submit_session(steps: list[dict], poll_seconds: int = 30) -> dict:
     """Submit one borrowed qualification session and return its receipt.
 
-    A refused session still answers with a receipt, and the receipt
-    carries the step that refused and why - that is the evidence the
-    caller needs, so a receipt is returned even when the CLI reports a
-    failure.
+    The submitter process is the broker's recorded owner. Keep it alive
+    while polling so queue contention cannot turn a slow but valid job
+    into `reaped:owner-gone`. Each queued update names the broker-reported
+    holder; this wait has no overall deadline.
     """
-    proc = subprocess.run(
-        [str(REN), "resolved", "submit",
-         "resolve.qualification_session",
-         json.dumps({"project": PROJECT, "steps": steps}),
-         "--qualification", "--wait", str(wait_seconds)],
-        cwd=ROOT, capture_output=True, text=True, encoding="utf-8",
-        timeout=timeout_seconds, check=False)
+    from library.tools.resolved import client
+
+    if poll_seconds <= 0:
+        raise ValueError("qualification queue polling interval must be positive")
+    submitted = client.submit(
+        "resolve.qualification_session",
+        {"project": PROJECT, "steps": steps}, qualification=True)
+    job_id = str(submitted["id"])
+    from library.tools.resolved.store import TERMINAL
+
+    receipt = submitted
+    last_progress = 0.0
+    while receipt.get("state") not in TERMINAL:
+        try:
+            receipt = client.result(job_id, wait=float(poll_seconds))
+        except (ConnectionError, OSError, TimeoutError) as exc:
+            print(f"qualification job {job_id} still owned here; broker "
+                  f"result poll failed ({exc}); retrying", flush=True)
+            time.sleep(5)
+            continue
+        if receipt.get("state") in TERMINAL:
+            return receipt
+        now = time.monotonic()
+        if last_progress == 0.0 or now - last_progress >= 30.0:
+            detail = _qualification_wait_detail(job_id, receipt)
+            print(f"qualification job {job_id}: {detail}", flush=True)
+            last_progress = now
+    return receipt
+
+
+def _qualification_wait_detail(job_id: str, receipt: dict) -> str:
+    """Name the broker-reported holder while an owned job is pending."""
+    from dataclasses import asdict
+
+    from library.tools import resolve_lock
+    from library.tools.resolved import client, queue_status
+
     try:
-        return json.loads(proc.stdout)
-    except json.JSONDecodeError as exc:
-        if proc.returncode:
-            raise RuntimeError(
-                proc.stderr.strip() or proc.stdout.strip()) from exc
-        raise RuntimeError(
-            f"broker returned non-JSON receipt: {proc.stdout}") from exc
+        reply = client.call({"op": "list", "limit": 100}, timeout=5.0)
+        active = resolve_lock.lease_status().active
+        lease = asdict(active) if active is not None else None
+        report = queue_status.queue_report(
+            {"jobs": reply.get("jobs") or [],
+             "running": reply.get("running") or []}, lease=lease)
+    except (ConnectionError, OSError, TimeoutError, client.BrokerError) as exc:
+        return (f"state={receipt.get('state')}; queue holder unavailable "
+                f"({exc}); owner remains alive")
+    queued = next((row for row in report["queued"]
+                   if row["id"] == job_id), None)
+    if queued is not None:
+        return (f"queued #{queued['position']} for "
+                f"{queued['waited_seconds']:.0f}s; "
+                f"{queued['wait_cause']}; owner remains alive")
+    running = next((row for row in report["running"]
+                    if row["id"] == job_id), None)
+    if running is not None:
+        return (f"running {running['description']} under "
+                f"{running['owner']}; owner remains alive")
+    holder = next(iter(report["running"]), None)
+    if holder is not None:
+        return (f"waiting behind {holder['description']} "
+                f"({holder['owner']}, held {holder['held_seconds']:.0f}s); "
+                "owner remains alive")
+    if report["blocked_resources"]:
+        return (f"waiting on {report['blocked_resources'][0]}; "
+                "owner remains alive")
+    return f"state={receipt.get('state')}; broker has not reported a holder"
 
 
 def result_stdout(receipt: dict) -> str:
@@ -1372,8 +1422,7 @@ def _batch_case(case_id: str) -> dict:
         # The rebuild rows stage and verify a real production build, so
         # the single borrow allows room for it; scenario rows are
         # unaffected apart from the shared ceiling.
-        _BATCH_CACHE = _qualification_batch(
-            _live_batch_script(), wait_seconds=600, timeout_seconds=660)
+        _BATCH_CACHE = _qualification_batch(_live_batch_script())
     steps = (_BATCH_CACHE.get("result") or {}).get("steps", [])
     if not steps:
         raise RuntimeError(f"qualification batch returned no steps: {_BATCH_CACHE}")

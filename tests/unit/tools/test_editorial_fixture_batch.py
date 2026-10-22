@@ -216,7 +216,7 @@ def test_a_refused_fixture_step_is_retried_without_the_duplication(
         monkeypatch):
     seen: list[list[dict]] = []
 
-    def fake_submit(steps, wait_seconds, timeout_seconds):
+    def fake_submit(steps, poll_seconds):
         seen.append(steps)
         if len(seen) == 1:
             return _refused(0, "error: a timeline named 'x' already exists")
@@ -235,7 +235,7 @@ def test_a_refused_fixture_step_is_retried_without_the_duplication(
 def test_a_failed_batch_is_not_retried(monkeypatch):
     seen: list[list[dict]] = []
 
-    def fake_submit(steps, wait_seconds, timeout_seconds):
+    def fake_submit(steps, poll_seconds):
         seen.append(steps)
         return _refused(1, "error: the case refused")
 
@@ -250,6 +250,65 @@ def test_a_failed_batch_is_not_retried(monkeypatch):
     assert len(seen) == 1, (
         "the batch ran again after a failure; its cases would be "
         "written twice")
+
+
+def test_qualification_wait_keeps_owner_alive_past_900_second_queue_delay(
+        monkeypatch, capsys):
+    """A long queue wait must not exit and let the broker reap its owner."""
+    from types import SimpleNamespace
+
+    from library.tools import resolve_lock
+    from library.tools.resolved import client
+
+    job_id = "qualification-job"
+    queued = {
+        "id": job_id, "state": "queued", "kind": "resolve.qualification_session",
+        "priority": "qualification", "mode": "exclusive",
+        "project": "Ren Qualification", "owner": "test-owner",
+        "submitted": 1.0, "executed": False, "qualification": True,
+    }
+    holder = {
+        "id": "lane-holder", "state": "running", "kind": "resolve_axi",
+        "priority": "normal", "mode": "exclusive", "project": "Ren Scratch",
+        "timeline": "scratch", "owner": "lane-17: long edit",
+        "description": "long edit", "submitted": 1.0, "started": 1.0,
+        "executed": True,
+    }
+    calls = {"result": 0}
+
+    def submit(kind, params, *, qualification=False):
+        assert kind == "resolve.qualification_session"
+        assert qualification is True
+        assert params["project"] == "Ren Qualification"
+        return queued
+
+    def result(received_id, wait=0.0):
+        assert received_id == job_id
+        assert wait == 0.01
+        calls["result"] += 1
+        if calls["result"] <= 901:
+            return queued
+        return {**queued, "state": "done", "result": {"steps": []}}
+
+    def broker_list(request, *, timeout=None):
+        assert request == {"op": "list", "limit": 100}
+        assert timeout == 5.0
+        return {"jobs": [queued, holder], "running": [holder]}
+
+    monkeypatch.setattr(client, "submit", submit)
+    monkeypatch.setattr(client, "result", result)
+    monkeypatch.setattr(client, "call", broker_list)
+    monkeypatch.setattr(resolve_lock, "lease_status",
+                        lambda: SimpleNamespace(active=None))
+    monkeypatch.setattr(q.subprocess, "run",
+                        lambda *args, **kwargs: (_ for _ in ()).throw(
+                            AssertionError("owner must not exit between polls")))
+
+    receipt = q._submit_session([], poll_seconds=0.01)
+
+    assert receipt["state"] == "done"
+    assert calls["result"] == 902
+    assert "lane-17: long edit" in capsys.readouterr().out
 
 
 # ── the fixture provisions the media it places ──────────────────────

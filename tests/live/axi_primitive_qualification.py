@@ -1938,7 +1938,6 @@ def _judge_ripple_remove_multi_track(case: dict) -> dict:
     scope = _ripple_scope(before, after)
     target = _rows_named(before, OWNED_VIDEO_B.name, "video")
     successor = _rows_named(before, OWNED_VIDEO_A.name, "video")
-    twin = _rows_named(before, OWNED_VIDEO_A.name, "audio")
     duration = 0
     if target:
         duration = _record_span(target[0])[1] - _record_span(target[0])[0]
@@ -2781,8 +2780,7 @@ def main() -> int:
     else:
         cases = all_cases
     script = _broker_script(cases)
-    receipt = small._qualification_batch(script, wait_seconds=900,
-                                         timeout_seconds=960)
+    receipt = small._qualification_batch(script)
     steps = (receipt.get("result") or {}).get("steps", [])
     if not steps:
         raise RuntimeError(

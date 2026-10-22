@@ -1,0 +1,192 @@
+{
+  "evaluation": {
+    "agent_receives_asset_selection": true,
+    "agent_receives_editorial_decision": true,
+    "agent_receives_expected_operation": true,
+    "agent_receives_expected_target": true,
+    "compound_request_count": 0,
+    "level": 2,
+    "limitations": [
+      "The production host adapter is given typed operation and fixture keys; this is not an autonomy result.",
+      "Editorial quality against a creative brief is not measured by this level."
+    ],
+    "name": "semantic_execution"
+  },
+  "evaluation_levels": [
+    {
+      "evidence_status": "live_backend_qualification_suites",
+      "level": 1,
+      "name": "primitive_qualification",
+      "question": "Can the backend perform a specified operation?"
+    },
+    {
+      "evidence_status": "evaluator_directed_semantic_acceptance",
+      "level": 2,
+      "name": "semantic_execution",
+      "question": "Can AXI safely execute a typed request?"
+    },
+    {
+      "evidence_status": "blind_runner_implemented_live_agent_run_pending",
+      "level": 3,
+      "name": "autonomous_orchestration",
+      "question": "Can Ren infer operations and targets from an instruction?"
+    },
+    {
+      "evidence_status": "scorer_implemented_judgment_run_pending",
+      "level": 4,
+      "name": "editorial_acceptance",
+      "question": "Does the completed video satisfy the creative brief?"
+    }
+  ],
+  "failed": 2,
+  "failure_categories": {},
+  "first_attempt_passes": 0,
+  "passed": 0,
+  "provenance": {
+    "environment": {
+      "machine": "arm64",
+      "platform": "macOS-26.3-arm64-arm-64bit",
+      "python_version": "3.12.13"
+    },
+    "evaluation_schema": "ren-editorial-acceptance/2",
+    "evidence_kind": "live-qualification",
+    "fixture": "Ren Qualification / fm-scratch qualify (seeded)",
+    "producer": "tests/live/editorial_acceptance.py:run_tasks (driver: tests/live/editorial_live_adapter.py)",
+    "resolve_version": "not_recorded",
+    "run_timestamp": "2026-10-22T06:22:36Z",
+    "scope": {
+      "evaluation_level": 2,
+      "fixture": "Ren Qualification / fm-scratch qualify (seeded)",
+      "measurement": "AXI-11 targeted live retry",
+      "task_set": "right_speaker_camera,improve_opening"
+    },
+    "source_commit": "d0ce70fc4c7b411e221f401a0092482af94e3208"
+  },
+  "reliability_metrics": {
+    "latency_seconds": {
+      "fixture_setup_mean": null,
+      "fixture_setup_measured_tasks": 0,
+      "mean_instruction_to_verified": null,
+      "measured_tasks": 0,
+      "median_instruction_to_verified": null,
+      "per_request_instruction_to_verified": {
+        "improve_opening": null,
+        "right_speaker_camera": null
+      },
+      "status": "not_measured"
+    },
+    "outcomes": {
+      "missing_evidence": 2,
+      "reasoning_failure": 0,
+      "safe_refusal": 0,
+      "success": 0,
+      "unsafe_failure": 0
+    },
+    "rates": {
+      "backend_selection_correctness": {
+        "measured": 0,
+        "not_measured": 2,
+        "status": "not_measured",
+        "total": 2,
+        "value": null
+      },
+      "capability_discovery": {
+        "measured": 0,
+        "not_measured": 2,
+        "status": "not_measured",
+        "total": 2,
+        "value": null
+      },
+      "collateral_change_rate": {
+        "measured": 2,
+        "not_measured": 0,
+        "status": "measured",
+        "total": 2,
+        "value": 0.0
+      },
+      "delivery": {
+        "measured": 0,
+        "not_measured": 2,
+        "status": "not_measured",
+        "total": 2,
+        "value": null
+      },
+      "first_attempt_execution": {
+        "measured": 0,
+        "not_measured": 2,
+        "status": "not_measured",
+        "total": 2,
+        "value": null
+      },
+      "intent_interpretation": {
+        "measured": 0,
+        "not_measured": 2,
+        "status": "not_measured",
+        "total": 2,
+        "value": null
+      },
+      "preservation": {
+        "measured": 0,
+        "not_measured": 2,
+        "status": "not_measured",
+        "total": 2,
+        "value": null
+      },
+      "recovery": {
+        "measured": 0,
+        "not_measured": 2,
+        "status": "not_measured",
+        "total": 2,
+        "value": null
+      },
+      "target_resolution": {
+        "measured": 0,
+        "not_measured": 2,
+        "status": "not_measured",
+        "total": 2,
+        "value": null
+      },
+      "verification": {
+        "measured": 0,
+        "not_measured": 2,
+        "status": "not_measured",
+        "total": 2,
+        "value": null
+      }
+    },
+    "schema": "ren-editorial-reliability-metrics/2",
+    "task_count": 2
+  },
+  "results": [
+    {
+      "checks": {},
+      "collateral_changes": [],
+      "elapsed_seconds": 5.693633249989944,
+      "error": "RuntimeError: qualification batch failed: ResolveUnavailable: Resolve is not running, or has not finished loading. Open it with the project you want to read, then try again.",
+      "evaluation_level": 2,
+      "id": "right_speaker_camera",
+      "instruction": "Show the camera assigned to the marked speaker for their speaking turn, preserving the edit points.",
+      "instruction_to_verified_seconds": null,
+      "operation": "multicam.select_angle",
+      "outcome": "missing_evidence",
+      "production_entry": "ren revise / Resolve AXI transaction",
+      "status": "fail"
+    },
+    {
+      "checks": {},
+      "collateral_changes": [],
+      "elapsed_seconds": 4.7621428330021445,
+      "error": "RuntimeError: qualification batch failed: ResolveUnavailable: Resolve is not running, or has not finished loading. Open it with the project you want to read, then try again.",
+      "evaluation_level": 2,
+      "id": "improve_opening",
+      "instruction": "Tighten the opening to the supplied brief while preserving the speaker's meaning and approved edits.",
+      "instruction_to_verified_seconds": null,
+      "operation": "reel.opening",
+      "outcome": "missing_evidence",
+      "production_entry": "ren revise / Resolve AXI transaction",
+      "status": "fail"
+    }
+  ],
+  "schema": "ren-editorial-acceptance/2",
+  "task_count": 2
+}
