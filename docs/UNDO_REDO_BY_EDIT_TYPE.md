@@ -139,8 +139,8 @@ is recorded, by name, on the journal instead of stopping the journal from
 closing.
 
 **The fix.**
-- `library/tools/reel_touchup.py`: `TOUCH_OPS` - the touch vocabulary, read
-  by the journal instead of a second list.
+- `library/tools/touchup_operations.py`: `TOUCH_OPS` - the touch vocabulary,
+  imported by both the gate and the journal without a circular import.
 - `library/tools/undo_journal.py`: `accepted_touch_override_ops()` reads it;
   `close_entry` records an unclassifiable operation as
   `accepted_edit_refusal` and closes the journal anyway.

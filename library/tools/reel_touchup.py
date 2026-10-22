@@ -198,6 +198,7 @@ from library.tools import dirty_regions as _dirty_regions
 from library.tools import touchup_phases
 from library.tools.ren_refusal import RenRefusal
 from library.tools.resolve_session import session_scope
+from library.tools.touchup_operations import TOUCH_OPS
 
 _logger = logging.getLogger(__name__)
 
@@ -645,22 +646,22 @@ def _live_tracks_for_reel(project_folder: str, reel: int,
     # acquired. Pan/Tilt readings also depend on the CURRENT timeline,
     # so read_tracks must run inside a cursor excursion to this reel.
     # The excursion restores the captain's entry timeline and timecode.
-    with resolve_lease(f"read touchup {final_name}", exclusive=True):
-        with _project_open(resolve_name):
-            project = _connect(resolve_name or "")
-            found = {timeline.GetName(): timeline for timeline
-                     in timelines_to_replace(project, {final_name})}
-            if final_name not in found:
-                raise TouchupRefused(
-                    f"no timeline called {final_name!r} is in the "
-                    f"open Resolve project",
-                    "a touchup edits the reel's existing timeline, and there "
-                    "is none to edit",
-                    "build it first (`ren build <project>`), then touch it up")
-            with cursor_excursion(project, found[final_name],
-                                  f"read touchup {final_name}"):
-                return _read.read_tracks(found[final_name],
-                                         resolve_project=project)
+    with resolve_lease(f"read touchup {final_name}", exclusive=True), \
+            _project_open(resolve_name):
+        project = _connect(resolve_name or "")
+        found = {timeline.GetName(): timeline for timeline
+                 in timelines_to_replace(project, {final_name})}
+        if final_name not in found:
+            raise TouchupRefused(
+                f"no timeline called {final_name!r} is in the "
+                f"open Resolve project",
+                "a touchup edits the reel's existing timeline, and there "
+                "is none to edit",
+                "build it first (`ren build <project>`), then touch it up")
+        with cursor_excursion(project, found[final_name],
+                              f"read touchup {final_name}"):
+            return _read.read_tracks(found[final_name],
+                                     resolve_project=project)
 
 
 def _spans_of(tracks: Sequence[Mapping]) -> dict:
@@ -2564,11 +2565,10 @@ _OP_HANDLERS = {
     "repair_hold_window": _op_repair_hold_window,
 }
 
-#: Every operation a touch-up can carry. ONE enumeration: the undo
-#: journal reads the rebuild policy of an accepted touch from THIS list,
-#: so a new op cannot leave a landed touch without a way back
-#: (`library/tools/undo_journal.py`).
-TOUCH_OPS = frozenset(_OP_HANDLERS)
+#: Every operation a touch-up can carry. The independent vocabulary module
+#: avoids a journal <-> touch gate import cycle when a touch closes its entry.
+if frozenset(_OP_HANDLERS) != TOUCH_OPS:
+    raise RuntimeError("touch-up handlers differ from the canonical operation vocabulary")
 
 
 #: The fields a touchup EDIT carries.  The refusal that recommends an
@@ -3877,22 +3877,20 @@ def _apply_under_lease(project_folder: str, spec: Mapping, final: str,
         # The touch's three phases are measured INSIDE the lease, so the
         # split is subtracted from the hold it came out of and no second
         # is counted twice (`touchup_phases`).
-        with touchup_phases.phases("reel"):
-            with resource_lease(
-                LeaseDeclaration(
-                    read=frozenset({ResourceRef("project", resolve_name)}),
-                    write=frozenset({ResourceRef("timeline", final)}),
-                    exclusive=frozenset({ResourceRef("timeline", final)}),
-                ),
-                purpose=f"touch up {final}",
-            ):
-                with opener(resolve_name):
-                    return _apply_connected(
-                        project_folder, spec, final, resolve_name,
-                        declared_drops, declared_supersede,
-                        accept_editor_changes,
-                        connect, rederiver_override, resolve_app, started,
-                        staged_only=staged_only)
+        with touchup_phases.phases("reel"), resource_lease(
+            LeaseDeclaration(
+                read=frozenset({ResourceRef("project", resolve_name)}),
+                write=frozenset({ResourceRef("timeline", final)}),
+                exclusive=frozenset({ResourceRef("timeline", final)}),
+            ),
+            purpose=f"touch up {final}",
+        ), opener(resolve_name):
+            return _apply_connected(
+                project_folder, spec, final, resolve_name,
+                declared_drops, declared_supersede,
+                accept_editor_changes,
+                connect, rederiver_override, resolve_app, started,
+                staged_only=staged_only)
 
     return _guarded()
 
@@ -5885,7 +5883,7 @@ def _archive_replaced_generation(project_folder: str, project: Any,
     generation the touch replaced can be put back, and says so by
     name instead of by silence.
     """
-    from library.tools.versions import replaced_generation, reel_versions
+    from library.tools.versions import reel_versions, replaced_generation
 
     history = reel_versions.versions_of(project_folder, final)
     entry = history[-1] if history else None

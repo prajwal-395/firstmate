@@ -152,9 +152,9 @@ def accepted_touch_override_ops() -> frozenset[str]:
     way back. The vocabulary is the gate's own, so a new op is classified
     the day it is written.
     """
-    from library.tools import reel_touchup
+    from library.tools.touchup_operations import TOUCH_OPS
 
-    return frozenset(reel_touchup.TOUCH_OPS)
+    return TOUCH_OPS
 
 
 def accepted_edit_record(project_folder: str, entry: Mapping) -> dict:
@@ -2856,8 +2856,7 @@ def undo_in_place(*, timeline, media_pool, entry: Mapping, entry_root: str,
     the post-touch state - read only for colour grades. `resolve_media`
     maps a source file path to a live media pool item.
     """
-    from library.tools import (accepted_state, edit_recovery, marker_carry,
-                               reel_read)
+    from library.tools import accepted_state, edit_recovery, marker_carry, reel_read
 
     receipt: dict = {"entry": entry["id"]}
     before = entry["before"]["tracks"]

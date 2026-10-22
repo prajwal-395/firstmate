@@ -10173,7 +10173,7 @@ journal (`docs/UNDO_REDO_BY_EDIT_TYPE.md`).
   same row, same file, same name, same played span.
 
 **The fix.** The touch vocabulary is ONE enumeration
-(`reel_touchup.TOUCH_OPS`), read by the journal, so a new operation is
+(`touchup_operations.TOUCH_OPS`), read by the gate and journal, so a new operation is
 classified the day it is written; a classification the engine cannot make is
 recorded, by name, on the journal (`accepted_edit_refusal`) and the journal
 closes anyway. And `plan_inverse` pairs a trimmed item with its own
