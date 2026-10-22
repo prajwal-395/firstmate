@@ -934,6 +934,51 @@ def config_checks() -> list:
 # ── The chat harness ─────────────────────────────────────────────────
 
 
+def gemma_shim_check() -> list:
+    """The on-demand Gemma shim agent: installed, and answering.
+
+    Without the LaunchAgent nothing holds :8080, so every Gemma fallback
+    loads its own private ~7 GB in-process copy - on 2026-10-22 three of
+    them, force-quit by the captain. With it, launchd holds :8080 and
+    starts the shim per connection (docs/GEMMA_SERVER.md §6). A missing
+    agent is a WARNING line (the pipeline still runs, via the louder
+    in-process fallback), never a failure of a need - so `need` is "".
+    """
+    import json as _json
+    import urllib.request as _request
+
+    from library.tools.gemma_shim import AGENT_LABEL
+    from library.tools.gemma_shim import agent_plist_path
+
+    installed = agent_plist_path().exists()
+    try:
+        with _request.urlopen("http://127.0.0.1:8080/_shim/status",
+                               timeout=5) as resp:
+            status = _json.loads(resp.read().decode("utf-8"))
+    except Exception:  # noqa: BLE001 - doctor reports, never raises
+        status = None
+    if status is not None:
+        return [Check(
+            "gemma shim agent", True,
+            f"shim answering on :8080 (backend {status.get('backend')}, "
+            f"agent {'installed' if installed else 'not installed'}; "
+            f"nothing resident when the backend is stopped)",
+            "")]
+    if installed:
+        return [Check(
+            "gemma shim agent", True,
+            f"LaunchAgent {AGENT_LABEL} installed; shim idle (launchd "
+            f"starts it on the first request - nothing resident is the "
+            f"healthy state)",
+            "")]
+    return [Check(
+        "gemma shim agent", False,
+        "shim agent not installed and nothing answering on :8080: every "
+        "Gemma fallback loads a private ~7 GB in-process copy",
+        "hand :8080 to launchd: ./scripts/gemma install-agent "
+        "(docs/GEMMA_SERVER.md §6.2)")]
+
+
 def harness_check() -> list:
     """One line per detected chat harness, or the install fix.
 
@@ -1129,6 +1174,7 @@ GROUPS = (
     ("configuration", "config_checks",
      ("config.projects_root", "config.sfx_library", "config.music_library")),
     ("chat harness", "harness_check", ("chat_harness",)),
+    ("gemma shim agent", "gemma_shim_check", ()),
     ("shadow watcher", "shadow_watcher_check", ("shadow_watcher",)),
 )
 """Every check, in the order a new machine should fix them. A function is

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from library.tools import perf_ledger
+from library.tools import gemma_inprocess_guard
 
 try:
     from mlx_vlm import load, generate
@@ -145,12 +146,26 @@ class VisionModel:
             cls._instance._proc = None
             cls._instance._load_time = 0.0
             cls._instance._cold = True
+            # The fd holding the machine-wide in-process slot
+            # (library/tools/gemma_inprocess_guard.py): kept open for
+            # as long as the weights stay resident, so at most one
+            # process on the machine ever holds a private ~7 GB copy.
+            cls._instance._inprocess_lock_fd = None
         return cls._instance
 
     def _ensure_loaded(self):
         if self._model is None:
             if load is None:
                 raise ImportError("mlx_vlm is not installed.")
+            # Machine-wide guard FIRST, weights second: refuse loudly
+            # below ~8 GB free+inactive, and serialize on the
+            # in-process slot so a second fallback waits (or routes via
+            # :8080) instead of loading a second private copy. Both
+            # refusals raise before a byte of weights is read.
+            gemma_inprocess_guard.check_memory()
+            if self._inprocess_lock_fd is None:
+                self._inprocess_lock_fd = (
+                    gemma_inprocess_guard.hold_inprocess_slot())
             # stderr, not stdout: a step's stdout is its JSON result, and
             # this line landed in the middle of one. See
             # library/tools/step_stdout.py.

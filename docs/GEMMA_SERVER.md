@@ -226,6 +226,19 @@ band, but that is two samples, not a soak test).
 
 ### 6.2 Captain's machine (INSTALLED - `gemma install-agent`)
 
+Installed 2026-10-22 by firstmate (the §6.2 claim predated the
+install and was untrue until then). Verified that day: the plist
+exists, `curl :8080/_shim/status` answers `socket_activated: true`
+with the backend stopped (nothing resident), and `ren doctor` carries
+a `gemma shim agent` line that warns when the agent is missing. If the
+claim ever reads stale, re-verify rather than trusting it:
+
+```sh
+ls ~/Library/LaunchAgents/dev.video-editing-pilot.gemma-shim.plist
+curl -s http://127.0.0.1:8080/_shim/status | head -c 300
+./scripts/gemma status
+```
+
 The repo never writes here; the command below does, and only when the
 captain runs it. Machine paths are generated at install time - no plist
 is committed.

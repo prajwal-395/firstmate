@@ -277,6 +277,44 @@ def _scheduler_swap_is_calm():
         _resource_scheduler._swap_state_gb = real
 
 
+# ── No test loads the real vision model without opting in ───────────
+#
+# On 2026-10-22 the captain force-quit three Python processes over 7 GB
+# each: every Gemma fallback loaded its own private in-process copy.
+# A test that reaches `VisionModel._ensure_loaded` would do the same -
+# a ~7 GB load inside a unit run, beside the captain's Resolve. So the
+# whole session refuses it: any test that reaches the real in-process
+# load fails fast with a clear message instead of loading the weights.
+#
+# Tests exercise the vision path through stubs instead (per-test
+# `monkeypatch` of `analyze_image` / `analyze_images`, as
+# `test_vision_model.py` and `test_still_vision.py` already do - applied
+# after this fixture, so they still win). Tests that genuinely need the
+# weights opt out explicitly with `@pytest.mark.real_model`
+# (registered in pyproject.toml). Uses `monkeypatch` (per-test undo):
+# unlike the plentiful-memory stub above, this must not leak past the
+# test.
+@pytest.fixture(autouse=True)
+def _no_real_vision_model_load(request, monkeypatch):
+    from library.tools import vision_model as _vision_model
+
+    if request.node.get_closest_marker("real_model"):
+        yield
+        return
+
+    def _refused(self):
+        pytest.fail(
+            f"{request.node.nodeid} reached the real Gemma in-process "
+            f"load: unit tests never load the weights (2026-10-22 three "
+            f"7 GB copies). Stub `analyze_image` / `analyze_images` "
+            f"instead, or mark the test `@pytest.mark.real_model`.",
+            pytrace=False)
+
+    monkeypatch.setattr(
+        _vision_model.VisionModel, "_ensure_loaded", _refused)
+    yield
+
+
 # ── No unit or scenario test waits on real machine memory ──────────
 #
 # A scheduler job declaring `ram_gb` is admitted against LIVE OS
