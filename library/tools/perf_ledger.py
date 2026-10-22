@@ -808,7 +808,13 @@ def record(layer: str, wall_s: float, started_at: float | None = None,
     clamped_from = None
     if ceiling is not None and wall_s > ceiling:
         clamped_from = round(wall_s, 3)
-        wall_s = ceiling
+        # Floor, never round, the clamped wall: rounding can push the
+        # written wall a fraction of a millisecond past the run's age,
+        # and the write-path check below would read the clamped row as
+        # a second, worse impossibility - rewriting it as an anomaly
+        # whose "claim" is the clamped bound and losing the true
+        # number `clamped_from_s` keeps.
+        wall_s = math.floor(ceiling * 1000) / 1000.0
     if layer == "media_decode":
         calls = int(fields.get("calls") or 0)
         cache_hits = int(fields.get("cache_hits") or 0)
@@ -1762,6 +1768,14 @@ def main(argv=None) -> int:
     parser.add_argument("--task-class",
                         help="read every run of this task class the same "
                              "way (with --critical-path)")
+    parser.add_argument("--trace", action="store_true",
+                        help="one machine-readable trace for one request: "
+                             "every second of its wall attributed to a "
+                             "named M01 stage, with the unattributed "
+                             "remainder reported (read only)")
+    parser.add_argument("--task",
+                        help="a task id to narrow the trace to "
+                             "(with --trace)")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     if not args.project and not args.ledger:
@@ -1807,6 +1821,25 @@ def main(argv=None) -> int:
     ids = run_ids(rows)
     if args.list:
         print("\n".join(ids))
+        return 0
+    if args.trace:
+        from library.tools import request_trace
+        if args.task and not args.run:
+            runs = sorted({r.get("run_id") for r in rows
+                           if str(r.get("task_id") or "") == args.task
+                           and r.get("run_id")})
+            run_id = sorted(runs)[-1] if runs else None
+        else:
+            run_id = args.run or (ids[-1] if ids else None)
+        if not run_id or run_id not in ids:
+            print(f"No run {run_id!r} in this ledger; `--list` shows "
+                  "what is there." if run_id
+                  else "No run ids in this ledger.", file=sys.stderr)
+            return 1
+        report = request_trace.trace_for_run(rows, run_id,
+                                             task_id=args.task)
+        print(json.dumps(report, indent=2) if args.json
+              else request_trace.render(report))
         return 0
     if not ids:
         print(f"No performance rows in {ledger_path(project)}: no run has "
