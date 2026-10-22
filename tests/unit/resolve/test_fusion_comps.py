@@ -23,7 +23,7 @@ from library.tools.execution.apply_fusion_comps import (  # noqa: E402
     DestinationMismatchError,
     assert_destination,
     verify_destination,
-    _map_clips_to_items,
+    map_clips_to_items,
 )
 from library.tools.fusion.comp_builder import (
     MissingSourceFrame)
@@ -682,17 +682,17 @@ def test_clips_map_to_items_by_full_path_only():
     def items(*paths):
         return [MockTimelineItem(MockMediaPoolItem(p)) for p in paths]
 
-    assert _map_clips_to_items(
+    assert map_clips_to_items(
         [{"source_file": "/footage/clip_A.mov"},
          {"source_file": "/footage/clip_B.mov"}],
         items("/footage/clip_A.mov", "/footage/clip_B.mov")) == {0: 0, 1: 1}
-    assert _map_clips_to_items(
+    assert map_clips_to_items(
         [{"source_file": "/pipeline/output/clip_A.mov"}],
         items("/footage/raw/clip_A.mov")) == {}
-    assert _map_clips_to_items(
+    assert map_clips_to_items(
         [{"label": "intro"}, {"source_file": "/footage/clip_A.mov"}],
         items("/footage/clip_A.mov")) == {1: 0}
-    assert _map_clips_to_items(
+    assert map_clips_to_items(
         [{"source_file": "/footage/clip_A.mov"}], []) == {}
 
 
@@ -714,7 +714,7 @@ def test_clips_with_repeated_source_match_the_native_hold_by_held_frame():
                          source_start=held_frame, speed=0.0),
     ]
 
-    assert _map_clips_to_items(clips, items) == {0: 1}
+    assert map_clips_to_items(clips, items) == {0: 1}
 
 
 # ── Subprocess CLI arg parsing ───────────────────────────────────

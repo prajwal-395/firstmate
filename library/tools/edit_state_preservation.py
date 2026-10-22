@@ -146,12 +146,17 @@ def _editorial_identity(*, source_file: str, media_id: str, track_type: str,
     })
 
 
-def capture(item, *, picture: bool = True) -> dict:
+def capture(item, *, picture: bool = True,
+            comps_rederived: bool = False) -> dict:
     """Return the canonical, supported state of a timeline item.
 
     Fusion compositions currently have no qualified copy path in this
-    replacement executor. Refuse them before any timeline mutation instead
-    of silently dropping them.
+    replacement executor.  A caller that will RE-DERIVE the
+    composition from the reel's own record after the write says so
+    (`comps_rederived`), and the capture then records how many
+    compositions the item carried instead of refusing: the composition
+    is re-derived, not copied, so nothing is lost by not carrying it
+    (`library/tools/comp_carry.py`).
     """
     try:
         properties = item.GetProperty()
@@ -164,7 +169,7 @@ def capture(item, *, picture: bool = True) -> dict:
     if not isinstance(properties, dict):
         raise StatePreservationError(
             "the item's approved picture properties could not be read")
-    if comp_count:
+    if comp_count and not comps_rederived:
         raise StatePreservationError(
             f"the item carries Fusion compositions ({comp_count}) that "
             "this replacement path cannot carry - a re-place gives the "
@@ -204,6 +209,11 @@ def capture(item, *, picture: bool = True) -> dict:
         } if picture else {}),
         "grade_node_count": int(node_count or 0),
         "grade_source": item if picture else None,
+        # How many compositions the item carried, when the caller said
+        # it would re-derive them.  The count is the RECEIPT's: a trim
+        # that re-derives one composition says so.
+        "comp_count": comp_count,
+        "comps_rederived": bool(comp_count and comps_rederived),
     }
 
 

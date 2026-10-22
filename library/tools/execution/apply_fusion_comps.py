@@ -302,7 +302,7 @@ def assert_destination(resolve, expected_project, expected_timeline,
     return verify_destination(resolve, expected_project, expected_timeline)
 
 
-def _map_clips_to_items(clips, items, fallback_fps=None):
+def map_clips_to_items(clips, items, fallback_fps=None):
     """Match one track's manifest clip specs to the items really placed.
 
     A spec that names no source file, or whose file does not match the
@@ -318,6 +318,12 @@ def _map_clips_to_items(clips, items, fallback_fps=None):
     so on the wrong timeline the matcher does not fail - it SUCCEEDS,
     and writes Fusion comps onto the wrong clips. A matcher that
     succeeds against wrong material is worse than one that fails.
+
+    It is PUBLIC because another owner needs the same mapping: the comp
+    carry (`library/tools/comp_carry.py`) asks which manifest clip a
+    live item is, so it can carry that item's treatment across a
+    re-place.  One matcher, so the carry and the pass cannot disagree
+    about which clip a treatment belongs to.
     """
     mapping = {}
     item_idx = 0
@@ -453,7 +459,7 @@ def unmapped_comp_failures(comp_tracks, items_by_track,
         if not track_clips:
             continue
         track_items = items_by_track.get(track_index, [])
-        track_map = _map_clips_to_items(track_clips, track_items)
+        track_map = map_clips_to_items(track_clips, track_items)
         for ci, spec in enumerate(track_clips):
             if ci in track_map:
                 continue
@@ -692,7 +698,7 @@ def apply_fusion_comps_with_resolve(resolve, manifest, project_folder,
     # entry names a timeline instant and compile_manifest resolves it to
     # the A-roll clip playing there.
     v1_items = timeline.GetItemListInTrack("video", 1) or []
-    orig_to_item = _map_clips_to_items(v1_clips, v1_items, fps)
+    orig_to_item = map_clips_to_items(v1_clips, v1_items, fps)
 
     vfx_entries = manifest.get('vfx', [])
     # Legacy fallback ONLY: compile_manifest resolves every entry to
@@ -729,7 +735,7 @@ def apply_fusion_comps_with_resolve(resolve, manifest, project_folder,
                 v1_items if track_index == 1
                 else (timeline.GetItemListInTrack("video", track_index) or []))
             _items_by_track[track_index] = track_items
-            track_map = _map_clips_to_items(track_clips, track_items, fps)
+            track_map = map_clips_to_items(track_clips, track_items, fps)
             for ci, spec in enumerate(track_clips):
                 if ci in track_map:
                     work.append((track_index, track_items, track_map[ci],

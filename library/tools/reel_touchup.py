@@ -197,6 +197,7 @@ from library.tools import composed_edit as _ce
 from library.tools import dirty_regions as _dirty_regions
 from library.tools import touchup_phases
 from library.tools.ren_refusal import RenRefusal
+from library.tools.resolve_session import session_scope
 
 _logger = logging.getLogger(__name__)
 
@@ -3757,6 +3758,7 @@ def _overlay_position_projection(item: Any, timeline: Any, project: Any,
             "correct the overlay or timeline measurements and retry") from exc
 
 
+@session_scope("reel touch-up")
 def apply_touchup(project_folder: str, spec: Mapping,
                   resolve_project_name: str = "",
                   allow_drops=None,
@@ -3786,6 +3788,14 @@ def apply_touchup(project_folder: str, spec: Mapping,
 
     `staged_only` forces the staged route.  It can only escalate to
     staged - never widen a request to a direct write (VC-11).
+
+    The whole touch-up runs inside ONE broker session
+    (`library/tools/resolve_session.py`): a touch-up takes MANY leases,
+    and between two of them another lane's exclusive lease could move
+    the cursor to ITS project - so the touch-up's next call would find
+    a timeline that is not its own.  The session holds the broker's
+    turn across the whole operation, so no other lane is granted a turn
+    in between.
 
     `connect` is a seam for tests: `connect(resolve_name) ->
     project`.  `rederiver_override` is the same for the comp pass.
@@ -4937,6 +4947,19 @@ def _apply_in_place(project: Any, staged: Any,
     return applied
 
 
+def _axi_track(row: str) -> str:
+    """The AXI's spelling of a row: `video1`, `audio2`.
+
+    The touch-up addresses rows the way the SOP names them (`V1`, `A1`)
+    and the AXI reads `video1`/`audio2` - and it refuses a track it does
+    not recognise ("bad track 'V1' - tracks read video1, audio2, ..."),
+    so the compound's trim never reached the clip it named.
+    """
+    text = str(row).upper()
+    kind = "video" if text.startswith("V") else "audio"
+    return f"{kind}{text[1:]}"
+
+
 def _apply_semantic_transaction_staged(
         project_folder: str, project: Any, source: Any, staged: Any,
         staging: str, final: str, qualification: Qualification,
@@ -5078,7 +5101,8 @@ def _apply_semantic_transaction_staged(
         from library.tools import resolve_axi_core
 
         result = resolve_axi_core.execute([
-            "edit", "trim", "--track", row, "--index", str(item_index),
+            "edit", "trim", "--track", _axi_track(row),
+            "--index", str(item_index),
             "--source-in", str(source_in), "--source-out", str(source_out),
             "--target-unique-id", str(operation["unique_id"]),
             "--expected-source-file", str(source_clip["source_file"]),

@@ -2460,7 +2460,8 @@ def fusion_manifest(placements: Sequence[dict], look: dict,
 def apply_comps(manifest: dict, project_folder: str,
                 resolve_project_name: str, timeline_name: str,
                 python_executable: Optional[str] = None,
-                step_id: str = "build_reels") -> bool:
+                step_id: str = "build_reels",
+                manifest_path: Optional[str] = None) -> bool:
     """Run the Fusion pass over the reel's own timeline, in its own process.
 
     AGENTS.md 5: never create a timeline and use `ImportFusionComp` in
@@ -2469,6 +2470,12 @@ def apply_comps(manifest: dict, project_folder: str,
     timeline it must find current - `apply_fusion_comps` refuses every
     mutation on a mismatch rather than writing comps onto the captain's
     rough cut.
+
+    `manifest_path` names the file the manifest is written to.  The
+    default is the reel's own record under scratch - the file a later
+    reader looks the reel's treatments up by.  A caller that carries a
+    DIFFERENT manifest (one clip's treatment, re-derived after a trim)
+    names its own path, so it never overwrites the reel's record.
     """
     if not (manifest.get("fusion_effects", {}).get("per_clip")):
         return True
@@ -2478,7 +2485,7 @@ def apply_comps(manifest: dict, project_folder: str,
         str(ProjectLayout(project_folder).read_dir(Area.SCRATCH)),
         "reel_look")
     os.makedirs(scratch, exist_ok=True)
-    manifest_path = os.path.join(
+    manifest_path = manifest_path or os.path.join(
         scratch, f"{_slug(timeline_name)}_fusion_manifest.json")
     with open(manifest_path, "w", encoding="utf-8") as handle:
         json.dump(manifest, handle, indent=2)

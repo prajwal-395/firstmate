@@ -5664,13 +5664,18 @@ def _replace_item(timeline, pool, orig, source_in: int,
                   source_out: int, record_frame: int,
                   track_index: int | None, media_type: int,
                   pool_item=None, preservation_state=None,
-                  write_context=None):
+                  write_context=None, comps_rederived: bool = False):
     """Re-place one item at a new source range/position.
 
     Returns `(new_item, error)`: the scripting API offers no move or
     trim, only append plus delete. A move appends before deleting; a
     trim caches its pool item and frees the occupied range first, then
     uses this helper to verify the narrowed replacement or restore.
+
+    `comps_rederived` says the caller will RE-DERIVE the item's Fusion
+    composition from the reel's own record after the write
+    (`library/tools/comp_carry.py`), so the capture does not refuse the
+    composition it is about to replace.
     """
     if pool_item is None:
         try:
@@ -5685,7 +5690,8 @@ def _replace_item(timeline, pool, orig, source_in: int,
         from library.tools import edit_state_preservation
         try:
             preservation_state = edit_state_preservation.capture(
-                orig, picture=media_type == 1)
+                orig, picture=media_type == 1,
+                comps_rederived=comps_rederived)
         except edit_state_preservation.StatePreservationError as exc:
             return None, f"{exc} - nothing was changed."
     if preservation_state is not None:
@@ -6706,6 +6712,26 @@ def cmd_edit_trim(args) -> int:
                 f"[{orig_in}, {orig_out_inclusive}] - trim only narrows.",
                 f"{TOOL} items --timeline \"{timeline.GetName()}\"")
         new_rec = orig_rec + (new_in - orig_in)
+        # THE COMPOSITION the clip carries, if it carries one.  A
+        # re-place gives the item a new identity and a composition is
+        # keyed to the item it was written for, so the composition is
+        # RE-DERIVED from the reel's own record after the write
+        # (`library/tools/comp_carry.py`).  The record is read BEFORE
+        # the write, because a record that does not describe this reel
+        # is a refusal, not a guess.
+        carry = None
+        comp_count = 0
+        try:
+            comp_count = int(item.GetFusionCompCount() or 0)
+        except Exception as exc:  # noqa: BLE001 - an unreadable count is 0
+            comp_count = 0
+        if comp_count:
+            try:
+                carry = _plan_comp_carry(
+                    args, project, timeline, item, track_type, track_index,
+                    new_in, new_out, comp_count)
+            except AxiError as exc:
+                return fail(str(exc), exc.fix)
         if args.apply:
             try:
                 _assert_cursor_on(resolve, timeline.GetName())
@@ -6769,6 +6795,7 @@ def cmd_edit_trim(args) -> int:
             new_item, error = _replace_item(
                 timeline, pool, item, new_in, new_out,
                 new_rec, track_index, media_type, pool_item=pool_item,
+                comps_rederived=carry is not None,
                 preservation_state=next(
                     row["preservation_state"] for row in before_snapshot
                     if row["uid"] == uid),
@@ -6796,6 +6823,69 @@ def cmd_edit_trim(args) -> int:
                             f"timeline snapshot was restored and verified",
                             f"{TOOL} items --timeline "
                             f"\"{timeline.GetName()}\"")
+            # THE COMPOSITION, re-derived onto the re-placed clip.  The
+            # clip is written; the treatment it carried is not, and a
+            # clip whose composition was dropped renders the picture the
+            # treatment used to draw over.  So the comp pass writes it
+            # again, keyed to the length the clip NOW plays, and the
+            # write is proved: the comp is counted and its media window
+            # is read back against the frames the item plays.
+            carry_receipt = None
+            if carry is not None:
+                placed_span = _item_span(new_item)
+                try:
+                    from library.tools import comp_carry
+                    comp_carry.apply_carry(
+                        carry,
+                        project_folder=carry.project_folder,
+                        resolve_project_name=project.GetName(),
+                        timeline_name=timeline.GetName(),
+                        item=new_item)
+                    carry_receipt = comp_carry.verify_carry(
+                        new_item, int(placed_span["record_out"])
+                        - int(placed_span["record_in"]))
+                except Exception as exc:  # noqa: BLE001 - the write is undone
+                    restored, restore_error = _restore_trim_snapshot(
+                        timeline, pool, before_snapshot, uid,
+                        write_context={
+                            "project": project.GetName(),
+                            "project_folder": args.project_folder or None,
+                            "timeline_id": timeline.GetUniqueId(),
+                            "timeline_name": timeline.GetName(),
+                        })
+                    if restore_error:
+                        return fail(
+                            f"trim failed ({exc}); full timeline restoration "
+                            f"could not be proven ({restore_error})",
+                            f"{TOOL} items --timeline "
+                            f"\"{timeline.GetName()}\"")
+                    return fail(
+                        f"trim failed ({exc}); the original full timeline "
+                        "snapshot was restored and verified",
+                        f"{TOOL} items --timeline "
+                        f"\"{timeline.GetName()}\"")
+                if not carry_receipt.get("carried"):
+                    restored, restore_error = _restore_trim_snapshot(
+                        timeline, pool, before_snapshot, uid,
+                        write_context={
+                            "project": project.GetName(),
+                            "project_folder": args.project_folder or None,
+                            "timeline_id": timeline.GetUniqueId(),
+                            "timeline_name": timeline.GetName(),
+                        })
+                    if restore_error:
+                        return fail(
+                            f"the composition did not read back "
+                            f"({carry_receipt}); full timeline restoration "
+                            f"could not be proven ({restore_error})",
+                            f"{TOOL} items --timeline "
+                            f"\"{timeline.GetName()}\"")
+                    return fail(
+                        f"the composition did not read back "
+                        f"({carry_receipt}); the original full timeline "
+                        "snapshot was restored and verified",
+                        f"{TOOL} items --timeline "
+                        f"\"{timeline.GetName()}\"")
             journal_state["success"] = True
         new_span = _item_span(new_item)
         emit([kv_block("trimmed", {
@@ -6953,6 +7043,70 @@ def _overlaps_span(state, record_in: int, record_out: int) -> bool:
     except (KeyError, TypeError, ValueError):
         return False
     return start < int(record_out) and end > int(record_in)
+def _plan_comp_carry(args, project, timeline, item, track_type, track_index,
+                     new_in, new_out, comp_count):
+    """The reel's own record of this clip's treatment, for the re-derivation.
+
+    The record is the reel's Fusion manifest: it says what each clip's
+    treatment IS, and the comp pass maps a clip spec to an item by
+    source path and window.  So the record has to describe THIS reel -
+    a manifest from another cut would write treatments onto the wrong
+    clips, and the carry refuses rather than guess.
+    """
+    from library.tools import comp_carry, reel_read, reel_touchup
+
+    project_folder = str(getattr(args, "project_folder", "") or "")
+    if not project_folder:
+        raise AxiError(
+            "this clip carries a Fusion composition, and carrying it needs "
+            "the reel's own record of its treatments - which lives in the "
+            "project folder.",
+            f"{TOOL} edit trim --timeline \"{timeline.GetName()}\" "
+            "--project-folder <the project folder>")
+    try:
+        tracks = reel_read.read_tracks(timeline)
+    except Exception as exc:  # noqa: BLE001 - an unreadable reel is a refusal
+        raise AxiError(
+            f"the reel's rows could not be read ({exc}), so the "
+            "composition cannot be carried",
+            f"{TOOL} items --timeline \"{timeline.GetName()}\"") from exc
+    manifest = reel_touchup.recorded_fusion_manifest(
+        project_folder, timeline.GetName(), tracks)
+    items = list(timeline.GetItemListInTrack(track_type, track_index) or [])
+    index = next((position for position, candidate in enumerate(items)
+                  if str(candidate.GetUniqueId() or "")
+                  == str(item.GetUniqueId() or "")), None)
+    if index is None:
+        raise AxiError(
+            "the clip could not be located on its row, so its composition "
+            "cannot be carried",
+            f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+    pool_item = item.GetMediaPoolItem()
+    source_file = ""
+    source_fps = 0.0
+    if pool_item is not None:
+        try:
+            source_file = str(pool_item.GetClipProperty("File Path") or "")
+        except Exception:  # noqa: BLE001 - an unreadable path is empty
+            source_file = ""
+        try:
+            source_fps = float(pool_item.GetClipProperty("FPS") or 0)
+        except Exception:  # noqa: BLE001 - an unreadable fps is 0
+            source_fps = 0.0
+    row = f"{'V' if track_type == 'video' else 'A'}{track_index}"
+    try:
+        return comp_carry.plan_carry(
+            project_folder=project_folder,
+            timeline_name=timeline.GetName(),
+            manifest=manifest, row=row, item_index=index, items=items,
+            source_file=source_file,
+            source_in_frame=int(new_in), source_out_frame=int(new_out),
+            played_frames=int(new_out) - int(new_in) + 1,
+            source_fps=source_fps)
+    except comp_carry.CompCarryRefused as refused:
+        raise AxiError(str(refused), str(
+            getattr(refused, "fix", "")
+            or f"{TOOL} items --timeline \"{timeline.GetName()}\"")) from refused
 
 
 def cmd_edit_switch_camera(args) -> int:

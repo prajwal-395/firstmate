@@ -139,9 +139,15 @@ def test_trim_refuses_if_linked_audio_record_or_source_span_changes(monkeypatch)
     monkeypatch.setattr(adapters, "_project_folder",
                         lambda _context: "/tmp/project")
 
-    with pytest.raises(RuntimeError, match=(
-            r"clip:audio-9\.record_in.*clip:clip-17\.transform\.Pan")):
+    # The refusal must NAME both violations: the linked audio's record
+    # span and the target's picture transform.  The ORDER is not the
+    # contract - the comparison that finds them may walk the rows in
+    # either order - so both are asserted, and the order is not.
+    with pytest.raises(RuntimeError) as refused:
         adapters._trim(context)
+    message = str(refused.value)
+    assert "clip:audio-9.record_in" in message, message
+    assert "clip:clip-17.transform.Pan" in message, message
 
 
 def test_caption_fix_refuses_a_target_that_is_not_a_rendered_caption_card():
