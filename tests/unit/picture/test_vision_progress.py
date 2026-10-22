@@ -251,13 +251,20 @@ def test_a_batch_refusal_is_reported_for_every_clip_at_once(tmp_path):
     sem_step._analyse_missing(
         ["/raw/A.mov", "/raw/B.mov", "/raw/C.mov"], ["vision"],
         str(tmp_path), run=refusing_child,
-        on_clip_failure=lambda path, reason: failures.append((path, reason)),
+        on_clip_failure=lambda path, reason, kind: failures.append(
+            (path, reason, kind)),
         progress_file=str(progress_file))
 
     assert len(started) == 1, "a second child was started for the same refusal"
-    assert [path for path, _ in failures] == [
+    assert [path for path, _, _ in failures] == [
         "/raw/A.mov", "/raw/B.mov", "/raw/C.mov"]
-    assert all("could not be reserved" in reason for _, reason in failures)
+    assert all("could not be reserved" in reason for _, reason, _ in failures)
+    # The kind says WHY: a machine that could not host the model is not
+    # a model that failed on the footage.
+    from library.tools import resident_model_admission
+
+    assert all(kind == resident_model_admission.MODEL_UNAVAILABLE
+               for _, _, kind in failures)
 
 
 def test_the_semantic_step_passes_the_channel_to_the_child(tmp_path,

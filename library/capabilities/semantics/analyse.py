@@ -29,6 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
 from library.tools.vision_schema_adapter import adapt_semantic_document, is_v3_profile
 from library.tools.project_layout import Area, ProjectLayout
 from library.tools import code_identity, footage_identity
+from library.tools import resident_model_admission
 from library.tools import vision_progress
 
 # Per-clip ceiling for the vision analyser. It was 600s, which is under
@@ -294,9 +295,12 @@ def _analyse_missing(missing_paths, base_cmd, analysis_dir, run=None,
             # asked about is unmeasured for this one reason, and a fresh
             # child would refuse the same way. Reporting it once is the
             # difference between one bounded wait and one wait per clip.
+            # The KIND says the machine could not host the model, which
+            # is a different fact from an inference that failed.
             for path in pending:
                 if on_clip_failure:
-                    on_clip_failure(path, refusal)
+                    on_clip_failure(path, refusal,
+                                    resident_model_admission.MODEL_UNAVAILABLE)
             print(f"  ⚠ {refusal}", file=sys.stderr)
             return
         done = _profile_stems(analysis_dir)
@@ -306,7 +310,8 @@ def _analyse_missing(missing_paths, base_cmd, analysis_dir, run=None,
             return
         failed_path = remaining[0]
         if on_clip_failure:
-            on_clip_failure(failed_path, failure)
+            on_clip_failure(failed_path, failure,
+                            resident_model_admission.INFERENCE_FAILED)
         print(f"  ⚠ {failure} on {os.path.basename(remaining[0])}, skipping",
               file=sys.stderr)
         pending = remaining[1:]
@@ -560,7 +565,7 @@ def analyse_semantics(raw_footage_files: list, project_folder: str = "",
             published_stems.add(filename_stem)
             published_clip_ids.add(clip_id)
 
-    def mark_clip_missing(source_path, reason):
+    def mark_clip_missing(source_path, reason, kind=""):
         if stream_source_index is None:
             return
         from library.tools import semantic_profile_stream
@@ -576,6 +581,7 @@ def analyse_semantics(raw_footage_files: list, project_folder: str = "",
             run_id=stream_run_id,
             producer_code_hash=step_code_hash or "",
             reason=reason,
+            kind=kind,
         )
 
     # Find clips that need analysis

@@ -1416,7 +1416,12 @@ _REGISTRY: tuple[Operation, ...] = (
                     "work; admission waits on live OS memory for its "
                     "measured 15 GB reservation "
                     "(resource_scheduler.MEASURED_MEMORY_RESERVATIONS_GB), "
-                    "not a static CPU/GPU budget."),
+                    "not a static CPU/GPU budget. The demand is the "
+                    "ESTIMATE of the weights about to load, computed "
+                    "before the load and never below the measured "
+                    "reservation (library/tools/resident_model_admission.py), and "
+                    "a refusal is recovered a bounded number of times "
+                    "before the batch is refused with the reading."),
             ExecutionPhase(
                 name="inference",
                 lock_sites=(
@@ -1912,8 +1917,12 @@ _REGISTRY: tuple[Operation, ...] = (
                 lock_sites=(
                     "library.tools.analysis.music_pipeline:separate_stems",),
                 why="Track the cached Demucs separator as a resident model "
-                    "session; admission is by live OS memory headroom, not "
-                    "a static gigabyte reservation."),
+                    "session; its demand is the MEASURED 2 GB reservation "
+                    "(1.83 GB peak physical footprint over 2 sampled "
+                    "grants, 2026-10-23), so a resident model session and "
+                    "this one cannot share a 24 GiB box. The demand is "
+                    "the ESTIMATE of the checkpoint about to load, computed "
+                    "before the load (library/tools/resident_model_admission.py)."),
         )),
     ),
     Operation(
@@ -2285,7 +2294,10 @@ _REGISTRY: tuple[Operation, ...] = (
                     "waits on live OS memory for its measured 11 GB "
                     "reservation "
                     "(resource_scheduler.MEASURED_MEMORY_RESERVATIONS_GB), "
-                    "not a static CPU/GPU budget."),
+                    "not a static CPU/GPU budget. The demand is the "
+                    "ESTIMATE of the weights about to load, computed "
+                    "before the load and never below the measured "
+                    "reservation (library/tools/resident_model_admission.py)."),
             ExecutionPhase(
                 name="inference",
                 lock_sites=(

@@ -95,15 +95,24 @@ NATIVE_PARTS = tuple(resource.removeprefix("native_")
                      for resource in RESOURCES if resource.startswith("native_"))
 MEMORY_HEADROOM_FRACTION = 0.10
 MINIMUM_MEMORY_FLOOR_GB = 2.0
-#: RAM reservations (GB) held only by the job kinds measured pushing the
-#: machine to the edge beside Resolve. Every other profile admits
-#: regardless of free memory. Basis is peak phys_footprint, not RSS:
+#: RAM reservations (GB) held only by the job kinds that keep a model
+#: RESIDENT. Every other profile admits regardless of free memory.
+#: Basis is peak phys_footprint, not RSS:
 #: docs/benchmarks/2026-10-15-memory-admission.md, superseded for SAM 2
 #: by docs/benchmarks/2026-10-22-prod006-resource-constrained.md. A
 #: reservation sizes the live-headroom check; nothing here is a static
 #: budget that serializes by accounting. A reservation is the MEASURED
 #: PEAK of the kind, not its average: the average leaves the tail
 #: unpaged for, and the tail is what swaps the machine to death.
+#:
+#: It also keeps TWO resident models apart. The running demands are
+#: summed at admission, so a resident model that carries no reservation
+#: would be admitted beside a 15 GB VLM session and land both on a
+#: 24 GiB box that already holds Resolve - which is the panic this
+#: machine has already had. Measured 2026-10-21: the HTDemucs stem
+#: separation peaked at 1.83 GB physical footprint over 7 sampled
+#: grants (30 s and 60 s of source audio), so it carries 2 GB: with
+#: the VLM's 15 GB the two no longer fit together.
 MEASURED_MEMORY_RESERVATIONS_GB: Dict[str, int] = {
     # One Gemma 4 12B load plus a single inference: 14.43 GB peak
     # footprint against 1.69 GB peak RSS (2026-10-15).
@@ -116,6 +125,15 @@ MEASURED_MEMORY_RESERVATIONS_GB: Dict[str, int] = {
     # and pushed the machine into swap; the reservation is now the
     # measured peak plus a margin.
     "objects.segment:model_memory": 11,
+    # HTDemucs stem separation: 1.83 GB peak physical footprint over 7
+    # sampled grants (2026-10-21, 30 s and 60 s of source audio). The
+    # checkpoint itself is 0.08 GB; the rest is the separation's own
+    # buffers. Measured rather than asserted: the code's own "8 GB RAM
+    # ceiling" was never measured, and a reservation above the measured
+    # peak refuses work that would have run (measured 2026-10-21: an
+    # 8 GB demand was REFUSED on a machine with 6.0 GB available while
+    # the 2 GB one would have run).
+    "music.analyse:model_memory": 2,
 }
 
 #: The share of the swap device in use at which a RAM-reserving job is

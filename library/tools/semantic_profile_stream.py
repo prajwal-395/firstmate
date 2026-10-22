@@ -137,8 +137,17 @@ def publish_record(project_folder: str, *, clip_id: str, source_path: str,
 
 def publish_missing_record(project_folder: str, *, clip_id: str,
                            source_path: str, source_stem: str, run_id: str,
-                           producer_code_hash: str, reason: str) -> Path:
-    """Publish this run's terminal result when one clip has no profile."""
+                           producer_code_hash: str, reason: str,
+                           kind: str = "") -> Path:
+    """Publish this run's terminal result when one clip has no profile.
+
+    `kind` names WHY the clip has no profile, when the engine knows:
+    `model_unavailable` (the machine could not host the model) and
+    `inference_failed` (the model was resident and the pass broke) are
+    different facts, and a reader that cannot tell them apart cannot
+    tell a busy machine from a broken model. It is empty when the
+    engine does not know, never a guess.
+    """
     layout = ProjectLayout(project_folder)
     target = _record_path(layout, clip_id, write=True)
     return _atomic_write_record(target, {
@@ -150,6 +159,7 @@ def publish_missing_record(project_folder: str, *, clip_id: str,
         "run_id": run_id,
         "producer_code_hash": producer_code_hash,
         "reason": reason,
+        "kind": kind,
     })
 
 

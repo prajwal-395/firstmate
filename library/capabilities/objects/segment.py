@@ -9,6 +9,7 @@ repo_root = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(repo_root))
 
 from library.tools import resource_scheduler
+from library.tools import resident_model_admission
 from library.tools.analysis.object_segmentation import get_segmenter
 from library.tools.heavy_work_lock import (
     heavy_work_lock,
@@ -25,10 +26,18 @@ SEGMENT_SAMPLE_FPS = 2.0
 
 @contextmanager
 def _sam_model_memory_session():
-    """Reserve RAM while a selected SAM batch keeps its weights loaded."""
+    """Reserve RAM while a selected SAM batch keeps its weights loaded.
+
+    The demand is the ESTIMATE of what the weights about to load will
+    cost, computed before the load
+    (`library/tools/resident_model_admission.py`), and the admission is bounded:
+    a machine that cannot host SAM 2 is refused with the reading rather
+    than waited on forever.
+    """
     with heavy_work_reservation(
             "SAM 2 model memory", "objects.segment:model_memory",
-            nested_profiles=("objects.segment:inference",)):
+            **resident_model_admission.admission("sam2.1-hiera-small",
+                                       "objects.segment:model_memory")):
         yield
 
 
@@ -414,6 +423,7 @@ def run_step(raw_footage_files: list, clip_catalog: list, output_dir: str,
     results = []
     declined = []
     reused = []
+    failures = []
 
     try:
         for clip in clip_catalog:
@@ -515,7 +525,8 @@ def run_step(raw_footage_files: list, clip_catalog: list, output_dir: str,
 
             except resource_scheduler.MemoryUnavailable as exc:
                 # The model cannot be resident on this machine: the
-                # reservation was refused with a reason. Every clip in
+                # reservation was refused with a reason, after the
+                # bounded recovery in `resident_model_admission`. Every clip in
                 # this batch needs the SAME model, so a fresh attempt
                 # per clip would refuse the same way - the batch is
                 # refused ONCE, with the reason, and the capability
@@ -524,6 +535,16 @@ def run_step(raw_footage_files: list, clip_catalog: list, output_dir: str,
                 print(f"Refusing the SAM 2 batch: {exc}", file=sys.stderr)
                 break
             except Exception as e:
+                # The model WAS resident and the inference failed: a
+                # different fact from a machine that could not host it,
+                # and the record says which, so a reader never has to
+                # guess whether the machine was busy or the model broke.
+                kind = resident_model_admission.failure_kind(e)
+                failures.append({
+                    "clip_id": clip_id,
+                    "kind": kind,
+                    "reason": str(e),
+                })
                 print(f"ERROR: Failed to segment {clip_path}: {e}", file=sys.stderr)
                 if segmenter is None or not segmenter.run_active:
                     if memory_scope is not None:
@@ -561,6 +582,17 @@ def run_step(raw_footage_files: list, clip_catalog: list, output_dir: str,
             # not a record of a measurement.
             **({"memory_refusal": memory_refusal}
                if memory_refusal else {}),
+            # WHY the model could not be resident: an unavailable
+            # resource, not a failed inference. A reader that cannot
+            # tell them apart cannot tell a busy machine from a broken
+            # model.
+            **({"memory_refusal_kind": resident_model_admission.MODEL_UNAVAILABLE}
+               if memory_refusal else {}),
+            # The clips whose INFERENCE failed while the model was
+            # resident, and the kind beside each: an unavailable
+            # resource and a failed inference are different facts, and
+            # a reader must not have to guess which one happened.
+            **({"failures": failures} if failures else {}),
         },
     }
 

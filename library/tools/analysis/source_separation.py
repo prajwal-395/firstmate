@@ -94,7 +94,9 @@ def separate_waveform(waveform: np.ndarray, sample_rate: int, *,
         if not owns("music.analyse:model_memory"):
             raise RuntimeError(
                 "HTDemucs inference requires heavy_work_lock profile "
-                "music.analyse:model_memory (8 GB RAM ceiling)"
+                "music.analyse:model_memory (the measured 2 GB reservation: "
+                "1.83 GB peak physical footprint over 2 sampled grants, "
+                "2026-10-21)"
             )
         from demucs_infer.api import Separator
 

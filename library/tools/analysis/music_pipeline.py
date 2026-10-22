@@ -782,6 +782,7 @@ def separate_stems(audio_path: str, output_dir: str) -> dict:
         import demucs.api
         import demucs.separate
 
+        from library.tools import resident_model_admission
         from library.tools.heavy_work_lock import heavy_work_lock
         from library.tools.analysis.source_separation import (
             MODEL_SIGNATURE,
@@ -790,10 +791,18 @@ def separate_stems(audio_path: str, output_dir: str) -> dict:
 
         print("  Separating stems with Demucs...", file=sys.stderr)
 
-        # This checkpoint is an 8 GB model workload. Keep admission scoped
-        # even when called from the older music-analysis entry point.
+        # The separator is a RESIDENT model: the demand is the estimate
+        # of what the checkpoint about to load will cost, computed
+        # BEFORE the load (`library/tools/resident_model_admission.py`), and it
+        # is measured - 1.83 GB peak physical footprint over 2 sampled
+        # grants (2026-10-21) - not the 8 GB this code used to assert.
+        # A reservation above the measured peak refuses work that would
+        # have run: measured 2026-10-21, an 8 GB demand was refused on
+        # a machine with 6.0 GB available, while the 2 GB one fits.
         with heavy_work_lock("music-analysis-stem-separation",
-                             profile="music.analyse:model_memory"):
+                             profile="music.analyse:model_memory",
+                             ram_gb=resident_model_admission.demand_gb(
+                                 resident_model_admission.resident("htdemucs"))):
             stems_dir = os.path.join(output_dir, "stems")
             os.makedirs(stems_dir, exist_ok=True)
             with open(audio_path, "rb") as source_file:

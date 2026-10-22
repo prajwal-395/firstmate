@@ -126,6 +126,7 @@ from library.tools.heavy_work_lock import (
     heavy_work_lock,
     heavy_work_reservation,
 )
+from library.tools import resident_model_admission
 from library.tools import perf_ledger
 from library.tools import vision_progress
 from library.tools.analysis import measurement_layers, picture_quality
@@ -200,11 +201,17 @@ def _semantic_model_memory_reservation(timeout=None):
     Lock order is RAM reservation first, then an independently admitted
     CPU/GPU inference section. The inference grant is RAM-free and always
     released before returning to host work or unloading the model.
+
+    The demand is the ESTIMATE of what the weights about to load will
+    cost, computed before the load (`library/tools/resident_model_admission.py`),
+    and the admission is bounded: a machine that cannot host the model
+    is refused with the reading, after a bounded number of attempts.
     """
     with heavy_work_reservation(
             "Gemma semantic model memory", "semantics.analyse:model_memory",
-            nested_profiles=("semantics.analyse:inference",),
-            timeout=timeout):
+            **resident_model_admission.admission(
+                "gemma-4-12b", "semantics.analyse:model_memory",
+                timeout=timeout)):
         yield
 
 
@@ -4002,12 +4009,16 @@ class _LazyAnalyzer:
                     # not free the memory the weights need. That is a
                     # refusal with a reason, not a stall - and it is a
                     # refusal of the WHOLE batch, because every clip
-                    # needs the same model.
+                    # needs the same model. The recovery that tried was
+                    # BOUNDED (resident_model_admission.DEFAULT_ATTEMPTS), so this
+                    # ends the batch instead of waiting on memory the
+                    # machine will never have.
+                    kind = resident_model_admission.failure_kind(exc)
                     reason = (
                         "the vision model could not be reserved: this "
                         "machine did not free the memory the weights "
                         f"need within {MODEL_MEMORY_WAIT_TIMEOUT_S}s "
-                        f"({exc})")
+                        f"({kind}: {exc})")
                     self.progress.refuse(reason, scope="batch")
                     raise ModelUnavailable(reason) from exc
                 def load_cached_model():

@@ -202,7 +202,8 @@ def take_heavy_lock(owner: str, profile: str = MACHINE,
 def take_heavy_memory_reservation(
         owner: str, profile: str, nested_profiles: tuple[str, ...],
         cancelled: Callable[[], bool] | None = None,
-        timeout: float | None = None) -> None:
+        timeout: float | None = None,
+        ram_gb: float | None = None) -> None:
     """Track a resident model session and permit named nested profiles.
 
     Model memory is reserved by the profile's `ram_gb` demand and live OS
@@ -214,6 +215,12 @@ def take_heavy_memory_reservation(
     that cannot free the memory never says so. A caller that cannot
     measure without the model passes a bound and gets a refusal instead
     of a silent wait.
+
+    `ram_gb` is an ESTIMATED demand for the model about to load, computed
+    before the weights are read (`library/tools/resident_model_admission.py`). It
+    may only RAISE the profile's declared demand: the declared number is
+    what was measured for that profile, and an estimate below it would
+    be a smaller reservation than the measurement.
     """
     global _memory_reservation
     demand = resource_scheduler.demand_for(profile)
@@ -221,6 +228,13 @@ def take_heavy_memory_reservation(
         raise ValueError(
             f"heavy-work: persistent memory session {profile!r} must be "
             "empty or RAM-only")
+    if ram_gb is not None:
+        if not math.isfinite(ram_gb) or ram_gb <= 0:
+            raise ValueError(
+                "heavy-work: a memory reservation's RAM demand must be a "
+                "finite number > 0")
+        demand = {**demand,
+                  "ram_gb": max(float(ram_gb), float(demand.get("ram_gb", 0)))}
     admissions = {}
     for nested_profile in nested_profiles:
         nested_demand = resource_scheduler.demand_for(nested_profile)
@@ -391,15 +405,41 @@ def heavy_work_lock(owner: str, profile: str = MACHINE,
 def heavy_work_reservation(owner: str, profile: str, *,
                            nested_profiles: tuple[str, ...],
                            cancelled: Callable[[], bool] | None = None,
-                           timeout: float | None = None
+                           timeout: float | None = None,
+                           ram_gb: float | None = None,
+                           attempts: int = 1,
+                           backoff_s: float = 0.0
                            ) -> Iterator[None]:
     """Track a resident model and permit only its named nested profiles.
 
     `timeout` bounds the wait for the reservation; None waits as long as
-    the machine needs.
+    the machine needs. `ram_gb` is the ESTIMATED demand for the model
+    about to load, and may only raise the profile's declared demand.
+
+    `attempts` bounds the RECOVERY: a REFUSAL - the machine cannot
+    host the model - is tried again at most that many times, with
+    `backoff_s` between the tries, before the refusal is raised to the
+    caller. A wait that ran out (`timeout`) is NOT retried: the wait is
+    already the bound, and a second full wait would double the time a
+    caller spends holding nothing. The recovery exists for the
+    transient case - the session that held the memory has just ended.
     """
-    take_heavy_memory_reservation(owner, profile, nested_profiles,
-                                  cancelled, timeout)
+    attempts = max(1, int(attempts))
+    for attempt in range(1, attempts + 1):
+        try:
+            take_heavy_memory_reservation(owner, profile, nested_profiles,
+                                          cancelled, timeout, ram_gb)
+            break
+        except resource_scheduler.MemoryUnavailable as exc:
+            if attempt >= attempts:
+                raise resource_scheduler.MemoryUnavailable(
+                    f"resource scheduler: {owner!r} was not admitted after "
+                    f"{attempts} attempt(s): {exc}") from exc
+            _announce(
+                f"heavy-work: {owner!r} was not admitted "
+                f"(attempt {attempt}/{attempts}): {exc}; retrying in "
+                f"{backoff_s:g}s")
+            time.sleep(max(0.0, float(backoff_s)))
     try:
         yield
     finally:

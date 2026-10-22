@@ -2595,16 +2595,20 @@ def test_lazy_semantic_model_holds_ram_but_not_gpu_during_host_wait(
             return list(held)
 
     @contextmanager
-    def fake_reservation(_owner, profile, *, nested_profiles, timeout=None):
+    def fake_reservation(_owner, profile, *, nested_profiles, timeout=None,
+                         ram_gb=None, attempts=1, backoff_s=0.0):
         assert profile == memory_profile
         assert nested_profiles == (inference_profile,)
+        assert timeout == vp.MODEL_MEMORY_WAIT_TIMEOUT_S
+        assert attempts == vp.resident_model_admission.DEFAULT_ATTEMPTS
+        assert ram_gb >= 15
         with guard:
-            held.append(profile)
+            held.append(memory_profile)
         try:
             yield
         finally:
             with guard:
-                held.remove(profile)
+                held.remove(memory_profile)
 
     @contextmanager
     def fake_admission(_owner, profile="machine"):
@@ -2720,7 +2724,8 @@ def test_the_model_load_refuses_when_the_memory_never_arrives(
     from library.tools import vision_progress
 
     @contextmanager
-    def fake_reservation(_owner, _profile, *, nested_profiles, timeout=None):
+    def fake_reservation(_owner, _profile, *, nested_profiles, timeout=None,
+                         ram_gb=None, attempts=1, backoff_s=0.0):
         assert timeout == vp.MODEL_MEMORY_WAIT_TIMEOUT_S
         raise resource_scheduler.Cancelled(
             "resource scheduler: 'Gemma semantic model memory' timed out "
@@ -2748,7 +2753,8 @@ def test_the_child_records_the_refusal_for_the_parent(tmp_path, monkeypatch):
     from library.tools import vision_progress
 
     @contextmanager
-    def fake_reservation(_owner, _profile, *, nested_profiles, timeout=None):
+    def fake_reservation(_owner, _profile, *, nested_profiles, timeout=None,
+                         ram_gb=None, attempts=1, backoff_s=0.0):
         raise resource_scheduler.Cancelled("timed out waiting")
         yield  # pragma: no cover - the raise above is the whole test
 
