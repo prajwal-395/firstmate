@@ -11213,7 +11213,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                 timeline, recorder)
         deferred = _otio.run_deferred(
             timeline, recorder, project_folder=project_folder,
-            timeline_name=name)
+            timeline_name=name, resolve_project=project)
         print(f"  {name}: placed by {'compiled native append' if native_recording else 'ONE OTIO import'} - "
               f"{len(recorder.specs)} item(s), {deferred} deferred "
               f"transform(s)", file=sys.stderr)

@@ -58,6 +58,8 @@ reach for `SetSetting` on a built timeline knows what it costs.
 from __future__ import annotations
 
 import os
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Optional
 
 from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
@@ -67,6 +69,93 @@ from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
 #: is ~1e-3, while a clamp misses by hundreds - so this tolerates
 #: representation noise and nothing else.
 READBACK_TOLERANCE = 0.5
+
+#: The reel's items, indexed ONCE for a whole pass of placements.
+#:
+#: Every placement asked Resolve for the track's item list and then
+#: walked it, reading each item's start frame until it found its own.
+#: A row of thirty overlays therefore asked for the row thirty times
+#: and read its start frames 1 + 2 + ... + 30 times - the pass paid for
+#: the reel's shape, twice over, once per placement. Measured on the
+#: scratch copy's reel 13, the deferred placement pass spent 154.8 s of
+#: its 155 s phase inside per-placement Resolve calls
+#: (docs/benchmarks/2026-10-21-critical-path.md).
+#:
+#: The index holds, per track, the items ONCE and the position of each
+#: by start frame, so a placement names its item without a walk. The
+#: read-back still reads a FRESH handle (a handle that was written
+#: through echoes the value it was given), so the fresh list is asked
+#: for once per placement - and the item is taken from it by position,
+#: verified by its own start frame.
+_ITEM_INDEX: ContextVar[dict | None] = ContextVar(
+    "overlay_placement_item_index", default=None)
+
+
+@contextmanager
+def placement_index(timeline=None):
+    """Index the reel's items once, for a whole pass of placements.
+
+    The index is per track and per pass: the first placement on a track
+    asks Resolve for that track's items, and every later placement on
+    it takes its item from the same list by position.
+    """
+    index: dict = {}
+    token = _ITEM_INDEX.set(index)
+    try:
+        yield index
+    finally:
+        _ITEM_INDEX.reset(token)
+
+
+def _track_entry(timeline, kind: str, track_index) -> dict:
+    """One track's items and the position of each by start frame.
+
+    The list is asked for ONCE per track per pass. Without an open
+    index (a single placement, outside a pass) the list is asked for
+    every time - the behaviour this module always had.
+    """
+    index = _ITEM_INDEX.get()
+    key = (str(kind), int(track_index))
+    if index is not None:
+        entry = index.get(key)
+        if entry is not None:
+            return entry
+    items = list(timeline.GetItemListInTrack(kind, track_index) or [])
+    positions: dict = {}
+    for position, item in enumerate(items):
+        try:
+            start = int(item.GetStart())
+        except Exception:  # noqa: BLE001 - an item that cannot say
+            continue
+        positions.setdefault(start, position)
+    entry = {"items": items, "positions": positions, "written": set()}
+    if index is not None:
+        index[key] = entry
+    return entry
+
+
+def _item_at(entry: dict, record_frame: int):
+    """The item that starts at `record_frame`, or None.
+
+    The position map answers without a walk; the item's own start frame
+    confirms it, because a handle that cannot say is not an answer.
+    """
+    position = entry["positions"].get(int(record_frame))
+    items = entry["items"]
+    if position is not None and 0 <= position < len(items):
+        item = items[position]
+        try:
+            if int(item.GetStart()) == int(record_frame):
+                return item
+        except Exception:  # noqa: BLE001 - the walk below may answer
+            pass
+    for item in items:
+        try:
+            if int(item.GetStart()) == int(record_frame):
+                return item
+        except Exception:  # noqa: BLE001 - a stale handle, keep looking
+            continue
+    return None
 
 
 def entry_unit_mismatch(project, target_wh: tuple) -> str:
@@ -396,17 +485,29 @@ def apply_placement_transform(timeline, track_index: int,
         except Exception as exc:  # noqa: BLE001 - never write guessed units
             return f"{name}: cannot lower absolute overlay box: {exc}"
     try:
-        items = timeline.GetItemListInTrack("video", track_index) or []
+        entry = _track_entry(timeline, "video", track_index)
     except Exception:  # noqa: BLE001 - a proxy that does not serve it
-        items = []
-    placed_item = None
-    for item in items:
+        entry = {"items": [], "positions": {}, "written": set()}
+    placed_item = _item_at(entry, record_frame)
+    if (placed_item is not None
+            and int(record_frame) in entry.get("written", ())):
+        # This pass already wrote THROUGH this handle, and a handle
+        # echoes what it was given: ask Resolve for a fresh one, so the
+        # skip decision below reads what the item carries.
         try:
-            if item.GetStart() == record_frame:
-                placed_item = item
-                break
-        except Exception:  # noqa: BLE001 - a stale handle, keep looking
-            continue
+            fresh_entry = {"items": list(
+                timeline.GetItemListInTrack("video", track_index) or []),
+                "positions": {}, "written": set()}
+            for position, item in enumerate(fresh_entry["items"]):
+                try:
+                    fresh_entry["positions"].setdefault(
+                        int(item.GetStart()), position)
+                except Exception:  # noqa: BLE001 - an item that cannot say
+                    continue
+            placed_item = (_item_at(fresh_entry, record_frame)
+                           or placed_item)
+        except Exception:  # noqa: BLE001 - the index's handle stays
+            pass
     if placed_item is None:
         # NOT the last item on the track: that fallback reads a
         # NEIGHBOUR when the match fails, which is one caption judged
@@ -463,6 +564,7 @@ def apply_placement_transform(timeline, track_index: int,
             refused.append(f"{prop}={value}")
             continue
         written.add(prop)
+        entry["written"].add(int(record_frame))
         pending.append((prop, float(value)))
     for prop, key in (("ZoomX", "zoom_x"), ("ZoomY", "zoom_y")):
         value = placement.get(key)
@@ -481,6 +583,7 @@ def apply_placement_transform(timeline, track_index: int,
             refused.append(f"{prop}={value}")
             continue
         written.add(prop)
+        entry["written"].add(int(record_frame))
         pending.append((prop, float(value)))
     zoom = placement.get("zoom")
     if zoom is not None:
@@ -513,6 +616,7 @@ def apply_placement_transform(timeline, track_index: int,
                     refused.append(f"{prop}={zoom_value:g}")
                     continue
                 written.add(prop)
+                entry["written"].add(int(record_frame))
                 pending.append((prop, zoom_value))
     if pending:
         # Read the values back off a FRESH handle, never the item
@@ -535,14 +639,31 @@ def apply_placement_transform(timeline, track_index: int,
         # 4x-law row.)
         reader = placed_item
         try:
-            for item in (timeline.GetItemListInTrack(
-                    "video", track_index) or []):
+            # A FRESH list, asked for after the write: the handle the
+            # write went through echoes the value it was given, so the
+            # read-back must not be that handle. The item is taken from
+            # the fresh list BY POSITION - the pass's index already
+            # knows where it is - and its own start frame confirms it.
+            fresh = list(timeline.GetItemListInTrack(
+                "video", track_index) or [])
+            position = entry["positions"].get(int(record_frame))
+            named = False
+            if position is not None and 0 <= position < len(fresh):
+                candidate = fresh[position]
                 try:
-                    if item.GetStart() == record_frame:
-                        reader = item
-                        break
+                    if int(candidate.GetStart()) == int(record_frame):
+                        reader = candidate
+                        named = True
                 except Exception:  # noqa: BLE001 - stale handle
-                    continue
+                    pass
+            if not named:
+                for item in fresh:
+                    try:
+                        if int(item.GetStart()) == int(record_frame):
+                            reader = item
+                            break
+                    except Exception:  # noqa: BLE001 - stale handle
+                        continue
         except Exception:  # noqa: BLE001 - read back off placed_item
             reader = placed_item
         held_values = {}

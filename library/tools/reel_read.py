@@ -86,6 +86,8 @@ import argparse
 import json
 import sys
 import tempfile
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import asdict
 from pathlib import Path
 from typing import Mapping, Optional
@@ -272,6 +274,43 @@ def restore_transform_timeline_units(transform: Mapping,
     return restored
 
 
+#: The transform read context a WHOLE PASS shares, while one is open.
+#:
+#: `TransformReadContext` re-reads the current timeline, both timelines'
+#: identities and both resolutions - about nineteen Resolve calls - every
+#: time it is BUILT. A pass that reads one transform per overlay built
+#: one per overlay and paid for the whole set every time: the reel
+#: build's deferred placement pass spent 154.8 s of a 155 s phase
+#: inside those calls (docs/benchmarks/2026-10-21-critical-path.md).
+#:
+#: The context is built ONCE for the pass, the per-read cursor check
+#: stays (a cursor that moved still refuses at the item that saw it),
+#: and the batch-wide resolution check happens once at the end - which is
+#: what the class was written for ("a resolution change refuses the
+#: batch before it can be accepted").
+_SHARED_READ_CONTEXT: ContextVar[Optional["TransformReadContext"]] = (
+    ContextVar("reel_read_shared_transform_context", default=None))
+
+
+@contextmanager
+def shared_transform_reads(timeline, resolve_project):
+    """Open ONE transform read context for a whole pass of reads.
+
+    The context is built here - so a context that cannot be established
+    raises HERE, once, instead of once per item - and every read made
+    inside the scope on the same timeline and the same Resolve project
+    uses it. The caller verifies it once when the pass ends
+    (``TransformReadContext.verify``); a read that finds the cursor
+    moved refuses on its own, as it always did.
+    """
+    context = TransformReadContext(timeline, resolve_project)
+    token = _SHARED_READ_CONTEXT.set(context)
+    try:
+        yield context
+    finally:
+        _SHARED_READ_CONTEXT.reset(token)
+
+
 class TransformReadContext:
     """Reuse stable timeline dimensions while reading a batch of transforms.
 
@@ -383,14 +422,25 @@ def read_transform_timeline_units(item, timeline, resolve_project,
     Resolve scales Pan/Tilt from the current timeline's dimensions even
     when ``item`` belongs to another timeline. A standalone read owns a
     one-item context and verifies it immediately; row callers may reuse a
-    :class:`TransformReadContext` and verify once after the batch.
+    :class:`TransformReadContext` and verify once after the batch; a
+    whole PASS may open one with :func:`shared_transform_reads` and let
+    every read inside it share that context.
 
     ``None`` preserves the build guard's established behavior when the
     item itself does not return a property dictionary. Missing timeline
     context is different: without it Pan/Tilt cannot be judged, so that
     raises ``ReelReadError``.
     """
-    owned_context = context is None
+    verify_after = context is None
+    if context is None:
+        shared = _SHARED_READ_CONTEXT.get()
+        if (shared is not None
+                and shared.timeline is timeline
+                and shared.resolve_project is resolve_project):
+            # The pass's own context: its per-read cursor check still
+            # runs, and the batch is verified once when the pass ends.
+            context = shared
+            verify_after = False
     context = context or TransformReadContext(timeline, resolve_project)
     if (context.timeline is not timeline
             or context.resolve_project is not resolve_project):
@@ -398,7 +448,7 @@ def read_transform_timeline_units(item, timeline, resolve_project,
             "transform read context belongs to a different timeline or "
             "Resolve project")
     transform = context.read(item)
-    if owned_context:
+    if verify_after:
         context.verify()
     return transform
 

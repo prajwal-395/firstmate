@@ -1081,7 +1081,7 @@ def _already_carries(item, key: str, value, *, fresh: bool,
 
 def run_deferred(timeline, recorder: PlacementRecorder, *,
                  project_folder: str = "", project: str = "",
-                 timeline_name: str = "") -> int:
+                 timeline_name: str = "", resolve_project=None) -> int:
     """The per-item writes the placers made or deferred, on the real items,
     in the default path's order: an append's SetProperty, then the
     placement transform.
@@ -1101,6 +1101,17 @@ def run_deferred(timeline, recorder: PlacementRecorder, *,
     the write is skipped, because a property already at the wanted value
     is not changed by writing it. The counts land on the profile
     (`transform_writes`), so the no-op fraction is measured, not guessed.
+
+    The DEFERRED calls - the placers' own per-item transform writes -
+    read their transform back once per overlay, and each read built its
+    OWN `TransformReadContext`: about nineteen Resolve calls to learn
+    the current timeline, both identities and both resolutions, for
+    every overlay. Measured on the scratch copy's reel 13, that was
+    154.8 s of the pass's 155 s (docs/benchmarks/2026-10-21-critical-
+    path.md). The whole pass now opens ONE context
+    (`reel_read.shared_transform_reads`): the per-read cursor check
+    stays, the batch's resolution check happens once at the end, and the
+    values read back are the same values.
     """
     from library.tools.reel_build import _timeline_span
     from library.tools.transform_write_log import set_property
@@ -1160,9 +1171,61 @@ def run_deferred(timeline, recorder: PlacementRecorder, *,
                 counts["applied"] += 1
                 written.add((id(item), key))
     recorder.profile["transform_writes"] = counts
+    _run_deferred_calls(timeline, recorder, resolve_project)
+    record_duration(recorder.profile, "deferred_transform_s", started)
+    return len(recorder.timeline.deferred)
+
+
+def _run_deferred_calls(timeline, recorder: PlacementRecorder,
+                        resolve_project) -> None:
+    """Run the placers' deferred calls under ONE read context and index.
+
+    The context is built once for the pass, and the reel's items are
+    indexed once for the pass. A context that cannot be established at
+    all falls back to the per-call behaviour, so a placement that cannot
+    be judged is still REPORTED per overlay rather than refusing the
+    whole reel. A context that WAS established and then changed - a
+    resolution that moved under the pass - refuses the reel: the
+    read-backs it judged were made in units that no longer describe the
+    timeline.
+    """
+    from library.tools.overlay_placement import placement_index
+    from library.tools.reel_read import (
+        ReelReadError, shared_transform_reads)
+
+    scope = None
+    context = None
+    if resolve_project is not None:
+        try:
+            scope = shared_transform_reads(timeline, resolve_project)
+            context = scope.__enter__()
+        except ReelReadError:
+            # The units could not be established for the reel at all:
+            # each overlay judges itself, as it did before this pass
+            # existed.
+            scope = None
+            context = None
+    index_scope = placement_index(timeline)
+    index_scope.__enter__()
+    try:
+        _call_deferred(timeline, recorder)
+        if context is not None:
+            try:
+                context.verify()
+            except ReelReadError as exc:
+                raise OtioPlacementRefused(
+                    f"the timeline's own units changed under the placement "
+                    f"pass, so the transforms it read back cannot be "
+                    f"judged: {exc}") from exc
+    finally:
+        index_scope.__exit__(None, None, None)
+        if scope is not None:
+            scope.__exit__(None, None, None)
+
+
+def _call_deferred(timeline, recorder: PlacementRecorder) -> None:
+    """Run every deferred call, in the default path's order."""
     for label, call in recorder.timeline.deferred:
         note = call(timeline)
         if note:
             print(f"  {label}: {note}", file=sys.stderr)
-    record_duration(recorder.profile, "deferred_transform_s", started)
-    return len(recorder.timeline.deferred)
