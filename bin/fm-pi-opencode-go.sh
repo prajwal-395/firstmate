@@ -235,8 +235,8 @@ token_refresh() {
   local db=${1:-} org=${2:-} config_dir=${3:-} live=${4:-} allowance=${5:-}
   local lock wait_seconds
   FM_PI_TOKEN_DB=$db
-  [ -f "$db" ] || { FM_PI_TOKEN_STEP=missing-task-db; return 1; }
-  [ -n "$live" ] && [ -f "$live" ] || { FM_PI_TOKEN_STEP=live-db-unavailable; return 1; }
+  [ -f "$db" ] || { FM_PI_TOKEN_STEP='missing-task-db'; return 1; }
+  [ -n "$live" ] && [ -f "$live" ] || { FM_PI_TOKEN_STEP='live-db-unavailable'; return 1; }
   case "$allowance" in ''|*[!0-9]*) allowance=1 ;; esac
   lock="$config_dir/opencode-pi-token.lock"
   # The wait covers the holder's own refresh, so a caller that arrives while
@@ -372,33 +372,33 @@ token_for_task() {
   local db=${FM_OPENCODE_TASK_DB:-} org=${FM_OPENCODE_ORG_ID:-} config_dir=${FM_OPENCODE_CONFIG_DIR:-}
   local out live refresh_seconds
   FM_PI_TOKEN_DB=$db
-  [ -n "$db" ] || { FM_PI_TOKEN_STEP=missing-task-db; return 1; }
+  [ -n "$db" ] || { FM_PI_TOKEN_STEP='missing-task-db'; return 1; }
   # The fast path: one sqlite3 read of the task database, before any library
   # is sourced, any lock is taken, or any OpenCode process is started.
   out=$(fm_token_fast "$db" "$FM_PI_TOKEN_FAST_MARGIN_MS" "$FM_PI_TOKEN_DB_TIMEOUT_MS") && {
-    FM_PI_TOKEN_STEP=fast-path-served
+    FM_PI_TOKEN_STEP='fast-path-served'
     printf '%s' "$out"
     return 0
   }
-  FM_PI_TOKEN_STEP=fast-path-miss
+  FM_PI_TOKEN_STEP='fast-path-miss'
   # Past the fast path the shared libraries and the OpenCode CLI are needed.
-  fm_token_load_libs || { FM_PI_TOKEN_STEP=library-load-failed; return 1; }
-  [ -n "$org" ] && [ -n "$config_dir" ] || { FM_PI_TOKEN_STEP=missing-config; return 1; }
-  [ -d "$config_dir" ] || { FM_PI_TOKEN_STEP=missing-config-dir; return 1; }
-  command -v opencode >/dev/null 2>&1 || { FM_PI_TOKEN_STEP=missing-opencode-cli; return 1; }
+  fm_token_load_libs || { FM_PI_TOKEN_STEP='library-load-failed'; return 1; }
+  [ -n "$org" ] && [ -n "$config_dir" ] || { FM_PI_TOKEN_STEP='missing-config'; return 1; }
+  [ -d "$config_dir" ] || { FM_PI_TOKEN_STEP='missing-config-dir'; return 1; }
+  command -v opencode >/dev/null 2>&1 || { FM_PI_TOKEN_STEP='missing-opencode-cli'; return 1; }
   # The refresh is the expensive path, so it only runs while the deadline
   # still has room for it. The console database is resolved first, and it is
   # resolved under a bound, so a slow OpenCode CLI cannot take the request
   # down with it.
   live=$(fm_token_live_db "$FM_PI_TOKEN_LIVE_DB_SECONDS") || live=
   if [ -z "$live" ]; then
-    FM_PI_TOKEN_STEP=live-db-unavailable
+    FM_PI_TOKEN_STEP='live-db-unavailable'
   else
     refresh_seconds=$(fm_token_refresh_seconds)
     if [ "$refresh_seconds" -ge 1 ]; then
-      FM_PI_TOKEN_STEP=refresh-lock
+      FM_PI_TOKEN_STEP='refresh-lock'
       out=$(token_refresh "$db" "$org" "$config_dir" "$live" "$refresh_seconds") && {
-        FM_PI_TOKEN_STEP=refresh-served
+        FM_PI_TOKEN_STEP='refresh-served'
         # The pinned workspace databases carry the same console login, so a
         # re-login reaches them too: a pin that keeps the old token reports
         # a rejected provider to everything that reads it. The copy runs
@@ -412,15 +412,15 @@ token_for_task() {
         printf '%s' "$out"
         return 0
       }
-      FM_PI_TOKEN_STEP=refresh-failed
+      FM_PI_TOKEN_STEP='refresh-failed'
     else
-      FM_PI_TOKEN_STEP=refresh-skipped-no-budget
+      FM_PI_TOKEN_STEP='refresh-skipped-no-budget'
     fi
   fi
   # A token that is still valid beats failing the request behind a refresh
   # that could not finish in time.
   out=$(fm_token_fast "$db" 0 "$FM_PI_TOKEN_FALLBACK_DB_TIMEOUT_MS") && {
-    FM_PI_TOKEN_STEP=fallback-served
+    FM_PI_TOKEN_STEP='fallback-served'
     printf '%s' "$out"
     return 0
   }
@@ -430,32 +430,32 @@ token_for_task() {
 token_unlocked() {  # <task-db> <org> <live-db>
   local db=${1:-} org=${2:-} live=${3:-} access live_sql org_sql seconds
   FM_PI_TOKEN_DB=$db
-  [ -f "$db" ] || { FM_PI_TOKEN_STEP=missing-task-db; return 1; }
-  fm_token_load_libs || { FM_PI_TOKEN_STEP=library-load-failed; return 1; }
+  [ -f "$db" ] || { FM_PI_TOKEN_STEP='missing-task-db'; return 1; }
+  fm_token_load_libs || { FM_PI_TOKEN_STEP='library-load-failed'; return 1; }
   # The lock holder may have refreshed while this worker waited. Reuse that
   # result before contacting OpenCode.
   access=$(fm_token_fast "$db" 30000 "$FM_PI_TOKEN_FALLBACK_DB_TIMEOUT_MS") && {
-    FM_PI_TOKEN_STEP=lock-holder-refreshed
+    FM_PI_TOKEN_STEP='lock-holder-refreshed'
     printf '%s' "$access"
     return 0
   }
-  [ -n "$live" ] && [ -f "$live" ] || { FM_PI_TOKEN_STEP=live-db-unavailable; return 1; }
+  [ -n "$live" ] && [ -f "$live" ] || { FM_PI_TOKEN_STEP='live-db-unavailable'; return 1; }
   seconds=$(fm_token_remaining_seconds)
-  [ "$seconds" -ge 1 ] || { FM_PI_TOKEN_STEP=refresh-no-budget; return 1; }
+  [ "$seconds" -ge 1 ] || { FM_PI_TOKEN_STEP='refresh-no-budget'; return 1; }
   [ "$seconds" -gt "$FM_PI_TOKEN_REFRESH_MAX_SECONDS" ] && seconds=$FM_PI_TOKEN_REFRESH_MAX_SECONDS
   # OpenCode owns console-token refresh. Run it against the canonical login
   # database so concurrent workers cannot race separate copies of refresh_token.
   OPENCODE_DB="$live" fm_run_timed "$seconds" opencode debug config >/dev/null 2>&1 || {
-    FM_PI_TOKEN_STEP=opencode-refresh-failed
+    FM_PI_TOKEN_STEP='opencode-refresh-failed'
     return 1
   }
   live_sql=${live//\'/\'\'}
   org_sql=${org//\'/\'\'}
   sqlite3 -cmd ".timeout $FM_PI_TOKEN_COPY_TIMEOUT_MS" "$db" \
     "ATTACH DATABASE '$live_sql' AS fm_live; BEGIN IMMEDIATE; INSERT OR REPLACE INTO main.account (id,email,url,access_token,refresh_token,token_expiry,time_created,time_updated) SELECT id,email,url,access_token,refresh_token,token_expiry,time_created,time_updated FROM fm_live.account; INSERT OR REPLACE INTO main.account_state (id,active_account_id,active_org_id) SELECT id,active_account_id,active_org_id FROM fm_live.account_state; UPDATE main.account_state SET active_org_id='$org_sql' WHERE id=1; COMMIT; DETACH DATABASE fm_live;" \
-    >/dev/null 2>&1 || { FM_PI_TOKEN_STEP=task-db-copy-failed; return 1; }
+    >/dev/null 2>&1 || { FM_PI_TOKEN_STEP='task-db-copy-failed'; return 1; }
   access=$(fm_token_fast "$db" 30000 "$FM_PI_TOKEN_FALLBACK_DB_TIMEOUT_MS") || {
-    FM_PI_TOKEN_STEP=refreshed-token-unreadable
+    FM_PI_TOKEN_STEP='refreshed-token-unreadable'
     return 1
   }
   FM_PI_TOKEN_STEP=refreshed

@@ -1594,7 +1594,7 @@ fm_remote_job_start_linux_worker() { # <remote-root> <account-home>
 }
 
 fm_remote_job_ensure_worker() { # <remote-root> <account-home>
-  local root=$1 account_home=$2 platform uid identity_matches=0 ready_status started
+  local root=$1 account_home=$2 platform uid started
   # Anchors the worker's own diagnostics to this attempt, so an append-only log
   # cannot report a previous generation's refusal as this one's.
   started=$(date +%s)

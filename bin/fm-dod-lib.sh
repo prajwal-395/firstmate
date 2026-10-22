@@ -414,7 +414,7 @@ fm_ship_checkpoint_instructions() {  # [<paused-verb>]
   local paused=${1:-${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}}
   printf '%s\n' \
     "   Before appending any \`blocked:\` or \`$paused:\` event, commit your task work and push your task branch without opening a PR; if there is nothing to commit, say the worktree is clean and push the existing branch tip." \
-    '   Include `checkpoint-sha=<full-pushed-commit-sha>` in the event only after the push succeeds, then end your turn so the pushed branch is the durable resume point.' \
+    "   Include \`checkpoint-sha=<full-pushed-commit-sha>\` in the event only after the push succeeds, then end your turn so the pushed branch is the durable resume point." \
     "   Exception: a no-mistakes worker whose branch is owned by an active no-mistakes run (\`no-mistakes axi status\` shows branch_sync state pipeline_owned) reports \`$paused:\` without pushing and without a checkpoint-sha." \
     '   The pipeline already holds the work durably in that state, so your own push would diverge its validated head.'
 }
