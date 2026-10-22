@@ -4609,12 +4609,21 @@ def _print_frame_report(report):
         request = escalation.get("request") or {}
         print(f"\nescalation: {escalation.get('from')} -> "
               f"{escalation.get('to')} - {escalation.get('establishes')}")
-        print(f"   request: {request.get('lane')} for "
-              f"{request.get('candidates_at_most')} candidate(s) of "
-              f"{request.get('windows')} window(s)")
+        if request.get("candidates_at_most") is not None:
+            print(f"   request: {request.get('lane')} for "
+                  f"{request.get('candidates_at_most')} candidate(s) of "
+                  f"{request.get('windows')} window(s)")
+        else:
+            print(f"   request: {request.get('lane')} for "
+                  f"{len(request.get('windows') or request.get('observations') or [])}"
+                  f" row(s)")
         if escalation.get("cost_seconds_estimate") is not None:
             print(f"   measured cost: {escalation['cost_seconds_estimate']}s "
                   f"({escalation.get('cost_basis')})")
+    coarse = report.get("coarse_report") or {}
+    if coarse:
+        print(f"coarse answer: {coarse.get('status')}"
+              + (f" - {coarse.get('reason')}" if coarse.get("reason") else ""))
 
 
 def _print_structured(answer):
@@ -4992,7 +5001,8 @@ def search_json(project_folder, query, *, mode="hybrid", top_k=5, floor=None,
                 include_actions=False, index_dir=None,
                 external_hits=None, filters=None, quality=False,
                 visual_floor=LANE_FLOOR, temporal=True,
-                precision=edit_precision.PRECISION_BROWSE) -> dict:
+                precision=edit_precision.PRECISION_BROWSE,
+                store_coarse=True) -> dict:
     """One machine-readable answer for every `ren search` lane.
 
     `lane` is `text` (the default index), `sound`, `ocr`, `visual`
@@ -5028,9 +5038,10 @@ def search_json(project_folder, query, *, mode="hybrid", top_k=5, floor=None,
         vidx = footage_frames.FrameIndex(project_folder, index_dir=index_dir)
         if visual_floor == LANE_FLOOR:
             visual_floor = footage_frames.MEASURED_QUERY_FLOOR
-        report = vidx.search_ranges(query, top_ranges=top_k,
-                                    include_actions=include_actions,
-                                    floor=visual_floor, temporal=temporal)
+        report = vidx.answer_at_tier(
+            query, tier=("detailed" if temporal else "coarse"),
+            top_ranges=top_k, include_actions=include_actions,
+            floor=visual_floor, store=store_coarse)
         if report["refused"] is not None:
             raise RenRefusal(
                 f"frame search refused {report['query']!r}",
@@ -5045,7 +5056,8 @@ def search_json(project_folder, query, *, mode="hybrid", top_k=5, floor=None,
             extra={"notice": report["notice"],
                    "temporal_pass": report.get("temporal_pass"),
                    "fidelity": report.get("fidelity"),
-                   "escalation": report.get("escalation")})
+                   "escalation": report.get("escalation"),
+                   "coarse_report": report.get("coarse_report")})
     if lane == "chunks":
         idx = FootageIndex(project_folder, index_dir=index_dir)
         report = idx.search_chunks(query, top_k=top_k, floor=floor)
@@ -5337,6 +5349,13 @@ def main(argv=None):
                                 "carries the request and the measured cost of "
                                 "the detailed one, so a caller asks for more "
                                 "only when it needs more")
+    p_search.add_argument("--no-coarse-store", action="store_true",
+                           help="with --visual: do not keep the coarse answer "
+                                "beside the index. The store is derived data "
+                                "in the project's scratch area, and keeping "
+                                "it is what lets a LATER call escalate to "
+                                "the detailed tier without paying for the "
+                                "ranking again")
     p_search.add_argument("--mode", choices=["hybrid", "dense", "lexical"], default="hybrid")
     p_search.add_argument("--precision",
                            choices=list(edit_precision.PRECISIONS),
@@ -5814,17 +5833,19 @@ def main(argv=None):
                                  include_actions=args.include_actions,
                                  index_dir=args.index_dir, lane="visual",
                                  visual_floor=visual_floor,
-                                 temporal=temporal)
+                                 temporal=temporal,
+                                 store_coarse=not args.no_coarse_store)
             print(json.dumps(answer, indent=2))
             return 0
         from library.tools.analysis import footage_frames
         vidx = footage_frames.FrameIndex(args.project, index_dir=args.index_dir)
         if visual_floor == LANE_FLOOR:
             visual_floor = footage_frames.MEASURED_QUERY_FLOOR
-        report = vidx.search_ranges(args.query, top_ranges=args.top_k,
-                                    include_actions=args.include_actions,
-                                    floor=visual_floor,
-                                    temporal=temporal)
+        report = vidx.answer_at_tier(args.query, tier=tier,
+                                     top_ranges=args.top_k,
+                                     include_actions=args.include_actions,
+                                     floor=visual_floor,
+                                     store=not args.no_coarse_store)
         elapsed = time.perf_counter() - started
         if report["refused"] is not None:
             raise RenRefusal(

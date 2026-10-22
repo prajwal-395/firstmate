@@ -703,7 +703,11 @@ VERBS = (
                 "answers the request, and the answer carries the detections "
                 "AND the coverage map - the frames it inspected and the "
                 "seconds it never looked at. `--acquire` opts in to one "
-                "bounded window."),
+                "bounded window. Every answer says which RESOLUTION it "
+                "was reached at: a claim about a span of the source is at "
+                "the detailed tier and carries the way up to the media "
+                "behind it, and a claim about the model's own structure "
+                "is at the coarse tier."),
     Verb("where", "Footage", "Where is this person in the footage (region tracks, or the region at --at)",
          effects=("read",), json=True,
          module_argv=(_FOOTAGE_QUERY, "where"),

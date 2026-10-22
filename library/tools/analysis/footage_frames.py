@@ -1082,20 +1082,16 @@ class FrameIndex:
         repeats = (repeated_events if repeated_events is not None
                    else _repeated_events(query))
         report["search_policy"] = {
-            "candidate_pool_size": max(0, pool),
-            "per_source_pool_size": (max(0, per_source_pool)
-                                     if per_source_pool is not None else 0),
+            **self.policy_for(
+                query, top_ranges=top_ranges, pool=pool,
+                merge_gap_s=merge_gap_s, include_actions=include_actions,
+                floor=floor, window_floor=window_floor,
+                max_range_s=max_range_s, max_range_frames=max_range_frames,
+                per_source_pool=per_source_pool, repeated_events=repeats),
             "candidates_considered": (report.get("search_pool") or {}).get(
                 "candidates"),
             "sources_considered": (report.get("search_pool") or {}).get(
                 "sources"),
-            "merge_gap_seconds": float(merge_gap_s),
-            "top_interval_limit": max(0, top_ranges),
-            "query_floor": floor,
-            "window_floor": window_floor,
-            "max_range_seconds": max_range_s,
-            "max_range_frames": max_range_frames,
-            "windows_per_source": max(1, repeats),
         }
         report["abstained"] = False
         if report["refused"] is not None or report.get("error"):
@@ -1192,16 +1188,66 @@ class FrameIndex:
         provenance: the coarse ranking that proposed the candidate, so
         a reader can walk back from a verdict to the ranking and on to
         the index that ranked it.
+
+        The identity is of the RANKING, so it is computed over the
+        candidates the ranking produced and over the part of the
+        policy that decides what it produces.  The windows a report
+        PRESENTED are not part of it: the same ranking presented in one
+        call and in two is the same ranking, and a reader who compares
+        two answers must be able to see that they came from one
+        ranking.
         """
+        from library.tools import coarse_report
+
         payload = json.dumps({
             "query": report.get("query"),
             "frames": report.get("frame_count"),
             "backend": report.get("embed_backend"),
-            "policy": report.get("search_policy"),
+            "policy": coarse_report.stable_policy(report.get("search_policy")),
             "ranges": [[row.get("clip_id"), row.get("start"), row.get("end")]
-                       for row in report.get("ranges") or []],
+                       for row in (report.get("candidate_ranges")
+                                   or report.get("ranges") or [])],
         }, sort_keys=True, default=str)
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+    def policy_for(self, query: str, *, top_ranges: int = 5,
+                   pool: int = SEARCH_POOL,
+                   merge_gap_s: float = MERGE_GAP_S,
+                   include_actions: bool = False,
+                   floor: float | None = MEASURED_QUERY_FLOOR,
+                   window_floor: float | None = None,
+                   max_range_s: float | None = MAX_RANGE_S,
+                   max_range_frames: int | None = RANGE_SAMPLES,
+                   per_source_pool: int | None = PER_SOURCE_POOL,
+                   repeated_events: int | None = None) -> dict:
+        """The policy a search under this query WOULD run with.
+
+        The policy is known before the search runs, so a caller that
+        wants to find a stored coarse answer again can name it without
+        running the search: the policy is part of the coarse answer's
+        identity (see :mod:`library.tools.coarse_report`).
+        """
+        repeats = (repeated_events if repeated_events is not None
+                   else _repeated_events(query))
+        return {
+            "candidate_pool_size": max(0, pool),
+            "per_source_pool_size": (max(0, per_source_pool)
+                                     if per_source_pool is not None else 0),
+            "candidates_considered": None,
+            "sources_considered": None,
+            "merge_gap_seconds": float(merge_gap_s),
+            "top_interval_limit": max(0, top_ranges),
+            "query_floor": floor,
+            "window_floor": window_floor,
+            "max_range_seconds": max_range_s,
+            "max_range_frames": max_range_frames,
+            "windows_per_source": max(1, repeats),
+            # Whether the caller overrode the lane's refusal of an
+            # ACTION query.  It changes what the lane may answer, so it
+            # is part of the answer's identity: a ranking made with the
+            # override is not the ranking of a search without it.
+            "include_actions": bool(include_actions),
+        }
 
     def _escalation(self, report: dict, query: str) -> dict:
         """The request that raises this answer to the next tier.
@@ -1293,9 +1339,100 @@ class FrameIndex:
                   if temporal else None),
         )
         out = fidelity.annotate(report, fidelity=block)
-        if not temporal:
+        if temporal:
+            # A detailed answer does not carry the COARSE tier's
+            # escalation: the way up from a ranking is not the way up
+            # from a verdict, and a reader who follows it would be sent
+            # to verify an answer that is already verified.
+            out.pop("escalation", None)
+            out["escalation"] = self._escalation_to_original(report)
+        else:
             out["escalation"] = self._escalation(report, query)
         return out
+
+    def _escalation_to_original(self, report: dict) -> dict:
+        """The request that reaches the media behind the finding.
+
+        The ORIGINAL tier is not a measurement: it is the pixels the
+        finding is about, and every window already names them.  So the
+        escalation is free to compute - the reader opens the recording
+        at the second the answer names.
+        """
+        windows = []
+        for row in report.get("ranges") or []:
+            original = row.get("original") or {}
+            frame = original.get("frame_file")
+            if not frame:
+                files = original.get("frame_files") or []
+                frame = files[0] if files else None
+            windows.append({
+                "clip_id": row.get("clip_id"),
+                "start": row.get("start"),
+                "end": row.get("end"),
+                "media": original.get("media"),
+                "frame_file": frame,
+            })
+        if not windows:
+            return {}
+        return fidelity.escalation(
+            from_tier=fidelity.TIER_DETAILED,
+            request={"lane": "original_media", "windows": windows},
+            cost_seconds=0.0,
+            cost_basis=("no measurement is owed: the answer already names "
+                        "the recording and the frame it was read from"))
+
+    def answer_at_tier(self, query: str, *, tier: str = "detailed",
+                       top_ranges: int = 5, include_actions: bool = False,
+                       floor: float | None = MEASURED_QUERY_FLOOR,
+                       store: bool = True) -> dict:
+        """The answer at the tier the caller asked for.
+
+        The DETAILED tier is computed from a STORED coarse answer when
+        one is there: the escalation judges the candidates the coarse
+        answer already has, so it does not pay for the ranking again.
+        The stored answer is found by its identity - this query, this
+        policy, this index - and a stored answer the index has moved on
+        from is refused rather than reused, because its ranking was
+        made over frames that are no longer the ones on disk.
+
+        The COARSE tier keeps its answer, so a later call can escalate
+        it without ranking again.  The store lives in the index's own
+        scratch directory and is derived data: deleting it costs one
+        ranking, never an answer.
+        """
+        from library.tools import coarse_report
+
+        policy = self.policy_for(query, top_ranges=top_ranges,
+                                  include_actions=include_actions, floor=floor)
+        if tier == "coarse":
+            report = self.search_ranges(query, top_ranges=top_ranges,
+                                         include_actions=include_actions,
+                                         floor=floor, temporal=False)
+            report["coarse_report_id"] = self._report_id(report)
+            if not store:
+                report["coarse_report"] = {
+                    "status": "declined", "path": None, "reason": None,
+                    "report_id": report["coarse_report_id"]}
+                return report
+            written = coarse_report.save(self.index_dir, report,
+                                         policy=policy)
+            report["coarse_report"] = written
+            return report
+        stored = coarse_report.load(self.index_dir, query=query,
+                                     policy=policy)
+        if stored["status"] == "found":
+            report = self.verify_ranges(query, stored["report"])
+            report["coarse_report"] = {
+                "status": "reused", "path": stored.get("path"),
+                "reason": None, "report_id": stored.get("report_id")}
+            return report
+        report = self.search_ranges(query, top_ranges=top_ranges,
+                                     include_actions=include_actions,
+                                     floor=floor, temporal=True)
+        report["coarse_report"] = {
+            "status": stored["status"], "path": stored.get("path"),
+            "reason": stored.get("reason"), "report_id": None}
+        return report
 
     def verify_ranges(self, query: str, report: dict, *,
                       merge_gap_s: float = MERGE_GAP_S,

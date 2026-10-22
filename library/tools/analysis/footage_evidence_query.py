@@ -181,6 +181,7 @@ def main(argv: list[str] | None = None) -> int:
 
         answer = evidence_trace.trace(model, args.trace, project=str(project),
                                       hops=args.hops)
+        answer = _declare(answer, model, revision=source_revision)
         print(json.dumps({"answer": answer,
                           "edit_ready": False,
                           "source_revision": source_revision,
@@ -192,7 +193,8 @@ def main(argv: list[str] | None = None) -> int:
         plan = json.loads(Path(args.plan).read_text(encoding="utf-8"))
     if not args.acquire:
         answer = evidence_query.evidence_for(model, plan,
-                                             project=str(project))
+                                             project=str(project),
+                                             revision=source_revision)
         recorded = _record(project, model, answer, source_revision,
                            enabled=not args.no_record)
         print(
@@ -251,6 +253,20 @@ def main(argv: list[str] | None = None) -> int:
         workload_purpose=args.purpose,
         memory_root=memory_root,
     )
+    # The acquisition MEASURED the source, so the answer it produced
+    # is at the detailed tier - and it says so, and it names the
+    # stored answer it started from.  The answer BEFORE the
+    # acquisition is declared too: it is what the model held.
+    declared = dict(answer)
+    stored = declared.get("answer")
+    if isinstance(stored, dict):
+        declared["answer"] = _declare(stored, model, revision=source_revision)
+    requery = declared.get("requery")
+    if isinstance(requery, dict):
+        declared["requery"] = _declare(
+            requery, model, revision=source_revision, measured_now=True,
+            max_cost_seconds=args.max_cost_seconds)
+    answer = declared
     recorded = _record(project, model,
                        answer.get("requery") or answer.get("answer") or answer,
                        source_revision, enabled=not args.no_record)
@@ -258,6 +274,24 @@ def main(argv: list[str] | None = None) -> int:
               "query_result": recorded["row"]}
     print(json.dumps(answer, indent=2))
     return 0
+
+
+def _declare(answer: dict, model: dict, *, revision=None,
+             measured_now: bool = False, max_cost_seconds=None) -> dict:
+    """The answer, carrying the resolution it was reached at.
+
+    The typed path's answers say which resolution they were reached at,
+    so a reader can tell a measurement of the source from a record the
+    model derived from one.
+    """
+    from library.tools import evidence_fidelity, fidelity
+
+    declared = evidence_fidelity.declare(answer, model, {},
+                                         revision=revision,
+                                         measured_now=measured_now,
+                                         max_cost_seconds=max_cost_seconds)
+    return fidelity.annotate(answer, fidelity=declared["fidelity"],
+                             escalation=declared["escalation"])
 
 
 def _record(project, model: dict, answer: dict, revision: int, *,

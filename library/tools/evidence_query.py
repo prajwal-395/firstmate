@@ -290,6 +290,10 @@ def _lane_of(obs: dict[str, Any]) -> str | None:
     return None
 
 
+#: The public name of the one reading of a record's lane.
+lane_of = _lane_of
+
+
 def _record_kind(obs: dict[str, Any]) -> str | None:
     """The registry measurement type an observation carries, legacy or new."""
     native = _native_evidence(obs)
@@ -1264,8 +1268,45 @@ def _backing_observations(index: Any, compiled: dict[str, Any],
 
 def evidence_for(model: dict[str, Any], plan: dict[str, Any], *,
                  lane_presence: dict[tuple[str, str], dict[str, Any]] | None = None,
-                 project: str | None = None
+                 project: str | None = None,
+                 revision: int | None = None
                  ) -> dict[str, Any]:
+    """Answer one compiled plan, and say at which resolution.
+
+    The answer is the answer the typed path has always given, plus the
+    `fidelity` block that says WHICH resolution answered it and what
+    it rests on, and the `escalation` block that says the way to the
+    next one.  A reader of this path must be able to tell a
+    measurement of the source from a record the model derived from
+    one, and the answer says which it is.
+
+    `revision` is the Project Model's revision, when the caller knows
+    it: the declaration names the model the answer was read from.
+    """
+    answer = _evidence_for(model, plan, lane_presence=lane_presence,
+                           project=project)
+    return _declare_resolution(answer, model, plan, revision=revision)
+
+
+def _declare_resolution(answer: dict[str, Any], model: dict[str, Any],
+                        plan: dict[str, Any], *,
+                        revision: int | None = None,
+                        measured_now: bool = False) -> dict[str, Any]:
+    """The answer, carrying the resolution it was reached at."""
+    from library.tools import evidence_fidelity, fidelity
+
+    declared = evidence_fidelity.declare(answer, model, plan,
+                                         revision=revision,
+                                         measured_now=measured_now)
+    out = fidelity.annotate(answer, fidelity=declared["fidelity"],
+                             escalation=declared["escalation"])
+    return out
+
+
+def _evidence_for(model: dict[str, Any], plan: dict[str, Any], *,
+                  lane_presence: dict[tuple[str, str], dict[str, Any]] | None = None,
+                  project: str | None = None
+                  ) -> dict[str, Any]:
     """Answer one compiled plan over a Project Model dict.
 
     Returns ``{"status", "answer_state", "answer_basis", "results",

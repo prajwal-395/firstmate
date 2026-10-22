@@ -229,6 +229,10 @@ it whenever the goal is about what is IN the footage.
   what the verified tier would establish and what it is measured to
   cost - so ask for `--fidelity detailed` (the default) only when you
   need the verdict. Every answer says which resolution produced it.
+  The coarse answer is KEPT beside the index (derived data in the
+  project's scratch), so a LATER `--fidelity detailed` call escalates
+  from it and does not pay for the ranking again; `--no-coarse-store`
+  declines to keep it.
 - `ren search <project> --temporal "<question>"` asks the TYPED EVENT
   layer instead of the ranking: "the second time she opens the box"
   resolves to one event with its own interval, its uncertainty and how
@@ -247,7 +251,10 @@ it whenever the goal is about what is IN the footage.
 - `ren evidence <project> <plan.json>` answers one compiled typed query
   plan against the project's canonical Project Model: measurements, event
   spans, or the model's own entity, identity-link, relation,
-  interpretation, event and track rows.
+  interpretation, event and track rows. The answer says which RESOLUTION
+  it was reached at: a claim about a span of the source is at the
+  detailed tier and carries the way up to the media behind it, and a
+  claim about the model's own structure is at the coarse tier.
 - `ren evidence <project> --trace <entity|event|observation|track>` is the
   WHY question: it follows one thing through its observations, its
   possible identity links, its relations, the interpretations resting on
