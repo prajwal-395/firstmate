@@ -890,6 +890,20 @@ STEP_IMPLEMENTATION_DEPS = {
         # cached rows resolve through, so the map names
         # them.
         'library/tools/execution/apply_fusion_comps.py',
+        # The shared modules the closure above reached with the PRs
+        # that landed after the map was last extended: the task-dependent
+        # precision the edit path refuses on (#3206), the converged
+        # cache-key construction (#3209), the one-clip retime scope
+        # (#3190), the touch journal operations (#3187), the in-process
+        # Gemma memory guard (#3205) and the human judgement the world
+        # model reads (#3198). A fix to any of them changes what the
+        # cached rows resolve through, so the map names them.
+        "library/tools/edit_precision.py",
+        "library/tools/cache_keys.py",
+        "library/tools/reel_retime_scope.py",
+        "library/tools/touchup_operations.py",
+        "library/tools/gemma_inprocess_guard.py",
+        "library/tools/human_judgement.py",
     ),
     "step_1_01_scan_project": (
         "library/tools/alignment_quality.py",
@@ -1692,6 +1706,20 @@ STEP_IMPLEMENTATION_DEPS = {
         # cached rows resolve through, so the map names
         # them.
         'library/tools/execution/apply_fusion_comps.py',
+        # The shared modules the closure above reached with the PRs
+        # that landed after the map was last extended: the task-dependent
+        # precision the edit path refuses on (#3206), the converged
+        # cache-key construction (#3209), the one-clip retime scope
+        # (#3190), the touch journal operations (#3187), the in-process
+        # Gemma memory guard (#3205) and the human judgement the world
+        # model reads (#3198). A fix to any of them changes what the
+        # cached rows resolve through, so the map names them.
+        "library/tools/edit_precision.py",
+        "library/tools/cache_keys.py",
+        "library/tools/reel_retime_scope.py",
+        "library/tools/touchup_operations.py",
+        "library/tools/gemma_inprocess_guard.py",
+        "library/tools/human_judgement.py",
     ),
     "step_1_02_catalog_footage": (
         # Shared measurement and evidence readers reached by the catalog's
@@ -2546,6 +2574,20 @@ STEP_IMPLEMENTATION_DEPS = {
         # cached rows resolve through, so the map names
         # them.
         'library/tools/execution/apply_fusion_comps.py',
+        # The shared modules the closure above reached with the PRs
+        # that landed after the map was last extended: the task-dependent
+        # precision the edit path refuses on (#3206), the converged
+        # cache-key construction (#3209), the one-clip retime scope
+        # (#3190), the touch journal operations (#3187), the in-process
+        # Gemma memory guard (#3205) and the human judgement the world
+        # model reads (#3198). A fix to any of them changes what the
+        # cached rows resolve through, so the map names them.
+        "library/tools/edit_precision.py",
+        "library/tools/cache_keys.py",
+        "library/tools/reel_retime_scope.py",
+        "library/tools/touchup_operations.py",
+        "library/tools/gemma_inprocess_guard.py",
+        "library/tools/human_judgement.py",
     ),
     "step_1_03_semantic_analysis": (
         "library/tools/alignment_quality.py",
@@ -3373,6 +3415,20 @@ STEP_IMPLEMENTATION_DEPS = {
         # cached rows resolve through, so the map names
         # them.
         'library/tools/execution/apply_fusion_comps.py',
+        # The shared modules the closure above reached with the PRs
+        # that landed after the map was last extended: the task-dependent
+        # precision the edit path refuses on (#3206), the converged
+        # cache-key construction (#3209), the one-clip retime scope
+        # (#3190), the touch journal operations (#3187), the in-process
+        # Gemma memory guard (#3205) and the human judgement the world
+        # model reads (#3198). A fix to any of them changes what the
+        # cached rows resolve through, so the map names them.
+        "library/tools/edit_precision.py",
+        "library/tools/cache_keys.py",
+        "library/tools/reel_retime_scope.py",
+        "library/tools/touchup_operations.py",
+        "library/tools/gemma_inprocess_guard.py",
+        "library/tools/human_judgement.py",
     ),
     "step_1_04_temporal_index": (
         "library/tools/alignment_quality.py",
@@ -4231,6 +4287,20 @@ STEP_IMPLEMENTATION_DEPS = {
         # cached rows resolve through, so the map names
         # them.
         'library/tools/execution/apply_fusion_comps.py',
+        # The shared modules the closure above reached with the PRs
+        # that landed after the map was last extended: the task-dependent
+        # precision the edit path refuses on (#3206), the converged
+        # cache-key construction (#3209), the one-clip retime scope
+        # (#3190), the touch journal operations (#3187), the in-process
+        # Gemma memory guard (#3205) and the human judgement the world
+        # model reads (#3198). A fix to any of them changes what the
+        # cached rows resolve through, so the map names them.
+        "library/tools/edit_precision.py",
+        "library/tools/cache_keys.py",
+        "library/tools/reel_retime_scope.py",
+        "library/tools/touchup_operations.py",
+        "library/tools/gemma_inprocess_guard.py",
+        "library/tools/human_judgement.py",
     ),
     "step_1_05_prosody_analysis": (
         # The legacy step delegates the measurement here.

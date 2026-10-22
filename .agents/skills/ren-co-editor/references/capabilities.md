@@ -25,7 +25,7 @@ Every capability id the engine holds, what it is for, where it runs, what it cos
 | `picture.plan` | project | light | Build the global picture plan selecting shots against the whole edit |
 | `aroll.assign` | project | light | Map speech blocks and hook to their A-roll source files |
 | `aroll.splice` | region | light | Re-assign a region's A-roll from the spine and put it back into the stored assignments |
-| `broll.resolve` | project | model | Resolve B-roll selections to placed cutaways with source ranges |
+| `broll.resolve` | project | heavy | Resolve B-roll selections to placed cutaways with source ranges |
 | `broll.splice` | region | model | Resolve a region's re-planned cutaways and put them back into the stored selections |
 | `reel.candidates` | project | light | Measure every contiguous exchange in the cut, ranked and filtered by nothing |
 | `reel.select` | project | model | Check the model's chosen moments against the cut and publish them PROPOSED |

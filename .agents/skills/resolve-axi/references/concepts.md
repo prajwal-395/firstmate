@@ -33,7 +33,7 @@ Operation ids are editorial semantics. `defined` says the id is in the vocabular
 | `clip.slip` | implemented_unqualified | `unique_id`, `delta_frames` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.smart_reframe` | implemented_unqualified | `unique_id`, `keys`, `before` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.split` | implemented_unqualified | `unique_id`, `at_frame` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
-| `clip.trim` | implemented_unqualified | `unique_id`, `in_frame`, `out_frame` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `clip.trim` | implemented_qualified | `unique_id`, `in_frame`, `out_frame` | yes | yes | yes | yes | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.unlink` | implemented_unqualified | `unique_id` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip_lut` | no_executor | `unique_id`, `lut` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip_marker.add` | implemented_unqualified | `unique_id`, `frame`, `color`, `name` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |

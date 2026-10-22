@@ -274,6 +274,11 @@ FAMILY_BLOCKERS = {
     # red since).
     "library.tools.resolve_project_open.ProjectOpenRefused":
         "resource_contention",
+    # AXI-015's family: the class declares the same blocker, and the
+    # refusal inventory counts a family as classified only when the
+    # taxonomy names it (the PERF-001 precedent directly above).
+    "library.tools.resolve_project_folders.ProjectFolderRefused":
+        "unsupported_operation",
     "library.tools.resolve_swapback.SwapbackRefused": "unsafe_state",
     "library.tools.resolve_watchdog.ResolveDegraded": "resource_contention",
     "library.tools.resolved.client.TestSpawnRefused": "unsafe_state",

@@ -102,68 +102,6 @@ def test_an_uninstrumented_project_switch_family_reads_as_unmeasured():
     assert resolve["project_switches_avoided"] is None
 
 
-def test_a_phase_longer_than_its_run_is_clamped(tmp_path):
-    """A phase cannot outlast the run that recorded it.
-
-    The phantom `otio_placement.fusion_comps_s` read 36 hours of a
-    phase that took under a minute: a start timestamp that was really
-    an elapsed average was subtracted from the monotonic clock, and both
-    `ren profile` and the critical path read it as engine time. The
-    run's own id carries the instant it started, so a phase longer than
-    the run is clamped - and the row says it was clamped.
-    """
-    from library.tools import run_id as run_ids
-
-    ledger = tmp_path / "perf.jsonl"
-    run = run_ids.mint_run_id()
-
-    with perf_ledger.recording(ledger, run, "reel_build"):
-        perf_ledger.record("otio_placement.fusion_comps_s", 131422.0)
-
-    rows = perf_ledger.read_rows(tmp_path, ledger)
-    row = next(r for r in rows
-               if r.get("layer") == "otio_placement.fusion_comps_s")
-    assert row["clamped_from_s"] == pytest.approx(131422.0)
-    assert row["wall_s"] < 5.0, "a phase cannot outlast its run"
-    assert row["wall_s"] < row["clamped_from_s"]
-
-
-def test_a_clamped_phase_is_not_rejudged_into_an_anomaly(
-        tmp_path, monkeypatch):
-    """A clamped write keeps the true claim; it is not an anomaly of
-    its own bound.
-
-    Defect caught: `record()` rounded the clamped wall UP past the run's
-    age by a fraction of a millisecond, and the write-path check then
-    read the clamped row as a second impossibility - rewriting it as an
-    anomaly whose "claim" was the clamped bound and LOSING the true
-    number `clamped_from_s` keeps. The written bound is floored to the
-    millisecond, so a clamped row can never re-fire the check, whatever
-    the clock does between the two reads.
-    """
-    import calendar
-    import time as time_module
-
-    stamp = "20261022T154527Z"
-    run = f"run-{stamp}-abcdef"
-    start = calendar.timegm(
-        time_module.strptime(stamp, "%Y%m%dT%H%M%SZ"))
-    # A run age whose millisecond rounding goes UP: the old code wrote
-    # 0.262 against an age of 0.2619 and re-fired the check.
-    monkeypatch.setattr(time_module, "time", lambda: start + 0.2619)
-
-    ledger = tmp_path / "perf.jsonl"
-    with perf_ledger.recording(ledger, run, "reel_build"):
-        perf_ledger.record("otio_placement.fusion_comps_s", 131422.0)
-
-    rows = perf_ledger.read_rows(tmp_path, ledger)
-    row = next(r for r in rows
-               if r.get("layer") == "otio_placement.fusion_comps_s")
-    assert row["kind"] == perf_ledger.SPAN
-    assert row["clamped_from_s"] == pytest.approx(131422.0)
-    assert row["wall_s"] == pytest.approx(0.261)
-
-
 def test_a_phase_inside_its_run_is_not_clamped(tmp_path):
     """The clamp touches the impossible, not the measured.
 

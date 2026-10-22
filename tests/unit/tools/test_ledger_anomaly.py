@@ -142,8 +142,14 @@ def test_recording_a_phase_longer_than_the_run_writes_an_anomaly(
 def test_a_measured_phase_within_the_run_is_written_as_a_duration(
         tmp_path, monkeypatch):
     """The clamp must not cost the engine a real measurement."""
+    import time
+
     path = tmp_path / "perf_ledger.jsonl"
-    run = run_identity.mint_run_id()
+    # Minted in the past, on purpose: the id carries its start truncated
+    # to the second, so a run minted "now" reads as up to a second old
+    # and a 0.25 s phase would race the fractional second. The test is
+    # about a phase WITHIN its run, so the run is unambiguously older.
+    run = run_identity.mint_run_id(now=time.time() - 30.0)
     monkeypatch.setenv(perf_ledger.LEDGER_ENV, str(path))
     monkeypatch.setenv(perf_ledger.RUN_ENV, run)
     monkeypatch.setenv(perf_ledger.CAPABILITY_ENV, "reel.build")

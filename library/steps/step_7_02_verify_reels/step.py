@@ -23,7 +23,6 @@ refuses what it cannot do, and calls that.
 """
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
@@ -855,7 +854,8 @@ def _declared_resolve_folder(project_folder: str) -> str:
         return ""
     try:
         import yaml
-        with open(os.path.join(project_folder, "project.yaml"),
+        from library.tools.project_layout import ProjectLayout as _Layout
+        with open(_Layout(project_folder).project_config_path,
                   "r", encoding="utf-8") as handle:
             config = yaml.safe_load(handle) or {}
         return str((config.get("resolve") or {}).get("folder") or "")

@@ -1628,6 +1628,18 @@ _REGISTRY: tuple[Operation, ...] = (
             "creative_direction",
             "timed_spine",
         ),
+        execution=ExecutionPolicy(phases=(
+            ExecutionPhase(
+                name="audio",
+                lock_sites=(
+                    "library.tools.audio_quality:ensure_measured",),
+                why="The candidate table's usable_speech leg is read "
+                    "from the audio lane, which this phase measures for "
+                    "the sources it offers (bounded: 8 sources, 1800 s of "
+                    "source each, 900 s of measuring) and files in the "
+                    "source memory; admission is by live OS memory "
+                    "headroom, not a static CPU/RAM/disk budget."),
+        )),
         # The deterministic half of a hybrid step: the cutaway SELECTION
         # stays the model's answer (supplied as overrides, or run
         # `select_broll` so the runner asks the model for it) and this

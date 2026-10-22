@@ -334,7 +334,7 @@ def ensure_measured(source_file: str, *, root: Path | None = None,
             return {"status": "already_measured", "reason": None,
                     "record": stored}
     try:
-        with heavy_work_lock("vep-audio-quality"):
+        with heavy_work_lock("vep-audio-quality", "broll.resolve:audio"):
             record = measure_audio_quality(source_file, root=root, force=force)
     except ValueError as exc:
         # No audio stream in the file, or a channel count that cannot be

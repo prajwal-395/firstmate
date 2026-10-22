@@ -60,14 +60,22 @@
       "measurement": "ordinary_request_acceptance",
       "task_set": "move_lower_third,resize_logo,add_logo_five_seconds,trim_pause,replace_graphic,restyle_captions,remove_broll,insert_relevant_broll,right_speaker_camera,improve_opening"
     },
-    "source_commit": "f6e8d6cb49df602d1bfd361af2fa92f8f61096ae",
+    "source_commit": "c73f25d44e7f94a92ad6509fbad1c1f9435254ed",
     "supersedes": [
       {
         "evaluation_schema": "ren-editorial-acceptance/2",
         "run_timestamp": "not_recorded",
         "source_commit": "53a22521f31cc25c30231ff2460be06857f37e33"
       }
-    ]
+    ],
+    "reconciliation": {
+      "denominator": "10 typed requests",
+      "how_to_read_the_two": "both are live-qualification runs of the same ten requests in different environments; the newer one does not silently replace the older one",
+      "result": "7 of 10 passed",
+      "the_older_measurement_of_the_same_measurement": "tests/live/reports/editorial-request-acceptance-2026-10-20.json (1 of 10, the qualification fixture could not be seeded)",
+      "what_this_file_measures": "the ten ordinary typed requests at evaluation level 2, run on 2026-10-22 with the qualification fixture seeded",
+      "why_the_failures_are_not_capability_failures": "2 of the 3 failing rows are missing_evidence: the fixture batch could not construct its touch-up case (reel_touchup has no TOUCH_OPS), so they measure the fixture, not the backend; the third (trim_pause) is a fail-closed refusal at the recorded qualification boundary, not a backend error"
+    }
   },
   "reliability_metrics": {
     "latency_seconds": {
