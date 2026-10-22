@@ -1703,7 +1703,10 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_dir="step_3_04_select_reels", body="post_bridge.py",
         attr="resolve",
         produces=("reel_selection",),
-        consumes=("timeline_transcript",),
+        # `clip_catalog` is bridge-only evidence (the world-attribution
+        # read verifies candidate spans against it); it never reaches
+        # the prompt, so the model's context is unchanged.
+        consumes=("timeline_transcript", "clip_catalog"),
     ),
     Operation(
         name="reel.reading_context",

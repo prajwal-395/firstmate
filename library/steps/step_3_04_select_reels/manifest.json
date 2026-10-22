@@ -13,6 +13,12 @@
         "description": "What the cut SAYS, per speaker, in timeline time - library/tools/timeline_transcript.py."
       },
       {
+        "name": "clip_catalog",
+        "type": "array",
+        "required": false,
+        "description": "The clip catalog (clip_id, source_file, duration_seconds), routed by the catalog -> select_reels edge. Bridge-only: the world-attribution read (library/tools/reel_world_attribution.py) verifies each candidate's source spans against it before asking the source memory, and resolves transcript source files to content digests. Never projected into the prompt (absent from context_fields), so the model's context is unchanged; absent on runs that never catalogued, and the attribution then reports skipped with the reason."
+      },
+      {
         "name": "creative_direction",
         "type": "object",
         "required": false,

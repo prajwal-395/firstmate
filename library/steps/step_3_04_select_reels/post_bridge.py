@@ -363,6 +363,29 @@ def resolve(llm_output: dict, data: dict) -> dict:
     where = (f" The FULL transcript these were chosen from is at: "
              f"{transcript_path(project_folder)}." if project_folder else "")
 
+    # VI-013b: the plan asks the world narrow speaker questions. The
+    # selection above is already published; this is report-only - it
+    # never edits a moment, never drops one, never refuses. The world
+    # answers "who speaks in these source seconds" per candidate off
+    # the canonical records (M1/M7) at native timing instead of loading
+    # the whole per-second view, and the agreement with the plan's own
+    # attribution is filed in the review area beside the selection. A
+    # failure here is a missing report, never a missing selection.
+    try:
+        from library.tools import reel_world_attribution as _rwa
+        world_report_path = _rwa.attribute_and_write(
+            data.get("reel_candidates") or [],
+            transcript,
+            project_folder,
+            data.get("clip_catalog"),
+            selection=moments,
+        )
+        if world_report_path:
+            print(f"  World attribution: {world_report_path}",
+                  file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001 - evidence never breaks selection
+        print(f"  World attribution skipped: {exc}", file=sys.stderr)
+
     return {
         "reel_selection": _respelt_selection({
             "moments": [m.as_dict() for m in moments],

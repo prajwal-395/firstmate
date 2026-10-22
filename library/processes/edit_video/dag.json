@@ -540,6 +540,13 @@
       }
     },
     {
+      "from": "catalog",
+      "to": "select_reels",
+      "data_mapping": {
+        "clip_catalog": "clip_catalog"
+      }
+    },
+    {
       "from": "select_reels",
       "to": "judge_reels",
       "data_mapping": {

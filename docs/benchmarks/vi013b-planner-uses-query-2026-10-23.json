@@ -1,0 +1,801 @@
+{
+  "project": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-l3wave",
+  "memory_root": "/tmp/fm-vi013b/memory",
+  "candidates_asked": 37,
+  "plan_digest": "5c7eb5926bb8c74ad69beca5a4ba40f2c6023e5fa24ea928598124a8843d2fd5",
+  "answers_identical": "32/37",
+  "regressions": "0/37",
+  "improved": [
+    4
+  ],
+  "whole_view_set_matches_plan": "36/37",
+  "wired_set_matches_plan": "37/37",
+  "whole_view_bytes_per_call": 81172700,
+  "query_bytes_per_call": 28666,
+  "whole_view_bytes_total": 3003389922,
+  "query_bytes_total": 1060670,
+  "tokenizer": [
+    "utf8_bytes",
+    "o200k_base"
+  ],
+  "rows": [
+    {
+      "candidate": 1,
+      "plan_share": {
+        "Akshita": 0.414,
+        "Craig": 0.551
+      },
+      "whole_view_share": {
+        "Craig": 0.5681,
+        "Akshita": 0.4319
+      },
+      "wired_share": {
+        "Craig": 0.5681,
+        "Akshita": 0.4319
+      },
+      "whole_view_share_diff": 0.0175,
+      "wired_share_diff": 0.0175,
+      "answers_identical": true,
+      "whole_view_set_matches_plan": true,
+      "wired_set_matches_plan": true,
+      "regression": false
+    },
+    {
+      "candidate": 2,
+      "plan_share": {
+        "Akshita": 0.517,
+        "Craig": 0.453
+      },
+      "whole_view_share": {
+        "Craig": 0.4716,
+        "Akshita": 0.5284
+      },
+      "wired_share": {
+        "Craig": 0.4716,
+        "Akshita": 0.5284
+      },
+      "whole_view_share_diff": 0.015,
+      "wired_share_diff": 0.015,
+      "answers_identical": true,
+      "whole_view_set_matches_plan": true,
+      "wired_set_matches_plan": true,
+      "regression": false
+    },
+    {
+      "candidate": 3,
+      "plan_share": {
+        "Akshita": 0.603,
+        "Craig": 0.347
+      },
+      "whole_view_share": {
+        "Craig": 0.362,
+        "Akshita": 0.638
+      },
+      "wired_share": {
+        "Craig": 0.362,
+        "Akshita": 0.638
+      },
+      "whole_view_share_diff": 0.025,
+      "wired_share_diff": 0.025,
+      "answers_identical": true,
+      "whole_view_set_matches_plan": true,
+      "wired_set_matches_plan": true,
+      "regression": false
+    },
+    {
+      "candidate": 4,
+      "plan_share": {
+        "Akshita": 0.056,
+        "Craig": 0.914
+      },
+      "whole_view_share": {
+        "Craig": 1.0
+      },
+      "wired_share": {
+        "Craig": 0.9327,
+        "Akshita": 0.0673
+      },
+      "whole_view_share_diff": 0.071,
+      "wired_share_diff": 0.015,
+      "answers_identical": false,
+      "whole_view_set_matches_plan": false,
+      "wired_set_matches_plan": true,
+      "regression": false
+    },
+    {
+      "candidate": 5,
+      "plan_share": {
+        "Akshita": 0.578,
+        "Craig": 0.333
+      },
+      "whole_view_share": {
+        "Akshita": 0.7691,
+        "Craig": 0.2309
+      },
+      "wired_share": {
+        "Craig": 0.2309,
+        "Akshita": 0.7691
+      },
+      "whole_view_share_diff": 0.1466,
+      "wired_share_diff": 0.1466,
+      "answers_identical": true,
+      "whole_view_set_matches_plan": true,
+      "wired_set_matches_plan": true,
+      "regression": false
+    },
+    {
+      "candidate": 6,
+      "plan_share": {
+        "Akshita": 0.253,
+        "Craig": 0.724
+      },
+      "whole_view_share": {
+        "Craig": 0.7153,
+        "Akshita": 0.2847
+      },
+      "wired_share": {
+        "Craig": 0.7153,
+        "Akshita": 0.2847
+      },
+      "whole_view_share_diff": 0.0202,
+      "wired_share_diff": 0.0202,
+      "answers_identical": true,
+      "whole_view_set_matches_plan": true,
+      "wired_set_matches_plan": true,
+      "regression": false
+    },
+    {
+      "candidate": 7,
+      "plan_share": {
+        "Akshita": 0.747,
+        "Craig": 0.241
+      },
+      "whole_view_share": {
+        "Craig": 0.2331,
+        "Akshita": 0.7669
+      },
+      "wired_share": {
+        "Craig": 0.2331,
+        "Akshita": 0.7669
+      },
+      "whole_view_share_diff": 0.0139,
+      "wired_share_diff": 0.0139,
+      "answers_identical": true,
+      "whole_view_set_matches_plan": true,
+      "wired_set_matches_plan": true,
+      "regression": false
+    },
+    {
+      "candidate": 8,
+      "plan_share": {
+        "Akshita": 0.586,
+        "Craig": 0.386
+      },
+      "whole_view_share": {
+        "Craig": 0.3477,
+        "Akshita": 0.6523
+      },
+      "wired_share": {
+        "Craig": 0.3477,
+        "Akshita": 0.6523
+      },
+      "whole_view_share_diff": 0.0523,
+      "wired_share_diff": 0.0523,
+      "answers_identical": true,
+      "whole_view_set_matches_plan": true,
+      "wired_set_matches_plan": true,
+      "regression": false
+    },
+    {
+      "candidate": 9,
+      "plan_share": {
+        "Akshita": 0.599,
+        "Craig": 0.364
+      },
+      "whole_view_share": {
+        "Craig": 0.3573,
+        "Akshita": 0.6427
+      },
+      "wired_share": {
+        "Craig": 0.3573,
+        "Akshita": 0.6427
+      },
+      "whole_view_share_diff": 0.0252,
+      "wired_share_diff": 0.0252,
+      "answers_identical": true,
+      "whole_view_set_matches_plan": true,
+      "wired_set_matches_plan": true,
+      "regression": false
+    },
+    {
+      "candidate": 10,
+      "plan_share": {
+        "Akshita": 0.687,
+        "Craig": 0.309
+      },
+      "whole_view_share": {
+        "Craig": 0.26,
+        "Akshita": 0.74
+      },
+      "wired_share": {
+        "Craig": 0.26,
+        "Akshita": 0.74
+      },
+      "whole_view_share_diff": 0.051,
+      "wired_share_diff": 0.051,
+      "answers_identical": true,
+      "whole_view_set_matches_plan": true,
+      "wired_set_matches_plan": true,
+      "regression": false
+    },
+    {
+      "candidate": 11,
+      "plan_share": {
+        "Akshita": 0.414,
+        "Craig": 0.565
+      },
+      "whole_view_share": {
+        "Craig": 0.5462,
+        "Akshita": 0.4538
+      },
+      "wired_share": {
+        "Craig": 0.5636,
+        "Akshita": 0.4364
+      },
+      "whole_view_share_diff": 0.0293,
+      "wired_share_diff": 0.0119,
+      "answers_identical": false,
+      "whole_view_set_matches_plan": true,
+      "wired_set_matches_plan": true,
+      "regression": false
+    },
+    {
+      "candidate": 12,
+      "plan_share": {
+        "Akshita": 0.438,
+        "Craig": 0.527
+      },
+      "whole_view_share": {
+        "Craig": 0.4523,
+        "Akshita": 0.5477
+      },
+      "wired_share": {
+        "Craig": 0.5465,
+        "Akshita": 0.4535
+      },
+      "whole_view_share_diff": 0.0922,
+      "wired_share_diff": 0.0175,
+      "answers_identical": false,
+      "whole_view_set_matches_plan": true,
+      "wired_set_matches_plan": true,
+      "regression": false
+    },
+    {
+      "candidate": 13,
+      "plan_share": {
+        "Akshita": 0.602,
+        "Craig": 0.392
+      },
+      "whole_view_share": {
+        "Craig": 0.3862,
+        "Akshita": 0.6138
+      },
+      "wired_share": {
+        "Craig": 0.3862,
+        "Akshita": 0.6138
+      },
+      "whole_view_share_diff": 0.0088,
+      "wired_share_diff": 0.0088,
+      "answers_identical": true,
+      "whole_view_set_matches_plan": true,
+      "wired_set_matches_plan": true,
+      "regression": false
+    },
+    {
+      "candidate": 14,
+      "plan_share": {
+        "Akshita": 0.699,
+        "Craig": 0.266
+      },
+      "whole_view_share": {
+        "Craig": 0.1311,
+        "Akshita": 0.8689
+      },
+      "wired_share": {
+        "Craig": 0.2512,
+        "Akshita": 0.7488
+      },
+      "whole_view_share_diff": 0.1524,
+      "wired_share_diff": 0.0323,
+      "answers_identical": false,
+      "whole_view_set_matches_plan": true,
+      "wired_set_matches_plan": true,
+      "regression": false
+    },
+    {
+      "candidate": 15,
+      "plan_share": {
+        "Akshita": 0.107,
+        "Craig": 0.889
+      },
+      "whole_view_share": {
+        "Craig": 0.8949,
+        "Akshita": 0.1051
+      },
+      "wired_share": {
+        "Craig": 0.8949,
+        "Akshita": 0.1051
+      },
+      "whole_view_share_diff": 0.0039,
+      "wired_share_diff": 0.0039,
+      "answers_identical": true,
+      "whole_view_set_matches_plan": true,
+      "wired_set_matches_plan": true,
+      "regression": false
+    },
+    {
+      "candidate": 16,
+      "plan_share": {
+        "Akshita": 0.777,
+        "Craig": 0.215
+      },
+      "whole_view_share": {
+        "Craig": 0.1983,
+        "Akshita": 0.8017
+      },
+      "wired_share": {
+        "Craig": 0.1983,
+        "Akshita": 0.8017
+      },
+      "whole_view_share_diff": 0.0207,
+      "wired_share_diff": 0.0207,
+      "answers_identical": true,
+      "whole_view_set_matches_plan": true,
+      "wired_set_matches_plan": true,
+      "regression": false
+    },
+    {
+      "candidate": 17,
+      "plan_share": {
+        "Akshita": 0.819,
+        "Craig": 0.169
+      },
+      "whole_view_share": {
+        "Craig": 0.0986,
+        "Akshita": 0.9014
+      },
+      "wired_share": {
+        "Craig": 0.0986,
+        "Akshita": 0.9014
+      },
+      "whole_view_share_diff": 0.0764,
+      "wired_share_diff": 0.0764,
+      "answers_identical": true,
+      "whole_view_set_matches_plan": true,
+      "wired_set_matches_plan": true,
+      "regression": false
+    },
+    {
+      "candidate": 18,
+      "plan_share": {
+        "Akshita": 0.79,
+        "Craig": 0.181
+      },
+      "whole_view_share": {
+        "Craig": 0.1827,
+        "Akshita": 0.8173
+      },
+      "wired_share": {
+        "Craig": 0.1827,
+        "Akshita": 0.8173
+      },
+      "whole_view_share_diff": 0.0145,
+      "wired_share_diff": 0.0145,
+      "answers_identical": true,
+      "whole_view_set_matches_plan": true,
+      "wired_set_matches_plan": true,
+      "regression": false
+    },
+    {
+      "candidate": 19,
+      "plan_share": {
+        "Akshita": 0.786,
+        "Craig": 0.392
+      },
+      "whole_view_share": {
+        "Craig": 0.2099,
+        "Akshita": 0.7901
+      },
+      "wired_share": {
+        "Craig": 0.2099,
+        "Akshita": 0.7901
+      },
+      "whole_view_share_diff": 0.0931,
+      "wired_share_diff": 0.0931,
+      "answers_identical": true,
+      "whole_view_set_matches_plan": true,
+      "wired_set_matches_plan": true,
+      "regression": false
+    },
+    {
+      "candidate": 20,
+      "plan_share": {
+        "Akshita": 0.856,
+        "Craig": 0.133
+      },
+      "whole_view_share": {
+        "Craig": 0.0814,
+        "Akshita": 0.9186
+      },
+      "wired_share": {
+        "Craig": 0.0814,
+        "Akshita": 0.9186
+      },
+      "whole_view_share_diff": 0.0571,
+      "wired_share_diff": 0.0571,
+      "answers_identical": true,
+      "whole_view_set_matches_plan": true,
+      "wired_set_matches_plan": true,
+      "regression": false
+    },
+    {
+      "candidate": 21,
+      "plan_share": {
+        "Akshita": 0.593,
+        "Craig": 0.181
+      },
+      "whole_view_share": {
+        "Craig": 0.3255,
+        "Akshita": 0.6745
+      },
+      "wired_share": {
+        "Craig": 0.3255,
+        "Akshita": 0.6745
+      },
+      "whole_view_share_diff": 0.113,
+      "wired_share_diff": 0.113,
+      "answers_identical": true,
+      "whole_view_set_matches_plan": true,
+      "wired_set_matches_plan": true,
+      "regression": false
+    },
+    {
+      "candidate": 22,
+      "plan_share": {
+        "Akshita": 0.618,
+        "Craig": 0.371
+      },
+      "whole_view_share": {
+        "Craig": 0.3138,
+        "Akshita": 0.6862
+      },
+      "wired_share": {
+        "Craig": 0.3138,
+        "Akshita": 0.6862
+      },
+      "whole_view_share_diff": 0.0627,
+      "wired_share_diff": 0.0627,
+      "answers_identical": true,
+      "whole_view_set_matches_plan": true,
+      "wired_set_matches_plan": true,
+      "regression": false
+    },
+    {
+      "candidate": 23,
+      "plan_share": {
+        "Akshita": 0.907,
+        "Craig": 0.084
+      },
+      "whole_view_share": {
+        "Craig": 0.0591,
+        "Akshita": 0.9409
+      },
+      "wired_share": {
+        "Craig": 0.0591,
+        "Akshita": 0.9409
+      },
+      "whole_view_share_diff": 0.0294,
+      "wired_share_diff": 0.0294,
+      "answers_identical": true,
+      "whole_view_set_matches_plan": true,
+      "wired_set_matches_plan": true,
+      "regression": false
+    },
+    {
+      "candidate": 24,
+      "plan_share": {
+        "Akshita": 0.734,
+        "Craig": 0.261
+      },
+      "whole_view_share": {
+        "Craig": 0.1756,
+        "Akshita": 0.8244
+      },
+      "wired_share": {
+        "Craig": 0.1756,
+        "Akshita": 0.8244
+      },
+      "whole_view_share_diff": 0.0879,
+      "wired_share_diff": 0.0879,
+      "answers_identical": true,
+      "whole_view_set_matches_plan": true,
+      "wired_set_matches_plan": true,
+      "regression": false
+    },
+    {
+      "candidate": 25,
+      "plan_share": {
+        "Akshita": 0.54,
+        "Craig": 0.441
+      },
+      "whole_view_share": {
+        "Craig": 0.1129,
+        "Akshita": 0.8871
+      },
+      "wired_share": {
+        "Craig": 0.1562,
+        "Akshita": 0.8438
+      },
+      "whole_view_share_diff": 0.3376,
+      "wired_share_diff": 0.2943,
+      "answers_identical": false,
+      "whole_view_set_matches_plan": true,
+      "wired_set_matches_plan": true,
+      "regression": false
+    },
+    {
+      "candidate": 26,
+      "plan_share": {
+        "Akshita": 0.81,
+        "Craig": 0.366
+      },
+      "whole_view_share": {
+        "Akshita": 0.8976,
+        "Craig": 0.1024
+      },
+      "wired_share": {
+        "Akshita": 0.8976,
+        "Craig": 0.1024
+      },
+      "whole_view_share_diff": 0.1756,
+      "wired_share_diff": 0.1756,
+      "answers_identical": true,
+      "whole_view_set_matches_plan": true,
+      "wired_set_matches_plan": true,
+      "regression": false
+    },
+    {
+      "candidate": 27,
+      "plan_share": {
+        "Akshita": 0.773,
+        "Craig": 0.212
+      },
+      "whole_view_share": {
+        "Craig": 0.1236,
+        "Akshita": 0.8764
+      },
+      "wired_share": {
+        "Craig": 0.1236,
+        "Akshita": 0.8764
+      },
+      "whole_view_share_diff": 0.0959,
+      "wired_share_diff": 0.0959,
+      "answers_identical": true,
+      "whole_view_set_matches_plan": true,
+      "wired_set_matches_plan": true,
+      "regression": false
+    },
+    {
+      "candidate": 28,
+      "plan_share": {
+        "Akshita": 0.441,
+        "Craig": 0.549
+      },
+      "whole_view_share": {
+        "Craig": 0.4921,
+        "Akshita": 0.5079
+      },
+      "wired_share": {
+        "Craig": 0.4921,
+        "Akshita": 0.5079
+      },
+      "whole_view_share_diff": 0.0619,
+      "wired_share_diff": 0.0619,
+      "answers_identical": true,
+      "whole_view_set_matches_plan": true,
+      "wired_set_matches_plan": true,
+      "regression": false
+    },
+    {
+      "candidate": 29,
+      "plan_share": {
+        "Akshita": 0.813,
+        "Craig": 0.179
+      },
+      "whole_view_share": {
+        "Craig": 0.1709,
+        "Akshita": 0.8291
+      },
+      "wired_share": {
+        "Craig": 0.1709,
+        "Akshita": 0.8291
+      },
+      "whole_view_share_diff": 0.0121,
+      "wired_share_diff": 0.0121,
+      "answers_identical": true,
+      "whole_view_set_matches_plan": true,
+      "wired_set_matches_plan": true,
+      "regression": false
+    },
+    {
+      "candidate": 30,
+      "plan_share": {
+        "Akshita": 0.849,
+        "Craig": 0.141
+      },
+      "whole_view_share": {
+        "Craig": 0.1244,
+        "Akshita": 0.8756
+      },
+      "wired_share": {
+        "Craig": 0.1244,
+        "Akshita": 0.8756
+      },
+      "whole_view_share_diff": 0.0216,
+      "wired_share_diff": 0.0216,
+      "answers_identical": true,
+      "whole_view_set_matches_plan": true,
+      "wired_set_matches_plan": true,
+      "regression": false
+    },
+    {
+      "candidate": 31,
+      "plan_share": {
+        "Akshita": 0.749,
+        "Craig": 0.179
+      },
+      "whole_view_share": {
+        "Craig": 0.0265,
+        "Akshita": 0.9735
+      },
+      "wired_share": {
+        "Craig": 0.0265,
+        "Akshita": 0.9735
+      },
+      "whole_view_share_diff": 0.1885,
+      "wired_share_diff": 0.1885,
+      "answers_identical": true,
+      "whole_view_set_matches_plan": true,
+      "wired_set_matches_plan": true,
+      "regression": false
+    },
+    {
+      "candidate": 32,
+      "plan_share": {
+        "Akshita": 0.847,
+        "Craig": 0.137
+      },
+      "whole_view_share": {
+        "Craig": 0.1319,
+        "Akshita": 0.8681
+      },
+      "wired_share": {
+        "Craig": 0.1319,
+        "Akshita": 0.8681
+      },
+      "whole_view_share_diff": 0.0131,
+      "wired_share_diff": 0.0131,
+      "answers_identical": true,
+      "whole_view_set_matches_plan": true,
+      "wired_set_matches_plan": true,
+      "regression": false
+    },
+    {
+      "candidate": 33,
+      "plan_share": {
+        "Akshita": 0.847,
+        "Craig": 0.146
+      },
+      "whole_view_share": {
+        "Craig": 0.0659,
+        "Akshita": 0.9341
+      },
+      "wired_share": {
+        "Craig": 0.0659,
+        "Akshita": 0.9341
+      },
+      "whole_view_share_diff": 0.0836,
+      "wired_share_diff": 0.0836,
+      "answers_identical": true,
+      "whole_view_set_matches_plan": true,
+      "wired_set_matches_plan": true,
+      "regression": false
+    },
+    {
+      "candidate": 34,
+      "plan_share": {
+        "Akshita": 0.47,
+        "Craig": 0.523
+      },
+      "whole_view_share": {
+        "Craig": 0.4348,
+        "Akshita": 0.5652
+      },
+      "wired_share": {
+        "Craig": 0.4348,
+        "Akshita": 0.5652
+      },
+      "whole_view_share_diff": 0.0917,
+      "wired_share_diff": 0.0917,
+      "answers_identical": true,
+      "whole_view_set_matches_plan": true,
+      "wired_set_matches_plan": true,
+      "regression": false
+    },
+    {
+      "candidate": 35,
+      "plan_share": {
+        "Akshita": 0.652,
+        "Craig": 0.335
+      },
+      "whole_view_share": {
+        "Craig": 0.3105,
+        "Akshita": 0.6895
+      },
+      "wired_share": {
+        "Craig": 0.3105,
+        "Akshita": 0.6895
+      },
+      "whole_view_share_diff": 0.031,
+      "wired_share_diff": 0.031,
+      "answers_identical": true,
+      "whole_view_set_matches_plan": true,
+      "wired_set_matches_plan": true,
+      "regression": false
+    },
+    {
+      "candidate": 36,
+      "plan_share": {
+        "Akshita": 0.658,
+        "Craig": 0.258
+      },
+      "whole_view_share": {
+        "Craig": 0.2096,
+        "Akshita": 0.7904
+      },
+      "wired_share": {
+        "Craig": 0.2096,
+        "Akshita": 0.7904
+      },
+      "whole_view_share_diff": 0.0904,
+      "wired_share_diff": 0.0904,
+      "answers_identical": true,
+      "whole_view_set_matches_plan": true,
+      "wired_set_matches_plan": true,
+      "regression": false
+    },
+    {
+      "candidate": 37,
+      "plan_share": {
+        "Akshita": 0.791,
+        "Craig": 0.196
+      },
+      "whole_view_share": {
+        "Craig": 0.1213,
+        "Akshita": 0.8787
+      },
+      "wired_share": {
+        "Craig": 0.1213,
+        "Akshita": 0.8787
+      },
+      "whole_view_share_diff": 0.0812,
+      "wired_share_diff": 0.0812,
+      "answers_identical": true,
+      "whole_view_set_matches_plan": true,
+      "wired_set_matches_plan": true,
+      "regression": false
+    }
+  ],
+  "whole_view_o200k_per_call": 28609326,
+  "query_o200k_per_call": 9739
+}
