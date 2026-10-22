@@ -31,7 +31,8 @@ from library.tools import footage_analysis, memory_export, person_measurements
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-SEARCH_MODULES = ("footage_query", "footage_segments", "footage_frames")
+SEARCH_MODULES = ("footage_query", "footage_segments", "footage_frames",
+                  "frame_embedding_cache")
 
 
 # ─── A project on disk, built from nothing ────────────────────────
@@ -1246,11 +1247,33 @@ def stub_clip(monkeypatch):
         return encode_images, encode_text, "test-stub"
 
     monkeypatch.setattr(footage_frames, "_load_clip", fake_loader)
+    # The reuse pin needs no processor on a full hit; on a miss the
+    # build verifies the live recipe off one.  These tests stub the
+    # model, so they stub the processor too - no weights, no torch
+    # import, and the verification itself is pinned in
+    # `test_frame_embedding_cache.py` against a hand-built processor.
+    monkeypatch.setattr(footage_frames, "_load_processor",
+                        lambda: (None, "test stubs the model"))
     return calls
 
 
+def _real_frame_files(tmp_path, frame_times):
+    """Real frame files for a stubbed M2 sample, under `tmp_path`.
+
+    The reuse identities hash the decoded bytes, so phantom paths
+    build nothing: every stubbed frame needs bytes behind it."""
+    frame_files: dict = {}
+    for clip_id, times in frame_times.items():
+        for index, stamp in enumerate(times):
+            path = tmp_path / "m2" / clip_id / f"frame_{index:06d}.jpg"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(f"{clip_id}|{stamp}".encode("utf-8"))
+            frame_files[(clip_id, index)] = str(path)
+    return frame_files
+
+
 @pytest.fixture
-def stub_m2(monkeypatch):
+def stub_m2(tmp_path, monkeypatch):
     """M2 frame samples with no ffmpeg or `source_memory` store: clip_001
     at t=0/10/20/100, other_002 at t=5 - the per-clip digest IS the clip
     id here, so each clip reads its own fake record.  These are the same
@@ -1258,6 +1281,7 @@ def stub_m2(monkeypatch):
     tests still exercise the arithmetic they were written for."""
     frame_times = {"clip_001": [0.0, 10.0, 20.0, 100.0],
                   "other_002": [5.0]}
+    frame_files = _real_frame_files(tmp_path, frame_times)
 
     def fake_digest_for_clip(project_folder, clip, recorded=None):
         return clip["clip_id"], "live"
@@ -1269,7 +1293,7 @@ def stub_m2(monkeypatch):
         return {
             "content_digest": content_digest,
             "frame_count": len(times),
-            "frames": [{"file": f"frames/frame_{i:06d}.jpg", "t": t}
+            "frames": [{"file": frame_files[(content_digest, i)], "t": t}
                       for i, t in enumerate(times)],
         }
 
@@ -1277,7 +1301,7 @@ def stub_m2(monkeypatch):
         return True
 
     def fake_frame_abspath(content_digest, frame, root=None):
-        return f"/memory/{content_digest}/{frame['file']}"
+        return frame["file"]
 
     monkeypatch.setattr(footage_frames.source_memory, "digest_for_clip",
                         fake_digest_for_clip)
@@ -3395,12 +3419,13 @@ def test_a_sound_lane_that_never_ran_does_not_confirm_anything(
 
 
 @pytest.fixture
-def dense_m2(monkeypatch):
+def dense_m2(tmp_path, monkeypatch):
     """M2 frame samples dense enough for the dense tier to add frames:
     every 2 s, so a dense window holds off-grid samples the 10 s grid
     does not."""
     frame_times = {"clip_001": [float(t) for t in range(0, 120, 2)],
                    "other_002": [float(t) for t in range(0, 60, 2)]}
+    frame_files = _real_frame_files(tmp_path, frame_times)
 
     def fake_digest_for_clip(project_folder, clip, recorded=None):
         return clip["clip_id"], "live"
@@ -3413,7 +3438,7 @@ def dense_m2(monkeypatch):
             "content_digest": content_digest,
             "frame_count": len(times),
             "timebase": {"fps": 2.0},
-            "frames": [{"file": f"frames/frame_{i:06d}.jpg", "t": t,
+            "frames": [{"file": frame_files[(content_digest, i)], "t": t,
                         "frame_index": i} for i, t in enumerate(times)],
         }
 
@@ -3421,7 +3446,7 @@ def dense_m2(monkeypatch):
         return True
 
     def fake_frame_abspath(content_digest, frame, root=None):
-        return f"/memory/{content_digest}/{frame['file']}"
+        return frame["file"]
 
     monkeypatch.setattr(footage_frames.source_memory, "digest_for_clip",
                         fake_digest_for_clip)

@@ -100,11 +100,14 @@ import json
 import os
 import re
 import sys
+import tempfile
 import time
 from pathlib import Path
 
 from library.tools import fidelity
+from library.tools import resource_scheduler
 from library.tools.ren_refusal import RenRefusal
+from library.tools.heavy_work_lock import heavy_work_lock
 
 import numpy as np
 
@@ -113,9 +116,18 @@ if __package__ in (None, ""):  # direct `python3 footage_frames.py`
 
 from library.tools import source_memory
 from library.tools.analysis import footage_segments
+from library.tools.analysis import frame_embedding_cache
 from library.tools.analysis.footage_query import INDEX_SUBDIR
 
-CLIP_MODEL = "openai/clip-vit-large-patch14"
+#: What answers.  Owned by `frame_embedding_cache` - the reuse key names
+#: the model, so the name lives there and this stays as the loader's
+#: address of that same model.
+CLIP_MODEL = frame_embedding_cache.MODEL_ID
+
+#: The backend name a successful load reports.  The full-hit path was
+#: built without loading anything, so it reads this back out of the
+#: cache provenance instead of loading the model to ask it.
+CLIP_BACKEND = "clip-vit-large-patch14"
 
 # Sampling geometry for CLIP embedding, as measured in the eval: 1 frame
 # per 10 s embeds at ~172 ms/frame CPU batched, so a full 82-minute
@@ -399,6 +411,24 @@ def _pooled_clip_features(feats):
     return tensor / tensor.norm(p=2, dim=-1, keepdim=True)
 
 
+def _load_processor():
+    """The CLIP processor alone (configs, no weights) or ``(None, reason)``.
+
+    The build path measures the live preprocessing recipe off this on
+    the encode path, where it is verified against the pin before
+    anything is filed.  The wanted key itself needs no processor at
+    all (it is built from the pin), so full-hit rebuilds never load
+    even this.  Imports live
+    inside so merely importing this module never drags torch in.
+    """
+    try:
+        from transformers import CLIPProcessor
+
+        return CLIPProcessor.from_pretrained(CLIP_MODEL, local_files_only=True), CLIP_MODEL
+    except Exception as exc:  # noqa: BLE001 - import or cache failure
+        return None, f"no CLIP processor ({type(exc).__name__}: {exc})"
+
+
 def _load_clip():
     """Return ``(encode_images, encode_text, backend)`` or ``(None, None, reason)``.
 
@@ -432,7 +462,7 @@ def _load_clip():
                 feats = _pooled_clip_features(model.get_text_features(**inputs))
                 return feats.cpu().numpy().astype("float32")
 
-        return encode_images, encode_text, "clip-vit-large-patch14"
+        return encode_images, encode_text, CLIP_BACKEND
     except Exception as exc:  # noqa: BLE001 - import, cache or load failure
         return None, None, f"no CLIP available ({type(exc).__name__}: {exc})"
 
@@ -542,6 +572,170 @@ def _selection_for(frame_t: float, grid_keys: set, plan) -> tuple:
     return "dense", evidence
 
 
+#: How many times a refused model admission is retried before the
+#: build gives up.  A refusal means the machine cannot host the
+#: weights right now - usually another lane holding the grant - so
+#: the build waits and retries rather than reporting blocked; a wait
+#: for the grant itself is unbounded inside the lock.
+_ADMISSION_RETRIES = 10
+_ADMISSION_BACKOFF_S = 60.0
+
+
+def _atomic_write(path: Path, write) -> None:
+    """Run ``write(stream)`` onto a temp file, then rename it over ``path``.
+
+    A build killed mid-write leaves the previous generation (or
+    nothing), never half a matrix or half a document: the next build
+    re-encodes what is missing, which is the whole of interrupted-
+    build recovery.  Same pattern `frame_embedding_cache.store` uses
+    for the per-source generations.
+    """
+    path = Path(path)
+    handle, tmp = tempfile.mkstemp(dir=str(path.parent),
+                                   prefix=path.name, suffix=".tmp")
+    try:
+        with os.fdopen(handle, "wb") as stream:
+            write(stream)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _embed_selected(frames: list, frame_digests: list, read_root,
+                    m2_by_digest: dict | None = None) -> tuple:
+    """The project matrix, from cached plus fresh embeddings.
+
+    Returns ``(matrix, dimension, backend, reuse)``.  Each selected
+    frame's identity (timestamp, source frame index, content hash) is
+    looked up in its source's filed generation; only the identities
+    no generation holds reach the encoder, inside the heavy-work
+    grant, and the fresh rows are filed beside their source's sample
+    - pruned to what its current sample still holds - before the
+    matrix is assembled in selection order.  A rebuild
+    with nothing new about it encodes nothing and writes no cache
+    file; a build with one new clip encodes that clip's frames.
+
+    ``reuse`` reports ``frames_reused`` (cache hits),
+    ``frames_embedded`` (fresh encodes), ``embed_seconds`` (encoder
+    wall time), and ``invalidated`` (digests whose stored generation
+    could not be used, each with the key components that moved).
+    """
+    reuse: dict = {"frames_reused": 0, "frames_embedded": 0,
+                    "embed_seconds": 0.0, "invalidated": []}
+    if not frames:
+        return None, 0, None, reuse
+    revision = frame_embedding_cache.model_revision()
+    cached: dict = {}
+    for digest in dict.fromkeys(frame_digests):
+        wanted = frame_embedding_cache.wanted_key(digest, revision=revision)
+        state = frame_embedding_cache.load(read_root, digest, wanted)
+        cached[digest] = (wanted, state)
+        if state["status"] in ("stale-key", "corrupt"):
+            reuse["invalidated"].append({
+                "digest": digest, "status": state["status"],
+                "reason": state["reason"],
+                "differing": state["differing"]})
+    pooled: dict = {}
+    for _wanted, state in cached.values():
+        # Two sources holding byte-identical frames share an identity -
+        # and, the encoder being deterministic, a vector - so the later
+        # source wins a tie it cannot lose.
+        pooled.update(state["rows"])
+    identities = [frame_embedding_cache.frame_identity(
+        row["t"], row.get("frame_index"),
+        frame_embedding_cache.content_sha(row["file"]))
+        for row in frames]
+    vectors: list = [None] * len(frames)
+    hits, misses = frame_embedding_cache.partition(identities, pooled)
+    for position, vector in hits:
+        vectors[position] = vector
+    reuse["frames_reused"] = len(hits)
+    backend, recipe = None, None
+    if misses:
+        miss_paths = [frames[position]["file"] for position in misses]
+        attempts = 0
+        while True:
+            try:
+                with heavy_work_lock("frame-index-embed"):
+                    # The recipe is verified off a processor loaded for
+                    # the purpose; the model load below builds its own.
+                    # Two processor loads on a miss build, none on a
+                    # full hit - and `_load_clip` keeps the arity every
+                    # existing caller stubs.
+                    processor, _ = _load_processor()
+                    if processor is not None:
+                        recipe = frame_embedding_cache.assert_live_recipe(
+                            processor)
+                    encode_images, _, backend = _load_clip()
+                    if encode_images is None:
+                        break
+                    started = time.perf_counter()
+                    fresh_matrix = encode_images(miss_paths)
+                    reuse["embed_seconds"] = round(
+                        time.perf_counter() - started, 1)
+                    if fresh_matrix.shape[0] != len(miss_paths):
+                        raise RenRefusal(
+                            f"the encoder returned "
+                            f"{fresh_matrix.shape[0]} rows for "
+                            f"{len(miss_paths)} frames",
+                            "a short matrix filed by position would attach "
+                            "vectors to the wrong frames",
+                            "re-run the build; a repeatable shortfall is an "
+                            "encoder defect, not a cache defect",
+                            blocker="unsafe_state")
+                    for rank, position in enumerate(misses):
+                        vectors[position] = fresh_matrix[rank]
+                    reuse["frames_embedded"] = len(misses)
+                break
+            except resource_scheduler.MemoryUnavailable:
+                attempts += 1
+                if attempts >= _ADMISSION_RETRIES:
+                    raise
+                time.sleep(_ADMISSION_BACKOFF_S)
+        if any(vector is None for vector in vectors):
+            # No model and new frames: the index carries no embeddings,
+            # exactly as a build without the cache would.
+            return None, 0, backend, reuse
+    else:
+        for _wanted, state in cached.values():
+            provenance = state["provenance"] or {}
+            if provenance.get("embed_backend"):
+                backend = provenance["embed_backend"]
+                break
+        backend = backend or CLIP_BACKEND
+    matrix = np.asarray(vectors, dtype="float32")
+    dimension = int(matrix.shape[1])
+    if misses:
+        # File the fresh rows beside their source's sample, merged
+        # with the generation already there: rows selected under an
+        # older cadence stay valid and stay filed.  A digest with no
+        # fresh row keeps its file untouched.
+        fresh_digests = {frame_digests[position] for position in misses}
+        by_digest: dict = {}
+        for position, digest in zip(range(len(frames)), frame_digests):
+            if digest in fresh_digests:
+                by_digest.setdefault(digest, []).append(position)
+        for digest, positions in by_digest.items():
+            wanted, state = cached[digest]
+            merged = dict(state["rows"])
+            for position in positions:
+                merged[identities[position]] = vectors[position]
+            merged = frame_embedding_cache.prune_rows(
+                merged, (m2_by_digest or {}).get(digest) or [],
+                fresh={identities[position] for position in positions})
+            ordered = sorted(merged)
+            frame_embedding_cache.store(
+                read_root, digest, wanted, ordered,
+                np.asarray([merged[identity] for identity in ordered],
+                           dtype="float32"),
+                recipe=recipe, backend=backend)
+    return matrix, dimension, backend, reuse
+
+
 @source_memory._project_scoped
 def build_frame_index(project_folder, index_dir=None,
                       step_s: float = FRAME_STEP_S, verbose=False,
@@ -562,6 +756,13 @@ def build_frame_index(project_folder, index_dir=None,
     measurements say changed get more frames.  The plan that chose
     them travels in the index, so a reader can see which frames were
     added and why.
+
+    Embeddings are REUSED, not rebuilt: each selected frame's identity
+    is looked up in its source's filed generation
+    (``frame_embedding_cache``) and only new or invalidated frames
+    reach the encoder, inside the heavy-work grant.  The returned
+    stats carry ``frames_embedded`` (fresh encodes) and
+    ``frames_reused`` (cache hits) beside the existing timings.
     """
     from library.tools.analysis.footage_query import index_dir_for
 
@@ -576,7 +777,15 @@ def build_frame_index(project_folder, index_dir=None,
 
     catalog = footage_segments.load_catalog(project_folder)
     recorded = source_memory.load_recorded_fingerprints(project_folder)
-    frames, sources, skipped = [], [], []
+    # Reads go through the project's READ root: the scope when the
+    # project has one, the machine store when it does not - the same
+    # fallback every other frame consumer reads through.  The embedding
+    # cache is filed beside the sample it was derived from, in that
+    # same root, so it shares exactly where the sample is shared and
+    # stays private exactly where the sample is private.
+    read_root = source_memory.project_read_root(project_folder)
+    frames, frame_digests, sources, skipped = [], [], [], []
+    m2_by_digest: dict = {}
     plans = []
     t0 = time.perf_counter()
     for clip in catalog:
@@ -595,9 +804,9 @@ def build_frame_index(project_folder, index_dir=None,
             skipped.append({"clip_id": clip_id,
                             "reason": "no content digest (file unreadable)"})
             continue
-        m2 = source_memory.read_m2(digest)
+        m2 = source_memory.read_m2(digest, read_root)
         if (m2 is None
-                or not source_memory.m2_frames_present(digest, m2)
+                or not source_memory.m2_frames_present(digest, m2, read_root)
                 or (basis == "live" and not source_memory.is_fresh(m2, src))):
             skipped.append({
                 "clip_id": clip_id,
@@ -607,6 +816,7 @@ def build_frame_index(project_folder, index_dir=None,
             })
             continue
         m2_frames = m2.get("frames") or []
+        m2_by_digest.setdefault(digest, m2_frames)
         if sampling == "adaptive":
             from library.tools import adaptive_signals
             measured = adaptive_signals.measured_triggers(
@@ -652,7 +862,7 @@ def build_frame_index(project_folder, index_dir=None,
             })
         for frame in selected:
             row = {
-                "file": source_memory.frame_abspath(digest, frame),
+                "file": source_memory.frame_abspath(digest, frame, read_root),
                 "clip_id": clip_id,
                 "filename": clip.get("filename", ""),
                 "t": round(float(frame["t"]), 3),
@@ -675,18 +885,19 @@ def build_frame_index(project_folder, index_dir=None,
             if frame.get("frame_index") is not None:
                 row["frame_index"] = frame["frame_index"]
             frames.append(row)
+            # The source this frame's embedding is filed under: the
+            # matrix is assembled per frame, the cache per source.
+            frame_digests.append(digest)
         sources.append({"clip_id": clip_id, "path": str(src),
                         "size_bytes": stat.st_size, "mtime_ns": stat.st_mtime_ns})
     select_seconds = time.perf_counter() - t0
 
-    encode_images, _, backend = _load_clip()
-    embed_seconds, dimension = 0.0, 0
-    if encode_images is not None and frames:
-        t0 = time.perf_counter()
-        matrix = encode_images([f["file"] for f in frames])
-        embed_seconds = time.perf_counter() - t0
-        dimension = int(matrix.shape[1])
-        np.save(target / FRAME_EMBEDDINGS_FILE, matrix)
+    matrix, dimension, backend, reuse = _embed_selected(
+        frames, frame_digests, read_root, m2_by_digest)
+    embed_seconds = reuse["embed_seconds"]
+    if dimension:
+        _atomic_write(target / FRAME_EMBEDDINGS_FILE,
+                      lambda stream: np.save(stream, matrix))
     else:
         embeddings_path = target / FRAME_EMBEDDINGS_FILE
         if embeddings_path.exists():
@@ -720,8 +931,11 @@ def build_frame_index(project_folder, index_dir=None,
         "skipped": skipped,
         "frames": frames,
     }
-    with open(target / FRAME_INDEX_FILE, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=1)
+    # The document lands atomically beside the matrix: a reader never
+    # opens a new document naming rows an older matrix does not hold.
+    _atomic_write(target / FRAME_INDEX_FILE,
+                  lambda stream: stream.write(
+                      json.dumps(payload, indent=1).encode("utf-8")))
 
     stats = {
         "index_dir": str(target),
@@ -730,6 +944,13 @@ def build_frame_index(project_folder, index_dir=None,
         "skipped": skipped,
         "embed_backend": backend,
         "embed_dimension": dimension,
+        # C01: what the reuse decided.  `frames_embedded` is the fresh
+        # encoder cost of this build; `frames_reused` came from the
+        # per-source cache; `embed_invalidated` names the digests whose
+        # stored generation could not be used, and why.
+        "frames_embedded": reuse["frames_embedded"],
+        "frames_reused": reuse["frames_reused"],
+        "embed_invalidated": reuse["invalidated"],
         "select_seconds": round(select_seconds, 1),
         "embed_seconds": round(embed_seconds, 1),
         "total_seconds": round(time.perf_counter() - started, 1),
