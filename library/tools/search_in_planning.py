@@ -94,6 +94,34 @@ def verify_span(clip_id: str, start: float, end: float, catalog: list) -> dict:
     return {"ok": True}
 
 
+def verify_claim(clip_id: str, start: float, end: float,
+                  catalog: list, *, statement: str,
+                  task: str | None = None,
+                  verify=None, frames=(),
+                  project_folder: str | None = None,
+                  content_digest: str | None = None,
+                  model_id: str | None = None) -> dict:
+    """Both halves of verification for one planning claim.
+
+    The structural half (`verify_span`) says the span can be placed;
+    the semantic half (`retrieval.semantic_verify`) says the picture
+    shows what `statement` asserts - `verified`, `rejected` or
+    `uncertain`.  The returned `verdict` is the SEMANTIC one: a span
+    that passed the catalog but was never judged is `uncertain`,
+    never `verified`.  A caller that fills a slot on this verdict
+    must read `label`: `verified clip range` is placement evidence,
+    and only `visually verified action` is picture evidence.
+    """
+    from library.tools.retrieval import semantic_verify
+
+    return semantic_verify.verify_candidate(
+        {"clip_id": clip_id, "start": start, "end": end,
+         "frames": list(frames or ())},
+        {"statement": statement}, list(catalog or ()),
+        task=task, verify=verify, project_folder=project_folder,
+        content_digest=content_digest, model_id=model_id)
+
+
 def _is_visual_hit(hit: dict) -> bool:
     """Whether a search hit carries visual evidence."""
     if not isinstance(hit, dict) or hit.get("error"):
@@ -113,6 +141,7 @@ def slot_search(
     index_dir=None,
     catalog: list | None = None,
     filters: dict | None = None,
+    verify=None,
 ) -> dict:
     """Resolve one planning slot through the footage index.
 
@@ -211,13 +240,50 @@ def slot_search(
             "retrieval": _retrieval_counts(report),
         }
     catalog = catalog or []
+    semantic_outcomes: list = []
     for hit in candidates:
         verdict = verify_span(
             hit.get("clip_id"), hit.get("start"), hit.get("end"), catalog
         )
         if not verdict["ok"]:
             continue
-        return {
+        verification: dict = {
+            "structural": "verified",
+            "semantic": "not_run",
+            "label": "verified clip range",
+            "note": ("the span lies inside the source file; the picture "
+                       "was not visually verified"),
+        }
+        refined = None
+        if verify is not None and slot_kind == "visual":
+            # A judge the caller supplies is asked about the winning
+            # span.  A span the judge REJECTS is not placed - the next
+            # candidate is tried.  A span the judge cannot decide on is
+            # placed on its structural evidence, said aloud as a clip
+            # range rather than a verified picture.
+            claim = verify_claim(
+                hit.get("clip_id"), hit.get("start"),
+                hit.get("end"), catalog, statement=intent,
+                verify=verify)
+            semantic = (claim.get("semantic") or {}).get("verdict",
+                                                            "uncertain")
+            verification = {
+                "structural": "verified",
+                "semantic": semantic,
+                "label": ("visually verified action"
+                            if semantic == "verified"
+                            else "verified clip range"),
+                "reason": (claim.get("semantic") or {}).get("reason"),
+            }
+            refined = claim.get("refined")
+            if refined:
+                verification["refined_span"] = refined
+            semantic_outcomes.append(
+                (hit.get("clip_id"), hit.get("start"),
+                 hit.get("end"), semantic))
+            if semantic == "rejected":
+                continue
+        filled: dict = {
             "status": "filled",
             "query": intent,
             "clip_id": hit.get("clip_id"),
@@ -235,9 +301,13 @@ def slot_search(
                 "lexical_score": hit.get("lexical_score"),
                 "backend_answered": report.get("backend_answered"),
             },
+            "verification": verification,
             "degraded": degraded,
             "retrieval": _retrieval_counts(report),
         }
+        if refined:
+            filled["refined_span"] = refined
+        return filled
     if not candidates:
         return {
             "status": "abstained_no_evidence",
@@ -245,6 +315,17 @@ def slot_search(
             "reason": "the index retained nothing for this intent",
             "degraded": degraded,
             "backend_answered": report.get("backend_answered"),
+            "retrieval": _retrieval_counts(report),
+        }
+    if semantic_outcomes and all(outcome == "rejected"
+                                  for _, _, _, outcome in semantic_outcomes):
+        return {
+            "status": "abstained_unverified",
+            "query": intent,
+            "reason": ("every structurally sound candidate was rejected "
+                         "by the semantic judge; the picture evidence "
+                         "contradicts the slot"),
+            "degraded": degraded,
             "retrieval": _retrieval_counts(report),
         }
     return {
@@ -316,11 +397,14 @@ def format_hints_block(hints: dict) -> str:
         status = hint.get("status")
         if status == "filled":
             span = hint.get("span") or {}
+            label = ((hint.get("verification") or {}).get("label")
+                     or "verified clip range")
             lines.append(
                 f"block {position}: search vouches for {hint.get('clip_id')} "
                 f"({span.get('start')}-{span.get('end')}s, "
                 f"{(hint.get('evidence') or {}).get('kind')}) - "
-                f'"{(hint.get("evidence") or {}).get("text", "")[:120]}"'
+                f'"{(hint.get("evidence") or {}).get("text", "")[:120]}" '
+                f"[{label}]"
             )
         elif status in ("fallback_no_index", "fallback_degraded"):
             lines.append(f"block {position}: catalog path - {hint.get('reason')}")

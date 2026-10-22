@@ -19,6 +19,11 @@ So this module is the second half of the visual lane:
   the memory says what is there;
 * **REJECT** a candidate whose evidence does not establish the requested
   thing, and
+* **REPORT UNCERTAIN** when the verification does not establish the
+  claim either way - an unparseable answer, a yes with no timestamp
+  for an edit-critical event - never dressed up as a rejection, and
+* **REFINE** an established event to the timestamps the evidence
+  covers, beside the shot window the pass presents, and
 * **JUSTIFY** the interval that is presented, by the verdict that
   established it.
 
@@ -56,6 +61,7 @@ import time
 from collections.abc import Mapping, Sequence
 
 from library.tools.retrieval import requirements
+from library.tools.retrieval import semantic_verify as _semantic_verify
 from library.tools.retrieval.requirements import decompose
 
 KINDS = (
@@ -646,7 +652,8 @@ def rerank(*, project_folder, query: str, ranges: Sequence[Mapping],
             "ranges": [],
             "candidates": [],
             "cost": {"calls": 0, "cached_calls": 0, "candidates": 0,
-                     "verified": 0, "rejected": 0, "seconds": 0.0,
+                     "verified": 0, "rejected": 0, "uncertain": 0,
+                     "seconds": 0.0,
                      "seconds_per_call": None, "wall_seconds": 0.0},
             "classification": classification,
             "status": "unavailable",
@@ -674,10 +681,8 @@ def rerank(*, project_folder, query: str, ranges: Sequence[Mapping],
             calls += 1
             verdict = _verify_candidate(project_folder, candidate, statement,
                                         verify)
-            candidate = {**candidate, "verdict": verdict.get("answer"),
-                         "reason": verdict.get("reason"),
-                         "seconds": verdict.get("seconds"),
-                         "cached": verdict.get("cached")}
+            candidate = {**candidate,
+                         **_judge(candidate, verdict, classification)}
             inspected.append(candidate)
             progressed = True
             if depth and _settled(inspected, per_camera, top_ranges,
@@ -705,6 +710,8 @@ def rerank(*, project_folder, query: str, ranges: Sequence[Mapping],
                     different_event=different_event,
                     source_durations=source_durations)
     verified = [c for c in inspected if c.get("verdict") == "yes"]
+    rejected = [c for c in inspected if c.get("verdict") == "no"]
+    uncertain = [c for c in inspected if c.get("verdict") == "uncertain"]
     seconds = sum(float(c.get("seconds") or 0.0) for c in inspected)
     fresh = [c for c in inspected if c.get("cached") is False]
     cached = [c for c in inspected if c.get("cached") is True]
@@ -713,7 +720,8 @@ def rerank(*, project_folder, query: str, ranges: Sequence[Mapping],
         "cached_calls": len(cached),
         "candidates": len(inspected),
         "verified": len(verified),
-        "rejected": len(inspected) - len(verified),
+        "rejected": len(rejected),
+        "uncertain": len(uncertain),
         "seconds": round(seconds, 2),
         "seconds_per_call": (round(seconds / len(fresh), 2) if fresh else None),
         "wall_seconds": round(time.perf_counter() - started, 2),
@@ -759,8 +767,46 @@ def _window(candidate: Mapping, statement: str) -> dict:
             "reason": candidate.get("reason"),
             "frames_shown": [f["t"] for f in candidate.get("frames") or ()],
             "statement": statement,
+            **({"refined_span": candidate["refined_span"]}
+               if candidate.get("refined_span") else {}),
         },
     }
+
+
+def _judge(candidate: Mapping, answer: Mapping,
+           classification: Mapping) -> dict:
+    """One candidate's verdict in the semantic stage's vocabulary.
+
+    The judge answers yes, no, or something unusable; the stage reads
+    those as verified, rejected, and UNCERTAIN (see
+    `semantic_verify.map_answer`) - only an explicit "no" rejects.
+    An established EVENT must also name WHEN: the refined timestamps
+    travel beside the verdict, and a yes that names no timestamp is
+    uncertain rather than verified, because the editor cannot cut on
+    it.  The shot window itself is untouched (the pass selects and
+    justifies, it does not re-shape the lane's geometry); the
+    refinement is evidence beside it.
+    """
+    stage = _semantic_verify.map_answer((answer or {}).get("answer"))
+    verdict = {"verified": "yes", "rejected": "no"}.get(stage,
+                                                               "uncertain")
+    reason = (answer or {}).get("reason")
+    refined = None
+    if verdict == "yes" and classification.get("event"):
+        refined = _semantic_verify.refine_event_span(candidate, answer or {})
+        if refined is None:
+            verdict = "uncertain"
+            reason = ("the judge said yes but named no frame, so there "
+                       "is no timestamp the editor can cut on: an "
+                       "unrefined event is not a verification")
+    judged: dict = {"verdict": verdict, "reason": reason,
+                    "seconds": (answer or {}).get("seconds"),
+                    "cached": (answer or {}).get("cached")}
+    if (answer or {}).get("frame_t") is not None:
+        judged["frame_t"] = (answer or {}).get("frame_t")
+    if refined is not None:
+        judged["refined_span"] = refined
+    return judged
 
 
 def _verify_candidate(project_folder, candidate, statement, verify):

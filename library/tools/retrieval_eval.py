@@ -1258,7 +1258,7 @@ def _temporal_cost(results) -> dict:
     pass that buys recall with model calls the caller cannot see is a
     pass nobody can decide to keep.
     """
-    calls = cached = candidates = verified = rejected = 0
+    calls = cached = candidates = verified = rejected = uncertain = 0
     seconds = 0.0
     ran = 0
     for result in results:
@@ -1272,6 +1272,7 @@ def _temporal_cost(results) -> dict:
         candidates += int(cost.get("candidates") or 0)
         verified += int(cost.get("verified") or 0)
         rejected += int(cost.get("rejected") or 0)
+        uncertain += int(cost.get("uncertain") or 0)
         seconds += float(cost.get("seconds") or 0.0)
     if not ran:
         return {}
@@ -1282,6 +1283,7 @@ def _temporal_cost(results) -> dict:
         "candidates_inspected": candidates,
         "candidates_established": verified,
         "candidates_rejected": rejected,
+        "candidates_uncertain": uncertain,
         "model_seconds": round(seconds, 1),
         "seconds_per_candidate": (round(seconds / candidates, 2)
                                   if candidates else None),
