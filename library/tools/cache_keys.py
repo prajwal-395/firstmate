@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -309,6 +310,77 @@ def interpretation_key(*, source_identity: str, model: str,
     return CacheKey(source_identity=str(source_identity), model=str(model),
                     configuration=str(configuration),
                     analysis_version=str(analysis_version))
+
+
+def verification_context(*, family: str, prompt_version: Any,
+                           prompt_template: str, statement: str,
+                           frame_times: Sequence[float] | None,
+                           extra: dict[str, Any] | None = None
+                           ) -> dict[str, Any]:
+    """The asking-context a VLM verdict depends on.
+
+    A verification verdict is an INTERPRETATION: the same frames under a
+    different prompt version, a different statement or a different shown
+    frame set are different questions, and the key must say so.  The
+    statement is normalized (case and whitespace), because two callers
+    that differ only in spacing asked the same question.  The frame
+    times are what the model was SHOWN - the window the verdict is
+    about - rounded the way the verifier files them.  ``family`` keeps
+    the span and interval prompt families apart: they judge different
+    claims under different prompts, so a verdict of one is never an
+    answer of the other even when the frame times match.
+    """
+    if not str(family or "").strip():
+        raise ValueError("a verification context needs its prompt family")
+    template_digest = hashlib.sha256(
+        str(prompt_template).encode("utf-8")).hexdigest()[:16]
+    context: dict[str, Any] = {
+        "family": str(family).strip(),
+        "prompt_version": prompt_version,
+        "template_digest": template_digest,
+        "statement": " ".join(str(statement or "").strip().lower().split()),
+        "frame_times": ([round(float(t), 3) for t in frame_times]
+                          if frame_times is not None else []),
+    }
+    if extra:
+        context.update(dict(extra))
+    return context
+
+
+def verification_key(*, source_identity: str, model: str, family: str,
+                     prompt_version: Any, prompt_template: str,
+                     statement: str, frame_times: Sequence[float] | None,
+                     producer_version: str,
+                     preprocessing: dict[str, Any] | None = None,
+                     sampling: dict[str, Any] | None = None,
+                     extra_context: dict[str, Any] | None = None
+                     ) -> CacheKey:
+    """A reusable VLM verification verdict, through the ONE vocabulary.
+
+    The key names the source CONTENT (``source_identity`` is the content
+    digest, never a path), the model that answered, HOW it was asked
+    (prompt version and template, the statement, the shown frames, the
+    preprocessing and the frame-selection recipe) and the producer
+    version that files it.  A recipe change - a new prompt version, a
+    retrained model, different shown frames, a different selection rule -
+    moves the key, so a stale verdict is a MISS, never a false hit.
+    """
+    configuration: dict[str, Any] = {
+        "producer": {"producer_id": "span-verification",
+                       "producer_version": str(producer_version)},
+    }
+    if preprocessing is not None:
+        configuration["preprocessing"] = dict(preprocessing)
+    if sampling is not None:
+        configuration["sampling"] = dict(sampling)
+    return interpretation_key(
+        source_identity=source_identity, model=model,
+        configuration=configuration,
+        analysis_version=str(producer_version),
+        context=verification_context(
+            family=family, prompt_version=prompt_version,
+            prompt_template=prompt_template, statement=statement,
+            frame_times=frame_times, extra=extra_context))
 
 
 def producer_key(kind: str, source_identity: str, model: str,

@@ -23,6 +23,28 @@ not done. Limit: a candidate span longer than MAX_FRAMES_PER_SPAN frames
 is shown through its four closest frames, which can miss the moment (one
 of the three misses). `data/vep-query-hit-verification/eval/` in
 firstmate's home has the plan, the verdicts and every number.
+
+Repeat verification is not re-paid (F03). The order is fixed:
+
+1. An exact recorded verdict answers: the legacy frame-times key,
+   then the C05 verification key (``c05_signature`` - same source
+   identity, model, prompt, statement and shown frames, through
+   :mod:`library.tools.cache_keys`).  A legacy hit is migrated to the
+   C05 key on read, so the store converges without invalidating what
+   is filed.
+2. A recorded verdict whose judged frames DECIDE the requested ones
+   answers next: a ``no`` over a superset of the requested frames, or
+   a ``yes`` whose establishing ``frame_t`` is shown again.  Served
+   with ``cached: True`` and ``reuse: "overlap"``.
+3. Two recorded verdicts that disagree about the same frames REOPEN
+   the question: one fresh VLM call, marked
+   ``reopened: "conflicting_verdicts"``.
+4. Anything else pays one fresh call - including a recipe change,
+   which misses the keys (model, prompt version, selection rule) and
+   re-verifies rather than serving a stale answer.
+
+The pre-lock check uses the same lookup, so a batch every recorded
+verdict decides loads no model at all.
 """
 
 from __future__ import annotations
@@ -33,8 +55,35 @@ import re
 import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import Any
 
 from library.tools import source_memory
+
+PRODUCER_VERSION = "span-verification/1"
+"""The recipe version behind every verdict this module files.
+
+The C05 verification key carries this as the analysis version, so a
+change to the filing contract re-verifies rather than serving a stale
+answer.  Bump it when the reuse contract changes (what a verdict may
+decide, what counts as a conflict); a prompt-wording change stays on
+PROMPT_VERSION, and a frame-selection change moves the sampling recipe
+in the key itself."""
+
+FAMILY_SPAN = "span"
+"""The person-predicate prompt family (``PROMPT``/``PROMPT_VERSION``)."""
+
+FAMILY_INTERVAL = "interval"
+"""The whole-interval prompt family
+(``INTERVAL_PROMPT``/``INTERVAL_PROMPT_VERSION``).  The families judge
+different claims under different prompts, so a verdict of one is never
+an answer of the other even when the frame times match."""
+
+SPAN_PREPROCESSING = {"frames": "m2_sample_as_stored", "resize": "none"}
+"""What happens to the pixels between the M2 sample and the model.
+
+Nothing: the stored frame files are shown as-is.  Stating it keeps the
+key honest - a future resize would measure different pixels and must
+move the key."""
 
 PROMPT_VERSION = 2
 PROMPT = (
@@ -88,6 +137,21 @@ same reason applies: more frames cost more tokens and more seconds than
 the extra evidence is worth at this size."""
 
 INTERVAL_VERDICT_MAX_TOKENS = 120
+
+SPAN_SAMPLING = {"selection": "distance_ranked",
+                 "max_frames": MAX_FRAMES_PER_SPAN, "order": "time"}
+"""Which frames of a span the model is shown.
+
+The closest-ranked frames (``select_frames``), in time order.  Built
+from the live ``MAX_FRAMES_PER_SPAN`` so a change to the selection
+moves the key."""
+
+INTERVAL_SAMPLING = {"selection": "time_ordered_head",
+                     "max_frames": MAX_FRAMES_PER_INTERVAL}
+"""Which frames of an interval the model is shown.
+
+The interval's own frames, head-capped (``select_interval_frames``).
+Built from the live ``MAX_FRAMES_PER_INTERVAL``."""
 
 MEASURED_SECONDS_PER_INTERVAL_VERDICT = 81.0
 """The measured cost of ONE interval verification, on this machine.
@@ -175,6 +239,185 @@ def interval_verdict_key(statement: str, frame_times: Sequence[float],
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
 
 
+def _normalize_statement(statement: str) -> str:
+    """One spelling for one asked question.
+
+    Case and surrounding whitespace never change what is asked of the
+    frames, so the reuse lookup compares normalized statements while
+    the filed verdict keeps the caller's own words."""
+    return " ".join(str(statement or "").strip().lower().split())
+
+
+def _family_recipe(family: str) -> tuple:
+    """The prompt version, template and sampling recipe of one family."""
+    if family == FAMILY_INTERVAL:
+        return (INTERVAL_PROMPT_VERSION, INTERVAL_PROMPT,
+                INTERVAL_SAMPLING, None)
+    if family == FAMILY_SPAN:
+        return (PROMPT_VERSION, PROMPT, SPAN_SAMPLING,
+                SPAN_PREPROCESSING)
+    raise ValueError(f"unknown verification family: {family!r}")
+
+
+def c05_signature(content_digest: str, family: str, statement: str,
+                  frame_times: Sequence[float], model_id: str,
+                  extra_context: dict | None = None) -> str:
+    """The C05 verification key one verdict is filed under.
+
+    Same source identity, model, prompt (version and template),
+    statement and shown frames is the same question, asked through
+    :mod:`library.tools.cache_keys` rather than the ad-hoc frame-times
+    hash.  A recipe change - model, prompt version, selection rule -
+    moves the key, so the verdict is re-measured rather than served
+    stale."""
+    from library.tools import cache_keys
+
+    prompt_version, template, sampling, preprocessing = _family_recipe(
+        family)
+    return cache_keys.verification_key(
+        source_identity=content_digest, model=model_id, family=family,
+        prompt_version=prompt_version, prompt_template=template,
+        statement=statement, frame_times=list(frame_times),
+        producer_version=PRODUCER_VERSION,
+        preprocessing=preprocessing, sampling=sampling,
+        extra_context=extra_context).signature()
+
+
+def find_deciding_verdict(recorded: dict, *, family: str, statement: str,
+                          model_id: str, prompt_version: int,
+                          times: Sequence[float],
+                          extra_context: dict | None = None
+                          ) -> tuple[str, dict | None]:
+    """A recorded verdict that already decides these frames, if any.
+
+    The scan only reads verdicts the reuse contract filed: the family's
+    own prompt version, model and statement, carrying a ``family`` tag
+    (legacy verdicts predate the tag and are served exactly, never by
+    overlap, so a span verdict can never answer an interval question).
+    A verdict DECIDES the requested frames when its own judgement
+    covers them:
+
+    * ``no`` over a superset: every requested frame was judged false;
+    * ``yes`` whose establishing ``frame_t`` is one of the requested
+      frames: the frame that settled it is shown again.
+
+    Anything else - a ``yes`` whose frame is not shown, an ``unparsed``
+    reply - decides nothing and the question stays open.  A recorded
+    ``yes`` and a recorded ``no`` that both decide the frames are
+    CONTRADICTORY EVIDENCE: the lookup reports ``("conflict", ...)``
+    and the caller re-verifies once rather than serving either side.
+    """
+    wanted = {round(float(t), 3) for t in times}
+    if not wanted:
+        return ("none", None)
+    asking = _normalize_statement(statement)
+    # The interval prompt declares the frames' spacing, so two verdicts
+    # over the same frames at different spacings answered different
+    # questions.  Legacy interval verdicts carry no gap and are served
+    # exactly, never by overlap.
+    want_gap = (extra_context or {}).get("gap_seconds")
+    yes: dict | None = None
+    no: dict | None = None
+    for verdict in recorded.values():
+        if not isinstance(verdict, dict):
+            continue
+        if verdict.get("family") != family:
+            continue
+        if verdict.get("model") != model_id:
+            continue
+        if verdict.get("prompt_version") != prompt_version:
+            continue
+        if _normalize_statement(verdict.get("statement")) != asking:
+            continue
+        if want_gap is not None and verdict.get("gap_seconds") != want_gap:
+            continue
+        shown = {round(float(t), 3)
+                 for t in (verdict.get("frames") or ())}
+        if not shown:
+            continue
+        answer = verdict.get("answer")
+        if answer == ANSWER_NO and wanted <= shown:
+            if no is None:
+                no = verdict
+        elif answer == ANSWER_YES:
+            try:
+                frame_t = (round(float(verdict["frame_t"]), 3)
+                           if verdict.get("frame_t") is not None else None)
+            except (TypeError, ValueError):
+                frame_t = None
+            if (frame_t is not None and frame_t in wanted
+                    and yes is None):
+                yes = verdict
+    if yes is not None and no is not None:
+        return ("conflict", {"yes": yes, "no": no})
+    if yes is not None:
+        return ("overlap", yes)
+    if no is not None:
+        return ("overlap", no)
+    return ("none", None)
+
+
+def _lookup(recorded: dict, *, content_digest: str, family: str,
+            statement: str, model_id: str,
+            times: Sequence[float],
+            extra_context: dict | None = None
+            ) -> tuple[str, Any]:
+    """The recorded answer to this question, or why there is none.
+
+    One source of truth for the pre-lock check (no model is loaded
+    while a recorded answer decides every span) and the per-span loop:
+    the legacy exact key, then the C05 verification key (filed by newer
+    runs and by migration), then an overlapping verdict that decides
+    the frames.  Returns ``("legacy"|"c05"|"overlap", verdict)``,
+    ``("conflict", {"yes": ..., "no": ...})`` when recorded
+    evidence disagrees about the same frames, or ``("none", None)``.
+    A conflict and a miss both pay one fresh call; only the conflict
+    marks the new verdict reopened."""
+    prompt_version, _template, _sampling, _pre = _family_recipe(family)
+    if family == FAMILY_INTERVAL:
+        gap = (extra_context or {}).get("gap_seconds", 0.0)
+        legacy = interval_verdict_key(statement, list(times), model_id,
+                                      gap)
+    else:
+        legacy = verdict_key(statement, list(times), model_id)
+    hit = recorded.get(legacy)
+    if isinstance(hit, dict):
+        return ("legacy", hit)
+    sig = c05_signature(content_digest, family, statement, list(times),
+                        model_id, extra_context=extra_context)
+    hit = recorded.get(sig)
+    if isinstance(hit, dict):
+        return ("c05", hit)
+    return find_deciding_verdict(recorded, family=family,
+                                 statement=statement, model_id=model_id,
+                                 prompt_version=prompt_version,
+                                 times=list(times),
+                                 extra_context=extra_context)
+
+
+def _migrate_legacy_hit(recorded: dict, content_digest: str, family: str,
+                        stored: dict, statement: str,
+                        times: Sequence[float], model_id: str,
+                        root: Path | None,
+                        extra_context: dict | None = None) -> None:
+    """File an exact legacy hit under its C05 key, once.
+
+    The verdict answered the legacy question, which IS the C05 question
+    (same source, model, prompt, statement, shown frames), so it is
+    filed under the converged key with the family tag the overlap scan
+    reads.  Later runs find it through the C05 key; legacy verdicts
+    never migrate twice because the C05 entry is then present."""
+    sig = c05_signature(content_digest, family, statement, list(times),
+                        model_id, extra_context=extra_context)
+    if sig in recorded:
+        return
+    if stored.get("family") == family:
+        recorded[sig] = stored
+    else:
+        recorded[sig] = {**stored, "family": family}
+    _write_verdicts(content_digest, recorded, root)
+
+
 def _verdicts_path(content_digest: str, root: Path | None) -> Path:
     return source_memory.source_dir(content_digest, root) / source_memory.SLOT_VERDICTS
 
@@ -227,11 +470,16 @@ def verify_intervals(content_digest: str, intervals: list[dict], statement: str,
 
     model_id = vision_model.MODEL_ID
     recorded = read_verdicts(content_digest, root)
-    keys = [interval_verdict_key(statement,
-                                 [f["t"] for f in select_interval_frames(i)],
-                                 model_id, gap_seconds)
-            for i in intervals]
-    if all(key in recorded for key in keys):
+    shown = [[f["t"] for f in select_interval_frames(i)]
+             for i in intervals]
+    keys = [interval_verdict_key(statement, times, model_id, gap_seconds)
+            for times in shown]
+    gap_ctx = {"gap_seconds": round(float(gap_seconds), 3)}
+    if all(_lookup(recorded, content_digest=content_digest,
+                   family=FAMILY_INTERVAL, statement=statement,
+                   model_id=model_id, times=times,
+                   extra_context=gap_ctx)[0]
+           in ("legacy", "c05", "overlap") for times in shown):
         return _verify_intervals(content_digest, intervals, keys, statement,
                                   gap_seconds, recorded, model_id, root, model,
                                   progress)
@@ -246,38 +494,61 @@ def _verify_intervals(content_digest, intervals, keys, statement, gap_seconds,
     from library.tools import vision_model
 
     paths_by_t = None
+    gap_ctx = {"gap_seconds": round(float(gap_seconds), 3)}
     out = []
     for n, (interval, key) in enumerate(zip(intervals, keys)):
         frames = select_interval_frames(interval)
         times = [f["t"] for f in frames]
         verdict = recorded.get(key)
         if verdict is not None:
+            _migrate_legacy_hit(recorded, content_digest,
+                                FAMILY_INTERVAL, verdict, statement, times,
+                                model_id, root, extra_context=gap_ctx)
             verdict = {**verdict, "cached": True}
         else:
-            if paths_by_t is None:
-                paths_by_t = _frame_files(content_digest, root)
-            if model is None:
-                model = vision_model.get_model()
-            images = [paths_by_t[round(t, 3)] for t in times]
-            started = time.perf_counter()
-            reply = model.analyze_images(
-                images,
-                INTERVAL_PROMPT.format(n=len(images), statement=statement,
-                                       gap=round(float(gap_seconds), 1)),
-                max_tokens=INTERVAL_VERDICT_MAX_TOKENS)
-            seconds = time.perf_counter() - started
-            parsed = parse_verdict(reply)
-            verdict = {**parsed,
-                       "frame_t": (times[parsed["frame"] - 1]
-                                   if parsed["frame"] and 1 <= parsed["frame"] <= len(times)
-                                   else None),
-                       "frames": times, "statement": statement,
-                       "model": model_id,
-                       "prompt_version": INTERVAL_PROMPT_VERSION,
-                       "seconds": round(seconds, 2), "reply": reply}
-            recorded[key] = verdict
-            _write_verdicts(content_digest, recorded, root)
-            verdict = {**verdict, "cached": False}
+            kind, found = _lookup(
+                recorded, content_digest=content_digest,
+                family=FAMILY_INTERVAL, statement=statement,
+                model_id=model_id, times=times,
+                extra_context=gap_ctx)
+            if kind in ("c05", "overlap"):
+                verdict = {**found, "cached": True, "reuse": kind}
+                if kind == "overlap":
+                    verdict["reused_from"] = list(
+                        found.get("frames") or [])
+            else:
+                if paths_by_t is None:
+                    paths_by_t = _frame_files(content_digest, root)
+                if model is None:
+                    model = vision_model.get_model()
+                images = [paths_by_t[round(t, 3)] for t in times]
+                started = time.perf_counter()
+                reply = model.analyze_images(
+                    images,
+                    INTERVAL_PROMPT.format(n=len(images), statement=statement,
+                                           gap=round(float(gap_seconds), 1)),
+                    max_tokens=INTERVAL_VERDICT_MAX_TOKENS)
+                seconds = time.perf_counter() - started
+                parsed = parse_verdict(reply)
+                verdict = {**parsed,
+                           "frame_t": (times[parsed["frame"] - 1]
+                                       if parsed["frame"] and 1 <= parsed["frame"] <= len(times)
+                                       else None),
+                           "frames": times, "statement": statement,
+                           "model": model_id,
+                           "prompt_version": INTERVAL_PROMPT_VERSION,
+                           "gap_seconds": round(float(gap_seconds), 3),
+                           "family": FAMILY_INTERVAL,
+                           "producer_version": PRODUCER_VERSION,
+                           "seconds": round(seconds, 2), "reply": reply}
+                if kind == "conflict":
+                    verdict["reopened"] = "conflicting_verdicts"
+                recorded[key] = verdict
+                recorded[c05_signature(
+                    content_digest, FAMILY_INTERVAL, statement, times,
+                    model_id, extra_context=gap_ctx)] = verdict
+                _write_verdicts(content_digest, recorded, root)
+                verdict = {**verdict, "cached": False}
         out.append(verdict)
         if progress is not None:
             progress(n, len(intervals), verdict)
@@ -306,9 +577,12 @@ def verify_spans(content_digest: str, spans: list[dict], statement: str,
 
     model_id = vision_model.MODEL_ID
     recorded = read_verdicts(content_digest, root)
-    keys = [verdict_key(statement, [f["t"] for f in select_frames(span)],
-                        model_id) for span in spans]
-    if all(key in recorded for key in keys):
+    shown = [[f["t"] for f in select_frames(span)] for span in spans]
+    keys = [verdict_key(statement, times, model_id) for times in shown]
+    if all(_lookup(recorded, content_digest=content_digest,
+                   family=FAMILY_SPAN, statement=statement,
+                   model_id=model_id, times=times)[0]
+           in ("legacy", "c05", "overlap") for times in shown):
         return _verify(content_digest, spans, keys, statement, recorded,
                        model_id, root, model, progress)
     with heavy_work_lock(VERIFY_LOCK_OWNER):
@@ -327,29 +601,47 @@ def _verify(content_digest, spans, keys, statement, recorded, model_id,
         times = [f["t"] for f in frames]
         verdict = recorded.get(key)
         if verdict is not None:
+            _migrate_legacy_hit(recorded, content_digest, FAMILY_SPAN,
+                                verdict, statement, times, model_id, root)
             verdict = {**verdict, "cached": True}
         else:
-            if paths_by_t is None:
-                paths_by_t = _frame_files(content_digest, root)
-            if model is None:
-                model = vision_model.get_model()
-            images = [paths_by_t[round(t, 3)] for t in times]
-            started = time.perf_counter()
-            reply = model.analyze_images(
-                images, PROMPT.format(n=len(images), statement=statement),
-                max_tokens=VERDICT_MAX_TOKENS)
-            seconds = time.perf_counter() - started
-            parsed = parse_verdict(reply)
-            verdict = {**parsed,
-                       "frame_t": (times[parsed["frame"] - 1]
-                                   if parsed["frame"] and 1 <= parsed["frame"] <= len(times)
-                                   else None),
-                       "frames": times, "statement": statement,
-                       "model": model_id, "prompt_version": PROMPT_VERSION,
-                       "seconds": round(seconds, 2), "reply": reply}
-            recorded[key] = verdict
-            _write_verdicts(content_digest, recorded, root)
-            verdict = {**verdict, "cached": False}
+            kind, found = _lookup(
+                recorded, content_digest=content_digest,
+                family=FAMILY_SPAN, statement=statement,
+                model_id=model_id, times=times)
+            if kind in ("c05", "overlap"):
+                verdict = {**found, "cached": True, "reuse": kind}
+                if kind == "overlap":
+                    verdict["reused_from"] = list(
+                        found.get("frames") or [])
+            else:
+                if paths_by_t is None:
+                    paths_by_t = _frame_files(content_digest, root)
+                if model is None:
+                    model = vision_model.get_model()
+                images = [paths_by_t[round(t, 3)] for t in times]
+                started = time.perf_counter()
+                reply = model.analyze_images(
+                    images, PROMPT.format(n=len(images), statement=statement),
+                    max_tokens=VERDICT_MAX_TOKENS)
+                seconds = time.perf_counter() - started
+                parsed = parse_verdict(reply)
+                verdict = {**parsed,
+                           "frame_t": (times[parsed["frame"] - 1]
+                                       if parsed["frame"] and 1 <= parsed["frame"] <= len(times)
+                                       else None),
+                           "frames": times, "statement": statement,
+                           "model": model_id, "prompt_version": PROMPT_VERSION,
+                           "family": FAMILY_SPAN,
+                           "producer_version": PRODUCER_VERSION,
+                           "seconds": round(seconds, 2), "reply": reply}
+                if kind == "conflict":
+                    verdict["reopened"] = "conflicting_verdicts"
+                recorded[key] = verdict
+                recorded[c05_signature(content_digest, FAMILY_SPAN,
+                                       statement, times, model_id)] = verdict
+                _write_verdicts(content_digest, recorded, root)
+                verdict = {**verdict, "cached": False}
         out.append(verdict)
         if progress is not None:
             progress(n, len(spans), verdict)
