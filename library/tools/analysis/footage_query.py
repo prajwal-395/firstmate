@@ -5566,6 +5566,18 @@ def main(argv=None):
     p_stale.add_argument("project")
     p_stale.add_argument("--index-dir")
 
+    p_inspect_frames = sub.add_parser(
+        "inspect-frames",
+        help="Show the frame index's sampling provenance: which windows "
+             "got extra sampling, which were deferred, which were left "
+             "coarse (reads the stored payload only; no model, no decode)")
+    p_inspect_frames.add_argument("project")
+    p_inspect_frames.add_argument("--index-dir")
+    p_inspect_frames.add_argument("--clip",
+                                  help="only this clip's coverage")
+    p_inspect_frames.add_argument("--json", action="store_true",
+                                  help="print the provenance record as JSON")
+
     p_pg = sub.add_parser("project-graph", help="Query the Ren Project Graph")
     p_pg.add_argument("project")
     p_pg.add_argument("query", choices=["reaction_shots", "alternate_takes",
@@ -6026,6 +6038,16 @@ def main(argv=None):
 
     elif args.command == "stale":
         print(json.dumps(idx.staleness(), indent=2))
+
+    elif args.command == "inspect-frames":
+        from library.tools.analysis import footage_frames
+        vidx = footage_frames.FrameIndex(args.project,
+                                         index_dir=args.index_dir)
+        if args.json:
+            print(json.dumps(vidx.sampling_provenance(), indent=2,
+                             default=str))
+        else:
+            print(vidx.sampling_coverage_text(clip_id=args.clip))
 
     return 0
 

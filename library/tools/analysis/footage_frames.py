@@ -513,6 +513,35 @@ def _adaptive_m2_frames(m2_frames: list, step_s: float,
     return selected, plan
 
 
+def _selection_for(frame_t: float, grid_keys: set, plan) -> tuple:
+    """Why one selected frame was picked: the grid or the dense tier.
+
+    Returns ``(selection, evidence)``: ``"uniform"`` with no evidence
+    for a frame the retained coarse grid chose, ``"dense"`` with the
+    dense window's measured evidence for a frame the adaptive tier
+    added.  A frame inside NO dense window that is not on the grid is
+    still ``"uniform"`` with empty evidence rather than unexplained:
+    every frame in the index traces back to the policy that picked it.
+    """
+    key = round(float(frame_t), 3)
+    if key in grid_keys:
+        return "uniform", []
+    evidence: list = []
+    try:
+        windows = (plan.get("dense") or {}).get("windows") or []
+    except AttributeError:
+        windows = []
+    for window in windows:
+        try:
+            if float(window["start"]) <= float(frame_t) <= float(window["end"]):
+                for item in window.get("evidence") or []:
+                    if item not in evidence:
+                        evidence.append(item)
+        except (KeyError, TypeError, ValueError):
+            continue
+    return "dense", evidence
+
+
 @source_memory._project_scoped
 def build_frame_index(project_folder, index_dir=None,
                       step_s: float = FRAME_STEP_S, verbose=False,
@@ -590,13 +619,37 @@ def build_frame_index(project_folder, index_dir=None,
                         or _m2_nominal_fps(m2))
             selected, plan = _adaptive_m2_frames(
                 m2_frames, step_s, triggers, duration, fps)
+            grid_keys = {round(float(f["t"]), 3)
+                         for f in _select_m2_frames(
+                             sorted(m2_frames, key=lambda f: f["t"]), step_s)}
+            dense_count = sum(
+                1 for f in selected
+                if round(float(f["t"]), 3) not in grid_keys)
             plans.append({
                 "clip_id": clip_id,
+                "mode": "adaptive",
+                "step_s": step_s,
+                "policy": {
+                    "policy_version": (plan or {}).get("policy_version"),
+                    "dense_coverage_fraction":
+                        ADAPTIVE_DENSE_COVERAGE_FRACTION,
+                    "max_dense_seconds": ADAPTIVE_MAX_DENSE_SECONDS,
+                },
+                "grid_frame_count": len(grid_keys),
+                "dense_frame_count": dense_count,
                 "signals": measured["signals"],
                 "plan": plan,
             })
         else:
             selected = _select_m2_frames(m2_frames, step_s)
+            plans.append({
+                "clip_id": clip_id,
+                "mode": "uniform",
+                "step_s": step_s,
+                "grid_frame_count": len(selected),
+                "dense_frame_count": 0,
+                "plan": None,
+            })
         for frame in selected:
             row = {
                 "file": source_memory.frame_abspath(digest, frame),
@@ -604,6 +657,18 @@ def build_frame_index(project_folder, index_dir=None,
                 "filename": clip.get("filename", ""),
                 "t": round(float(frame["t"]), 3),
             }
+            # WHY this frame is in the index: the retained uniform grid
+            # or the dense tier the adaptive plan added, with the
+            # measured evidence that earned the window.  This is what
+            # lets every indexed frame be traced back to the selection
+            # policy that picked it.
+            if sampling == "adaptive":
+                selection, evidence = _selection_for(
+                    float(frame["t"]), grid_keys, plan)
+            else:
+                selection, evidence = "uniform", []
+            row["selection"] = selection
+            row["selection_evidence"] = evidence
             # The source's own frame index, when the measurement carries
             # one: a hit then names a FRAME of the original, not a
             # rounded second.
@@ -637,6 +702,14 @@ def build_frame_index(project_folder, index_dir=None,
         "frame_count": len(frames),
         "step_s": step_s,
         "sampling": sampling,
+        # C06: the adaptive sampling plans ARE the index's provenance.
+        # They were constructed but never persisted, so no stored frame
+        # set could be traced back to its selection policy.  Each entry
+        # names the clip, the mode, the grid/dense frame counts, the
+        # measured signals behind the plan and - for adaptive clips -
+        # the full plan: dense windows with their trigger evidence,
+        # deferred triggers, and the intervals deliberately left coarse.
+        "sampling_plans": plans,
         "scope": SCOPE,
         "built_at": time.time(),
         # What this index was built FROM.  Frames reference the per-source
@@ -1605,6 +1678,128 @@ class FrameIndex:
                        reason="every source video is byte-for-byte what this "
                               "index was built from")
         return out
+
+    def sampling_provenance(self) -> dict:
+        """Where every indexed frame came from: the selection policy.
+
+        Reads ONLY the stored payload - no model, no decode, no
+        re-embedding - so coverage stays inspectable during
+        troubleshooting on a machine holding just the index.  Per clip:
+        the mode, the grid/dense frame counts, the dense windows with
+        the evidence that earned each one, the triggers the budget
+        deferred, and the intervals deliberately left coarse.  A frame
+        row whose ``selection`` is ``"dense"`` names its window's
+        evidence; a ``"uniform"`` row was on the retained grid.
+
+        A payload built before the plans were persisted carries no
+        ``sampling_plans`` key: that reads as ``complete: False`` with
+        the reason, never as an empty plan - an unrecorded policy is
+        not a policy that chose nothing.
+        """
+        payload = self.payload
+        stored = payload.get("sampling_plans")
+        frames = payload.get("frames") or []
+        if stored is None:
+            return {
+                "complete": False,
+                "sampling": payload.get("sampling") or "uniform",
+                "reason": ("this index was built before sampling plans "
+                           "were persisted: its frames cannot be traced "
+                           "back to a selection policy; rebuild it to "
+                           "record one"),
+                "clips": [],
+            }
+        clips = []
+        for entry in stored:
+            clip_id = entry.get("clip_id")
+            rows = [f for f in frames if f.get("clip_id") == clip_id]
+            dense_rows = [f for f in rows
+                          if f.get("selection") == "dense"]
+            plan = entry.get("plan") or {}
+            dense = plan.get("dense") or {}
+            clips.append({
+                "clip_id": clip_id,
+                "mode": entry.get("mode"),
+                "step_s": entry.get("step_s"),
+                "policy": entry.get("policy"),
+                "frames": len(rows),
+                "grid_frames": sum(
+                    1 for f in rows if f.get("selection") != "dense"),
+                "dense_frames": len(dense_rows),
+                "dense_windows": dense.get("windows") or [],
+                "covered_seconds": dense.get("covered_seconds"),
+                "coverage_budget_seconds": dense.get(
+                    "coverage_budget_seconds"),
+                "deferred": plan.get("deferred") or [],
+                "static_intervals": plan.get("skipped_static") or [],
+                "signals": entry.get("signals"),
+            })
+        return {
+            "complete": True,
+            "sampling": payload.get("sampling") or "uniform",
+            "step_s": payload.get("step_s"),
+            "frame_count": len(frames),
+            "clips": clips,
+        }
+
+    def sampling_coverage_text(self, clip_id: str | None = None) -> str:
+        """The provenance as troubleshooting prose: which windows got
+        extra sampling, which triggers were deferred, which intervals
+        were deliberately left coarse.  One block per clip."""
+        provenance = self.sampling_provenance()
+        if provenance.get("complete"):
+            lines = [(f"sampling: {provenance.get('sampling')} "
+                      f"(step {provenance.get('step_s')}s, "
+                      f"{provenance.get('frame_count', 0)} frames)")]
+        else:
+            lines = [(f"sampling: {provenance.get('sampling')} - "
+                      f"{provenance.get('reason')}")]
+        for clip in provenance.get("clips") or []:
+            if clip_id is not None and clip.get("clip_id") != clip_id:
+                continue
+            if clip.get("mode") == "uniform":
+                lines.append(
+                    f"{clip['clip_id']}: uniform grid, "
+                    f"{clip['frames']} frames, no dense tier")
+                continue
+            lines.append(
+                f"{clip['clip_id']}: adaptive - {clip['frames']} frames "
+                f"({clip['grid_frames']} grid + {clip['dense_frames']} "
+                f"dense; {clip.get('covered_seconds')}s of "
+                f"{clip.get('coverage_budget_seconds')}s dense budget)")
+            windows = clip.get("dense_windows") or []
+            if windows:
+                lines.append("  extra sampling:")
+                for window in windows:
+                    evidence = ", ".join(window.get("evidence") or [])
+                    lines.append(
+                        f"    {window.get('start')}-{window.get('end')}s "
+                        f"({window.get('duration_seconds')}s): {evidence}")
+            else:
+                lines.append("  extra sampling: none - grid only")
+            deferred = clip.get("deferred") or []
+            if deferred:
+                lines.append("  reduced sampling (deferred by budget):")
+                for row in deferred:
+                    trigger = row.get("trigger") or {}
+                    lines.append(
+                        f"    {trigger.get('kind')} @ "
+                        f"{trigger.get('start')}-{trigger.get('end')}s "
+                        f"({trigger.get('evidence')}: {row.get('reason')})")
+            static = clip.get("static_intervals") or []
+            if static:
+                lines.append(
+                    f"  left coarse: {len(static)} static interval(s), "
+                    f"e.g. {static[0].get('start')}-{static[0].get('end')}s")
+            signals = clip.get("signals") or {}
+            unavailable = sorted(
+                name for name, signal in signals.items()
+                if isinstance(signal, dict)
+                and signal.get("status") == "unavailable")
+            if unavailable:
+                lines.append(
+                    f"  unmeasured signals: {', '.join(unavailable)}")
+        return "\n".join(lines)
 
     @staticmethod
     def get_tool_definitions() -> list:

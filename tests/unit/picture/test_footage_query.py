@@ -3383,3 +3383,178 @@ def test_a_sound_lane_that_never_ran_does_not_confirm_anything(
     assert report["abstained"] is True
     assert report["abstention"]["outcome"] == "insufficient_evidence"
     assert report["abstention"]["answer_state"] != "absent"
+
+
+# ─── C06: frame sampling provenance ───────────────────────────────
+#
+# The defect: adaptive sampling plans were constructed at build time
+# but never persisted, so no stored frame set could be traced back to
+# its selection policy.  Every test here names that defect or the
+# inspect surface that proves the fix.  No model, no decode: CLIP, M2
+# and the trigger reader are all stubbed.
+
+
+@pytest.fixture
+def dense_m2(monkeypatch):
+    """M2 frame samples dense enough for the dense tier to add frames:
+    every 2 s, so a dense window holds off-grid samples the 10 s grid
+    does not."""
+    frame_times = {"clip_001": [float(t) for t in range(0, 120, 2)],
+                   "other_002": [float(t) for t in range(0, 60, 2)]}
+
+    def fake_digest_for_clip(project_folder, clip, recorded=None):
+        return clip["clip_id"], "live"
+
+    def fake_read_m2(content_digest, root=None):
+        times = frame_times.get(content_digest)
+        if times is None:
+            return None
+        return {
+            "content_digest": content_digest,
+            "frame_count": len(times),
+            "timebase": {"fps": 2.0},
+            "frames": [{"file": f"frames/frame_{i:06d}.jpg", "t": t,
+                        "frame_index": i} for i, t in enumerate(times)],
+        }
+
+    def fake_is_fresh(record, source_file):
+        return True
+
+    def fake_frame_abspath(content_digest, frame, root=None):
+        return f"/memory/{content_digest}/{frame['file']}"
+
+    monkeypatch.setattr(footage_frames.source_memory, "digest_for_clip",
+                        fake_digest_for_clip)
+    monkeypatch.setattr(footage_frames.source_memory, "read_m2", fake_read_m2)
+    monkeypatch.setattr(footage_frames.source_memory, "is_fresh", fake_is_fresh)
+    monkeypatch.setattr(footage_frames.source_memory, "frame_abspath",
+                        fake_frame_abspath)
+    monkeypatch.setattr(footage_frames.source_memory, "m2_frames_present",
+                        lambda *_args, **_kwargs: True)
+
+
+@pytest.fixture
+def stub_triggers(monkeypatch):
+    """One measured trigger per clip, so the adaptive plan has a window
+    to persist: motion off the grid for clip_001, a shot change for
+    the other clip."""
+    from library.tools import adaptive_inspection, adaptive_signals
+
+    def fake_measured(content_digest, **kwargs):
+        if content_digest == "clip_001":
+            triggers = [adaptive_inspection.Trigger(
+                kind="motion", start=64.0, end=64.0,
+                evidence="M3 motion[3]")]
+        else:
+            triggers = [adaptive_inspection.Trigger(
+                kind="shot_change", start=20.0, end=20.0,
+                evidence="scene_boundary[1]",
+                tolerance_seconds=0.5, event_type="scene_transition")]
+        return {"triggers": triggers,
+                "signals": {"motion": {"status": "measured", "count": 1}},
+                "coverage": []}
+
+    monkeypatch.setattr(adaptive_signals, "measured_triggers", fake_measured)
+
+
+def test_adaptive_plans_are_persisted_with_the_index(
+        project_3, tmp_path, stub_clip, dense_m2, stub_triggers):
+    """The defect: the build constructed the plan and dropped it, so the
+    stored payload carried no selection policy."""
+    index_dir = tmp_path / "findex"
+    footage_frames.build_frame_index(project_3, index_dir=index_dir,
+                                     sampling="adaptive")
+    payload = json.loads(
+        (index_dir / footage_frames.FRAME_INDEX_FILE).read_text(
+            encoding="utf-8"))
+    stored = payload.get("sampling_plans")
+    assert stored is not None, (
+        "the index payload carries no sampling plans: its frames cannot "
+        "be traced back to a selection policy")
+    assert {entry["clip_id"] for entry in stored} == {"clip_001", "other_002"}
+    for entry in stored:
+        assert entry["mode"] == "adaptive"
+        plan = entry.get("plan")
+        assert plan is not None, (
+            f"{entry['clip_id']}: an adaptive entry with no plan is the "
+            "defect again")
+        assert plan.get("dense", {}).get("windows"), (
+            f"{entry['clip_id']}: the stubbed trigger bought no dense "
+            "window, so there is nothing to trace")
+
+
+def test_every_indexed_frame_traces_to_its_selection_policy(
+        project_3, tmp_path, stub_clip, dense_m2, stub_triggers):
+    """The acceptance: every frame set traces back to its policy - each
+    row names the grid or the dense evidence that picked it."""
+    index_dir = tmp_path / "findex"
+    footage_frames.build_frame_index(project_3, index_dir=index_dir,
+                                     sampling="adaptive")
+    payload = json.loads(
+        (index_dir / footage_frames.FRAME_INDEX_FILE).read_text(
+            encoding="utf-8"))
+    assert payload["frames"], "no frames indexed, nothing to trace"
+    for row in payload["frames"]:
+        assert row.get("selection") in ("uniform", "dense"), (
+            f"frame t={row.get('t')} names no selection policy")
+        if row["selection"] == "dense":
+            assert row.get("selection_evidence"), (
+                f"dense frame t={row.get('t')} names no evidence")
+    assert any(row["selection"] == "dense" for row in payload["frames"]), (
+        "the dense tier added nothing, so the trace is grid-only")
+
+
+def test_uniform_builds_record_a_uniform_policy(
+        project_3, tmp_path, stub_clip, stub_m2):
+    """A uniform build chose no dense window, and its provenance says
+    exactly that rather than carrying no provenance at all."""
+    index_dir = tmp_path / "findex"
+    footage_frames.build_frame_index(project_3, index_dir=index_dir,
+                                     sampling="uniform")
+    payload = json.loads(
+        (index_dir / footage_frames.FRAME_INDEX_FILE).read_text(
+            encoding="utf-8"))
+    stored = payload.get("sampling_plans")
+    assert stored is not None and len(stored) == 2
+    assert all(entry["mode"] == "uniform" and entry["plan"] is None
+               for entry in stored)
+    assert all(row.get("selection") == "uniform"
+               for row in payload["frames"])
+
+
+def test_inspect_frames_prints_which_windows_got_extra_sampling(
+        project_3, tmp_path, stub_clip, dense_m2, stub_triggers, capsys):
+    """The troubleshooting surface: an inspect command prints coverage -
+    which windows received extra sampling - from the stored payload,
+    with no model and no decode."""
+    from library.tools.analysis import footage_query as fq
+    index_dir = tmp_path / "findex"
+    footage_frames.build_frame_index(project_3, index_dir=index_dir,
+                                     sampling="adaptive")
+    assert fq.main(["inspect-frames", str(project_3),
+                    "--index-dir", str(index_dir)]) == 0
+    out = capsys.readouterr().out
+    assert "63.5-64.5" in out, (
+        "the motion window's extra sampling is not inspectable")
+    assert "M3 motion[3]" in out, (
+        "the window's measured evidence is not inspectable")
+    assert "left coarse" in out, (
+        "the intervals deliberately left coarse are not inspectable")
+
+
+def test_inspect_frames_reports_a_planless_payload_as_planless(
+        project_3, tmp_path, stub_clip, stub_m2):
+    """A payload built before plans were persisted inspects as
+    incomplete, never as an empty plan: an unrecorded policy is not a
+    policy that chose nothing."""
+    index_dir = tmp_path / "findex"
+    footage_frames.build_frame_index(project_3, index_dir=index_dir)
+    payload = json.loads(
+        (index_dir / footage_frames.FRAME_INDEX_FILE).read_text(
+            encoding="utf-8"))
+    del payload["sampling_plans"]
+    _write(index_dir / footage_frames.FRAME_INDEX_FILE, payload)
+    vidx = FrameIndex(project_3, index_dir=index_dir)
+    provenance = vidx.sampling_provenance()
+    assert provenance["complete"] is False
+    assert "before sampling plans were persisted" in provenance["reason"]
