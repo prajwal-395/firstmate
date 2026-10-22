@@ -137,6 +137,12 @@ BUSY_TIMEOUT_MS = 30_000
 STALL_SECONDS = 600
 LEASE_SECONDS = 60.0
 HEARTBEAT_SECONDS = 15.0
+#: How long a HEARTBEAT waits for the write lock before it gives up
+#: and retries on its next tick.  The heartbeat must not spend the
+#: lease waiting for the database: the lease (60 s) has to outlive the
+#: heartbeat's own lateness (interval 15 s + this wait), or a live
+#: holder's grant is freed while its holder is still working.
+HEARTBEAT_BUSY_TIMEOUT_MS = 2_000
 BACKFILL_AGE_SECONDS = 300.0
 SCHEDULER_POLICY_VERSION = 1
 
@@ -451,6 +457,127 @@ def _pid_stat(pid: int) -> str:
     return out
 
 
+_PID_MAX_CACHE: int | None = None
+
+
+def _pid_max() -> int:
+    """The largest pid this kernel hands out, read once.
+
+    `ps` refuses a pid above the limit ("process id too large") and
+    takes the WHOLE call down with it: one row that recorded a pid from
+    another machine's numbering silenced every reading, and a holder
+    whose start could not be read was read as never recycled.
+    """
+    global _PID_MAX_CACHE
+    if _PID_MAX_CACHE:
+        return _PID_MAX_CACHE
+    limit = 4194304          # Linux's default
+    try:
+        text = Path("/proc/sys/kernel/pid_max").read_text(
+            encoding="utf-8").strip()
+        if text.isdigit():
+            limit = int(text)
+    except OSError:
+        if sys.platform == "darwin":
+            # macOS's MAXPID: `ps` refuses anything above it.
+            limit = 99999
+    _PID_MAX_CACHE = limit
+    return limit
+
+
+def _one_pid_reading(pid: int) -> tuple[str, str] | None:
+    """One pid's (stat, start), or None when `ps` cannot answer for it."""
+    try:
+        completed = subprocess.run(
+            ["ps", "-o", "pid=,stat=,lstart=", "-p", str(pid)],
+            capture_output=True, encoding="utf-8", timeout=5, check=False)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    for line in (completed.stdout or "").splitlines():
+        parts = line.split(None, 2)
+        if len(parts) < 2:
+            continue
+        try:
+            if int(parts[0]) != pid:
+                continue
+        except ValueError:
+            continue
+        start = " ".join(parts[2].split()) if len(parts) > 2 else ""
+        return (parts[1], start)
+    return None
+
+
+def _process_readings(pids) -> dict[int, tuple[str, str]]:
+    """{pid: (stat, start)} for every pid, in ONE `ps` call.
+
+    The liveness readings cost a PROCESS each, and a caller that holds
+    the database's write lock while it waits for them keeps every other
+    writer out for as long as they take (measured 2026-10-21: a quarter
+    second per `ps` on a loaded machine, so a reap of three rows held
+    the write lock for a second, and the waiters it was reaping for
+    were refused with "database is locked").
+
+    One call for every pid keeps the cost flat: a reap of three rows
+    costs what a reap of one costs. A pid that is gone simply does not
+    appear in the output, which is the reading the caller wanted - but
+    a pid the kernel never hands out is refused by `ps` and takes the
+    call with it, so those are left out and the pids that CAN answer
+    still do.
+    """
+    wanted = sorted({int(pid) for pid in pids if 0 < int(pid) <= _pid_max()})
+    if not wanted:
+        return {}
+    try:
+        completed = subprocess.run(
+            ["ps", "-o", "pid=,stat=,lstart=", "-p",
+             ",".join(str(pid) for pid in wanted)],
+            capture_output=True, encoding="utf-8", timeout=5,
+            check=False)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return {}
+    out = completed.stdout or ""
+    if completed.stderr and completed.stderr.strip():
+        # `ps` refused the list (a pid it cannot parse, or an option
+        # this kernel does not know): it printed nothing for the pids
+        # it COULD answer, so the readings are taken one pid at a time.
+        readings: dict[int, tuple[str, str]] = {}
+        for pid in wanted:
+            reading = _one_pid_reading(pid)
+            if reading:
+                readings[pid] = reading
+        return readings
+    readings = {}
+    for line in out.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) < 2:
+            continue
+        try:
+            pid = int(parts[0])
+        except ValueError:
+            continue
+        start = " ".join(parts[2].split()) if len(parts) > 2 else ""
+        readings[pid] = (parts[1], start)
+    return readings
+
+
+def _kill_alive(pid: int) -> bool:
+    """Whether the pid answers `kill(pid, 0)`, without asking `ps`.
+
+    The cheap half of `_alive`: a process that is gone raises
+    ProcessLookupError, and one this process may not signal raises
+    PermissionError - which is a process that IS there.
+    """
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except (OSError, ValueError, OverflowError):
+        return False
+    return True
+
+
 def _is_zombie(pid: int) -> bool:
     """Whether `pid` is a zombie awaiting its parent's waitpid.
 
@@ -464,15 +591,7 @@ def _is_zombie(pid: int) -> bool:
 def _alive(pid: int) -> bool:
     if _is_zombie(pid):
         return False
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    except (OSError, ValueError, OverflowError):
-        return False
-    return True
+    return _kill_alive(pid)
 
 
 def _pid_start(pid: int) -> str:
@@ -494,18 +613,33 @@ def _pid_start(pid: int) -> str:
     return " ".join(out.split())
 
 
-def _holder_dead(pid: int, recorded_start: str | None) -> bool:
+def _holder_dead(pid: int, recorded_start: str | None,
+                 readings: dict[int, tuple[str, str]] | None = None
+                 ) -> bool:
     """Whether the holder recorded as `pid`/`recorded_start` is gone.
 
     Dead when the pid is gone (including zombies), or when the live
     pid's start differs from the recorded one (the number was recycled
     for a new process). A row with no recorded start predates the
     identity column and falls back to liveness alone.
+
+    ``readings`` carries the `ps` readings for every pid at once, so a
+    reap of many rows costs ONE process rather than one per row.
     """
-    if not _alive(pid):
-        return True
+    if readings is None:
+        if not _alive(pid):
+            return True
+    else:
+        stat = readings.get(pid, ("", ""))[0]
+        if stat.startswith("Z") or not _kill_alive(pid):
+            # A zombie holds nothing, and a pid that does not answer
+            # `kill` is gone.
+            return True
     if recorded_start:
-        live_start = _pid_start(pid)
+        if readings is None:
+            live_start = _pid_start(pid)
+        else:
+            live_start = readings.get(pid, ("", ""))[1]
         if live_start and live_start != recorded_start:
             return True
     return False
@@ -587,12 +721,23 @@ def _heartbeat_loop(db_path: str, token: str, stop: threading.Event) -> None:
     and the lease expires: the reaper then frees the grant without ever
     needing the dead holder's cooperation. Interval reads the module
     constants at each loop so tests can shorten the lease.
+
+    The write does NOT wait the scheduler's full busy timeout. A
+    heartbeat that spent the busy timeout (30 s) waiting for the write
+    lock, and then waited its interval (15 s) for the next tick, was
+    45 s late - and two such writes are past the lease (60 s), so a
+    LIVE holder's grant was freed while its holder was still working
+    (measured 2026-10-21 under the pool's load: a holder's release
+    refused with "release of a job that is not running"). The heartbeat
+    gives up on the lock quickly and retries on its next tick, so the
+    lease is never spent waiting for the database.
     """
     while not stop.wait(HEARTBEAT_SECONDS):
         try:
             with closing(sqlite3.connect(
-                    db_path, timeout=BUSY_TIMEOUT_MS / 1000)) as conn:
-                conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
+                    db_path, timeout=HEARTBEAT_BUSY_TIMEOUT_MS / 1000)) as conn:
+                conn.execute(
+                    f"PRAGMA busy_timeout={HEARTBEAT_BUSY_TIMEOUT_MS}")
                 with conn:
                     conn.execute(
                         "UPDATE jobs SET heartbeat_at = ? WHERE token = ?",
@@ -741,47 +886,104 @@ class Scheduler:
             conn.execute("COMMIT")
             return result
 
+    def _read(self, body: Callable[[sqlite3.Connection], object]):
+        """A read that takes NO write lock.
+
+        In WAL mode a reader never blocks a writer, so a read that only
+        LOOKS does not queue behind the write lock. The reap and the
+        CPU-progress observation read this way, because both spend real
+        time outside the database (a `ps` call each) and neither may
+        hold the lock while they do it.
+        """
+        with closing(self._connect()) as conn:
+            return body(conn)
+
     @staticmethod
-    def _reap(conn: sqlite3.Connection) -> None:
+    def _reap_candidates(conn: sqlite3.Connection) -> list:
+        """Every row the reap may judge, as dicts."""
+        columns = ("id", "pid", "host", "machine_id", "pid_start",
+                   "heartbeat_at", "started_at", "enqueued_at", "state")
+        return [dict(zip(columns, row)) for row in conn.execute(
+            "SELECT id, pid, host, machine_id, pid_start, heartbeat_at,"
+            " started_at, enqueued_at, state FROM jobs").fetchall()]
+
+    @staticmethod
+    def _reap_decides(row: dict, readings: dict, now: float) -> bool:
+        """Whether one row's owner is provably gone, so the row may go."""
         host = socket.gethostname()
         machine_id = _machine_id()
+        pid = row["pid"]
+        row_host = row["host"]
+        row_machine = row["machine_id"]
+        row_start = row["pid_start"]
+        row_beat = row["heartbeat_at"]
+        row_started = row["started_at"]
+        row_enqueued = row["enqueued_at"]
+        state = row["state"]
+        # The store is machine-local, so a dead holder is always ours
+        # to reclaim: by stable identity, by hostname when the identity
+        # predates this scheme (`mac-<getnode>`, which was random per
+        # process, measured 2026-10-08), or for rows predating any
+        # identity when their pid is gone.
+        same_machine = row_machine == machine_id
+        same_host = row_host == host
+        legacy_style = not row_machine or row_machine.startswith("mac-")
+        if not (same_machine or same_host or legacy_style):
+            return False
+        last_beat = row_beat if row_beat else (row_started or row_enqueued or 0)
+        if (state == "waiting" and row_beat
+                and now - row_beat <= LEASE_SECONDS):
+            # A fresh heartbeat proves that a live waiter is refreshing
+            # its row, even if a wrapper's recorded pid/start differs.
+            return False
+        if _holder_dead(pid, row_start, readings):
+            return True
+        if state == "waiting":
+            # Lease expiry reclaims abandoned grants. A live waiter
+            # holds no grant, and its queue row must survive delays in
+            # heartbeat polling or sqlite lock contention.
+            return False
+        # The lease is the fallback past pid identity: a holder whose
+        # heartbeat stopped (kill -9 ends the thread with the process)
+        # frees the grant even when its number was recycled for a new
+        # process. Live holders heartbeat, so a stale lease means the
+        # holder is gone. Rows predating the heartbeat column fall back
+        # to their start times rather than reading as forever fresh.
+        return bool(last_beat and now - last_beat > LEASE_SECONDS)
+
+    def _reap(self) -> None:
+        """Remove the rows whose owner is provably gone.
+
+        The LIVENESS READING is made outside the write lock, and the
+        rows it condemns are deleted in their own short transaction.
+
+        It used to be one thing: the caller held the write lock, the
+        reap read the rows and spawned a `ps` per row inside that
+        lock, and every other writer - the queue's own waiters, the
+        heartbeat - was kept out of the database for as long as the
+        readings took (measured 2026-10-21: a quarter second per `ps`
+        on a loaded machine, so polling the queue held the write lock
+        for a second, and a waiter that queued during it was refused
+        with "database is locked" and lost its grant).
+
+        The delete is CONDITIONAL on the row still being the row that
+        was judged: a row whose owner refreshed its heartbeat in the
+        meantime is a live row, and it stays.
+        """
+        candidates = self._read(self._reap_candidates)
+        if not candidates:
+            return
+        readings = _process_readings(row["pid"] for row in candidates)
         now = time.time()
-        for row_id, pid, row_host, row_machine, row_start, row_beat, \
-                row_started, row_enqueued, state in conn.execute(
-                "SELECT id, pid, host, machine_id, pid_start, heartbeat_at,"
-                " started_at, enqueued_at, state FROM jobs").fetchall():
-            # The store is machine-local, so a dead holder is always ours
-            # to reclaim: by stable identity, by hostname when the identity
-            # predates this scheme (`mac-<getnode>`, which was random per
-            # process, measured 2026-10-08), or for rows predating any
-            # identity when their pid is gone.
-            same_machine = row_machine == machine_id
-            same_host = row_host == host
-            legacy_style = not row_machine or row_machine.startswith("mac-")
-            if not (same_machine or same_host or legacy_style):
-                continue
-            last_beat = row_beat if row_beat else (row_started or row_enqueued or 0)
-            if (state == "waiting" and row_beat
-                    and now - row_beat <= LEASE_SECONDS):
-                # A fresh heartbeat proves that a live waiter is refreshing
-                # its row, even if a wrapper's recorded pid/start differs.
-                continue
-            if _holder_dead(pid, row_start):
-                conn.execute("DELETE FROM jobs WHERE id = ?", (row_id,))
-                continue
-            if state == "waiting":
-                # Lease expiry reclaims abandoned grants. A live waiter
-                # holds no grant, and its queue row must survive delays in
-                # heartbeat polling or sqlite lock contention.
-                continue
-            # The lease is the fallback past pid identity: a holder whose
-            # heartbeat stopped (kill -9 ends the thread with the process)
-            # frees the grant even when its number was recycled for a new
-            # process. Live holders heartbeat, so a stale lease means the
-            # holder is gone. Rows predating the heartbeat column fall back
-            # to their start times rather than reading as forever fresh.
-            if last_beat and now - last_beat > LEASE_SECONDS:
-                conn.execute("DELETE FROM jobs WHERE id = ?", (row_id,))
+        doomed = [row for row in candidates
+                  if self._reap_decides(row, readings, now)]
+        if not doomed:
+            return
+        self._transaction(lambda conn: conn.executemany(
+            "DELETE FROM jobs WHERE id = ? AND state = ?"
+            " AND heartbeat_at IS ?",
+            [(row["id"], row["state"], row["heartbeat_at"])
+             for row in doomed]))
 
     # ── the old lock directory ──
     def _legacy_owner(self) -> Optional[dict]:
@@ -901,7 +1103,6 @@ class Scheduler:
         now = time.time()
 
         def insert(conn):
-            self._reap(conn)
             conn.execute(
                 "INSERT INTO jobs (token, owner, pid, host, machine_id, state,"
                 " demand, enqueued_at, pid_start, heartbeat_at, policy_version)"
@@ -909,12 +1110,23 @@ class Scheduler:
                 (token, owner, os.getpid(), socket.gethostname(),
                  _machine_id(), json.dumps(demand, sort_keys=True), now,
                  me_start, now, SCHEDULER_POLICY_VERSION))
+        # The reap is its own step, BEFORE the queueing transaction: it
+        # spends its time outside the database, and a waiter must never
+        # queue behind a reap that is measuring liveness.
+        self._reap()
         self._transaction(insert)
         announced = False
         deadline = None if timeout is None else time.monotonic() + max(0, timeout)
         admitted = False
         try:
             while True:
+                # The reap runs BEFORE the admitting transaction, never
+                # inside it: it measures liveness outside the database,
+                # and the queue's own waiters must not queue behind that
+                # measurement (measured 2026-10-21: a waiter was refused
+                # with "database is locked" while a reap held the write
+                # lock for a second).
+                self._reap()
                 blockers = self._transaction(
                     lambda conn: self._try_admit(conn, token, demand, cap))
                 if not blockers:
@@ -946,7 +1158,6 @@ class Scheduler:
 
     def _try_admit(self, conn, token, demand, cap) -> list:
         """Admit the job in this transaction, or name what it waits for."""
-        self._reap(conn)
         mine = conn.execute("SELECT id, pid FROM jobs WHERE token = ?",
                             (token,)).fetchone()
         if mine is None:
@@ -1037,17 +1248,20 @@ class Scheduler:
                 # release (seen 2026-10-02: a waiter on older code met a
                 # newer table and the gate's grant raised on release).
                 pass
-            self._reap(conn)
             self._drop_legacy_dir_if_idle(conn)
         self._transaction(body)
+        # The reap is its own step, AFTER the release: it measures
+        # liveness outside the database, and a release must not wait
+        # behind that measurement.
+        self._reap()
 
     def running_demand(self, token: str) -> Optional[Dict[str, int]]:
         """The demand of a running job with this token, else None."""
         def body(conn):
-            self._reap(conn)
             row = conn.execute("SELECT demand FROM jobs WHERE token = ? AND"
                                " state = 'running'", (token,)).fetchone()
             return json.loads(row[0]) if row else None
+        self._reap()
         return self._transaction(body)
 
     def _running_demands(self) -> list:
@@ -1057,9 +1271,9 @@ class Scheduler:
         is judged against what the running ones hold.
         """
         def body(conn):
-            self._reap(conn)
             return [json.loads(row[0]) for row in conn.execute(
                 "SELECT demand FROM jobs WHERE state = 'running'")]
+        self._reap()
         return self._transaction(body)
 
     def timing(self, token: str) -> Optional[tuple[float, float]]:
@@ -1082,29 +1296,46 @@ class Scheduler:
 
     def jobs(self) -> list:
         """Every live row, oldest first, as dicts."""
+        # The reap and the CPU-progress observation are their own steps,
+        # BEFORE the read: both spend real time outside the database (a
+        # `ps` call each), and a reader that holds the write lock while
+        # it waits for them starves the waiters it is reading the queue
+        # for (measured 2026-10-21: a waiter was refused with "database
+        # is locked" while a queue poll held the lock for a second).
+        self._reap()
+        self._observe_cpu_progress()
+
         def body(conn):
-            self._reap(conn)
-            self._observe_cpu_progress(conn)
             return conn.execute(
                 "SELECT owner, pid, state, demand, enqueued_at, started_at"
                 ", stalled FROM jobs ORDER BY id").fetchall()
         return [{"owner": o, "pid": p, "state": s, "demand": json.loads(d),
                  "enqueued_at": e, "started_at": st, "stalled": bool(x)}
-                for o, p, s, d, e, st, x in self._transaction(body)]
+                for o, p, s, d, e, st, x in self._read(body)]
 
-    @staticmethod
-    def _observe_cpu_progress(conn: sqlite3.Connection) -> None:
+    def _observe_cpu_progress(self) -> None:
         """Flag a live holder without CPU growth for a long bound.
 
         Diagnostic only: the scheduler reports stalled holders but never
         kills or signals them.
+
+        The CPU times are read OUTSIDE the write lock and the flags are
+        written in their own short transaction, for the same reason the
+        reap reads liveness outside it.
         """
+        def read(conn):
+            return conn.execute(
+                "SELECT id, pid, host, machine_id, last_cpu, last_cpu_at"
+                " FROM jobs WHERE state = 'running'").fetchall()
+        rows = self._read(read)
+        if not rows:
+            return
         now = time.time()
         me = _machine_id()
         host = socket.gethostname()
-        for row_id, pid, row_host, row_machine, previous, checked in conn.execute(
-                "SELECT id, pid, host, machine_id, last_cpu, last_cpu_at"
-                " FROM jobs WHERE state = 'running'").fetchall():
+        growing: list = []
+        stalled: list = []
+        for row_id, pid, row_host, row_machine, previous, checked in rows:
             same = row_machine == me or (not row_machine and row_host == host)
             if not same:
                 continue
@@ -1117,12 +1348,20 @@ class Scheduler:
             except (OSError, ValueError, subprocess.SubprocessError):
                 continue
             if previous is None or cpu > previous:
-                conn.execute("UPDATE jobs SET last_cpu = ?, last_cpu_at = ?,"
-                             " stalled = 0 WHERE id = ?",
-                             (cpu, now, row_id))
+                growing.append((cpu, now, row_id))
             elif checked is not None and now - checked >= STALL_SECONDS:
+                stalled.append(row_id)
+        if not growing and not stalled:
+            return
+
+        def body(conn):
+            for cpu, at, row_id in growing:
+                conn.execute("UPDATE jobs SET last_cpu = ?, last_cpu_at = ?,"
+                             " stalled = 0 WHERE id = ?", (cpu, at, row_id))
+            for row_id in stalled:
                 conn.execute("UPDATE jobs SET stalled = 1 WHERE id = ?",
                              (row_id,))
+        self._transaction(body)
 
 
 class TreeSampler:

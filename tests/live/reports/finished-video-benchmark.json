@@ -170,7 +170,7 @@
       "measurement": "finished_video_acceptance",
       "task_set": "ren-scratch-finished-videos-2026-10-21"
     },
-    "source_commit": "70d63a6b47c6fabc78e2d27f98208a7ecac6c7de"
+    "source_commit": "619d87e6128ed0e54c8f5d6074461f479780b16c"
   },
   "release_gate": {
     "conditions": [

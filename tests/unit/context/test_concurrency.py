@@ -696,6 +696,17 @@ def test_live_waiter_is_not_reaped_for_stale_queue_heartbeat(scheduler):
     # The waiter admits in its own process through the live probe; it
     # inherits the session's plentiful-memory seam (tests/conftest.py),
     # so host pressure never reads as a dead waiter here.
+    #
+    # The waiter's OWN deadline is generous on purpose. A waiter that
+    # runs out of time gives up and takes its queue row with it - which
+    # is right, and is what `test_scheduler_wait_timeout_removes_its_
+    # waiting_row` pins - so a deadline shorter than this test's own
+    # runtime ends the waiter while the test is still working, and the
+    # missing row then reads as the defect this test names (a LIVE
+    # waiter reaped). Measured 2026-10-21: the test's own steps cost
+    # 1 s on an idle machine and 12 s on a loaded one (every scheduler
+    # reading shells out to `ps`, and `ps` costs a quarter second there),
+    # so a 15 s waiter deadline was inside the test's own runtime.
     profile = "native_refresh:ren-native"
     held = scheduler.acquire("holder", resource_scheduler.demand_for(profile))
     waiter_code = (
@@ -704,13 +715,13 @@ def test_live_waiter_is_not_reaped_for_stale_queue_heartbeat(scheduler):
         " from library.tools import resource_scheduler as rs;"
         f" s=rs.Scheduler(Path({str(scheduler.legacy_dir)!r}));"
         f" t=s.acquire('live waiter', rs.demand_for({profile!r}),"
-        " announce=lambda _: None, timeout=15); s.release(t)")
+        " announce=lambda _: None, timeout=600); s.release(t)")
     waiter = subprocess.Popen([sys.executable, "-c", waiter_code],
                               cwd=REPO_ROOT_2, stdout=subprocess.PIPE,
                               stderr=subprocess.PIPE, text=True,
                               encoding="utf-8")
     try:
-        deadline = time.monotonic() + 30
+        deadline = time.monotonic() + 120
         while time.monotonic() < deadline:
             if any(job["owner"] == "live waiter" and job["state"] == "waiting"
                    for job in scheduler.jobs()):
@@ -1057,8 +1068,18 @@ def test_a_queued_large_job_is_not_starved_by_later_small_ones(scheduler):
         "native_refresh:ren-native"))
     # Model a separate process: nested requests from this process are now
     # allowed to backfill past waiters that require its grant to be released.
+    #
+    # The stand-in process has to OUTLIVE the test. Its pid is the row's
+    # recorded owner, and a row whose owner is provably dead is reaped -
+    # which is right, and is what `test_recycled_pid_does_not_keep_dead_
+    # grant` pins - so a stand-in that exits while the test still holds
+    # that grant takes the row with it, and the test's own release then
+    # refuses ("release of a job that is not running"). Measured
+    # 2026-10-21: the stand-in slept 30 s and this test's own runtime
+    # was 8 s on an idle machine and 30 s on a loaded one, so the test
+    # raced its own fixture.
     other_process = subprocess.Popen([
-        sys.executable, "-c", "import time; time.sleep(30)"])
+        sys.executable, "-c", "import time; time.sleep(600)"])
     with closing(sqlite3.connect(scheduler.db_path)) as conn, conn:
         conn.execute("UPDATE jobs SET pid = ?, pid_start = ?,"
                      " heartbeat_at = ? WHERE token = ?",
@@ -1069,8 +1090,10 @@ def test_a_queued_large_job_is_not_starved_by_later_small_ones(scheduler):
         scheduler, "gemma 2", "native_refresh:ren-native")
     # Explicit synchronisation, not a fixed sleep: the second writer
     # must be observed in the queue before the placement tries to
-    # backfill past it.
-    queue_deadline = time.monotonic() + 30
+    # backfill past it. The bound is generous because every scheduler
+    # reading shells out to `ps`, and a loaded machine makes each of
+    # them cost a quarter second.
+    queue_deadline = time.monotonic() + 120
     while time.monotonic() < queue_deadline:
         if any(job["owner"] == "gemma 2" and job["state"] == "waiting"
                for job in scheduler.jobs()):
@@ -1081,10 +1104,10 @@ def test_a_queued_large_job_is_not_starved_by_later_small_ones(scheduler):
     placement, box = _acquire_in_thread(scheduler, "placement",
                                         "native_refresh:resolve-control")
 
-    assert placement.wait(30), "unrelated exclusive keys can run together"
+    assert placement.wait(120), "unrelated exclusive keys can run together"
     scheduler.release(box[0])
     scheduler.release(vlm)
-    assert second.wait(30)
+    assert second.wait(120)
     scheduler.release(second_box[0])
     other_process.terminate()
     other_process.wait(timeout=30)

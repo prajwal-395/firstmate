@@ -74,19 +74,43 @@ def test_every_committed_report_carries_a_provenance_that_holds() -> None:
 
 
 def test_every_committed_report_names_a_revision_the_repository_has() -> None:
-    """A revision nobody can check is not a revision."""
+    """A revision nobody can check is not a revision.
+
+    The revision a committed report names must be one the LANDING
+    BRANCH carries: a reader who checks out the branch the report
+    landed on must be able to reach the revision the report claims it
+    was produced from.
+
+    The check is reachability, not presence in the object database.
+    Presence is not a property of the report: a clone that also holds
+    the measuring lane's branch finds the commit there, and a clone of
+    the branch alone does not - so the same main read green on one
+    machine and red on another, and the defect (a report naming a
+    revision the branch does not carry) passed unnoticed wherever the
+    lane's branch happened to be fetched. Measured 2026-10-21: the
+    AXI qualification registry and the finished-video benchmark each
+    named a lane-branch commit that no merge carried into main, because
+    the lane measured on its branch and the merge was a squash.
+
+    A lane that measures on a branch therefore names, in the report it
+    commits, the revision the landing branch carries - the one a
+    reader can check the file against (`report_provenance.commit_for_path`
+    is that revision's own reading).
+    """
     if shutil.which("git") is None:
         pytest.skip("git is not on PATH, so no revision can be checked")
     missing: list[str] = []
     for path in _committed_reports():
         sha = _load(path)["provenance"]["source_commit"]
         completed = subprocess.run(
-            ["git", "cat-file", "-e", f"{sha}^{{commit}}"],
+            ["git", "merge-base", "--is-ancestor", str(sha), "HEAD"],
             cwd=str(REPO), capture_output=True, encoding="utf-8",
             check=False)
         if completed.returncode != 0:
             missing.append(f"{path.relative_to(REPO)}: {sha}")
-    assert not missing, "\n".join(missing)
+    assert not missing, (
+        "these committed reports name a revision the branch does not "
+        "carry, so a reader cannot check them:\n" + "\n".join(missing))
 
 
 def test_the_two_ordinary_request_measurements_are_two_measurements() -> None:
@@ -135,13 +159,25 @@ def test_the_e2e_workflow_assessment_is_present_and_says_it_is_not_live() -> Non
 
 
 def test_the_registry_names_the_report_each_row_came_from() -> None:
-    """A qualification is traceable to the run that earned it."""
+    """A qualification is traceable to the run that earned it.
+
+    The registry keeps the trail ON THE ROW. Every routing row names the
+    report its evidence came from, and every retained row keeps the
+    evidence it was retained with. The registry's own `imported` list is
+    not the trail any more: it named the import BEFORE the one that
+    produced the row, so it was history rather than the row's own story,
+    and the rows now carry their evidence themselves.
+    """
     registry = _load(REGISTRY)
-    imported = registry.get("imported") or []
-    assert imported, "the registry names no imported report"
-    for entry in imported:
-        assert entry["source_report"].endswith(".json"), entry
-        assert entry["source_commit"], entry
+    rows = [(pair, row) for pair, row in (registry.get("records") or {}).items()]
+    rows += [(row.get("operation_backend") or "?", row.get("record") or {})
+             for row in (registry.get("retained_historical_evidence") or [])]
+    assert rows, "the registry holds no qualified row"
+    for pair, row in rows:
+        evidence = row.get("evidence")
+        assert evidence, f"{pair} names no report it came from"
+        assert ".json" in evidence, (
+            f"{pair} names no report file in its evidence: {evidence!r}")
 
 
 def test_the_committed_ordinary_request_reports_carry_the_scope_their_writer_produces() -> None:

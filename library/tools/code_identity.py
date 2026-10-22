@@ -798,6 +798,60 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/deliverable_qc.py",
         "library/tools/subtitle_qa.py",
         "library/tools/transition_carriers.py",
+
+        # The shared modules the closure above reached AFTER this map
+        # was written: the accepted-state record the reel build, the
+        # undo journal, the timeline shadow and the version rounds
+        # read; the action-discovery table the AXI core commands
+        # resolve through; the object identity and the analysis cache
+        # the grounding reader uses; the collateral scope the compound
+        # transaction plans through; the edit outcome the reel edit
+        # history records; the source reference and the spatial tables
+        # the project model reads; and the world-model query.  A fix
+        # to any of them changes what the cached rows resolve through,
+        # so the map names them.
+        #
+        # Measured 2026-10-21: the map was written by #3143 and these
+        # nine arrived with later PRs, so a fix to them was invisible
+        # to the preflight cache - the coverage test below is what
+        # caught it, and it stays strict: a module that reaches a
+        # preflight step's closure and is not named here FAILS.
+        "library/tools/accepted_state.py",
+        "library/tools/action_discovery.py",
+        "library/tools/analysis/object_identity.py",
+        "library/tools/analysis_cache.py",
+        # The body-appearance reader the object identity measures a
+        # person crop through: one hop further down the same chain.
+        "library/tools/body_appearance.py",
+        "library/tools/collateral_scope.py",
+        "library/tools/edit_outcome.py",
+        "library/tools/source_reference.py",
+        "library/tools/spatial_tables.py",
+        "library/tools/world_model_query.py",
+        # The shared modules the closure above reached after this map
+        # was written: the change scope the incremental reel build
+        # measures, the intent neutrality the edit preparation and the
+        # edit request read, the legacy transaction the AXI core
+        # resolves, the caption placement the reel build and the
+        # incremental build carry, and the reference resolver the
+        # world-model query asks.  A fix to any of them changes what
+        # the cached rows resolve through, so the map names them.
+        #
+        # Measured 2026-10-21: the map was written by #3143 and each
+        # wave of PRs after it added modules the preflight steps'
+        # closure reaches.  The coverage test below is what catches
+        # them, and it stays strict: a module that reaches a preflight
+        # step's closure and is not named here FAILS.
+        "library/tools/change_scope.py",
+        "library/tools/intent_neutrality.py",
+        "library/tools/legacy_transaction.py",
+        "library/tools/reel_caption_placement.py",
+        "library/tools/reference_resolver.py",
+        # The shared module the closure above reached with the PRs
+        # that landed after this map was written: the contact onsets
+        # the repeated arrivals' analysis reads.  A fix to it changes
+        # what the cached rows resolve through, so the map names it.
+        "library/tools/contact_onsets.py",
     ),
     "step_1_01_scan_project": (
         "library/tools/alignment_quality.py",
@@ -1508,6 +1562,60 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/resolved/failure_reader.py",
         "library/tools/storage_categories.py",
         "library/tools/version_dependencies.py",
+
+        # The shared modules the closure above reached AFTER this map
+        # was written: the accepted-state record the reel build, the
+        # undo journal, the timeline shadow and the version rounds
+        # read; the action-discovery table the AXI core commands
+        # resolve through; the object identity and the analysis cache
+        # the grounding reader uses; the collateral scope the compound
+        # transaction plans through; the edit outcome the reel edit
+        # history records; the source reference and the spatial tables
+        # the project model reads; and the world-model query.  A fix
+        # to any of them changes what the cached rows resolve through,
+        # so the map names them.
+        #
+        # Measured 2026-10-21: the map was written by #3143 and these
+        # nine arrived with later PRs, so a fix to them was invisible
+        # to the preflight cache - the coverage test below is what
+        # caught it, and it stays strict: a module that reaches a
+        # preflight step's closure and is not named here FAILS.
+        "library/tools/accepted_state.py",
+        "library/tools/action_discovery.py",
+        "library/tools/analysis/object_identity.py",
+        "library/tools/analysis_cache.py",
+        # The body-appearance reader the object identity measures a
+        # person crop through: one hop further down the same chain.
+        "library/tools/body_appearance.py",
+        "library/tools/collateral_scope.py",
+        "library/tools/edit_outcome.py",
+        "library/tools/source_reference.py",
+        "library/tools/spatial_tables.py",
+        "library/tools/world_model_query.py",
+        # The shared modules the closure above reached after this map
+        # was written: the change scope the incremental reel build
+        # measures, the intent neutrality the edit preparation and the
+        # edit request read, the legacy transaction the AXI core
+        # resolves, the caption placement the reel build and the
+        # incremental build carry, and the reference resolver the
+        # world-model query asks.  A fix to any of them changes what
+        # the cached rows resolve through, so the map names them.
+        #
+        # Measured 2026-10-21: the map was written by #3143 and each
+        # wave of PRs after it added modules the preflight steps'
+        # closure reaches.  The coverage test below is what catches
+        # them, and it stays strict: a module that reaches a preflight
+        # step's closure and is not named here FAILS.
+        "library/tools/change_scope.py",
+        "library/tools/intent_neutrality.py",
+        "library/tools/legacy_transaction.py",
+        "library/tools/reel_caption_placement.py",
+        "library/tools/reference_resolver.py",
+        # The shared module the closure above reached with the PRs
+        # that landed after this map was written: the contact onsets
+        # the repeated arrivals' analysis reads.  A fix to it changes
+        # what the cached rows resolve through, so the map names it.
+        "library/tools/contact_onsets.py",
     ),
     "step_1_02_catalog_footage": (
         # Shared measurement and evidence readers reached by the catalog's
@@ -2270,6 +2378,60 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/deliverable_qc.py",
         "library/tools/subtitle_qa.py",
         "library/tools/transition_carriers.py",
+
+        # The shared modules the closure above reached AFTER this map
+        # was written: the accepted-state record the reel build, the
+        # undo journal, the timeline shadow and the version rounds
+        # read; the action-discovery table the AXI core commands
+        # resolve through; the object identity and the analysis cache
+        # the grounding reader uses; the collateral scope the compound
+        # transaction plans through; the edit outcome the reel edit
+        # history records; the source reference and the spatial tables
+        # the project model reads; and the world-model query.  A fix
+        # to any of them changes what the cached rows resolve through,
+        # so the map names them.
+        #
+        # Measured 2026-10-21: the map was written by #3143 and these
+        # nine arrived with later PRs, so a fix to them was invisible
+        # to the preflight cache - the coverage test below is what
+        # caught it, and it stays strict: a module that reaches a
+        # preflight step's closure and is not named here FAILS.
+        "library/tools/accepted_state.py",
+        "library/tools/action_discovery.py",
+        "library/tools/analysis/object_identity.py",
+        "library/tools/analysis_cache.py",
+        # The body-appearance reader the object identity measures a
+        # person crop through: one hop further down the same chain.
+        "library/tools/body_appearance.py",
+        "library/tools/collateral_scope.py",
+        "library/tools/edit_outcome.py",
+        "library/tools/source_reference.py",
+        "library/tools/spatial_tables.py",
+        "library/tools/world_model_query.py",
+        # The shared modules the closure above reached after this map
+        # was written: the change scope the incremental reel build
+        # measures, the intent neutrality the edit preparation and the
+        # edit request read, the legacy transaction the AXI core
+        # resolves, the caption placement the reel build and the
+        # incremental build carry, and the reference resolver the
+        # world-model query asks.  A fix to any of them changes what
+        # the cached rows resolve through, so the map names them.
+        #
+        # Measured 2026-10-21: the map was written by #3143 and each
+        # wave of PRs after it added modules the preflight steps'
+        # closure reaches.  The coverage test below is what catches
+        # them, and it stays strict: a module that reaches a preflight
+        # step's closure and is not named here FAILS.
+        "library/tools/change_scope.py",
+        "library/tools/intent_neutrality.py",
+        "library/tools/legacy_transaction.py",
+        "library/tools/reel_caption_placement.py",
+        "library/tools/reference_resolver.py",
+        # The shared module the closure above reached with the PRs
+        # that landed after this map was written: the contact onsets
+        # the repeated arrivals' analysis reads.  A fix to it changes
+        # what the cached rows resolve through, so the map names it.
+        "library/tools/contact_onsets.py",
     ),
     "step_1_03_semantic_analysis": (
         "library/tools/alignment_quality.py",
@@ -3005,6 +3167,60 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/resolved/failure_reader.py",
         "library/tools/storage_categories.py",
         "library/tools/version_dependencies.py",
+
+        # The shared modules the closure above reached AFTER this map
+        # was written: the accepted-state record the reel build, the
+        # undo journal, the timeline shadow and the version rounds
+        # read; the action-discovery table the AXI core commands
+        # resolve through; the object identity and the analysis cache
+        # the grounding reader uses; the collateral scope the compound
+        # transaction plans through; the edit outcome the reel edit
+        # history records; the source reference and the spatial tables
+        # the project model reads; and the world-model query.  A fix
+        # to any of them changes what the cached rows resolve through,
+        # so the map names them.
+        #
+        # Measured 2026-10-21: the map was written by #3143 and these
+        # nine arrived with later PRs, so a fix to them was invisible
+        # to the preflight cache - the coverage test below is what
+        # caught it, and it stays strict: a module that reaches a
+        # preflight step's closure and is not named here FAILS.
+        "library/tools/accepted_state.py",
+        "library/tools/action_discovery.py",
+        "library/tools/analysis/object_identity.py",
+        "library/tools/analysis_cache.py",
+        # The body-appearance reader the object identity measures a
+        # person crop through: one hop further down the same chain.
+        "library/tools/body_appearance.py",
+        "library/tools/collateral_scope.py",
+        "library/tools/edit_outcome.py",
+        "library/tools/source_reference.py",
+        "library/tools/spatial_tables.py",
+        "library/tools/world_model_query.py",
+        # The shared modules the closure above reached after this map
+        # was written: the change scope the incremental reel build
+        # measures, the intent neutrality the edit preparation and the
+        # edit request read, the legacy transaction the AXI core
+        # resolves, the caption placement the reel build and the
+        # incremental build carry, and the reference resolver the
+        # world-model query asks.  A fix to any of them changes what
+        # the cached rows resolve through, so the map names them.
+        #
+        # Measured 2026-10-21: the map was written by #3143 and each
+        # wave of PRs after it added modules the preflight steps'
+        # closure reaches.  The coverage test below is what catches
+        # them, and it stays strict: a module that reaches a preflight
+        # step's closure and is not named here FAILS.
+        "library/tools/change_scope.py",
+        "library/tools/intent_neutrality.py",
+        "library/tools/legacy_transaction.py",
+        "library/tools/reel_caption_placement.py",
+        "library/tools/reference_resolver.py",
+        # The shared module the closure above reached with the PRs
+        # that landed after this map was written: the contact onsets
+        # the repeated arrivals' analysis reads.  A fix to it changes
+        # what the cached rows resolve through, so the map names it.
+        "library/tools/contact_onsets.py",
     ),
     "step_1_04_temporal_index": (
         "library/tools/alignment_quality.py",
@@ -3771,6 +3987,60 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/resolved/failure_reader.py",
         "library/tools/storage_categories.py",
         "library/tools/version_dependencies.py",
+
+        # The shared modules the closure above reached AFTER this map
+        # was written: the accepted-state record the reel build, the
+        # undo journal, the timeline shadow and the version rounds
+        # read; the action-discovery table the AXI core commands
+        # resolve through; the object identity and the analysis cache
+        # the grounding reader uses; the collateral scope the compound
+        # transaction plans through; the edit outcome the reel edit
+        # history records; the source reference and the spatial tables
+        # the project model reads; and the world-model query.  A fix
+        # to any of them changes what the cached rows resolve through,
+        # so the map names them.
+        #
+        # Measured 2026-10-21: the map was written by #3143 and these
+        # nine arrived with later PRs, so a fix to them was invisible
+        # to the preflight cache - the coverage test below is what
+        # caught it, and it stays strict: a module that reaches a
+        # preflight step's closure and is not named here FAILS.
+        "library/tools/accepted_state.py",
+        "library/tools/action_discovery.py",
+        "library/tools/analysis/object_identity.py",
+        "library/tools/analysis_cache.py",
+        # The body-appearance reader the object identity measures a
+        # person crop through: one hop further down the same chain.
+        "library/tools/body_appearance.py",
+        "library/tools/collateral_scope.py",
+        "library/tools/edit_outcome.py",
+        "library/tools/source_reference.py",
+        "library/tools/spatial_tables.py",
+        "library/tools/world_model_query.py",
+        # The shared modules the closure above reached after this map
+        # was written: the change scope the incremental reel build
+        # measures, the intent neutrality the edit preparation and the
+        # edit request read, the legacy transaction the AXI core
+        # resolves, the caption placement the reel build and the
+        # incremental build carry, and the reference resolver the
+        # world-model query asks.  A fix to any of them changes what
+        # the cached rows resolve through, so the map names them.
+        #
+        # Measured 2026-10-21: the map was written by #3143 and each
+        # wave of PRs after it added modules the preflight steps'
+        # closure reaches.  The coverage test below is what catches
+        # them, and it stays strict: a module that reaches a preflight
+        # step's closure and is not named here FAILS.
+        "library/tools/change_scope.py",
+        "library/tools/intent_neutrality.py",
+        "library/tools/legacy_transaction.py",
+        "library/tools/reel_caption_placement.py",
+        "library/tools/reference_resolver.py",
+        # The shared module the closure above reached with the PRs
+        # that landed after this map was written: the contact onsets
+        # the repeated arrivals' analysis reads.  A fix to it changes
+        # what the cached rows resolve through, so the map names it.
+        "library/tools/contact_onsets.py",
     ),
     "step_1_05_prosody_analysis": (
         # The legacy step delegates the measurement here.

@@ -14,7 +14,7 @@
       "denominator": "10 typed requests",
       "how_to_read_the_two": "both are live-qualification runs of the same ten requests in different environments; neither replaces the other, and the numbers are comparable only with the scope beside them",
       "result": "1 of 10 passed",
-      "the_newer_measurement_of_the_same_measurement": "tests/live/reports/editorial-request-acceptance.json (6 of 10, fixture seeded)",
+      "the_newer_measurement_of_the_same_measurement": "tests/live/reports/editorial-request-acceptance.json (4 of 10, fixture seeded)",
       "what_this_file_measures": "the ten ordinary typed requests at evaluation level 2, run on 2026-10-20 in an environment where the qualification fixture could not be seeded",
       "why_the_failures_are_not_capability_failures": "9 of the 10 rows are missing_evidence caused by the fixture pool not carrying qual_a.mp4 ('no clip named qual_a.mp4 under the pool root'); they measure the environment, not the backend"
     },

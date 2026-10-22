@@ -125,6 +125,15 @@ class VisionProgress:
         self.units = 0
         self._inflight: dict[str, dict] = {}
         self._lock = threading.Lock()
+        # The WRITES are serialized separately from the state: two
+        # threads that finished a unit at the same time each wrote a
+        # record, and the file ended up holding the OLDER of the two
+        # snapshots - the atomic replace made each write whole, not
+        # ordered. The parent then read a counter that stood still
+        # while the child was working, and the wave's last frame was
+        # never reported (measured 2026-10-21: 26 of 200 extractions
+        # of five frames reported four, and a frame left in flight).
+        self._write_lock = threading.Lock()
         self._sequence = 0
         self._closed = False
         self._refusal: dict | None = None
@@ -219,28 +228,35 @@ class VisionProgress:
             }
 
     def write(self) -> None:
-        """Write the record atomically; a failed write is not fatal."""
-        payload = json.dumps(self.record(), ensure_ascii=False)
-        try:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            fd, staged_name = tempfile.mkstemp(
-                prefix=f".{self.path.name}.", suffix=".tmp",
-                dir=str(self.path.parent))
+        """Write the record atomically; a failed write is not fatal.
+
+        The snapshot and the replace happen under ONE lock, so the file
+        always ends up holding the newest state: the last writer to
+        arrive reads the counters as they stand and writes them, and
+        no earlier snapshot can land after it.
+        """
+        with self._write_lock:
+            payload = json.dumps(self.record(), ensure_ascii=False)
             try:
-                with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                    handle.write(payload)
-                os.replace(staged_name, self.path)
-            except BaseException:
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                fd, staged_name = tempfile.mkstemp(
+                    prefix=f".{self.path.name}.", suffix=".tmp",
+                    dir=str(self.path.parent))
                 try:
-                    os.unlink(staged_name)
-                except OSError:
-                    pass
-                raise
-        except OSError:
-            # A progress record that cannot be written is a missing
-            # measurement of the child's progress, not a failed
-            # measurement: the parent falls back to the silence rule.
-            return
+                    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                        handle.write(payload)
+                    os.replace(staged_name, self.path)
+                except BaseException:
+                    try:
+                        os.unlink(staged_name)
+                    except OSError:
+                        pass
+                    raise
+            except OSError:
+                # A progress record that cannot be written is a missing
+                # measurement of the child's progress, not a failed
+                # measurement: the parent falls back to the silence rule.
+                return
 
 
 class NullProgress:

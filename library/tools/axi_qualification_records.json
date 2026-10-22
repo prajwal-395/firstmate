@@ -1,5 +1,25 @@
 {
   "compound_records": {},
+  "provenance": {
+    "environment": {
+      "machine": "arm64",
+      "platform": "macOS-26.3-arm64-arm-64bit",
+      "python_version": "3.12.13"
+    },
+    "evaluation_schema": "ren-axi-qualification-registry/v1",
+    "evidence_kind": "live-qualification",
+    "fixture": "one qualification fixture per row, named by the row",
+    "producer": "library/tools/axi_qualification.py:import_result",
+    "resolve_version": "21.1.0.14",
+    "run_timestamp": "not_recorded",
+    "scope": {
+      "evaluation_level": 1,
+      "fixture": "one qualification fixture per row, named by the row",
+      "measurement": "axi_qualification_registry",
+      "task_set": "one row per operation/backend pair"
+    },
+    "source_commit": "8b7189c883337ed78d384030e3ab5c4be812d9fe"
+  },
   "records": {
     "broll.insert::resolve_axi": {
       "actual_state": {

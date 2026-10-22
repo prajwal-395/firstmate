@@ -1,344 +1,128 @@
 {
-  "schema": "ren-editorial-acceptance/2",
-  "evaluation_levels": [
-    {
-      "level": 1,
-      "name": "primitive_qualification",
-      "question": "Can the backend perform a specified operation?",
-      "evidence_status": "live_backend_qualification_suites"
+  "provenance": {
+    "environment": {
+      "machine": "not_recorded",
+      "platform": "not_recorded",
+      "python_version": "not_recorded"
     },
-    {
-      "level": 2,
-      "name": "semantic_execution",
-      "question": "Can AXI safely execute a typed request?",
-      "evidence_status": "evaluator_directed_semantic_acceptance"
+    "environment_note": "the machine that produced this report is not recorded in it",
+    "evaluation_schema": "ren-editorial-e2e-workflow-assessment/1",
+    "evidence_kind": "implementation",
+    "fixture": "repository evidence only; no live Resolve workflow was run for this assessment",
+    "producer": "the live lane's repository-evidence assessment, recovered from the revision that recorded it",
+    "recovered_from": {
+      "commit": "ec91965c893845c26e73bbe2c3dd5d0a707aecb7",
+      "reason": "this file held this assessment until PR #2952 replaced its content with an ordinary-request measurement of a different scope, and until PR #3164 replaced it again; the assessment is restored here so both measurements stand side by side"
     },
-    {
-      "level": 3,
-      "name": "autonomous_orchestration",
-      "question": "Can Ren infer operations and targets from an instruction?",
-      "evidence_status": "blind_runner_implemented_live_agent_run_pending"
+    "resolve_version": "not_recorded",
+    "run_timestamp": "not_recorded",
+    "run_timestamp_note": "this report predates provenance headers; the recording revision is dated 2026-10-20T14:10:39-04:00",
+    "scope": {
+      "evaluation_level": "not_applicable",
+      "fixture": "repository evidence only; no live Resolve workflow was run for this assessment",
+      "measurement": "e2e_workflow_assessment",
+      "task_set": "E2E-009,E2E-010,E2E-011,E2E-012,E2E-013,E2E-014,E2E-015,E2E-016,E2E-017,E2E-018"
     },
-    {
-      "level": 4,
-      "name": "editorial_acceptance",
-      "question": "Does the completed video satisfy the creative brief?",
-      "evidence_status": "scorer_implemented_judgment_run_pending"
-    }
-  ],
-  "task_count": 10,
-  "passed": 1,
-  "failed": 9,
-  "first_attempt_passes": 1,
-  "results": [
-    {
-      "id": "move_lower_third",
-      "instruction": "Move the selected lower third up by 40 output pixels, keeping its timing, size, safe-area placement, and every other item unchanged.",
-      "operation": "overlay.position",
-      "production_entry": "ren revise / Resolve AXI transaction",
-      "evaluation_level": 2,
-      "status": "fail",
-      "outcome": "missing_evidence",
-      "error": "RuntimeError: {\n  \"category\": \"fixture_batch_failed\",\n  \"reason\": \"case_failed\",\n  \"detail\": \"RuntimeError: could not seed qual_a.mp4: error: no clip named 'qual_a.mp4' under the pool root.\\nhelp: resolve-axi pool\\n\",\n  \"task\": \"move_lower_third\"\n}",
-      "collateral_changes": [],
-      "checks": {},
-      "elapsed_seconds": 9.549911791997147,
-      "instruction_to_verified_seconds": null
-    },
-    {
-      "id": "resize_logo",
-      "instruction": "Set the selected logo to 180 output pixels wide, keep its anchor and timing, and leave all other items unchanged.",
-      "operation": "overlay.resize",
-      "production_entry": "ren revise / Resolve AXI transaction",
-      "evaluation_level": 2,
-      "status": "fail",
-      "outcome": "missing_evidence",
-      "error": "RuntimeError: {\n  \"category\": \"fixture_batch_failed\",\n  \"reason\": \"case_failed\",\n  \"detail\": \"RuntimeError: could not seed qual_a.mp4: error: no clip named 'qual_a.mp4' under the pool root.\\nhelp: resolve-axi pool\\n\",\n  \"task\": \"resize_logo\"\n}",
-      "collateral_changes": [],
-      "checks": {},
-      "elapsed_seconds": 18.787866375001613,
-      "instruction_to_verified_seconds": null
-    },
-    {
-      "id": "add_logo_five_seconds",
-      "instruction": "Add the supplied logo over the final five seconds, inside the safe area, without moving or changing any other timeline item.",
-      "operation": "overlay.add",
-      "production_entry": "ren revise / Resolve AXI transaction",
-      "evaluation_level": 2,
-      "status": "fail",
-      "outcome": "missing_evidence",
-      "error": "RuntimeError: {\n  \"category\": \"fixture_batch_failed\",\n  \"reason\": \"case_failed\",\n  \"detail\": \"RuntimeError: could not seed qual_a.mp4: error: no clip named 'qual_a.mp4' under the pool root.\\nhelp: resolve-axi pool\\n\",\n  \"task\": \"add_logo_five_seconds\"\n}",
-      "collateral_changes": [],
-      "checks": {},
-      "elapsed_seconds": 16.57583999999042,
-      "instruction_to_verified_seconds": null
-    },
-    {
-      "id": "trim_pause",
-      "instruction": "Remove the marked pause while keeping the surrounding speech in order and the linked audio and video in sync.",
-      "operation": "clip.trim",
-      "production_entry": "ren revise / Resolve AXI transaction",
-      "evaluation_level": 2,
-      "status": "fail",
-      "outcome": "missing_evidence",
-      "error": "RuntimeError: {\n  \"category\": \"fixture_batch_failed\",\n  \"reason\": \"case_failed\",\n  \"detail\": \"RuntimeError: could not seed qual_a.mp4: error: no clip named 'qual_a.mp4' under the pool root.\\nhelp: resolve-axi pool\\n\",\n  \"task\": \"trim_pause\"\n}",
-      "collateral_changes": [],
-      "checks": {},
-      "elapsed_seconds": 18.03536824999901,
-      "instruction_to_verified_seconds": null
-    },
-    {
-      "id": "replace_graphic",
-      "instruction": "Replace the selected lower third with the supplied approved version and preserve its position, timing, and all other approved edits.",
-      "operation": "overlay.replace",
-      "production_entry": "ren revise / Resolve AXI transaction",
-      "evaluation_level": 2,
-      "status": "fail",
-      "outcome": "missing_evidence",
-      "error": "RuntimeError: {\n  \"category\": \"fixture_batch_failed\",\n  \"reason\": \"case_failed\",\n  \"detail\": \"RuntimeError: could not seed qual_a.mp4: error: no clip named 'qual_a.mp4' under the pool root.\\nhelp: resolve-axi pool\\n\",\n  \"task\": \"replace_graphic\"\n}",
-      "collateral_changes": [],
-      "checks": {},
-      "elapsed_seconds": 15.731490375008434,
-      "instruction_to_verified_seconds": null
-    },
-    {
-      "id": "restyle_captions",
-      "instruction": "Apply the supplied caption style consistently to every caption, keeping each caption's text and timing.",
-      "operation": "caption.style",
-      "production_entry": "ren revise / Resolve AXI transaction",
-      "evaluation_level": 2,
-      "status": "pass",
-      "outcome": "success",
-      "receipt": {
-        "status": "committed",
-        "rerendered": [
-          "sub_nospeaker_axc-caption-1_0-2000_5bceefb6.mov",
-          "sub_nospeaker_axc-caption-2_0-2000_9b696f77.mov"
-        ]
-      },
-      "checks": {
-        "every_caption_verified": true,
-        "one_caption_operation_per_card": true,
-        "committed_receipt": true,
-        "no_collateral_changes": true
-      },
-      "collateral_changes": [],
-      "benchmark": {
-        "attempts": 1
-      },
-      "discovery": {
-        "operation": "caption.style",
-        "discovered_from_request": true,
-        "algebra_present": true,
-        "request_id": "edit_req_df84a52a959d481b",
-        "phases": {
-          "discovery_s": 0.0011664170015137643,
-          "routing_s": 0.000298084007226862,
-          "live_execution_s": 23.562109166989103
-        }
-      },
-      "backend_selection": {
-        "selected": "resolve_axi_core.execute_semantic_edit_job",
-        "selection_correct": true,
-        "router_refusal": "EditRequestError: op 0 ('caption.style') is missing required parameters: style",
-        "executed_entry": "resolve_axi_core.execute_semantic_edit_job",
-        "basis": "each caption.style card is rendered by the existing subtitles.rerender_swap path and independently verified"
-      },
-      "elapsed_seconds": 23.562770166012342,
-      "instruction_to_verified_seconds": 23.562771041004453,
-      "fixture_setup_seconds": null,
-      "execution_mode": "request",
-      "observed": {
-        "per_caption": [
-          {
-            "unique_id": "530d82db-5d4e-4f4f-9193-94cbfc1063a9",
-            "verified": true,
-            "text_preserved": true,
-            "timing_preserved": true,
-            "style_applied": true
-          },
-          {
-            "unique_id": "e0cbbddf-799b-446e-9ef3-7b82ca6b7235",
-            "verified": true,
-            "text_preserved": true,
-            "timing_preserved": true,
-            "style_applied": true
-          }
-        ]
-      }
-    },
-    {
-      "id": "remove_broll",
-      "instruction": "Remove the selected B-roll shot and close its gap while keeping adjacent speech and sync intact.",
-      "operation": "clip.remove",
-      "production_entry": "ren revise / Resolve AXI transaction",
-      "evaluation_level": 2,
-      "status": "fail",
-      "outcome": "missing_evidence",
-      "error": "RuntimeError: {\n  \"category\": \"fixture_batch_failed\",\n  \"reason\": \"case_failed\",\n  \"detail\": \"RuntimeError: could not seed qual_a.mp4: error: no clip named 'qual_a.mp4' under the pool root.\\nhelp: resolve-axi pool\\n\",\n  \"task\": \"remove_broll\"\n}",
-      "collateral_changes": [],
-      "checks": {},
-      "elapsed_seconds": 17.56680437499017,
-      "instruction_to_verified_seconds": null
-    },
-    {
-      "id": "insert_relevant_broll",
-      "instruction": "Cover the marked phrase with the supplied matching B-roll, using the marked source range and preserving the underlying speech.",
-      "operation": "broll.insert",
-      "production_entry": "ren revise / Resolve AXI transaction",
-      "evaluation_level": 2,
-      "status": "fail",
-      "outcome": "missing_evidence",
-      "error": "RuntimeError: {\n  \"category\": \"fixture_batch_failed\",\n  \"reason\": \"case_failed\",\n  \"detail\": \"RuntimeError: could not seed qual_a.mp4: error: no clip named 'qual_a.mp4' under the pool root.\\nhelp: resolve-axi pool\\n\",\n  \"task\": \"insert_relevant_broll\"\n}",
-      "collateral_changes": [],
-      "checks": {},
-      "elapsed_seconds": 16.49332070800301,
-      "instruction_to_verified_seconds": null
-    },
-    {
-      "id": "right_speaker_camera",
-      "instruction": "Show the camera assigned to the marked speaker for their speaking turn, preserving the edit points.",
-      "operation": "multicam.select_angle",
-      "production_entry": "ren revise / Resolve AXI transaction",
-      "evaluation_level": 2,
-      "status": "fail",
-      "outcome": "missing_evidence",
-      "error": "RuntimeError: {\n  \"category\": \"fixture_batch_failed\",\n  \"reason\": \"case_failed\",\n  \"detail\": \"RuntimeError: could not seed multicam fixture: error: no clip named 'qual_a.mp4' under the pool root.\\nhelp: resolve-axi pool\\n\",\n  \"task\": \"right_speaker_camera\"\n}",
-      "collateral_changes": [],
-      "checks": {},
-      "elapsed_seconds": 14.797876124997856,
-      "instruction_to_verified_seconds": null
-    },
-    {
-      "id": "improve_opening",
-      "instruction": "Tighten the opening to the supplied brief while preserving the speaker's meaning and approved edits.",
-      "operation": "reel.opening",
-      "production_entry": "ren revise / Resolve AXI transaction",
-      "evaluation_level": 2,
-      "status": "fail",
-      "outcome": "missing_evidence",
-      "error": "RuntimeError: {\n  \"category\": \"fixture_batch_failed\",\n  \"reason\": \"case_failed\",\n  \"detail\": \"RuntimeError: could not seed qual_a.mp4: error: no clip named 'qual_a.mp4' under the pool root.\\nhelp: resolve-axi pool\\n\",\n  \"task\": \"improve_opening\"\n}",
-      "collateral_changes": [],
-      "checks": {},
-      "elapsed_seconds": 14.671213958994485,
-      "instruction_to_verified_seconds": null
-    }
-  ],
-  "evaluation": {
-    "level": 2,
-    "name": "semantic_execution",
-    "agent_receives_expected_operation": true,
-    "agent_receives_expected_target": true,
-    "agent_receives_asset_selection": true,
-    "agent_receives_editorial_decision": true,
-    "compound_request_count": 0,
-    "limitations": [
-      "The production host adapter is given typed operation and fixture keys; this is not an autonomy result.",
-      "Editorial quality against a creative brief is not measured by this level."
-    ]
+    "source_commit": "ec91965c893845c26e73bbe2c3dd5d0a707aecb7",
+    "source_commit_note": "the revision that recorded the MEASUREMENT this file reports; the measurement predates provenance headers, so the revision it ran at is not recorded in it"
   },
-  "reliability_metrics": {
-    "schema": "ren-editorial-reliability-metrics/2",
-    "task_count": 10,
-    "rates": {
-      "intent_interpretation": {
-        "status": "measured",
-        "value": 1.0,
-        "measured": 1,
-        "total": 10,
-        "not_measured": 9
-      },
-      "target_resolution": {
-        "status": "not_measured",
-        "value": null,
-        "measured": 0,
-        "total": 10,
-        "not_measured": 10
-      },
-      "capability_discovery": {
-        "status": "measured",
-        "value": 1.0,
-        "measured": 1,
-        "total": 10,
-        "not_measured": 9
-      },
-      "backend_selection_correctness": {
-        "status": "measured",
-        "value": 1.0,
-        "measured": 1,
-        "total": 10,
-        "not_measured": 9
-      },
-      "first_attempt_execution": {
-        "status": "measured",
-        "value": 1.0,
-        "measured": 1,
-        "total": 10,
-        "not_measured": 9
-      },
-      "verification": {
-        "status": "measured",
-        "value": 1.0,
-        "measured": 1,
-        "total": 10,
-        "not_measured": 9
-      },
-      "collateral_change_rate": {
-        "status": "measured",
-        "value": 0.0,
-        "measured": 10,
-        "total": 10,
-        "not_measured": 0
-      },
-      "recovery": {
-        "status": "not_measured",
-        "value": null,
-        "measured": 0,
-        "total": 10,
-        "not_measured": 10
-      },
-      "preservation": {
-        "status": "not_measured",
-        "value": null,
-        "measured": 0,
-        "total": 10,
-        "not_measured": 10
-      },
-      "delivery": {
-        "status": "measured",
-        "value": 0.0,
-        "measured": 1,
-        "total": 10,
-        "not_measured": 9
-      }
+  "schema": "ren-editorial-e2e-workflow-assessment/1",
+  "baseline": "2026-10-20",
+  "assessment": "repository evidence only; no live Resolve workflow was run",
+  "source_report": "editorial-acceptance-blind.json",
+  "completion_rule": "A workflow is complete only when the approved task reaches a verified delivered file and its unrelated timeline state is preserved.",
+  "live_run_required": true,
+  "live_lane": "vep-axc-live2",
+  "workflows": [
+    {
+      "id": "E2E-009",
+      "name": "dialogue cleanup",
+      "status": "incomplete",
+      "existing": ["library/tools/silence_reduction.py", "clip.trim", "EditPatch preservation and sync checks"],
+      "evidence": {"blind_task": "trim_pause", "result": "unsafe_failure"},
+      "remaining": "A live task must identify a retake or pause, shorten it safely, preserve linked audio/video synchronization, and pass delivery verification.",
+      "live_evidence": "Run the dialogue cleanup from an ordinary brief through delivered-file verification on a disposable Resolve project."
     },
-    "outcomes": {
-      "success": 1,
-      "safe_refusal": 0,
-      "reasoning_failure": 0,
-      "unsafe_failure": 0,
-      "missing_evidence": 9
+    {
+      "id": "E2E-010",
+      "name": "B-roll replacement",
+      "status": "incomplete",
+      "existing": ["broll.resolve", "broll.splice", "broll.insert AXI primitive", "preservation invariant"],
+      "evidence": {"blind_tasks": ["insert_relevant_broll", "remove_broll"], "results": ["success", "success"]},
+      "remaining": "The measured tasks insert or remove coverage; they do not identify and replace an existing shot with a better source through verified delivery.",
+      "live_evidence": "Run a source-search-to-replacement workflow and verify dialogue continuity and unchanged downstream timing in the delivered file."
     },
-    "latency_seconds": {
-      "status": "measured",
-      "measured_tasks": 1,
-      "mean_instruction_to_verified": 23.562771041004453,
-      "median_instruction_to_verified": 23.562771041004453,
-      "per_request_instruction_to_verified": {
-        "move_lower_third": null,
-        "resize_logo": null,
-        "add_logo_five_seconds": null,
-        "trim_pause": null,
-        "replace_graphic": null,
-        "restyle_captions": 23.562771041004453,
-        "remove_broll": null,
-        "insert_relevant_broll": null,
-        "right_speaker_camera": null,
-        "improve_opening": null
-      },
-      "fixture_setup_measured_tasks": 0,
-      "fixture_setup_mean": null
+    {
+      "id": "E2E-011",
+      "name": "multicam refinement",
+      "status": "incomplete",
+      "existing": ["multicam.select_angle operation declaration"],
+      "evidence": {"blind_task": "right_speaker_camera", "result": "missing_evidence"},
+      "remaining": "No evidence currently establishes speaker or demonstration angle selection from the brief or a synchronized replacement.",
+      "live_evidence": "Run a speaker-turn or demonstration-angle selection from ordinary instructions and verify source synchronization, edit points, and delivery."
+    },
+    {
+      "id": "E2E-012",
+      "name": "caption correction",
+      "status": "incomplete",
+      "existing": ["subtitles.splice", "subtitles.render_segment", "subtitles.rerender_swap", "caption.style"],
+      "evidence": {"blind_task": "restyle_captions", "result": "success"},
+      "remaining": "The measured task restyles captions while preserving text and timing; text and timing corrections together with surrounding-graphics preservation are not established end to end.",
+      "live_evidence": "Run text, timing, and style corrections and verify caption readback, neighboring graphics, and delivered output."
+    },
+    {
+      "id": "E2E-013",
+      "name": "opening improvement",
+      "status": "incomplete",
+      "existing": ["reel.opening planning operation", "EditorialIntent", "delivered-file editorial acceptance tools"],
+      "evidence": {"blind_task": "improve_opening", "result": "unsafe_failure"},
+      "remaining": "The ordinary-request acceptance run did not safely execute the opening revision; selection of a stronger hook and verified new opening remain unproven.",
+      "live_evidence": "Run an unfamiliar brief through hook selection, structural revision, and delivered-file editorial review."
+    },
+    {
+      "id": "E2E-014",
+      "name": "lower-third and logo revision",
+      "status": "incomplete",
+      "existing": ["overlay.position", "overlay.resize", "overlay.replace", "EditPatch scoped preservation"],
+      "evidence": {"blind_tasks": {"resize_logo": "success", "replace_graphic": "unsafe_failure"}},
+      "remaining": "Precise logo sizing is demonstrated, but approved graphic replacement and an end-to-end delivered result are not.",
+      "live_evidence": "Replace an approved lower third or logo on a disposable project and verify its requested properties and unchanged timeline items through delivery."
+    },
+    {
+      "id": "E2E-015",
+      "name": "mixed edit request",
+      "status": "incomplete",
+      "existing": ["assignment task plan and operation groups", "AXI transaction orchestration", "reversible partial-edit recovery"],
+      "evidence": {"blind_tasks": {"compound_move_and_resize": "success", "compound_trim_and_replace": "unsafe_failure"}},
+      "remaining": "A two-property graphic request succeeds, while the mixed dialogue and graphic request fails; a coherent structural, visual, caption, and audio transaction through delivery is not established.",
+      "live_evidence": "Run one multi-domain assignment, verify its transaction and preservation receipt, then verify the delivered file against its acceptance contract."
+    },
+    {
+      "id": "E2E-016",
+      "name": "resume project with human adjustments",
+      "status": "implemented_live_workflow_unverified",
+      "existing": ["assignment lifecycle checkpoint and resume", "project state capture", "timeline preservation invariant", "Project Model reconciliation"],
+      "evidence": {"code": ["library/tools/assignment_lifecycle.py", "library/tools/assignment_task.py", "library/tools/assignment_actions.py", "library/tools/resolve_axi_core.py"]},
+      "remaining": "The resume and preservation components exist; the complete workflow over a project with pre-existing human adjustments has no recorded live delivery evidence.",
+      "live_evidence": "Resume a disposable project containing human adjustments, finish the requested edit, and verify those adjustments survive the delivered workflow."
+    },
+    {
+      "id": "E2E-017",
+      "name": "revision after human feedback",
+      "status": "implemented_live_workflow_unverified",
+      "existing": ["durable assignment review and revision records", "explicit approved-variant application", "feedback recovery and resume"],
+      "evidence": {"code": ["library/tools/assignment_revision.py", "library/tools/assignment_interaction.py"]},
+      "remaining": "The revision cycle is implemented; repeated human feedback through a final verified delivery has no recorded live evidence.",
+      "live_evidence": "Apply at least two feedback cycles to one disposable assignment without recreating its project, then verify and deliver the final approved version."
+    },
+    {
+      "id": "E2E-018",
+      "name": "export, verify, and deliver requested output",
+      "status": "implemented_live_workflow_unverified",
+      "existing": ["accepted-plan output verification", "delivered-file technical and editorial evidence", "assignment delivery receipt and completion gate"],
+      "evidence": {"code": ["library/tools/deliverable_qc.py", "library/tools/editorial_acceptance/delivery.py", "library/tools/assignment_artifacts.py", "library/tools/assignment_contract.py"]},
+      "remaining": "Export verification and task-linked delivery are implemented; the complete requested-output workflow is not confirmed by the live blind acceptance report.",
+      "live_evidence": "Export the selected requested format, verify the actual file against the accepted plan and output spec, publish its task-linked receipt, and confirm the task completion gate."
     }
-  },
-  "failure_categories": {}
+  ]
 }

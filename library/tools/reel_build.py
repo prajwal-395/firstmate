@@ -5176,8 +5176,6 @@ def shift_captions_for_audio_lead(segments: Sequence[dict],
     Returns (adjusted_segments, notes); the input dicts are not
     mutated.
     """
-    from library.tools.frame_utils import span_frames
-
     join_frame = int(join_record_frame)
     lead = int(lead_frames)
     adjusted = []
