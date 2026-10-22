@@ -80,10 +80,16 @@ from library.tools import source_reference
 EVIDENCE_CONTRACT_VERSION = 2
 """Version of this contract. Readers refuse records stamped newer."""
 
-TICKS_PER_SECOND = 1000
+TICKS_PER_SECOND = source_reference.SOURCE_TICKS_PER_SECOND
 """Millisecond source clocks, the same convention
 ``project_model_evidence`` migrates on: integer ticks preserve every
-measured span without a frame-rate assumption no lane recorded."""
+measured span without a frame-rate assumption no lane recorded.
+
+ONE enumeration, not two: the rate is the source reference's
+(``source_reference.SOURCE_TICKS_PER_SECOND``, INFRA-003), and this name
+is the contract's spelling of it. Two spellings of a source's tick
+rate are two clocks that can drift apart, and a record counted on one
+read at the wrong time on the other."""
 
 
 class EvidenceType(str, Enum):

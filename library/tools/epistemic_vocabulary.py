@@ -98,11 +98,14 @@ def registry_defects() -> list[dict[str, Any]]:
 # ── The model census ───────────────────────────────────────────────
 
 
-def _contract_of(observation: Mapping[str, Any]) -> Mapping[str, Any] | None:
+def contract_of(observation: Mapping[str, Any]) -> Mapping[str, Any] | None:
     """The evidence contract of one observation.
 
     The contract rides in the observation's payload; the flat
     ``evidence`` key is the older shape a reader may still meet.
+
+    This is the ONE dual read: every reader that needs a contract
+    reads it here, so the two spellings are never read by two rules.
     """
     evidence = observation.get("evidence")
     if isinstance(evidence, dict):
@@ -113,6 +116,10 @@ def _contract_of(observation: Mapping[str, Any]) -> Mapping[str, Any] | None:
         if isinstance(contract, dict):
             return contract
     return None
+
+
+#: The pre-public name, kept so an existing reader keeps working.
+_contract_of = contract_of
 
 
 def model_contracts(model: Mapping[str, Any]) -> list[Mapping[str, Any]]:

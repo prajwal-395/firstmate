@@ -1,0 +1,251 @@
+{
+ "reel": "reel-26",
+ "assets": 42,
+ "migrated_producers": [
+  "m1"
+ ],
+ "before": {
+  "records": 95653,
+  "distinct_shapes": 2,
+  "distinct_payload_shapes": 18,
+  "distinct_record_shapes": 18,
+  "with_source_reference": 18064,
+  "with_provenance_class": 94282,
+  "with_coverage": 94282,
+  "with_all_three": 18064,
+  "share_with_all_three": 0.1888492781198708,
+  "class_defects": 79173,
+  "filing_disagreements": 79173,
+  "lossy": 47248,
+  "by_producer": {
+   "reel-build": {
+    "rows": 431,
+    "with_source_reference": 0,
+    "with_provenance_class": 0,
+    "with_coverage": 0,
+    "with_all_three": 0,
+    "class_defects": 0
+   },
+   "m0": {
+    "rows": 3,
+    "with_source_reference": 0,
+    "with_provenance_class": 3,
+    "with_coverage": 3,
+    "with_all_three": 0,
+    "class_defects": 0
+   },
+   "m1": {
+    "rows": 75455,
+    "with_source_reference": 0,
+    "with_provenance_class": 75439,
+    "with_coverage": 75439,
+    "with_all_three": 0,
+    "class_defects": 60336
+   },
+   "m3b": {
+    "rows": 773,
+    "with_source_reference": 0,
+    "with_provenance_class": 773,
+    "with_coverage": 773,
+    "with_all_three": 0,
+    "class_defects": 773
+   },
+   "m6": {
+    "rows": 3,
+    "with_source_reference": 0,
+    "with_provenance_class": 3,
+    "with_coverage": 3,
+    "with_all_three": 0,
+    "class_defects": 0
+   },
+   "m3d": {
+    "rows": 18988,
+    "with_source_reference": 18064,
+    "with_provenance_class": 18064,
+    "with_coverage": 18064,
+    "with_all_three": 18064,
+    "class_defects": 18064
+   }
+  },
+  "by_kind": {
+   "interval": 95653
+  },
+  "shapes": {
+   "asset_id|confidence|id|interval|modality|payload|provenance_id": 2958,
+   "asset_id|confidence|confidence_detail|id|interval|modality|payload|provenance_id": 92695
+  }
+ },
+ "before_migrated_producers": {
+  "records": 75455,
+  "distinct_shapes": 2,
+  "distinct_payload_shapes": 10,
+  "distinct_record_shapes": 10,
+  "with_source_reference": 0,
+  "with_provenance_class": 75439,
+  "with_coverage": 75439,
+  "with_all_three": 0,
+  "share_with_all_three": 0.0,
+  "class_defects": 60336,
+  "filing_disagreements": 60336,
+  "lossy": 28753,
+  "by_producer": {
+   "m1": {
+    "rows": 75455,
+    "with_source_reference": 0,
+    "with_provenance_class": 75439,
+    "with_coverage": 75439,
+    "with_all_three": 0,
+    "class_defects": 60336
+   }
+  },
+  "by_kind": {
+   "interval": 75455
+  },
+  "shapes": {
+   "asset_id|confidence|id|interval|modality|payload|provenance_id": 2527,
+   "asset_id|confidence|confidence_detail|id|interval|modality|payload|provenance_id": 72928
+  }
+ },
+ "after": {
+  "records": 75439,
+  "distinct_shapes": 1,
+  "distinct_payload_shapes": 0,
+  "distinct_record_shapes": 1,
+  "with_source_reference": 75439,
+  "with_provenance_class": 75439,
+  "with_coverage": 75439,
+  "with_all_three": 75439,
+  "share_with_all_three": 1.0,
+  "class_defects": 0,
+  "filing_disagreements": 60336,
+  "lossy": 28737,
+  "by_producer": {
+   "m1": {
+    "rows": 75439,
+    "with_source_reference": 75439,
+    "with_provenance_class": 75439,
+    "with_coverage": 75439,
+    "with_all_three": 75439,
+    "class_defects": 0
+   }
+  },
+  "by_kind": {
+   "interval": 75439
+  },
+  "shapes": {
+   "asset_id|clock_id|coverage|entities|evidence_model|id|interval|kind|lossy|migration|modality|modality_refs|provenance|relation|semantic|source_references|stream_id|value|version": 75439
+  }
+ },
+ "other_evidence": {
+  "events": {
+   "rows": 0,
+   "distinct_shapes": 0,
+   "shapes": {}
+  },
+  "relations": {
+   "rows": 869,
+   "distinct_shapes": 1,
+   "shapes": {
+    "certainty|confidence|evidence_ids|id|interval|object_id|predicate|provenance_id|relation_class|status|subject_id": 869
+   }
+  },
+  "tracks": {
+   "rows": 924,
+   "distinct_shapes": 1,
+   "shapes": {
+    "clock_id|entity_id|id|local_track_id|provenance_id|samples": 924
+   }
+  },
+  "masks": {
+   "rows": 927,
+   "distinct_shapes": 1,
+   "shapes": {
+    "entity_id|id|interval|provenance_id|representation|source_model": 927
+   }
+  },
+  "signals": {
+   "rows": 26226,
+   "distinct_shapes": 1,
+   "shapes": {
+    "asset_id|coverage_intervals|estimate_status|id|interval|measurement_type|processing_status|provenance_id|sample_clock_id|sample_resolution|samples|samples_ref|sampling_method|source_signal_id|unit": 26226
+   }
+  },
+  "identity_links": {
+   "rows": 431,
+   "distinct_shapes": 1,
+   "shapes": {
+    "confidence|entity_id|id|method|observation_id|provenance_id|status": 431
+   }
+  }
+ },
+ "refusals": [
+  {
+   "id": "obs-cross-modal-disagreement-obs-157522998320e9352229df48c41722da817438bae118534410cb7d7411bb1c7c-m1u-0244",
+   "reason": "the record carries no evidence contract"
+  },
+  {
+   "id": "obs-cross-modal-disagreement-obs-157522998320e9352229df48c41722da817438bae118534410cb7d7411bb1c7c-m1u-0246",
+   "reason": "the record carries no evidence contract"
+  },
+  {
+   "id": "obs-cross-modal-disagreement-obs-157522998320e9352229df48c41722da817438bae118534410cb7d7411bb1c7c-m1u-0458",
+   "reason": "the record carries no evidence contract"
+  },
+  {
+   "id": "obs-cross-modal-disagreement-obs-dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea-m1u-0156",
+   "reason": "the record carries no evidence contract"
+  },
+  {
+   "id": "obs-cross-modal-disagreement-obs-dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea-m1u-0477",
+   "reason": "the record carries no evidence contract"
+  },
+  {
+   "id": "obs-cross-modal-disagreement-obs-dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea-m1u-0481",
+   "reason": "the record carries no evidence contract"
+  },
+  {
+   "id": "obs-cross-modal-disagreement-obs-dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea-m1u-0565",
+   "reason": "the record carries no evidence contract"
+  },
+  {
+   "id": "obs-cross-modal-disagreement-obs-dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea-m1u-0685",
+   "reason": "the record carries no evidence contract"
+  },
+  {
+   "id": "obs-cross-modal-disagreement-obs-dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea-m1u-0948",
+   "reason": "the record carries no evidence contract"
+  },
+  {
+   "id": "obs-cross-modal-disagreement-obs-dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea-m1u-0960",
+   "reason": "the record carries no evidence contract"
+  },
+  {
+   "id": "obs-cross-modal-disagreement-obs-dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea-m1u-1075",
+   "reason": "the record carries no evidence contract"
+  },
+  {
+   "id": "obs-cross-modal-disagreement-obs-dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea-m1u-1077",
+   "reason": "the record carries no evidence contract"
+  },
+  {
+   "id": "obs-cross-modal-disagreement-obs-dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea-m1u-1078",
+   "reason": "the record carries no evidence contract"
+  },
+  {
+   "id": "obs-cross-modal-disagreement-obs-dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea-m1u-1131",
+   "reason": "the record carries no evidence contract"
+  },
+  {
+   "id": "obs-cross-modal-disagreement-obs-dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea-m1u-1188",
+   "reason": "the record carries no evidence contract"
+  },
+  {
+   "id": "obs-cross-modal-disagreement-obs-dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea-m1u-1192",
+   "reason": "the record carries no evidence contract"
+  }
+ ],
+ "scope": {
+  "observations_in_scope": 95653,
+  "observations_of_migrated_producers": 75455
+ }
+}
