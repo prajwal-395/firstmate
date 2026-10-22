@@ -750,7 +750,7 @@ test_the_refusal_is_the_shared_ledger_and_not_some_other_rule() {
 
 # --- 10. A ladder the gate cannot enforce must be loud -----------------------
 #
-# The rung order came from config/crew-dispatch.json for the first time on
+# The rung order came from config/dispatch-policy.json for the first time on
 # 2026-09-02. _fm_agy_ladder_init falls back to the built-in order rather than
 # refusing, which is right at dispatch time - a home whose config it cannot read
 # still has to launch work - but it is also silent, and a silently ignored

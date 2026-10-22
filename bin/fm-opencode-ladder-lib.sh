@@ -99,8 +99,8 @@ fm_opencode_ladder_plus_effort() {
     config_dir="$FM_HOME/config"
   fi
   effort=
-  if [ -n "$config_dir" ] && [ -f "$config_dir/crew-dispatch.json" ] && command -v jq >/dev/null 2>&1; then
-    config_file="$config_dir/crew-dispatch.json"
+  if [ -n "$config_dir" ] && [ -f "$config_dir/dispatch-policy.json" ] && command -v jq >/dev/null 2>&1; then
+    config_file="$config_dir/dispatch-policy.json"
     effort=$(jq -r --arg model "$FM_OPENCODE_LADDER_PLUS_MODEL" '
       [
         .default
@@ -597,6 +597,13 @@ fm_opencode_ladder_free_capped() {  # <state-dir>
 fm_opencode_ladder_model() {  # <requested> <state-dir>
   local requested=${1:-} state_dir=${2:-} explicit=1
   local plus_capped=0 go_capped=0 second_ready=0
+  fm_opencode_ladder_policy_load
+  # The entire declared ladder is checked before launch, so a retired rung is
+  # surfaced with its replacement before the next worker is sent to it.
+  # shellcheck source=bin/fm-model-catalog-lib.sh
+  . "$_FM_OPENCODE_LADDER_LIB_DIR/fm-model-catalog-lib.sh"
+  fm_model_catalog_check "$FM_OPENCODE_LADDER_PLUS_MODEL" || return $?
+  fm_model_catalog_check "$FM_OPENCODE_LADDER_GO" || return $?
   if [ -z "$requested" ] || [ "$requested" = default ]; then
     requested=$FM_OPENCODE_LADDER_PLUS_MODEL
     explicit=0

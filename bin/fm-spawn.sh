@@ -197,7 +197,7 @@
 #   that lock itself rather than failing to resolve one;
 #   contention refuses rather than waits.
 #   With no harness arg, a crewmate/scout spawn resolves the CREW harness only when
-#   config/crew-dispatch.json is absent. When that file exists, crewmate/scout
+#   config/dispatch-policy.json is absent. When that file exists, crewmate/scout
 #   spawns require an explicit harness so firstmate cannot silently skip dispatch
 #   profile consultation. A --secondmate spawn is exempt and resolves the SECONDMATE
 #   harness (config/secondmate-harness -> config/crew-harness -> own), so the
@@ -313,7 +313,7 @@
 #   source of truth; shared --scout/--harness/--model/--effort/--backend/--mode/--yolo
 #   applies to every pair. A ship batch therefore carries one delivery contract, and each
 #   pair still checks it against its own brief; a batch spanning modes is two invocations.
-#   If config/crew-dispatch.json exists, shared --harness is required for crewmate
+#   If config/dispatch-policy.json exists, shared --harness is required for crewmate
 #   and scout batches. The loop lives here, in bash, so callers never hand-write a
 #   multi-task shell loop (the tool shell is zsh, which does not word-split unquoted
 #   $vars and silently breaks ad-hoc `for ... in $pairs` loops).
@@ -2107,7 +2107,7 @@ dispatch_apply_profile() {
     return 0
   fi
   DISPATCH_PROFILE_ACTIVE=1
-  command -v jq >/dev/null 2>&1 || { echo "error: jq is required to enforce config/crew-dispatch.json" >&2; return 1; }
+  command -v jq >/dev/null 2>&1 || { echo "error: jq is required to enforce config/dispatch-policy.json" >&2; return 1; }
   brief_file="$DATA/$ID/brief.md"
   [ -r "$brief_file" ] || { echo "error: dispatch resolution needs the written task brief at $brief_file" >&2; return 1; }
   project_name=$(registered_project_name "$PROJ") || {

@@ -6,7 +6,7 @@
 #
 # THE POLICY. The captain's standing rule for agy dispatch is a fixed two-rung
 # ladder run by STRICT EXHAUSTION, not load balancing.
-# The rung order is DERIVED from config/crew-dispatch.json's "agy_ladder"
+# The rung order is DERIVED from config/dispatch-policy.json's "agy_ladder"
 # array, which is the one place the captain sets it. The "default" array in
 # that config is the dispatch profile set ONLY and no longer carries the rung
 # order.
@@ -28,7 +28,7 @@
 # own.
 #
 # The authoritative statement of the policy is the captain-private
-# config/crew-dispatch.json "_ladder_note"; this file is its enforcement, not a
+# config/dispatch-policy.json "_ladder_note"; this file is its enforcement, not a
 # second copy of it. The rung order derives from that config's "agy_ladder"
 # array at load time, so a reorder there is a reorder here with no second edit.
 #
@@ -132,7 +132,7 @@ fi
 
 # --- the ladder: derived from config, not restated ---------------------------
 #
-# THE ORDER comes from config/crew-dispatch.json's "agy_ladder" array, which is
+# THE ORDER comes from config/dispatch-policy.json's "agy_ladder" array, which is
 # the single place the captain sets the rung sequence. This file reads it once
 # at load time and derives the enforcement tables from it, so a reorder there
 # takes effect here with no second edit - the one-owner rule. The "default"

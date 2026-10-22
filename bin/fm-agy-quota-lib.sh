@@ -358,7 +358,7 @@ EOF
 # FM_HOME separation is not weakened to obtain it.
 #
 # THE KEY IS THE MODEL, NOT THE RUNG. A rung NUMBER is home-local policy: the
-# order comes from each home's own config/crew-dispatch.json, so rung 2 in one
+# order comes from each home's own config/dispatch-policy.json, so rung 2 in one
 # home need not name the model rung 2 names in another, and a number written by
 # one home would be counted against a different model by the next. A display
 # name is the ACCOUNT's own vocabulary and means the same thing in every home,

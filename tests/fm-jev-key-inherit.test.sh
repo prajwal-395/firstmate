@@ -226,7 +226,7 @@ test_secrets_never_enter_reread_instruction() {
   primary=${rec%%|*}
   second=${rec#*|}
   primary_env "$primary"
-  printf '%s\n' 'rules-value' > "$primary/config/crew-dispatch.json"
+  printf '%s\n' 'rules-value' > "$primary/config/dispatch-policy.json"
   report="$TMP_ROOT/reread.report"
   instruction="$TMP_ROOT/reread.instruction"
 

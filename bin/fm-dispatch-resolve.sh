@@ -211,6 +211,7 @@ rules_err=$(jq -r --argjson verified_harnesses "$VERIFIED_HARNESSES" --argjson s
     ($items | map([.harness, (.model // null), (.effort // null)] | @json)) as $keys
     | ($keys | length) != ($keys | unique | length);
   if type != "object" then "top-level value must be an object"
+  elif has("version") and .version != 1 then "version must be 1"
   elif has("rules") and (.rules | type) != "array" then "rules must be an array"
   elif any((.rules // [])[]; type != "object") then "each rule must be an object"
   elif any((.rules // [])[]; (.when | type) != "string" or (.when | length) == 0) then "each rule needs non-empty when"
@@ -450,7 +451,8 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg run
   def bare($m): ($m | split("/") | last);
   def provider_of($c): ($c.provider // $pmap[$c.harness] // null);
   def measured($p):
-    (prov($p) != null and (["known", "partial"] | index(prov($p).quotaSemantics.status)) != null);
+    if prov($p) == null then false
+    else (["known", "partial"] | index(prov($p).quotaSemantics.status)) != null end;
   def applicable($p; $m):
     (bare($m)) as $bare |
     [rows($p)[] | select(
@@ -534,6 +536,7 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg run
    else {source: $choice, use: profiles($rule.use), note: "rule matched"} end) as $sel |
   {
     model: $r.model, latency_ms: $lat, rung: $rung, tokens: ($r.usage // null),
+    ladder_models: ([($cfg.default_ladder // [])[]?.model] | map(select(type == "string"))),
     rule: $choice, source: $sel.source,
     rule_when: (if $rule == null then $none_criterion else $rule.when end | .[0:60]),
     confidence: $a.confidence, probabilities: $a.probabilities

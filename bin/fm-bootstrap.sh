@@ -11,7 +11,7 @@
 #                 "MISSING_MANUAL: <tool> (instructions: <url>)", "NEEDS_GH_AUTH",
 #                 "BACKEND_INVALID: <name> (known: <names>)",
 #                 "STARTUP_MEMORY_BUDGET: invalid config/startup-memory-budget - <reason>",
-#                 "CREW_DISPATCH: invalid config/crew-dispatch.json - <reason>",
+#                 "CREW_DISPATCH: invalid config/dispatch-policy.json - <reason>",
 #                 "FLEET_SYNC: <repo>: skipped|recovered|STUCK: <detail>",
 #                 "HOME_SUMMARY: <ledger never published|not republished since
 #                 <stamp>>; <n> failed attempt(s) ... last: <recorded failure>",
@@ -205,7 +205,7 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 # shellcheck source=bin/fm-x-lib.sh disable=SC1091
 . "$SCRIPT_DIR/fm-x-lib.sh"
 # The agy ladder, for one question only: can the rung order this home's
-# config/crew-dispatch.json states actually be enforced? That library falls back
+# config/dispatch-policy.json states actually be enforced? That library falls back
 # to its built-in order rather than refusing, which is right at dispatch time
 # and silent, so the loud half belongs here where a person reads it once.
 # shellcheck source=bin/fm-agy-ladder-lib.sh disable=SC1091
@@ -1082,7 +1082,7 @@ EOF
 
 crew_dispatch_validate() {
   local file err verified_harnesses typed_active=true legacy_notice missing_provider location harness
-  file="$CONFIG/crew-dispatch.json"
+  file="$CONFIG/dispatch-policy.json"
   [ -f "$file" ] || return 0
   if ! command -v jq >/dev/null 2>&1; then
     echo "MISSING: jq (install: $(install_cmd jq))"
@@ -1148,6 +1148,7 @@ crew_dispatch_validate() {
       | map("\(.h):\(.e)")
       | unique;
     if type != "object" then "top-level value must be an object"
+    elif has("version") and .version != 1 then "version must be 1"
     elif has("rules") and (.rules | type) != "array" then "rules must be an array"
     elif [(.rules // [])[]? | select(type != "object")] | length > 0 then "each rule must be an object"
     elif [(.rules // [])[]? | select((.when? | type) != "string" or (.when | length) == 0)] | length > 0 then "each rule needs non-empty when"
@@ -1203,7 +1204,7 @@ crew_dispatch_validate() {
     end
   ' "$file" 2>/dev/null || true)
   if [ -n "$err" ]; then
-    echo "CREW_DISPATCH: invalid config/crew-dispatch.json - $err"
+    echo "CREW_DISPATCH: invalid config/dispatch-policy.json - $err"
     return 0
   fi
   missing_provider=$(jq -r '
@@ -1225,9 +1226,9 @@ crew_dispatch_validate() {
   if [ -n "$missing_provider" ]; then
     IFS=$'\t' read -r location harness <<< "$missing_provider"
     if [ "$location" = unverified ]; then
-      echo "CREW_DISPATCH: invalid config/crew-dispatch.json - unverified harness: $harness"
+      echo "CREW_DISPATCH: invalid config/dispatch-policy.json - unverified harness: $harness"
     else
-      echo "CREW_DISPATCH: invalid config/crew-dispatch.json - $location profiles whose harness lacks one authoritative provider family require provider: $harness"
+      echo "CREW_DISPATCH: invalid config/dispatch-policy.json - $location profiles whose harness lacks one authoritative provider family require provider: $harness"
     fi
     return 0
   fi
@@ -1239,7 +1240,7 @@ crew_dispatch_validate() {
   # as legacy so the coupled read is reported rather than silent.
   if err=$(fm_agy_ladder_config_problem "$file"); then
     if legacy_notice=$(fm_agy_ladder_legacy_notice "$file"); then
-      [ -n "$legacy_notice" ] && echo "CREW_DISPATCH: legacy config/crew-dispatch.json - $legacy_notice"
+      [ -n "$legacy_notice" ] && echo "CREW_DISPATCH: legacy config/dispatch-policy.json - $legacy_notice"
     fi
   else
     case "$err" in
@@ -1247,7 +1248,7 @@ crew_dispatch_validate() {
         echo "CREW_DISPATCH: agy ladder notice - $err"
         ;;
       *)
-        echo "CREW_DISPATCH: invalid config/crew-dispatch.json - $err"
+        echo "CREW_DISPATCH: invalid config/dispatch-policy.json - $err"
         return 0
         ;;
     esac
@@ -1265,7 +1266,7 @@ crew_dispatch_validate() {
         (($selector // "quota-balanced") + "[" + ([$value[] | profile(.)] | join(", ")) + "]")
       else profile($value)
       end;
-    (["BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json"]
+    (["BOOTSTRAP_INFO: crew dispatch active config/dispatch-policy.json"]
       + [(.rules // [])[]? | "BOOTSTRAP_INFO: crew dispatch rule: " + (.when | tostring) + " -> " + profile_set(.use; .select?)]
       + (if has("default") then ["BOOTSTRAP_INFO: crew dispatch default: " + profile_set(.default; null)] else [] end))
     | .[]

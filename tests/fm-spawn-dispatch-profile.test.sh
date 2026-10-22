@@ -515,8 +515,8 @@ test_symlinked_project_routes_by_registered_name() {
   fm_test_spawn_home "$home" claude
   fm_test_spawn_brief "$home" "$id_projects"
   fm_test_spawn_brief "$home" "$id_abs"
-  printf '%s\n' '{"rules":[{"when":"Lucie site work","projects":["starling-site"],"use":{"harness":"grok","model":"grok-4","effort":"high"}}],"default":{"harness":"codex","model":"gpt-5","effort":"high"}}' \
-    > "$home/config/crew-dispatch.json"
+  printf '%s\n' '{"version":1,"rules":[{"id":"lucie-site","when":"Lucie site work","trigger":{"kind":"projects","names":["starling-site"]},"use":{"harness":"grok","model":"grok-4","effort":"high"}}],"default":{"harness":"codex","model":"gpt-5","effort":"high"}}' \
+    > "$home/config/dispatch-policy.json"
   mkdir -p "$case_dir/real"
   fm_git_worktree "$real_target" "$wt" "wt-symlink"
   git -C "$real_target" worktree add --quiet -b wt-symlink-abs "$wt_abs"
@@ -2704,7 +2704,7 @@ test_pi_opencode_go_switch_routes_explicit_dispatch_profile() {
   rec=$(make_spawn_case pi-profile-opencode opencode "$id")
   read_case_record "$rec"
   printf '%s\n' on > "$HOME_DIR/config/pi-opencode-go"
-  printf '%s\n' "{\"default\":[{\"harness\":\"opencode\",\"model\":\"$model\",\"provider\":\"opencode-go\"}]}" > "$HOME_DIR/config/crew-dispatch.json"
+  printf '%s\n' "{\"default\":[{\"harness\":\"opencode\",\"model\":\"$model\",\"provider\":\"opencode-go\"}]}" > "$HOME_DIR/config/dispatch-policy.json"
   printf '%s' "$DUAL_SECOND_ORG_ID" > "$HOME_DIR/config/opencode-second-org"
   record_rung_cap "$HOME_DIR" plus || fail "record refused Plus cap"
   datadir=$(make_dual_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") || fail "profile fixture login could not be built"
@@ -2732,8 +2732,8 @@ test_pi_opencode_go_switch_routes_exact_project_rule() {
   rec=$(make_spawn_case pi-project-rule-opencode opencode "$id")
   read_case_record "$rec"
   printf '%s\n' on > "$HOME_DIR/config/pi-opencode-go"
-  printf '%s\n' "{\"rules\":[{\"when\":\"project rule dispatch\",\"projects\":[\"project\"],\"use\":{\"harness\":\"opencode\",\"model\":\"$model\",\"provider\":\"opencode-go\"}}],\"default\":{\"harness\":\"codex\",\"model\":\"gpt-5\",\"effort\":\"high\"}}" \
-    > "$HOME_DIR/config/crew-dispatch.json"
+  printf '%s\n' "{\"version\":1,\"rules\":[{\"id\":\"project-rule\",\"when\":\"project rule dispatch\",\"trigger\":{\"kind\":\"projects\",\"names\":[\"project\"]},\"use\":{\"harness\":\"opencode\",\"model\":\"$model\",\"provider\":\"opencode-go\"}}],\"default\":{\"harness\":\"codex\",\"model\":\"gpt-5\",\"effort\":\"high\"}}" \
+    > "$HOME_DIR/config/dispatch-policy.json"
   printf '%s' "$DUAL_SECOND_ORG_ID" > "$HOME_DIR/config/opencode-second-org"
   record_rung_cap "$HOME_DIR" plus || fail "record refused Plus cap"
   datadir=$(make_dual_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") || fail "project-rule fixture login could not be built"
@@ -2835,7 +2835,7 @@ test_pi_opencode_go_switch_refuses_model_missing_from_pi_provider_config() {
   read_case_record "$rec"
   printf '%s\n' on > "$HOME_DIR/config/pi-opencode-go"
   printf '%s\n' "{\"default\":{\"harness\":\"opencode\",\"model\":\"$model\",\"provider\":\"opencode-go\"}}" \
-    > "$HOME_DIR/config/crew-dispatch.json"
+    > "$HOME_DIR/config/dispatch-policy.json"
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" 2>&1)
   status=$?
   expect_code 1 "$status" "a model absent from Pi's provider config must refuse"

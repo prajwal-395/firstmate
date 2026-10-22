@@ -337,7 +337,11 @@
       "audience": "maintainer-architecture"
     },
     {
-      "path": "docs/examples/crew-dispatch.json",
+      "path": "docs/examples/dispatch-policy.json",
+      "audience": "operator-example"
+    },
+    {
+      "path": "docs/examples/model-catalog.json",
       "audience": "operator-example"
     },
     {

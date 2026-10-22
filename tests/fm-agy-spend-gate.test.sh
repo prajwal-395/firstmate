@@ -24,7 +24,7 @@ set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Force the built-in ladder order so a direct run under an ambient FM_HOME
-# with its own crew-dispatch.json cannot reorder the rungs underneath the
+# with its own dispatch-policy.json cannot reorder the rungs underneath the
 # cases. Under bin/fm-test-run.sh FM_HOME is unset and the defaults apply
 # anyway; this only pins the same answer for a bare `bash` invocation.
 export FM_AGY_LADDER_CONFIG=/dev/null/fm-agy-spend-gate-no-config
