@@ -1,0 +1,409 @@
+{
+  "version": 1,
+  "lane": "mm-m04-baseline-gate",
+  "generated": "2026-10-22",
+  "purpose": "M04 performance baselines from the Ren Multimodal Intelligence punchlist: the measured quality and speed each later change is compared against. A comparison command (library/tools/baseline_compare.py) re-reads a new measurement and prints the quality and speed delta against each baseline here. Quality metrics compare exact; speed metrics compare within --speed-tolerance (machine load variance is documented in the source reports).",
+  "for_pr_urls": "https://github.com/prajwal-395/video_editing_pilot/pull/<number>",
+  "baselines": [
+    {
+      "id": "m04-targeted-query",
+      "title": "Targeted query: approximately 404x smaller context than a whole-view query, with 32/32 answers correct",
+      "source": {
+        "pr": 3139,
+        "pr_url": "https://github.com/prajwal-395/video_editing_pilot/pull/3139",
+        "commit": "d82d293aa857c789ca2754c1670068d8b9b62715",
+        "report": "docs/benchmarks/2026-10-22-targeted-reasoning.md",
+        "artifact": "docs/benchmarks/2026-10-22-targeted-reasoning.json"
+      },
+      "workload": "32 M0 milestone questions (event resolution, boundary precision within 0.125 s, repeat identity, one-second control, abstention honesty) asked over 8 sources (7 GEO podcast sources plus the M0 scratch copy of IMG_1822; report states 12,392 s of footage) via three routes: today_api, whole_view, targeted.",
+      "denominators": {
+        "questions": 32,
+        "sources": 8,
+        "reel_candidates": 37
+      },
+      "metrics": [
+        {
+          "name": "answer_rate",
+          "kind": "quality",
+          "direction": "higher",
+          "baseline": 1.0,
+          "unit": "fraction of 32",
+          "tolerance": 0.0,
+          "description": "targeted route answered 32/32"
+        },
+        {
+          "name": "correct_rate",
+          "kind": "quality",
+          "direction": "higher",
+          "baseline": 1.0,
+          "unit": "fraction of 32",
+          "tolerance": 0.0,
+          "description": "targeted route correct 32/32 (whole_view managed 26/32)"
+        },
+        {
+          "name": "context_bytes_per_call",
+          "kind": "speed",
+          "direction": "lower",
+          "baseline": 38415,
+          "unit": "bytes",
+          "tolerance": 0.05,
+          "description": "targeted per-question context vs 15533918 whole-view (404x)"
+        },
+        {
+          "name": "whole_view_bytes_per_call",
+          "kind": "speed",
+          "direction": "lower",
+          "baseline": 15533918,
+          "unit": "bytes",
+          "tolerance": 0.05,
+          "description": "whole-document context the targeted query replaces"
+        },
+        {
+          "name": "context_tokens_per_call",
+          "kind": "speed",
+          "direction": "lower",
+          "baseline": 12294,
+          "unit": "o200k_base tokens",
+          "tolerance": 0.05,
+          "description": "targeted per-question tokens vs 5610489 whole-view (456x)"
+        },
+        {
+          "name": "reel_speaker_set_match",
+          "kind": "quality",
+          "direction": "higher",
+          "baseline": 1.0,
+          "unit": "fraction of 37",
+          "tolerance": 0.0,
+          "description": "speaker set matches the reel plan on 37/37 candidates"
+        },
+        {
+          "name": "reel_speaker_share_within_0.10",
+          "kind": "quality",
+          "direction": "higher",
+          "baseline": 0.8648648648648649,
+          "unit": "fraction of 37",
+          "tolerance": 0.0,
+          "description": "speaker SHARE within 0.10 on 32/37 candidates"
+        }
+      ]
+    },
+    {
+      "id": "m04-progressive-retrieval",
+      "title": "Progressive visual retrieval: 25.4 s first coarse answer versus 446.5 s when detailed verification completes before the answer",
+      "source": {
+        "pr": 3166,
+        "pr_url": "https://github.com/prajwal-395/video_editing_pilot/pull/3166",
+        "commit": "118b988c970b7511d62d935f6d1da08439966cdd",
+        "report": "docs/benchmarks/2026-10-21-progressive-fidelity.md",
+        "artifact": null
+      },
+      "workload": "3 planner-style visual questions ('a laptop on a desk', 'a phone on the table', 'a coffee cup on the desk') over the GEO podcast frame index (1092 sampled frames, one every 10 s, CLIP ViT-L/14). Before arm: search_ranges(temporal=True), answer only when verified. After arm: search_ranges(temporal=False) answers at the coarse tier, verify_ranges computes the detailed tier from those candidates. Cold stores per arm (each pays its own verdicts); equality re-measured on a shared store. Bench: docs/benchmarks/progressive_fidelity_bench.py --json.",
+      "denominators": {
+        "questions": 3,
+        "supported": 3,
+        "failed": 0,
+        "refused": 0,
+        "unmeasured": 0
+      },
+      "metrics": [
+        {
+          "name": "first_answer_s",
+          "kind": "speed",
+          "direction": "lower",
+          "baseline": 25.4,
+          "unit": "seconds (median of 3 cold runs: 62.0, 25.4, 19.1)",
+          "tolerance": 0.25,
+          "description": "after-arm first usable (coarse) answer vs before-arm median 446.5"
+        },
+        {
+          "name": "before_first_answer_s",
+          "kind": "speed",
+          "direction": "lower",
+          "baseline": 446.5,
+          "unit": "seconds (median of 3 cold runs: 446.5, 435.9, 472.6)",
+          "tolerance": 0.25,
+          "description": "before-arm first usable answer (verification completes before any answer)"
+        },
+        {
+          "name": "full_fidelity_s",
+          "kind": "speed",
+          "direction": "lower",
+          "baseline": 378.6,
+          "unit": "seconds (median of 3 cold runs: 378.6, 410.3, 355.0)",
+          "tolerance": 0.25,
+          "description": "after-arm full fidelity vs before-arm median 446.5 (15% less)"
+        },
+        {
+          "name": "answers_identical_rate",
+          "kind": "quality",
+          "direction": "higher",
+          "baseline": 1.0,
+          "unit": "fraction of 3",
+          "tolerance": 0.0,
+          "description": "final answers identical cold and byte-identical on shared stores, 3/3"
+        }
+      ]
+    },
+    {
+      "id": "m04-shared-decode",
+      "title": "Shared grayscale decode: 47.1 s -> 25.4 s for the same frames",
+      "source": {
+        "pr": 3110,
+        "pr_url": "https://github.com/prajwal-395/video_editing_pilot/pull/3110",
+        "commit": "533f5be2c6fc0a4a5ab2976c3827557cc9c1cb2b",
+        "report": "docs/benchmarks/2026-10-21-shared-decode.md",
+        "artifact": null
+      },
+      "workload": "First 120 s of LC4932.MXF (4K, 23.976 fps), re-encoded to a Ren-owned scratch mp4; captain's media read only. Picture sampler (step 1.03) and VI-03 source sampler (step 1.04) each decoded the whole source at 5 Hz, 180 px short side, greyscale. Machine load 60-80 on 10 cores; an earlier run read 117.3 -> 54.2 s, so walls are noisy and the COUNTS (two decodes became one) are the deterministic measure. Bench: python3 -m library.tools.analysis.bench_shared_decode --json.",
+      "denominators": {
+        "source_seconds": 120,
+        "decodes_before": 2,
+        "decodes_after": 1
+      },
+      "metrics": [
+        {
+          "name": "independent_decode_s",
+          "kind": "speed",
+          "direction": "lower",
+          "baseline": 47.1,
+          "unit": "seconds (17.1 + 30.0)",
+          "tolerance": 0.5,
+          "description": "what the run paid before: both lanes' own decodes"
+        },
+        {
+          "name": "shared_decode_s",
+          "kind": "speed",
+          "direction": "lower",
+          "baseline": 25.4,
+          "unit": "seconds",
+          "tolerance": 0.5,
+          "description": "one shared decode; the replacing read is 0.23 s"
+        },
+        {
+          "name": "frames_byte_identical",
+          "kind": "quality",
+          "direction": "higher",
+          "baseline": true,
+          "unit": "boolean",
+          "tolerance": 0.0,
+          "description": "shared frames hash the same three ways as both original commands"
+        },
+        {
+          "name": "picture_output_identical",
+          "kind": "quality",
+          "direction": "higher",
+          "baseline": true,
+          "unit": "boolean",
+          "tolerance": 0.0,
+          "description": "picture sampler measurement identical sharing off and on"
+        },
+        {
+          "name": "defects_output_identical",
+          "kind": "quality",
+          "direction": "higher",
+          "baseline": true,
+          "unit": "boolean",
+          "tolerance": 0.0,
+          "description": "VI-03 sampler measurement identical sharing off and on"
+        },
+        {
+          "name": "cache_bytes",
+          "kind": "speed",
+          "direction": "lower",
+          "baseline": 34560000,
+          "unit": "bytes for 120 s (288 kB per source second)",
+          "tolerance": 0.0,
+          "description": "the shared entry is a raw greyscale sample, removable and evictable"
+        }
+      ]
+    },
+    {
+      "id": "m04-coarse-waves",
+      "title": "Parallel coarse-frame seeks: 135.6 s -> 38.7 s media_decode wall",
+      "source": {
+        "pr": 3031,
+        "pr_url": "https://github.com/prajwal-395/video_editing_pilot/pull/3031",
+        "commit": "136a4b2f8b2fb9548ddc0bbb89839d864c841132",
+        "report": "docs/benchmarks/2026-10-21-coarse-frame-waves.md",
+        "artifact": null
+      },
+      "workload": "Ren-owned scratch project's declared source LC4932.MXF (4K MXF, 4941 s), read only, 25 s frame interval (199 frames), PIPELINE_FRAME_EXTRACT_WORKERS 1 vs 8, measured via the engine's ledger reader and extractor. Same shape on LC4931.MXF (287.6 s, 59 frames): 44.1 -> 17.8 s, all 59 byte-identical. Three runs: 3.51x, 2.77x, 3.24x (machine load spread, CPU time constant). New measurement: ledger media_decode walls for a serial and a waved extraction of the same frames plus sha256 comparison.",
+      "denominators": {
+        "frames": 199,
+        "frame_requests_before": 199,
+        "frame_requests_after": 199
+      },
+      "metrics": [
+        {
+          "name": "serial_wall_s",
+          "kind": "speed",
+          "direction": "lower",
+          "baseline": 135.6,
+          "unit": "seconds (131.8-135.6 across runs)",
+          "tolerance": 0.25,
+          "description": "one ffmpeg accurate seek per frame, one after another"
+        },
+        {
+          "name": "waved_wall_s",
+          "kind": "speed",
+          "direction": "lower",
+          "baseline": 38.7,
+          "unit": "seconds (38.7-47.6 across runs)",
+          "tolerance": 0.25,
+          "description": "waves of 8 workers, same command per frame"
+        },
+        {
+          "name": "frames_byte_identical",
+          "kind": "quality",
+          "direction": "higher",
+          "baseline": true,
+          "unit": "boolean",
+          "tolerance": 0.0,
+          "description": "all 199 frames equal by sha256 between serial and waved extraction"
+        }
+      ]
+    },
+    {
+      "id": "m04-demand-cache",
+      "title": "Frame-level detector cache: 98.4 s -> 59.6 s for the overlapping wider request",
+      "source": {
+        "pr": 3141,
+        "pr_url": "https://github.com/prajwal-395/video_editing_pilot/pull/3141",
+        "commit": "a84073bc839bdedf9d2257bcc40be9a51879a692",
+        "report": "docs/benchmarks/2026-10-21-demand-analysis.md",
+        "artifact": null
+      },
+      "workload": "90 s Ren-owned scratch copy of LC4932.MXF (960x540 mp4); request 'cell phone' over narrow 0-10 s then wider 0-20 s; producer OWLv2 STANDARD (7.269 s/frame on the M0 fixture); model loaded once before both arms. Narrow request is the control (same 10 frames both arms: 71.7 vs 51.2 s, machine variance). Same request asked a second time costs 0.5 s. Bench: python3 -m library.tools.analysis.bench_demand_analysis --json.",
+      "denominators": {
+        "wider_window_frames_sampled": 20,
+        "wider_window_seconds_covered": 20.0,
+        "detections_requested": 20,
+        "detections_before": 20,
+        "detections_after": 10
+      },
+      "metrics": [
+        {
+          "name": "analysis_before_s",
+          "kind": "speed",
+          "direction": "lower",
+          "baseline": 98.4,
+          "unit": "seconds",
+          "tolerance": 0.3,
+          "description": "wider request, cache off: every frame measured again"
+        },
+        {
+          "name": "analysis_after_s",
+          "kind": "speed",
+          "direction": "lower",
+          "baseline": 59.6,
+          "unit": "seconds (38.8 saved, 1.65x)",
+          "tolerance": 0.3,
+          "description": "wider request, cache on: 10 reused, 10 measured"
+        },
+        {
+          "name": "frames_measured_after",
+          "kind": "speed",
+          "direction": "lower",
+          "baseline": 10,
+          "unit": "frames",
+          "tolerance": 0.0,
+          "description": "detector work halved on the same 20 source frames"
+        },
+        {
+          "name": "frames_reused_after",
+          "kind": "speed",
+          "direction": "higher",
+          "baseline": 10,
+          "unit": "frames",
+          "tolerance": 0.0,
+          "description": "cache hits on the wider request"
+        },
+        {
+          "name": "identical_answer",
+          "kind": "quality",
+          "direction": "higher",
+          "baseline": true,
+          "unit": "boolean",
+          "tolerance": 0.0,
+          "description": "detections and coverage map equal across arms"
+        },
+        {
+          "name": "identical_rows",
+          "kind": "quality",
+          "direction": "higher",
+          "baseline": true,
+          "unit": "boolean",
+          "tolerance": 0.0,
+          "description": "Project Model rows filed equal across arms"
+        }
+      ]
+    },
+    {
+      "id": "m04-visual-recall",
+      "title": "Severe remaining visual retrieval errors: measured visual region-capped recall of approximately 0.0539 after temporal reranking",
+      "source": {
+        "pr": 3138,
+        "pr_url": "https://github.com/prajwal-395/video_editing_pilot/pull/3138",
+        "commit": "216ba3bbf23d2486373cf1285a8eb2dc29219cf4",
+        "report": "docs/benchmarks/2026-10-21-editorial-retrieval-temporal-rerank.md",
+        "artifact": null
+      },
+      "workload": "GEO vs SEO podcast, 7 MXF camera originals, 181.58 video minutes, one frame index of 1092 frames, on a Ren-owned scratch copy (ren-scratch-retrieval-bench). bin/vep -m library.tools.retrieval_eval with the temporal pass OFF (before: the lane as it ships) vs ON (after). Main at 67ef3f501, re-measured on 02c644d23 with identical numbers. Held-out set is the baseline the brief names; merged set reported alongside. Verification cost: 55 candidate intervals inspected (32 established, 23 rejected), 538.3 s that run, 5.1 s per candidate steady state, 0 model calls on a rerun (verdicts recorded in the M8 store).",
+      "denominators": {
+        "present_visual_queries": 6,
+        "wanted_items": 172,
+        "present_text_queries": 3,
+        "absent_queries": 3,
+        "unlabelled_queries": 5,
+        "refused_queries": 1
+      },
+      "metrics": [
+        {
+          "name": "visual_macro_recall_capped",
+          "kind": "quality",
+          "direction": "higher",
+          "baseline": 0.0539,
+          "unit": "held-out region-capped recall (before 0.0388)",
+          "tolerance": 0.0,
+          "description": "the severe remaining error, recorded as-is: the floor this lane must not fall below"
+        },
+        {
+          "name": "visual_macro_recall_uncapped",
+          "kind": "quality",
+          "direction": "higher",
+          "baseline": 0.1003,
+          "unit": "held-out uncapped recall (before 0.0775)",
+          "tolerance": 0.0,
+          "description": "uncapped companion to the capped floor"
+        },
+        {
+          "name": "visual_macro_precision",
+          "kind": "quality",
+          "direction": "higher",
+          "baseline": 0.325,
+          "unit": "held-out precision (before 0.2000)",
+          "tolerance": 0.0,
+          "description": "precision half of the rerank gain"
+        },
+        {
+          "name": "wrong_seconds_selected",
+          "kind": "quality",
+          "direction": "lower",
+          "baseline": 55.0,
+          "unit": "held-out seconds (before 55.000, unchanged)",
+          "tolerance": 0.0,
+          "description": "fidelity vector: no loss allowed"
+        },
+        {
+          "name": "false_positive_seconds",
+          "kind": "quality",
+          "direction": "lower",
+          "baseline": 257.65,
+          "unit": "held-out seconds (before 257.65, unchanged)",
+          "tolerance": 0.0,
+          "description": "fidelity vector: no loss allowed"
+        }
+      ]
+    }
+  ]
+}
