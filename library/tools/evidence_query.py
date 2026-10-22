@@ -67,14 +67,20 @@ from itertools import pairwise
 from typing import Any
 
 try:
-    from library.tools import evidence_contract, processing_status
-    from library.tools import occurrence_identity
+    from library.tools import (
+        evidence_contract,
+        occurrence_identity,
+        processing_status,
+    )
     from library.tools.analysis import object_grounding
     from library.tools.identity_reassociation import IDENTITY_SCOPES
     from library.tools.relation_classes import RELATION_CLASSES
 except ImportError:  # imported as `tools.*` from inside library/
-    from tools import evidence_contract, processing_status
-    from tools import occurrence_identity
+    from tools import (
+        evidence_contract,
+        occurrence_identity,
+        processing_status,
+    )
     from tools.analysis import object_grounding
     from tools.identity_reassociation import IDENTITY_SCOPES
     from tools.relation_classes import RELATION_CLASSES
@@ -397,12 +403,19 @@ def compile_plan(predicates: list[dict[str, Any]], *,
     if len(forms) > 1:
         raise EvidenceQueryError(
             "a plan asks one kind of question: interval evidence "
-            "('measurement', 'event_span') or graph evidence "
-            f"{list(GRAPH_PREDICATES)}, never both")
+            "('measurement', 'event_span'), relation evidence "
+            "('relation_presence') or graph evidence "
+            f"{list(GRAPH_PREDICATES)}, never more than one")
     lanes = sorted({lane for lane in
                     (_required_lane(p) for p in compiled) if lane})
     object_queries = [{"phrase": p["phrase"], "requirement": p["requirement"]}
                       for p in compiled if p["predicate"] == "object_presence"]
+    # A relation request needs the OBJECT it is about measured: the
+    # relation lane derives from a measured box and a measured hand, so
+    # the object lane runs for the phrase the request names.
+    object_queries.extend(
+        {"phrase": p["object_phrase"], "requirement": "grounded"}
+        for p in compiled if p["predicate"] == "relation_presence")
     return {"predicates": compiled, "required_lanes": lanes,
             "object_queries": object_queries,
             "scope": plan_scope, "level": level, "join_mode": join_mode,
@@ -421,12 +434,59 @@ def _compile_predicate(predicate: dict[str, Any]) -> dict[str, Any]:
         return _compile_nth_event(predicate)
     if kind == "object_presence":
         return _compile_object(predicate)
+    if kind == "relation_presence":
+        return _compile_relation(predicate)
     if kind in GRAPH_PREDICATES:
         return _compile_graph(predicate)
     raise EvidenceQueryError(
         f"unknown predicate {kind!r}: this query answers "
-        f"'measurement', 'event_span', 'nth_event', 'object_presence' and "
+        f"'measurement', 'event_span', 'nth_event', 'object_presence', "
+        f"'relation_presence' and "
         f"the graph predicates {list(GRAPH_PREDICATES)}")
+
+
+def _compile_relation(predicate: dict[str, Any]) -> dict[str, Any]:
+    """Compile a RELATION request: a predicate, an object and a person.
+
+    The request names the relation it asks about (``holding``,
+    ``touching`` - the published physical predicates), the OBJECT it is
+    about, and optionally the person.  It never names a frame: a
+    relation is time-bounded, and the answer carries the span it was
+    measured over.
+    """
+    from library.tools import relation_classes
+
+    relation_type = (predicate.get("relation_type")
+                      or predicate.get("relation"))
+    if not isinstance(relation_type, str) or not relation_type.strip():
+        raise EvidenceQueryError(
+            "a relation_presence names the relation it asks about")
+    relation_type = relation_type.strip()
+    published = relation_classes.PREDICATES.get(relation_type)
+    if published is None:
+        raise EvidenceQueryError(
+            f"relation {relation_type!r} is not a published predicate: "
+            f"the engine knows {sorted(relation_classes.PREDICATES)}")
+    if published["relation_class"] != "physical":
+        raise EvidenceQueryError(
+            f"relation {relation_type!r} is a {published['relation_class']} "
+            "relation; a relation request asks about a physical one")
+    phrase = predicate.get("object_phrase") or predicate.get("phrase")
+    if not isinstance(phrase, str) or not phrase.strip():
+        raise EvidenceQueryError(
+            "a relation_presence names the object it is about")
+    compiled: dict[str, Any] = {
+        "predicate": "relation_presence",
+        "form": "relation",
+        "relation_type": relation_type,
+        "object_phrase": phrase.strip(),
+    }
+    person_id = predicate.get("person_id")
+    if person_id is not None:
+        if not isinstance(person_id, str) or not person_id.strip():
+            raise EvidenceQueryError("person_id must be a string")
+        compiled["person_id"] = person_id.strip()
+    return compiled
 
 
 def _compile_object(predicate: dict[str, Any]) -> dict[str, Any]:
@@ -634,6 +694,11 @@ def _required_lane(compiled: dict[str, Any]) -> str | None:
     if compiled["predicate"] == "object_presence":
         # The request-driven object lane: the lane that can run on
         # request, not the tracker that runs on a plan.
+        return OBJECT_DETECTION_LANE
+    if compiled["predicate"] == "relation_presence":
+        # A relation is derived from a measured object and a measured
+        # hand: the object lane that can run on request, and the lane
+        # that measures the hands.
         return OBJECT_DETECTION_LANE
     if compiled["event"] in MEASURED_EVENTS:
         return "m7"
@@ -860,9 +925,9 @@ def _match_observations(model: dict[str, Any], compiled: dict[str, Any],
             continue
         if "end_s" in scope and start >= _ticks(scope["end_s"]):
             continue
-        if compiled["predicate"] == "nth_event":
-            if str(obs.get("id")) not in ordinal_evidence:
-                continue
+        if (compiled["predicate"] == "nth_event"
+                and str(obs.get("id")) not in ordinal_evidence):
+            continue
         native = _native_evidence(obs)
         if compiled["predicate"] == "measurement":
             if _record_kind(obs) != compiled["measurement_type"]:
@@ -1343,10 +1408,13 @@ def _evidence_for(model: dict[str, Any], plan: dict[str, Any], *,
     if len(forms) > 1:
         raise EvidenceQueryError(
             "a plan asks one kind of question: interval evidence "
-            "('measurement', 'event_span') or graph evidence "
-            f"{list(GRAPH_PREDICATES)}, never both")
+            "('measurement', 'event_span'), relation evidence "
+            "('relation_presence') or graph evidence "
+            f"{list(GRAPH_PREDICATES)}, never more than one")
     if "graph" in forms:
         return _graph_answer(model, plan, compiled_predicates, project)
+    if "relation" in forms:
+        return _relation_answer(model, plan, compiled_predicates, project)
     plan = {**plan, "predicates": compiled_predicates}
     scope = plan.get("scope") or {}
     level = plan.get("level")
@@ -1505,6 +1573,193 @@ def _evidence_for(model: dict[str, Any], plan: dict[str, Any], *,
                             lane_presence, reasons, corrections)
     answer.update(extension)
     return answer
+
+
+def _relation_answer(model: dict[str, Any], plan: dict[str, Any],
+                    compiled_predicates: list[dict[str, Any]],
+                    project: str | None = None) -> dict[str, Any]:
+    """Answer a relation request from the model's own relations.
+
+    A CONFIRMED relation answers the question.  A geometric candidate
+    does NOT: it is reported as a candidate, and the answer's state says
+    the question was not settled.  That is the whole point of the
+    distinction - "the person and the cup are both in the frame" is not
+    "the person is holding the cup", and a query that answered the
+    first with the second would be wrong.
+
+    The answer carries the SPAN every confirmed relation was measured
+    over: a relation is time-bounded, never a permanent attribute.
+    """
+    from library.tools import relation_verification
+
+    scope = plan.get("scope") or {}
+    results: list[dict[str, Any]] = []
+    candidates: list[dict[str, Any]] = []
+    missing_lanes: list[str] = []
+    basis: list[dict[str, Any]] = []
+    reasons: list[str] = []
+    labels = {row.get("id"): row.get("label")
+              for row in model.get("entities") or []
+              if isinstance(row, dict)}
+    # What confirmed a relation is an INTERPRETATION row that names it:
+    # the relation row itself says `verified`, and this says why.
+    confirmations = {}
+    for interpretation in model.get("interpretations") or []:
+        if not isinstance(interpretation, dict):
+            continue
+        if interpretation.get("kind") != "relation_confirmation":
+            continue
+        scope_value = interpretation.get("scope") or {}
+        relation_id = scope_value.get("relation_id")
+        if relation_id:
+            confirmations[relation_id] = {
+                "basis": scope_value.get("basis"),
+                "answer": scope_value.get("answer"),
+                "reason": scope_value.get("reason"),
+                "frames": scope_value.get("frames"),
+                "model": scope_value.get("model"),
+                "interpretation_id": interpretation.get("id"),
+            }
+    for compiled in compiled_predicates:
+        rows = relation_verification.relation_rows(
+            model,
+            relation_type=compiled.get("relation_type"),
+            object_phrase=compiled.get("object_phrase"),
+            person_id=compiled.get("person_id"))
+        rows = [row for row in rows if _relation_in_scope(row, scope)]
+        for row in rows:
+            interval = row.get("interval") or {}
+            if row.get("status") == "verified":
+                results.append({
+                    "relation_id": row.get("id"),
+                    "predicate": row.get("predicate"),
+                    "subject_id": row.get("subject_id"),
+                    "object_id": row.get("object_id"),
+                    "object_phrase": labels.get(row.get("object_id")),
+                    "clock_id": interval.get("clock_id"),
+                    "start": interval.get("start"),
+                    "end": interval.get("end"),
+                    "start_s": _seconds(interval.get("start")),
+                    "end_s": _seconds(interval.get("end")),
+                    "evidence_ids": list(row.get("evidence_ids") or []),
+                    "confirmation": confirmations.get(row.get("id")),
+                })
+            else:
+                candidates.append({
+                    "relation_id": row.get("id"),
+                    "predicate": row.get("predicate"),
+                    "subject_id": row.get("subject_id"),
+                    "object_phrase": labels.get(row.get("object_id")),
+                    "clock_id": interval.get("clock_id"),
+                    "start": interval.get("start"),
+                    "end": interval.get("end"),
+                    "start_s": _seconds(interval.get("start")),
+                    "end_s": _seconds(interval.get("end")),
+                    "evidence_ids": list(row.get("evidence_ids") or []),
+                })
+        lanes, lane_basis = _relation_lane_states(model, compiled)
+        missing_lanes.extend(lanes)
+        basis.extend(lane_basis)
+    if results:
+        return _answer(PRESENT, results=results, completeness_basis=basis,
+                       required_missing_lanes=sorted(set(missing_lanes)),
+                       reasons=reasons, candidate_relations=candidates,
+                       coverage_complete=not missing_lanes)
+    if candidates:
+        reasons.append(
+            f"{len(candidates)} geometric candidate(s) exist and none is "
+            "confirmed: a candidate is a measurement to verify, never an "
+            "answer")
+        return _answer(INCONCLUSIVE, results=[], completeness_basis=basis,
+                       required_missing_lanes=sorted(set(missing_lanes)),
+                       reasons=reasons, candidate_relations=candidates,
+                       coverage_complete=False)
+    if missing_lanes:
+        reasons.append(
+            f"lane(s) {sorted(set(missing_lanes))} never ran: no relation "
+            "was derived, so nothing can be absent yet")
+        return _answer(NOT_YET_ANALYSED, results=[],
+                       completeness_basis=basis,
+                       required_missing_lanes=sorted(set(missing_lanes)),
+                       reasons=reasons, candidate_relations=candidates)
+    reasons.append(
+        "the measured hands and the measured object were compared and no "
+        "contact was found: the absence is over the measured evidence")
+    return _answer(CONFIDENTLY_ABSENT, results=[], completeness_basis=basis,
+                   required_missing_lanes=[], reasons=reasons,
+                   candidate_relations=candidates)
+
+
+def _relation_in_scope(row: dict[str, Any],
+                       scope: dict[str, Any]) -> bool:
+    """Whether a relation falls inside the scope the plan asked for."""
+    interval = row.get("interval") or {}
+    clock_id = interval.get("clock_id")
+    if scope.get("clock_id") and clock_id != scope["clock_id"]:
+        return False
+    start = interval.get("start")
+    end = interval.get("end")
+    if not isinstance(start, int) or not isinstance(end, int):
+        return False
+    if "start_s" in scope and end <= _ticks(scope["start_s"]):
+        return False
+    return not ("end_s" in scope
+                and start >= _ticks(scope["end_s"]))
+
+
+def _relation_lane_states(model: dict[str, Any], compiled: dict[str, Any]
+                          ) -> tuple[list[str], list[dict[str, Any]]]:
+    """The lanes a relation request needs, and the ones that ran.
+
+    A relation is derived from a measured OBJECT and a measured HAND.  A
+    request whose object was never looked for, or whose hands were never
+    measured, cannot be answered - and the answer says which lane is
+    missing rather than reporting an absence.
+    """
+    from library.tools.analysis import object_grounding
+
+    phrase = str(compiled.get("object_phrase") or "").strip().lower()
+    object_lane = "missing"
+    detected = 0
+    for observation in model.get("observations") or []:
+        if not isinstance(observation, dict):
+            continue
+        if observation.get("modality") != "object_detection":
+            continue
+        if object_grounding.phrase_of(observation).strip().lower() != phrase:
+            continue
+        object_lane = "present"
+        if not object_grounding.is_coverage_row(observation):
+            detected += 1
+    hand_lane = "missing"
+    hands = 0
+    for observation in model.get("observations") or []:
+        if not isinstance(observation, dict):
+            continue
+        if observation.get("modality") not in ("face_frame", "face"):
+            continue
+        if not (observation.get("payload") or {}).get("hands"):
+            continue
+        hand_lane = "present"
+        hands += 1
+    missing = [lane for lane, state in (("object_detection", object_lane),
+                                         ("m3", hand_lane))
+               if state == "missing"]
+    basis = [
+        {"lane": "object_detection",
+         "state": object_lane,
+         "objects_detected": detected,
+         "asset_id": compiled.get("asset_id")},
+        {"lane": "m3", "state": hand_lane, "hand_rows": hands},
+    ]
+    return missing, basis
+
+
+def _seconds(tick: Any) -> float | None:
+    """Ticks as seconds."""
+    if not isinstance(tick, int):
+        return None
+    return round(tick / TICKS_PER_SECOND, 3)
 
 
 def _object_extension(model: dict[str, Any], plan: dict[str, Any],

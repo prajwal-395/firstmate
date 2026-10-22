@@ -1,0 +1,747 @@
+{
+ "source": "LCATL0014.MXF",
+ "asset_id": "asset-f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1",
+ "content_digest": "f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1",
+ "clock_id": "clock-f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1",
+ "phrase": "cell phone",
+ "producer": "owlv2_named",
+ "sample_rate_hz": 1.0,
+ "scope": {
+  "start_s": 700.0,
+  "end_s": 900.0
+ },
+ "owned_ticks": [
+  706289,
+  716299,
+  726309,
+  736319,
+  756339,
+  766349,
+  776359,
+  786869,
+  796879,
+  806889,
+  816899,
+  826909,
+  836919
+ ],
+ "frame_indices": [
+  16934,
+  17174,
+  17414,
+  17654,
+  18134,
+  18374,
+  18614,
+  18866,
+  19106,
+  19346,
+  19586,
+  19826,
+  20066
+ ],
+ "detections": [
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.03771,
+    0.456908,
+    0.06017,
+    0.486409
+   ],
+   "score": 0.131,
+   "detector": "owlv2",
+   "image": "000001.jpg",
+   "frame_index": 16934,
+   "time_seconds": 706.288917,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.342251,
+    0.559891,
+    0.374172,
+    0.578463
+   ],
+   "score": 0.207,
+   "detector": "owlv2",
+   "image": "000001.jpg",
+   "frame_index": 16934,
+   "time_seconds": 706.288917,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.197647,
+    0.783732,
+    0.318323,
+    0.876547
+   ],
+   "score": 0.115,
+   "detector": "owlv2",
+   "image": "000001.jpg",
+   "frame_index": 16934,
+   "time_seconds": 706.288917,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.037771,
+    0.457071,
+    0.059834,
+    0.486061
+   ],
+   "score": 0.111,
+   "detector": "owlv2",
+   "image": "000002.jpg",
+   "frame_index": 17174,
+   "time_seconds": 716.298917,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.341724,
+    0.559336,
+    0.371435,
+    0.576994
+   ],
+   "score": 0.206,
+   "detector": "owlv2",
+   "image": "000002.jpg",
+   "frame_index": 17174,
+   "time_seconds": 716.298917,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.037811,
+    0.457136,
+    0.060031,
+    0.486813
+   ],
+   "score": 0.123,
+   "detector": "owlv2",
+   "image": "000003.jpg",
+   "frame_index": 17414,
+   "time_seconds": 726.308917,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.341424,
+    0.559769,
+    0.373438,
+    0.578009
+   ],
+   "score": 0.115,
+   "detector": "owlv2",
+   "image": "000003.jpg",
+   "frame_index": 17414,
+   "time_seconds": 726.308917,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.342572,
+    0.561482,
+    0.376556,
+    0.584014
+   ],
+   "score": 0.129,
+   "detector": "owlv2",
+   "image": "000003.jpg",
+   "frame_index": 17414,
+   "time_seconds": 726.308917,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.81099,
+    0.675309,
+    0.844829,
+    0.75972
+   ],
+   "score": 0.135,
+   "detector": "owlv2",
+   "image": "000003.jpg",
+   "frame_index": 17414,
+   "time_seconds": 726.308917,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.808009,
+    0.678032,
+    0.855217,
+    0.849951
+   ],
+   "score": 0.12,
+   "detector": "owlv2",
+   "image": "000003.jpg",
+   "frame_index": 17414,
+   "time_seconds": 726.308917,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.037809,
+    0.457098,
+    0.059938,
+    0.486677
+   ],
+   "score": 0.13,
+   "detector": "owlv2",
+   "image": "000004.jpg",
+   "frame_index": 17654,
+   "time_seconds": 736.318917,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.34184,
+    0.55949,
+    0.372185,
+    0.577597
+   ],
+   "score": 0.231,
+   "detector": "owlv2",
+   "image": "000004.jpg",
+   "frame_index": 17654,
+   "time_seconds": 736.318917,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.037728,
+    0.457525,
+    0.059733,
+    0.489067
+   ],
+   "score": 0.186,
+   "detector": "owlv2",
+   "image": "000005.jpg",
+   "frame_index": 18134,
+   "time_seconds": 756.338917,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.342503,
+    0.559252,
+    0.371595,
+    0.576906
+   ],
+   "score": 0.19,
+   "detector": "owlv2",
+   "image": "000005.jpg",
+   "frame_index": 18134,
+   "time_seconds": 756.338917,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.197096,
+    0.782675,
+    0.318379,
+    0.877042
+   ],
+   "score": 0.131,
+   "detector": "owlv2",
+   "image": "000005.jpg",
+   "frame_index": 18134,
+   "time_seconds": 756.338917,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.03753,
+    0.457009,
+    0.059854,
+    0.489822
+   ],
+   "score": 0.195,
+   "detector": "owlv2",
+   "image": "000006.jpg",
+   "frame_index": 18374,
+   "time_seconds": 766.348917,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.542223,
+    0.456147,
+    0.577627,
+    0.503357
+   ],
+   "score": 0.127,
+   "detector": "owlv2",
+   "image": "000006.jpg",
+   "frame_index": 18374,
+   "time_seconds": 766.348917,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.34249,
+    0.558584,
+    0.384447,
+    0.578595
+   ],
+   "score": 0.195,
+   "detector": "owlv2",
+   "image": "000006.jpg",
+   "frame_index": 18374,
+   "time_seconds": 766.348917,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.197891,
+    0.782332,
+    0.318714,
+    0.8766
+   ],
+   "score": 0.122,
+   "detector": "owlv2",
+   "image": "000006.jpg",
+   "frame_index": 18374,
+   "time_seconds": 766.348917,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.037593,
+    0.457983,
+    0.061126,
+    0.489207
+   ],
+   "score": 0.403,
+   "detector": "owlv2",
+   "image": "000007.jpg",
+   "frame_index": 18614,
+   "time_seconds": 776.358917,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.342393,
+    0.559048,
+    0.365835,
+    0.575496
+   ],
+   "score": 0.177,
+   "detector": "owlv2",
+   "image": "000007.jpg",
+   "frame_index": 18614,
+   "time_seconds": 776.358917,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.037172,
+    0.457058,
+    0.060065,
+    0.487137
+   ],
+   "score": 0.122,
+   "detector": "owlv2",
+   "image": "000008.jpg",
+   "frame_index": 18866,
+   "time_seconds": 786.869417,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.343038,
+    0.559292,
+    0.365132,
+    0.576166
+   ],
+   "score": 0.193,
+   "detector": "owlv2",
+   "image": "000008.jpg",
+   "frame_index": 18866,
+   "time_seconds": 786.869417,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.526582,
+    0.322557,
+    0.54377,
+    0.407295
+   ],
+   "score": 0.367,
+   "detector": "owlv2",
+   "image": "000009.jpg",
+   "frame_index": 19106,
+   "time_seconds": 796.879417,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.037636,
+    0.456899,
+    0.059874,
+    0.487372
+   ],
+   "score": 0.112,
+   "detector": "owlv2",
+   "image": "000009.jpg",
+   "frame_index": 19106,
+   "time_seconds": 796.879417,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.342799,
+    0.559056,
+    0.366051,
+    0.576014
+   ],
+   "score": 0.109,
+   "detector": "owlv2",
+   "image": "000009.jpg",
+   "frame_index": 19106,
+   "time_seconds": 796.879417,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.720049,
+    0.815159,
+    0.799548,
+    0.973104
+   ],
+   "score": 0.235,
+   "detector": "owlv2",
+   "image": "000009.jpg",
+   "frame_index": 19106,
+   "time_seconds": 796.879417,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.711337,
+    0.808505,
+    0.827052,
+    0.972691
+   ],
+   "score": 0.156,
+   "detector": "owlv2",
+   "image": "000009.jpg",
+   "frame_index": 19106,
+   "time_seconds": 796.879417,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.343506,
+    0.559113,
+    0.365705,
+    0.575917
+   ],
+   "score": 0.142,
+   "detector": "owlv2",
+   "image": "000010.jpg",
+   "frame_index": 19346,
+   "time_seconds": 806.889417,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.198533,
+    0.783436,
+    0.317699,
+    0.87614
+   ],
+   "score": 0.139,
+   "detector": "owlv2",
+   "image": "000010.jpg",
+   "frame_index": 19346,
+   "time_seconds": 806.889417,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.342985,
+    0.558974,
+    0.365597,
+    0.575534
+   ],
+   "score": 0.135,
+   "detector": "owlv2",
+   "image": "000011.jpg",
+   "frame_index": 19586,
+   "time_seconds": 816.899417,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.037681,
+    0.457251,
+    0.05992,
+    0.488267
+   ],
+   "score": 0.138,
+   "detector": "owlv2",
+   "image": "000012.jpg",
+   "frame_index": 19826,
+   "time_seconds": 826.909417,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.478921,
+    0.60368,
+    0.523761,
+    0.659909
+   ],
+   "score": 0.449,
+   "detector": "owlv2",
+   "image": "000012.jpg",
+   "frame_index": 19826,
+   "time_seconds": 826.909417,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.197821,
+    0.782769,
+    0.316788,
+    0.876555
+   ],
+   "score": 0.12,
+   "detector": "owlv2",
+   "image": "000012.jpg",
+   "frame_index": 19826,
+   "time_seconds": 826.909417,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.478845,
+    0.763584,
+    0.531655,
+    0.866767
+   ],
+   "score": 0.198,
+   "detector": "owlv2",
+   "image": "000012.jpg",
+   "frame_index": 19826,
+   "time_seconds": 826.909417,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.483722,
+    0.81661,
+    0.526812,
+    0.867921
+   ],
+   "score": 0.113,
+   "detector": "owlv2",
+   "image": "000012.jpg",
+   "frame_index": 19826,
+   "time_seconds": 826.909417,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.038247,
+    0.457805,
+    0.059924,
+    0.488589
+   ],
+   "score": 0.164,
+   "detector": "owlv2",
+   "image": "000013.jpg",
+   "frame_index": 20066,
+   "time_seconds": 836.919417,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.457609,
+    0.609942,
+    0.507587,
+    0.676405
+   ],
+   "score": 0.294,
+   "detector": "owlv2",
+   "image": "000013.jpg",
+   "frame_index": 20066,
+   "time_seconds": 836.919417,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  },
+  {
+   "phrase": "cell phone",
+   "label": "cell phone",
+   "box": [
+    0.456913,
+    0.767292,
+    0.511307,
+    0.851325
+   ],
+   "score": 0.211,
+   "detector": "owlv2",
+   "image": "000013.jpg",
+   "frame_index": 20066,
+   "time_seconds": 836.919417,
+   "frame_width": 3840,
+   "frame_height": 2160,
+   "producer": "owlv2_named"
+  }
+ ]
+}

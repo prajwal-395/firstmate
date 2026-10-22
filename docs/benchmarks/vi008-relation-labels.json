@@ -1,0 +1,71 @@
+{
+  "corpus": "VI-008 relation labels, verified by looking",
+  "source_file": "LCATL0014.MXF",
+  "asset_id": "asset-f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1",
+  "clock_id": "clock-f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1",
+  "object_phrase": "cell phone",
+  "person_id": "person_001",
+  "labeller": "the lane's own agent, looking at every frame (ffmpeg crops of the source frames at the labelled ticks)",
+  "note": "One label per frame whose hands have an owner in the Project Model. A label is the relation `touching` between the person and the named object at that frame: the hand is in contact with the phone. `unclear` is counted in the corpus and in neither the labelled contacts nor the negatives.",
+  "windows": [
+    {
+      "source_file": "LCATL0014.MXF",
+      "clock_id": "clock-f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1",
+      "contacts": [
+        {
+          "person_id": "P",
+          "object_id": "C",
+          "predicate": "touching",
+          "clock_id": "clock-f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1",
+          "start_tick": 826909,
+          "end_tick": 826910,
+          "note": "both hands hold the phone in its case, in front of his chest"
+        },
+        {
+          "person_id": "P",
+          "object_id": "C",
+          "predicate": "touching",
+          "clock_id": "clock-f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1",
+          "start_tick": 836919,
+          "end_tick": 836920,
+          "note": "the phone is still in both hands, lower and tilted"
+        }
+      ],
+      "negatives": [
+        {"person_id": "P", "object_id": "C", "predicate": "touching",
+         "start_tick": 706289, "end_tick": 706290,
+         "note": "the person's hands are not in the frame; the other person's hands are, at the right edge"},
+        {"person_id": "P", "object_id": "C", "predicate": "touching",
+         "start_tick": 716299, "end_tick": 716300,
+         "note": "hands not in frame; no phone"},
+        {"person_id": "P", "object_id": "C", "predicate": "touching",
+         "start_tick": 726309, "end_tick": 726310,
+         "note": "hands not in frame; no phone"},
+        {"person_id": "P", "object_id": "C", "predicate": "touching",
+         "start_tick": 736319, "end_tick": 736320,
+         "note": "hands not in frame; no phone"},
+        {"person_id": "P", "object_id": "C", "predicate": "touching",
+         "start_tick": 756339, "end_tick": 756340,
+         "note": "hands not in frame; no phone"},
+        {"person_id": "P", "object_id": "C", "predicate": "touching",
+         "start_tick": 766349, "end_tick": 766350,
+         "note": "the hand is at his mouth; no phone"},
+        {"person_id": "P", "object_id": "C", "predicate": "touching",
+         "start_tick": 776359, "end_tick": 776360,
+         "note": "hands not in frame; no phone"},
+        {"person_id": "P", "object_id": "C", "predicate": "touching",
+         "start_tick": 786869, "end_tick": 786870,
+         "note": "hands not in frame; no phone"},
+        {"person_id": "P", "object_id": "C", "predicate": "touching",
+         "start_tick": 796879, "end_tick": 796880,
+         "note": "the hand is at his ear; no phone"},
+        {"person_id": "P", "object_id": "C", "predicate": "touching",
+         "start_tick": 806889, "end_tick": 806890,
+         "note": "hands not in frame; no phone"},
+        {"person_id": "P", "object_id": "C", "predicate": "touching",
+         "start_tick": 816899, "end_tick": 816900,
+         "note": "hands not in frame; no phone"}
+      ]
+    }
+  ]
+}

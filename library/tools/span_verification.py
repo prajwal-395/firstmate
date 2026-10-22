@@ -440,6 +440,17 @@ def _write_verdicts(content_digest: str, verdicts: dict,
         "content_digest": content_digest, "verdicts": verdicts})
 
 
+def write_verdicts(content_digest: str, verdicts: dict,
+                   root: Path | None = None) -> None:
+    """Record verdicts in the M8 store.
+
+    The store is one file for every verdict family (spans, intervals,
+    relations); each family keys its own verdicts, so a verdict given
+    to one family is never read as a verdict of another.
+    """
+    _write_verdicts(content_digest, verdicts, root)
+
+
 def select_interval_frames(interval: dict) -> list[dict]:
     """The frames an interval is judged on, in time order.
 

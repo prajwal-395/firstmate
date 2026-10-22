@@ -1,0 +1,224 @@
+{
+ "corpus": "VI-008 relation labels (the pen corpus), verified by looking",
+ "source_file": "LC4930.MXF",
+ "asset_id": "asset-9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+ "clock_id": "clock-9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+ "object_phrase": "pen",
+ "person_id": "person_002",
+ "labeller": "the lane's own agent, looking at every frame",
+ "note": "One label per frame whose hands have an owner in the Project Model. This corpus holds NO contact: there is no pen in this footage, and the object lane's 'pen' boxes are false positives on the person's white manicure. The frame at 224.307 s holds a small object that is not identifiable as a pen, so it is left out of both sets.",
+ "windows": [
+  {
+   "source_file": "LC4930.MXF",
+   "clock_id": "clock-9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+   "contacts": [],
+   "negatives": [
+    {
+     "person_id": "P",
+     "object_id": "C",
+     "predicate": "touching",
+     "clock_id": "clock-9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+     "start_tick": 1084,
+     "end_tick": 1085,
+     "note": "no pen in the frame; the hands are clasped, resting or gesturing"
+    },
+    {
+     "person_id": "P",
+     "object_id": "C",
+     "predicate": "touching",
+     "clock_id": "clock-9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+     "start_tick": 11094,
+     "end_tick": 11095,
+     "note": "no pen in the frame; the hands are clasped, resting or gesturing"
+    },
+    {
+     "person_id": "P",
+     "object_id": "C",
+     "predicate": "touching",
+     "clock_id": "clock-9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+     "start_tick": 21104,
+     "end_tick": 21105,
+     "note": "no pen in the frame; the hands are clasped, resting or gesturing"
+    },
+    {
+     "person_id": "P",
+     "object_id": "C",
+     "predicate": "touching",
+     "clock_id": "clock-9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+     "start_tick": 31615,
+     "end_tick": 31616,
+     "note": "no pen in the frame; the hands are clasped, resting or gesturing"
+    },
+    {
+     "person_id": "P",
+     "object_id": "C",
+     "predicate": "touching",
+     "clock_id": "clock-9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+     "start_tick": 41625,
+     "end_tick": 41626,
+     "note": "no pen in the frame; the hands are clasped, resting or gesturing"
+    },
+    {
+     "person_id": "P",
+     "object_id": "C",
+     "predicate": "touching",
+     "clock_id": "clock-9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+     "start_tick": 51635,
+     "end_tick": 51636,
+     "note": "no pen in the frame; the hands are clasped, resting or gesturing"
+    },
+    {
+     "person_id": "P",
+     "object_id": "C",
+     "predicate": "touching",
+     "clock_id": "clock-9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+     "start_tick": 61645,
+     "end_tick": 61646,
+     "note": "no pen in the frame; the hands are clasped, resting or gesturing"
+    },
+    {
+     "person_id": "P",
+     "object_id": "C",
+     "predicate": "touching",
+     "clock_id": "clock-9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+     "start_tick": 72155,
+     "end_tick": 72156,
+     "note": "no pen in the frame; the hands are clasped, resting or gesturing"
+    },
+    {
+     "person_id": "P",
+     "object_id": "C",
+     "predicate": "touching",
+     "clock_id": "clock-9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+     "start_tick": 82165,
+     "end_tick": 82166,
+     "note": "no pen in the frame; the hands are clasped, resting or gesturing"
+    },
+    {
+     "person_id": "P",
+     "object_id": "C",
+     "predicate": "touching",
+     "clock_id": "clock-9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+     "start_tick": 92175,
+     "end_tick": 92176,
+     "note": "no pen in the frame; the hands are clasped, resting or gesturing"
+    },
+    {
+     "person_id": "P",
+     "object_id": "C",
+     "predicate": "touching",
+     "clock_id": "clock-9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+     "start_tick": 102686,
+     "end_tick": 102687,
+     "note": "no pen in the frame; the hands are clasped, resting or gesturing"
+    },
+    {
+     "person_id": "P",
+     "object_id": "C",
+     "predicate": "touching",
+     "clock_id": "clock-9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+     "start_tick": 112696,
+     "end_tick": 112697,
+     "note": "no pen in the frame; the hands are clasped, resting or gesturing"
+    },
+    {
+     "person_id": "P",
+     "object_id": "C",
+     "predicate": "touching",
+     "clock_id": "clock-9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+     "start_tick": 122706,
+     "end_tick": 122707,
+     "note": "no pen in the frame; the hands are clasped, resting or gesturing"
+    },
+    {
+     "person_id": "P",
+     "object_id": "C",
+     "predicate": "touching",
+     "clock_id": "clock-9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+     "start_tick": 132716,
+     "end_tick": 132717,
+     "note": "no pen in the frame; the hands are clasped, resting or gesturing"
+    },
+    {
+     "person_id": "P",
+     "object_id": "C",
+     "predicate": "touching",
+     "clock_id": "clock-9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+     "start_tick": 143226,
+     "end_tick": 143227,
+     "note": "no pen in the frame; the hands are clasped, resting or gesturing"
+    },
+    {
+     "person_id": "P",
+     "object_id": "C",
+     "predicate": "touching",
+     "clock_id": "clock-9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+     "start_tick": 153236,
+     "end_tick": 153237,
+     "note": "no pen in the frame; the hands are clasped, resting or gesturing"
+    },
+    {
+     "person_id": "P",
+     "object_id": "C",
+     "predicate": "touching",
+     "clock_id": "clock-9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+     "start_tick": 163246,
+     "end_tick": 163247,
+     "note": "no pen in the frame; the hands are clasped, resting or gesturing"
+    },
+    {
+     "person_id": "P",
+     "object_id": "C",
+     "predicate": "touching",
+     "clock_id": "clock-9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+     "start_tick": 173256,
+     "end_tick": 173257,
+     "note": "no pen in the frame; the hands are clasped, resting or gesturing"
+    },
+    {
+     "person_id": "P",
+     "object_id": "C",
+     "predicate": "touching",
+     "clock_id": "clock-9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+     "start_tick": 183767,
+     "end_tick": 183768,
+     "note": "no pen in the frame; the hands are clasped, resting or gesturing"
+    },
+    {
+     "person_id": "P",
+     "object_id": "C",
+     "predicate": "touching",
+     "clock_id": "clock-9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+     "start_tick": 193777,
+     "end_tick": 193778,
+     "note": "no pen in the frame; the hands are clasped, resting or gesturing"
+    },
+    {
+     "person_id": "P",
+     "object_id": "C",
+     "predicate": "touching",
+     "clock_id": "clock-9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+     "start_tick": 203787,
+     "end_tick": 203788,
+     "note": "no pen in the frame; the hands are clasped, resting or gesturing"
+    },
+    {
+     "person_id": "P",
+     "object_id": "C",
+     "predicate": "touching",
+     "clock_id": "clock-9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+     "start_tick": 214297,
+     "end_tick": 214298,
+     "note": "no pen in the frame; the hands are clasped, resting or gesturing"
+    }
+   ],
+   "unclear": [
+    {
+     "start_tick": 224307,
+     "end_tick": 224308,
+     "note": "a small object is in the fist; it is not identifiable as a pen"
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,167 @@
+{
+ "source": "LC4930.MXF",
+ "asset_id": "asset-9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+ "content_digest": "9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+ "clock_id": "clock-9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+ "phrase": "pen",
+ "producer": "owlv2_named",
+ "sample_rate_hz": 1.0,
+ "scope": {
+  "start_s": 0.0,
+  "end_s": 225.225
+ },
+ "owned_ticks": [
+  1084,
+  11094,
+  21104,
+  31615,
+  41625,
+  51635,
+  61645,
+  72155,
+  82165,
+  92175,
+  102686,
+  112696,
+  122706,
+  132716,
+  143226,
+  153236,
+  163246,
+  173256,
+  183767,
+  193777,
+  203787,
+  214297,
+  224307
+ ],
+ "frame_indices": [
+  26,
+  266,
+  506,
+  758,
+  998,
+  1238,
+  1478,
+  1730,
+  1970,
+  2210,
+  2462,
+  2702,
+  2942,
+  3182,
+  3434,
+  3674,
+  3914,
+  4154,
+  4406,
+  4646,
+  4886,
+  5138,
+  5378
+ ],
+ "detections": [
+  {
+   "phrase": "pen",
+   "label": "pen",
+   "box": [
+    0.386395,
+    0.567285,
+    0.420227,
+    0.671035
+   ],
+   "score": 0.117,
+   "detector": "owlv2",
+   "image": "000001.jpg",
+   "frame_index": 26,
+   "time_seconds": 1.084417,
+   "frame_width": 3840,
+   "frame_height": 2160
+  },
+  {
+   "phrase": "pen",
+   "label": "pen",
+   "box": [
+    0.469723,
+    0.498243,
+    0.487666,
+    0.526348
+   ],
+   "score": 0.115,
+   "detector": "owlv2",
+   "image": "000008.jpg",
+   "frame_index": 1730,
+   "time_seconds": 72.155417,
+   "frame_width": 3840,
+   "frame_height": 2160
+  },
+  {
+   "phrase": "pen",
+   "label": "pen",
+   "box": [
+    0.505686,
+    0.609248,
+    0.555642,
+    0.63316
+   ],
+   "score": 0.107,
+   "detector": "owlv2",
+   "image": "000022.jpg",
+   "frame_index": 5138,
+   "time_seconds": 214.297417,
+   "frame_width": 3840,
+   "frame_height": 2160
+  },
+  {
+   "phrase": "pen",
+   "label": "pen",
+   "box": [
+    0.506993,
+    0.652376,
+    0.530976,
+    0.688436
+   ],
+   "score": 0.116,
+   "detector": "owlv2",
+   "image": "000023.jpg",
+   "frame_index": 5378,
+   "time_seconds": 224.307417,
+   "frame_width": 3840,
+   "frame_height": 2160
+  },
+  {
+   "phrase": "pen",
+   "label": "pen",
+   "box": [
+    0.450787,
+    0.687146,
+    0.476374,
+    0.757004
+   ],
+   "score": 0.115,
+   "detector": "owlv2",
+   "image": "000023.jpg",
+   "frame_index": 5378,
+   "time_seconds": 224.307417,
+   "frame_width": 3840,
+   "frame_height": 2160
+  },
+  {
+   "phrase": "pen",
+   "label": "pen",
+   "box": [
+    0.50607,
+    0.654436,
+    0.543518,
+    0.717989
+   ],
+   "score": 0.122,
+   "detector": "owlv2",
+   "image": "000023.jpg",
+   "frame_index": 5378,
+   "time_seconds": 224.307417,
+   "frame_width": 3840,
+   "frame_height": 2160
+  }
+ ]
+}

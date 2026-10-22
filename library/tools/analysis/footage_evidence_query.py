@@ -70,6 +70,90 @@ def _object_plan(model: dict, args) -> dict:
 
 
 
+def _relation_plan(model: dict, args) -> dict:
+    """The plan a --relation request compiles to.
+
+    The request names the RELATION it asks about and the OBJECT it is
+    about.  The scope is the asset it is about, resolved from the
+    Project Model rather than typed by the caller, and the window is
+    the one the request asked for.
+
+    A relation is answered from CONFIRMED relations only
+    (`evidence_query.relation_presence`): a geometric candidate is
+    reported as a candidate and never answers the question.
+    """
+    from library.tools import evidence_query, relation_classes
+
+    relation_type = str(args.relation).strip()
+    published = relation_classes.PREDICATES.get(relation_type)
+    if published is None:
+        raise RenRefusal(
+            f"relation {relation_type!r} is not a published predicate",
+            "the engine publishes these relations: "
+            f"{sorted(relation_classes.PREDICATES)}",
+            "ask for a published relation, e.g. --relation holding")
+    if published["relation_class"] != "physical":
+        raise RenRefusal(
+            f"relation {relation_type!r} is a {published['relation_class']} "
+            "relation",
+            "a relation request asks about a physical relation",
+            "ask for --relation holding or --relation touching")
+    scope = _scope_for(model, args)
+    predicate = {"predicate": "relation_presence",
+                 "relation_type": relation_type,
+                 "object_phrase": str(args.object).strip()}
+    if getattr(args, "person_id", None):
+        predicate["person_id"] = str(args.person_id).strip()
+    return evidence_query.compile_plan([predicate], scope=scope)
+
+
+def _scope_for(model: dict, args) -> dict:
+    """The asset, clock and window a request is about."""
+    assets = [row for row in model.get("assets") or []
+              if isinstance(row, dict) and row.get("id")]
+    if args.asset_id:
+        assets = [row for row in assets if row.get("id") == args.asset_id]
+    if not assets:
+        raise RenRefusal(
+            "the request names no asset to look at",
+            "the project's Project Model holds no asset (or none with "
+            "that id)",
+            "run the preflight first, or pass --asset-id")
+    if len(assets) > 1:
+        raise RenRefusal(
+            "the request names more than one asset to look at",
+            "the project's Project Model holds several assets",
+            "pass --asset-id to say which one")
+    asset = assets[0]
+    clocks = [row for row in model.get("clocks") or []
+              if isinstance(row, dict)
+              and (row.get("domain") or {}).get("asset_id") == asset["id"]]
+    if not clocks:
+        raise RenRefusal(
+            "the asset has no clock to measure on",
+            "the Project Model carries no clock for this asset",
+            "run the preflight first")
+    scope = {"clock_id": clocks[0]["id"], "asset_id": asset["id"]}
+    if args.at:
+        parts = str(args.at).replace(":", "-").split("-")
+        if len(parts) != 2:
+            raise RenRefusal(
+                "the window is not a range",
+                "--at takes START-END seconds",
+                "ren evidence <project> --relation holding --object pen "
+                "--at 80-100")
+        try:
+            scope["start_s"] = float(parts[0])
+            scope["end_s"] = float(parts[1])
+        except ValueError:
+            raise RenRefusal(
+                "the window is not a range of seconds",
+                "--at takes START-END seconds",
+                "ren evidence <project> --relation holding --object pen "
+                "--at 80-100") from None
+    return scope
+
+
 def main(argv: list[str] | None = None) -> int:
     from ren import hosts
 
@@ -105,6 +189,18 @@ def main(argv: list[str] | None = None) -> int:
         default="grounded",
         help=("what the object request needs: 'presence' asks whether the "
               "object is in the window, 'grounded' asks where it is"),
+    )
+    parser.add_argument(
+        "--relation",
+        help=("ask about a RELATION between a person and an object "
+              "(holding, touching); the answer comes from confirmed "
+              "relations only, and a candidate is reported as a "
+              "candidate"),
+    )
+    parser.add_argument(
+        "--person-id",
+        help=("the person a --relation request is about; without it the "
+              "request asks about any person"),
     )
     parser.add_argument(
         "--asset-id",
@@ -150,6 +246,18 @@ def main(argv: list[str] | None = None) -> int:
             "<entity|event|observation>`, or `ren evidence <project> "
             "--object <name>`",
             blocker="ambiguous_intent")
+    if args.relation and not args.object:
+        raise RenRefusal(
+            "a relation request names the object it is about",
+            "--relation was given without --object",
+            "ren evidence <project> --relation holding --object pen",
+            blocker="ambiguous_intent")
+    if args.relation and (args.trace or args.plan):
+        raise RenRefusal(
+            "a relation request and a plan ask two different questions",
+            "--relation was given together with a plan file or --trace",
+            "run the relation request on its own",
+            blocker="ambiguous_intent")
     if args.trace and (args.plan or args.object):
         raise RenRefusal(
             "a trace and a plan ask two different questions",
@@ -163,12 +271,16 @@ def main(argv: list[str] | None = None) -> int:
             "run the plan on its own, or the object request on its own",
             blocker="ambiguous_intent")
 
-    from library.tools import evidence_query, project_model_store, source_memory
+    from library.tools import (
+        evidence_query,
+        project_model_store,
+        source_memory,
+    )
     from library.tools.project_model_cli import resolve_project_root
 
     project = resolve_project_root(args.project)
     source_revision, model = project_model_store.load_project_model(project)
-    from library.tools import project_model_acquisition, model_registry
+    from library.tools import model_registry, project_model_acquisition
 
     model = project_model_acquisition.filter_m4_by_reuse_policy(
         model, project,
@@ -188,7 +300,8 @@ def main(argv: list[str] | None = None) -> int:
                           "result_revision": source_revision}, indent=2))
         return 0
     if args.object:
-        plan = _object_plan(model, args)
+        plan = (_relation_plan(model, args) if args.relation
+                else _object_plan(model, args))
     else:
         plan = json.loads(Path(args.plan).read_text(encoding="utf-8"))
     if not args.acquire:
@@ -267,11 +380,23 @@ def main(argv: list[str] | None = None) -> int:
             requery, model, revision=source_revision, measured_now=True,
             max_cost_seconds=args.max_cost_seconds)
     answer = declared
+    relation_rows = []
+    if args.relation:
+        # The object is measured now; the RELATION is derived from that
+        # measurement and the measured hands, and the ambiguous
+        # candidates are put to the local model.  The rows are filed in
+        # the model, and the answer that follows reads them back.
+        relation_rows = _derive_relations(project)
+        _revision, model = project_model_store.load_project_model(project)
+        answer = evidence_query.evidence_for(model, plan,
+                                             project=str(project))
     recorded = _record(project, model,
                        answer.get("requery") or answer.get("answer") or answer,
                        source_revision, enabled=not args.no_record)
     answer = {**answer, "result_revision": recorded["revision"],
               "query_result": recorded["row"]}
+    if relation_rows:
+        answer = {**answer, "relation_rows": len(relation_rows)}
     print(json.dumps(answer, indent=2))
     return 0
 
@@ -292,6 +417,31 @@ def _declare(answer: dict, model: dict, *, revision=None,
                                          max_cost_seconds=max_cost_seconds)
     return fidelity.annotate(answer, fidelity=declared["fidelity"],
                              escalation=declared["escalation"])
+
+def _derive_relations(project) -> list[dict]:
+    """Derive, verify and file the relations the model's evidence holds.
+
+    The candidates come from the measured hands and the measured
+    objects; the AMBIGUOUS ones are put to the local model, and only a
+    "yes" confirms them.  The rows are filed in the model, so the
+    answer that reads them back is a model's answer and not a
+    one-off's.
+    """
+    from library.tools import project_model_store, relation_verification
+
+    _revision, model = project_model_store.load_project_model(project)
+    candidates = relation_verification.derive_candidates(model)
+    verdicts = relation_verification.verify_ambiguous(
+        relation_verification.ambiguous_candidates(candidates),
+        source_files={row.get("id"): row.get("uri")
+                      for row in model.get("assets") or []
+                      if isinstance(row, dict) and isinstance(row.get("uri"),
+                                                              str)})
+    confirmed = relation_verification.confirmed_relations(candidates, verdicts)
+    rejected = relation_verification.rejected_candidates(candidates, verdicts)
+    rows = relation_verification.rows_to_file(candidates, confirmed, rejected)
+    relation_verification.file_relations(project, model, rows)
+    return rows
 
 
 def _record(project, model: dict, answer: dict, revision: int, *,
