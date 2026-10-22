@@ -937,3 +937,98 @@ def test_a_placement_at_its_own_speed_stays_one_to_one():
     for segment in frame_map["segments"]:
         assert segment["mapping_kind"] == "one_to_one"
         assert segment["rate"] == {"numerator": 1, "denominator": 1}
+
+
+# ── The reel build's own speech rows ───────────────────────────────
+
+
+def _speech_model(duration=100.0, rate=120_000):
+    """A model with one source, its clock, and the reel build's rows."""
+    model = rpm.blank_model("project-x")
+    model["clocks"].append({
+        "id": "clock-a",
+        "domain": {"kind": "source", "asset_id": "asset-a"},
+        "ticks_per_second": rate,
+    })
+    model["assets"].append({
+        "id": "asset-a", "kind": "video", "uri": "/m/a.MXF",
+        "content_digest": "a" * 64,
+        "metadata": {"duration_seconds": duration},
+        "provenance": ["prov-reel-build"],
+    })
+    model["streams"].append({
+        "id": "stream-a", "asset_id": "asset-a", "clock_id": "clock-a",
+        "stream_index": 0, "metadata": {"codec_type": "video"},
+    })
+    model["provenance"].append({
+        "id": "prov-reel-build", "producer": "reel_project_model",
+        "producer_version": "1", "source_digest": None,
+    })
+    return model
+
+
+def _speech_transcript(source_start=10.0, source_end=15.0, text="hello world"):
+    return {"segments": [
+        {"speaker": "Ada", "text": text, "timeline_start": 10.0,
+         "timeline_end": 15.0, "source_file": "/m/a.MXF",
+         "source_start": source_start, "source_end": source_end}]}
+
+
+def test_the_reel_builds_own_rows_carry_a_contract():
+    """The defect: the reel build's rows said nothing about themselves.
+
+    431 rows of one reel carried no evidence contract at all, so a
+    reader could not tell a transcribed utterance from an instrument's
+    reading. The reel build is the producer of these rows: it declares
+    what they are, and it declares them under the registry's own type -
+    the same one the M1 transcript lane files its utterances under.
+    """
+    model = _speech_model()
+    rpm.speech_observations(model, _speech_transcript(), "Ada", "/m/a.MXF",
+                            "asset-a", "clock-a", "speaker-ada")
+    row = model["observations"][0]
+    contract = row["payload"]["evidence_contract"]
+    assert contract["measurement_type"] == "speech.utterance"
+    assert contract["evidence_type"] == "inference"
+    assert contract["coverage"] == "complete"
+    assert contract["uncertainty"] == pytest.approx(1.0)
+
+
+def test_the_reel_build_replaces_the_row_it_owns():
+    """The defect: a row left behind by an earlier build survived.
+
+    The reel build wrote its rows once and never wrote them again, so a
+    row left on an older grid stayed in the model forever - the model
+    kept a measurement the producer no longer stands behind. The
+    reel build owns these rows, so it replaces them.
+    """
+    model = _speech_model()
+    rpm.speech_observations(model, _speech_transcript(), "Ada", "/m/a.MXF",
+                            "asset-a", "clock-a", "speaker-ada")
+    stale = model["observations"][0]
+    stale["interval"] = {"clock_id": "clock-a", "start": 1,
+                          "end": 120000 * 120 * 120}
+    stale["payload"].pop("evidence_contract")
+    rpm.speech_observations(model, _speech_transcript(), "Ada", "/m/a.MXF",
+                            "asset-a", "clock-a", "speaker-ada")
+    assert len(model["observations"]) == 1
+    row = model["observations"][0]
+    assert row["interval"] == {"clock_id": "clock-a", "start": 1200000,
+                                "end": 1800000}
+    assert row["payload"]["evidence_contract"]["measurement_type"] \
+        == "speech.utterance"
+
+
+def test_the_reel_build_refuses_a_span_past_the_source():
+    """The defect: a row could claim audio the source does not hold.
+
+    The reel build minted its rows from the transcript's own seconds, and
+    a transcript row that runs past the source's end became a span of
+    frames that are not there. The writer refuses it instead.
+    """
+    model = _speech_model(duration=12.0)
+    rpm.speech_observations(model, _speech_transcript(source_start=10.0,
+                                                       source_end=15.0),
+                            "Ada", "/m/a.MXF", "asset-a", "clock-a",
+                            "speaker-ada")
+    assert model["observations"] == []

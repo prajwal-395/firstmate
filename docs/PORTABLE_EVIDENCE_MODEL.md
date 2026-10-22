@@ -136,6 +136,17 @@ portable shape by `migrate_observations`:
 - the class comes from the REGISTRY, not from the stored filing, and
   the stored filing is kept beside it as `filed_class` so the
   disagreement is visible;
+- a record whose span was re-based onto a finer clock is RECOVERED on
+  the row's own integers: the recorded span is the measured span times
+  a whole number of grid ratios, and the recovery undoes that
+  multiplication. The candidates are the multiples whose span fits
+  inside the source; where more than one fits, the source's own words
+  say which (a passage is anchored by SEARCH, never by a hint), and
+  where one fits, the row's own measurement has determined the span;
+- the source's length is counted UP on the clock's own rate, and a
+  span that ends ONE FRAME past it is the source's length, rounded by
+  the duration it was measured from - the record says how far past it
+  reached;
 - a record that cannot be lifted is REFUSED with a named reason, never
   approximated.
 
@@ -154,8 +165,10 @@ python3 -m library.tools.portable_evidence census \
 ```
 
 The reports: `docs/benchmarks/2026-10-21-portable-evidence.json` (the
-M1 lane) and `docs/benchmarks/2026-10-22-portable-evidence-m3d-m6.json`
-(the M3d and M6 lanes).
+M1 lane), `docs/benchmarks/2026-10-22-portable-evidence-m3d-m6.json`
+(the M3d and M6 lanes) and
+`docs/benchmarks/2026-10-22-portable-evidence-m0-reel-build.json` (the
+M0 lane and the reel build).
 
 ### Distinct evidence record shapes in production
 
@@ -173,9 +186,10 @@ M1 lane) and `docs/benchmarks/2026-10-22-portable-evidence-m3d-m6.json`
 ### The three attributes, before and after
 
 The BEFORE is the stored model. The AFTER is the same records lifted
-onto the portable model - one producer at a time. This is the first:
-**the M1 transcript lane**, which is 75,455 of the reel's 95,653
-observations.
+onto the portable model - one producer at a time. The M1 transcript
+lane first (75,455 of the reel's 95,653 observations), then the M3d
+person-region frames and the M6 multicam offsets, then the M0
+source-metadata lane and the reel build's own rows (434 more).>>>>>>> 342c79670 (INFRA-001: the M0 lane and the reel build's own rows on the portable record)
 
 | Measure | Before (reel) | Before (M1) | After (M1) |
 |---|---:|---:|---:|
@@ -191,6 +205,24 @@ observations.
 The 16 refusals are named, not dropped: they are the
 `cross_modal_disagreement` rows, which carry no evidence contract at
 all.
+
+The M0 lane and the reel build, measured the same way:
+
+| Measure | Before (M0 + reel build) | After (M0 + reel build) |
+|---|---:|---:|
+| records | 434 | 434 |
+| distinct record shapes | 2 | **1** |
+| carry a source reference | 0 (0.0%) | **434 (100%)** |
+| carry a provenance class | 3 (0.7%) | **434 (100%)** |
+| carry a coverage | 3 (0.7%) | **434 (100%)** |
+| carry all three | 0 (0.0%) | **434 (100%)** |
+| refused (named) | 434 | **0** |
+
+The M1, M3d, M6, M0 and reel-build rows together are 93,940 records
+in ONE shape, and 93,940 of 93,940 (100%) carry a source reference, a
+class and a coverage. The 940 refusals that remain carry no evidence
+contract at all: the M1 `cross_modal_disagreement` rows (16) and the
+M3d track summaries (924).
 
 The 60,336 rows whose stored filing disagreed with their producer's
 declaration keep that disagreement as `filed_class`: the correction is
@@ -253,10 +285,14 @@ two sources - and they name the audio they were measured from.
    synthesised here from the span each row was measured over.
 3. **The reel build writes rows that are not evidence at all.** The 431
    `prov-reel-build` rows carry no evidence contract, and their
-   intervals reach 1e43 ticks on a source 4,099.6 s long. Migrating
-   that producer refuses all 431 by name, on the contract first and on
-   the grid second: a reference to them would recover frames that are
-   not there.
+   intervals reach 1e43 ticks on a source 4,099.6 s long. The store's
+   own event log says why: the reel build re-based its rows onto the
+   clock upgrade once per build, and wrote them only once, so a row
+   left on an older grid stayed in the model forever. The recovery
+   undoes that re-basing on the row's own integers, and the recovered
+   spans are IDENTICAL to the spans the store's first commit carried
+   (304 of 304 rows the two share). The history of this, and the
+   measurement: `docs/evidence/portable_evidence_m0_reel_build.md`.
 4. **The only rows that carried a reference used the pre-contract
    spelling** (`source_frame`), which PR 3116 says is read and never
    written. The migration upgrades them to the modern `element`, and
@@ -265,10 +301,10 @@ two sources - and they name the audio they were measured from.
 
 ## What is left undone
 
-- Three producers are migrated: the M1 transcript lane, the M3d
-  person-region frames and the M6 multicam offsets. The other
-  producers of this reel's records - `m3b` (773 rows), `m0` (3 rows)
-  and the reel build - are counted and named, not yet migrated.
+- Five producers are migrated: the M1 transcript lane, the M3d
+  person-region frames, the M6 multicam offsets, the M0 source-metadata
+  lane and the reel build's own rows. The one producer of this reel's
+  records still counted and named is `m3b` (773 rows).
 - The portable model covers the Project Model's observations. The
   events, relations, tracks, masks, signals and identity links are
   counted by the census but not yet lifted: a relationship and an event
@@ -277,5 +313,6 @@ two sources - and they name the audio they were measured from.
   summaries (924 rows) are refused for the same reason: they carry no
   evidence contract, so they have no class, no coverage and no
   registry type to lift.
-- The reel build's own rows (431) are refused, not migrated. Their
-  intervals are wrong, and no reference can be made from them.
+- The reel build's rows are recovered in the model that is stored
+  today. The next reel build writes them again, correctly, with the
+  contract they now carry.

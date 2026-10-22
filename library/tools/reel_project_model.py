@@ -74,6 +74,11 @@ try:
 except ImportError:  # imported as ``tools.*`` from inside library/
     from tools import source_clocks
 
+try:
+    from library.tools import portable_evidence
+except ImportError:  # imported as ``tools.*`` from inside library/
+    from tools import portable_evidence
+
 TICKS_PER_SECOND = 120_000
 """120 kHz ticks preserve millisecond evidence and common frame rates.
 
@@ -787,11 +792,26 @@ def speech_observations(model: dict[str, Any], transcript: dict | None,
     Observations are about the SOURCE media (source-clock interval),
     carrying the row's own words. Rows with no usable source span are
     skipped, never widened. Returns the observation ids minted.
+
+    Three things this writer owes the row it owns:
+
+    * it CARRIES a contract, so a reader can tell a transcribed
+      utterance from an instrument's reading. The contract is the same
+      one the M1 transcript lane files its utterances under - one
+      registry type, one reading of what a row of words is;
+    * it REPLACES the row it owns. The reel build is the producer of
+      these rows, so a row left behind by an earlier build - on a grid
+      the model has since re-based - cannot survive as the measurement;
+    * it REFUSES a span that does not fit the source. A span past the
+      source's own length is a span of frames that are not there, and
+      the writer is the last place that can say so.
     """
     minted: list[str] = []
     segments = (transcript or {}).get("segments") if isinstance(transcript, dict) else None
     if not isinstance(segments, list):
         return minted
+    ticks_per_second = _ticks_per_second(model, clock_id)
+    source_length = _source_span_limit_ticks(model, asset_id, clock_id)
     for index, row in enumerate(segments):
         if not isinstance(row, dict):
             continue
@@ -800,27 +820,81 @@ def speech_observations(model: dict[str, Any], transcript: dict | None,
         if str(row.get("source_file") or "") != str(source_file or ""):
             continue
         span = sec_to_ticks(row.get("source_start"), row.get("source_end"),
-                            _ticks_per_second(model, clock_id))
+                            ticks_per_second)
         if span is None:
             continue
+        if source_length is not None and span[1] > source_length:
+            # The row would claim audio the source does not hold.
+            continue
         obs_id = f"obs:speech:{_sha16(speaker, source_file, row.get('source_start'), row.get('source_end'), index)}"
-        if not any(isinstance(obs, dict) and obs.get("id") == obs_id
-                   for obs in model.get("observations") or []):
-            model.setdefault("observations", []).append({
-                "id": obs_id,
-                "asset_id": asset_id,
-                "interval": {"clock_id": clock_id, "start": span[0], "end": span[1]},
-                "modality": "speech",
-                "payload": {
-                    "text": str(row.get("text") or ""),
-                    "speaker_entity_id": entity_id,
-                },
-                "confidence": None,
-                "provenance_id": PROVENANCE_ID,
-            })
+        payload = {
+            "text": str(row.get("text") or ""),
+            "speaker_entity_id": entity_id,
+        }
+        contract = _speech_utterance_contract(
+            asset_id, clock_id, span[0], span[1], payload,
+            len(str(row.get("text") or "").split()))
+        row_to_write = {
+            "id": obs_id,
+            "asset_id": asset_id,
+            "interval": {"clock_id": clock_id, "start": span[0], "end": span[1]},
+            "modality": "speech",
+            "payload": {**payload, "evidence_contract": contract},
+            "confidence": None,
+            "provenance_id": PROVENANCE_ID,
+        }
+        observations = model.setdefault("observations", [])
+        for position, existing in enumerate(observations):
+            if isinstance(existing, dict) and existing.get("id") == obs_id:
+                observations[position] = row_to_write
+                break
+        else:
+            observations.append(row_to_write)
         _link(model, entity_id, obs_id, "diarization_speaker_label")
         minted.append(obs_id)
     return minted
+
+
+def _source_span_limit_ticks(model: dict[str, Any], asset_id: str,
+                             clock_id: str) -> int | None:
+    """How far a span of this clock may reach and still fit its source.
+
+    The ONE reading the portable evidence model owns: the source's own
+    length, counted UP, plus the one frame that a duration measured to
+    the millisecond may overshoot it by. The reel build's writer asks
+    the model the same question, so a span one of them accepts is a
+    span the other wrote.
+    """
+    index = portable_evidence.ModelIndex(model)
+    limit = index.duration_ticks(asset_id, clock_id)
+    if limit is None:
+        return None
+    return limit + (index.frame_ticks(clock_id) or 0)
+
+
+def _speech_utterance_contract(asset_id: str, clock_id: str,
+                                start_tick: int, end_tick: int,
+                                payload: dict[str, Any],
+                                word_count: int) -> dict[str, Any]:
+    """The contract a transcribed utterance carries.
+
+    The same contract the M1 transcript lane files its utterances
+    under: an INFERENCE about the recording, with the uncertainty of a
+    producer that recorded no score of its own. A row of words is a
+    description of the media, not a reading of it, and the contract
+    says so.
+    """
+    native = evidence_contract.new_inference(
+        asset_id=asset_id, clock_id=clock_id,
+        start_tick=start_tick, end_tick=end_tick,
+        measurement_type="speech.utterance", value=dict(payload),
+        uncertainty=evidence_contract.UNCERTAINTY_UNSTATED,
+        method=PRODUCER,
+        provenance_id=PROVENANCE_ID,
+        coverage=evidence_contract.CoverageKind.COMPLETE,
+        coverage_samples=max(1, int(word_count)),
+        coverage_sample_rate_hz=0.0)
+    return evidence_contract.to_rust_evidence(native)
 
 
 def overlap_observations(model: dict[str, Any], transcript: dict | None,

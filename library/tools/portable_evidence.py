@@ -83,6 +83,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -184,7 +185,17 @@ LANE_READ_MODALITY = {"m6": "audio"}
 #: a producer is migrated when its records can be lifted onto the
 #: portable shape without losing a value, and the census names the ones
 #: that are still pending.
-MIGRATED_PRODUCERS = ("m1", "m3d", "m6")
+MIGRATED_PRODUCERS = ("m1", "m3d", "m6", "m0", "reel-build")
+
+#: The registry type a producer's records ARE, for a producer whose
+#: stored rows carry no contract of their own.  The reel build wrote its
+#: rows before the producers declared their class (PR 3137), so its
+#: stored rows say nothing about themselves; what they ARE is the
+#: registry's - transcribed utterances, the same type the M1 transcript
+#: lane files its utterances under, so the two spell one thing once.
+PRODUCER_MEASUREMENT_TYPE = {
+    "reel-build": "speech.utterance",
+}
 
 
 class PortableEvidenceError(ValueError):
@@ -380,6 +391,7 @@ class ModelIndex:
             clock_id = stream.get("clock_id")
             if clock_id:
                 self._streams_by_clock.setdefault(clock_id, []).append(stream)
+        self._words: dict[str, list[tuple[int, int, str]]] | None = None
 
     def clock(self, clock_id: str) -> dict[str, Any] | None:
         return self.clocks.get(clock_id)
@@ -447,7 +459,9 @@ class ModelIndex:
         duration = (asset.get("metadata") or {}).get("duration_seconds")
         clock = self.clock(clock_id) or {}
         rate = clock.get("ticks_per_second")
-        if not isinstance(duration, (int, float)) or not isinstance(rate, int):
+        if not isinstance(duration, (int, float)) or isinstance(duration, bool):
+            return None
+        if not isinstance(rate, int):
             return None
         if duration <= 0 or rate <= 0:
             return None
@@ -498,6 +512,42 @@ class ModelIndex:
         high = math.ceil((end / rate) * frames_per_second) - 1
         return low, max(low, high)
 
+    def words_in(self, asset_id: str) -> list[tuple[int, int, str]]:
+        """The source's own words, as its transcript measured them.
+
+        A record that carries its words can be placed on its source by
+        SEARCH: the source's transcript holds those words with their
+        own timings.  This is the model's own index of them - it reads
+        the stored word rows, never the media.
+        """
+        if self._words is None:
+            self._words = self._index_words()
+        return self._words.get(asset_id, [])
+
+    def _index_words(self) -> dict[str, list[tuple[int, int, str]]]:
+        """Index the stored word rows by the asset they were heard in."""
+        words: dict[str, list[tuple[int, int, str]]] = {}
+        for row in self.model.get("observations") or []:
+            if not isinstance(row, Mapping):
+                continue
+            if str(row.get("modality")) != "speech_word":
+                continue
+            interval = row.get("interval")
+            payload = row.get("payload")
+            if not isinstance(interval, Mapping) or not isinstance(payload, Mapping):
+                continue
+            start, end = interval.get("start"), interval.get("end")
+            if not isinstance(start, int) or not isinstance(end, int):
+                continue
+            if end <= start:
+                continue
+            for token in _words(payload.get("text")):
+                words.setdefault(str(row.get("asset_id")), []).append(
+                    (start, end, token))
+        for rows in words.values():
+            rows.sort()
+        return words
+
     def provenance_row(self, provenance_id: str | None
                        ) -> dict[str, Any] | None:
         if not provenance_id:
@@ -517,6 +567,174 @@ def lane_of(provenance_id: str | None) -> str:
         return "reel-build"
     tail = provenance_id.rsplit("-", 1)[-1]
     return tail or "unknown"
+
+
+# ── Recovering a span the reel build re-based ─────────────────────
+
+
+def _words(text: Any) -> list[str]:
+    """A text's words, as the comparison sees them.
+
+    Lower case, and without the punctuation a transcript carries: the
+    source's own word rows end in full stops and the passage does not,
+    and they are the same word.
+    """
+    return re.findall(r"[a-z0-9']+", str(text or "").lower())
+
+
+def _align_words(passage: Sequence[str], source: Sequence[str],
+                 lookahead: int = 3) -> tuple[int, int | None, int | None]:
+    """The passage's words against the source's, in order.
+
+    The source's own transcript may hold words the passage does not (a
+    filler between two of them), and the passage may hold words the
+    source's transcript does not (a different pass over the same
+    recording); the matcher steps over a few of either, exactly as the
+    speech sequence's own aligner does, and reports how many of the
+    passage's words it could place.
+
+    Returns ``(aligned, first, last)``: how many of the passage's words
+    were placed, and the positions of the first and the last.  Nothing
+    here decides anything: the numbers are what a reader sees.
+    """
+    p = 0
+    c = 0
+    matched: list[int] = []
+    while p < len(passage) and c < len(source):
+        if source[c] == passage[p]:
+            matched.append(c)
+            p += 1
+            c += 1
+            continue
+        # The source's transcript holds a word the passage does not.
+        step = None
+        for skip in range(1, lookahead + 1):
+            if c + skip < len(source) and source[c + skip] == passage[p]:
+                step = c + skip
+                break
+        if step is not None:
+            matched.append(step)
+            p += 1
+            c = step + 1
+            continue
+        # The passage holds a word the source's transcript does not.
+        ahead = None
+        for skip in range(1, lookahead + 1):
+            if p + skip < len(passage) and source[c] == passage[p + skip]:
+                ahead = p + skip
+                break
+        if ahead is not None:
+            p = ahead
+            continue
+        c += 1
+    if not matched:
+        return 0, None, None
+    return len(matched), matched[0], matched[-1]
+
+
+def _rebase_factors(start: int, end: int, ratio: int) -> list[int]:
+    """The whole numbers of grid ratios the recorded span carries.
+
+    The reel build used to re-base its own rows onto the clock upgrade
+    once per build, and every re-basing multiplied the span by the
+    ratio between the lane's own grid and the clock's.  The recorded
+    span is therefore the span that was measured, times a whole number
+    of ratios - and the number of whole ratios it carries is read off
+    the span itself: a ratio that does not divide the span's ticks is
+    not a re-basing.
+    """
+    factors: list[int] = []
+    power = 1
+    while True:
+        power *= ratio
+        if start % power or end % power:
+            break
+        factors.append(power)
+    return factors
+
+
+def _recover_span(observation: Mapping[str, Any], index: ModelIndex,
+                  ) -> tuple[tuple[int, int] | None, dict[str, Any] | None]:
+    """The span a reel build row measured, recovered from the row itself.
+
+    The recorded span is the measured span times a whole number of grid
+    ratios, so the recovery is ARITHMETIC on the row's own integers: the
+    span it recovers IS the span the reel build measured, not an
+    approximation of it.
+
+    Which multiple is undone is decided by the SOURCE. A span that does
+    not fit inside its source is not a span of that source, so the
+    candidates are the multiples whose span does fit - and where more
+    than one of them fits, the source's own words say which: a passage
+    is anchored by SEARCH (AGENTS.md section 6), never by the time a
+    hint claims, and the candidate the source's transcript supports most
+    wins - most words aligned, then the SHORTEST span, then the
+    smallest leading gap.
+
+    Where the arithmetic leaves ONE candidate, the row's own measurement
+    has determined the span and the words are a report on it, not a
+    condition of it: the transcript's word timings are another pass
+    over the same recording, and a row whose words that pass does not
+    hold is still the row the reel build measured.
+    """
+    interval = observation.get("interval")
+    if not isinstance(interval, Mapping):
+        return None, None
+    start, end = interval.get("start"), interval.get("end")
+    clock_id = interval.get("clock_id")
+    asset_id = observation.get("asset_id")
+    if not isinstance(start, int) or not isinstance(end, int):
+        return None, None
+    clock = index.clock(str(clock_id or "")) or {}
+    rate = clock.get("ticks_per_second")
+    grid = source_reference.SOURCE_TICKS_PER_SECOND
+    if not isinstance(rate, int) or rate % grid or rate <= grid:
+        return None, None
+    ratio = rate // grid
+    limit = index.duration_ticks(str(asset_id or ""), str(clock_id or ""))
+    tolerance = index.frame_ticks(str(clock_id or "")) or 0
+    payload = observation.get("payload")
+    payload = payload if isinstance(payload, Mapping) else {}
+    passage = _words(payload.get("text"))
+    inside_source = index.words_in(str(asset_id or ""))
+    candidates: list[tuple[int, int, int, int, int, int]] = []
+    for factor in _rebase_factors(start, end, ratio):
+        span_start, span_end = start // factor, end // factor
+        if span_start >= span_end:
+            continue
+        if limit is not None and span_end > limit + tolerance:
+            continue
+        held = [row for row in inside_source
+                if row[0] < span_end and row[1] > span_start]
+        aligned, first, _last = _align_words(passage, [row[2] for row in held])
+        leading_gap = (held[first][0] - span_start) if first is not None else 0
+        candidates.append((-aligned, span_end - span_start, leading_gap,
+                           span_start, span_end, factor))
+    if not candidates:
+        return None, None
+    candidates.sort()
+    _aligned, _length, leading_gap, span_start, span_end, factor = \
+        candidates[0]
+    aligned = -_aligned
+    if len(candidates) > 1 and aligned == 0:
+        # Several spans fit inside the source and the source's own
+        # transcript supports none of them: the row cannot be placed.
+        return None, None
+    note = {
+        "span_recovered": {
+            "anchored_by": ("search: the source's own transcript"
+                            if len(candidates) > 1
+                            else "the row's own measurement: the re-basing "
+                                 "undone"),
+            "candidates": len(candidates),
+            "rebased_by": factor,
+            "grid_ratio": ratio,
+            "words_aligned": aligned,
+            "words": len(passage),
+            "leading_gap_ticks": leading_gap,
+        },
+    }
+    return (span_start, span_end), note
 
 
 # ── Lifting a stored record onto the portable shape ────────────────
@@ -680,6 +898,48 @@ def _relation_object(value: Any) -> str | None:
         return None
 
 
+def _declared_contract(observation: Mapping[str, Any], index: ModelIndex
+                       ) -> dict[str, Any] | None:
+    """The contract a producer's own rows declare, when they carry none.
+
+    The reel build wrote its rows before the producers declared their
+    class (PR 3137), so its stored rows say nothing about themselves.
+    What they ARE is the registry's: transcribed utterances, the same
+    type the M1 transcript lane files.  The contract is built here from
+    that declaration and from the producer's own provenance row - never
+    from the stored row, which says nothing, and never from the class
+    the row happens to have been filed under.
+    """
+    lane = lane_of(observation.get("provenance_id"))
+    measurement_type = PRODUCER_MEASUREMENT_TYPE.get(lane)
+    if measurement_type is None:
+        return None
+    try:
+        unit = evidence_contract.registry_entry(measurement_type)["unit"]
+    except evidence_contract.EvidenceContractError:
+        return None
+    payload = observation.get("payload")
+    payload = payload if isinstance(payload, Mapping) else {}
+    provenance_row = index.provenance_row(observation.get("provenance_id")) or {}
+    value = {key: payload[key] for key in ("text", "speaker_entity_id")
+             if key in payload}
+    return {
+        "evidence_type": "inference",
+        "measurement_type": measurement_type,
+        "value": value or None,
+        "unit": unit,
+        "method": provenance_row.get("producer"),
+        "producer": provenance_row.get("producer"),
+        "producer_version": provenance_row.get("producer_version"),
+        "coverage": "complete",
+        "coverage_samples": 1,
+        "coverage_scope": None,
+        "coverage_status": None,
+        "freshness": None,
+        "references": [],
+    }
+
+
 def portable_record_from_observation(observation: Mapping[str, Any],
                                      index: ModelIndex,
                                      ) -> tuple[dict[str, Any] | None, str | None]:
@@ -691,6 +951,8 @@ def portable_record_from_observation(observation: Mapping[str, Any],
     is absent, because the wrong one is believed.
     """
     contract = epistemic_vocabulary.contract_of(observation)
+    if not isinstance(contract, Mapping):
+        contract = _declared_contract(observation, index)
     if not isinstance(contract, Mapping):
         return None, "the record carries no evidence contract"
     measurement_type = contract.get("measurement_type")
@@ -717,16 +979,24 @@ def portable_record_from_observation(observation: Mapping[str, Any],
     # than the source is a span on another grid, and a reference to it
     # would recover the wrong frames. A span that ends ONE FRAME past
     # the source's own length is the source's length, rounded by the
-    # duration it was measured from: that is not another grid.
+    # duration it was measured from: that is not another grid. And a
+    # span the reel build re-based onto the clock upgrade is recovered
+    # from the row's own integers, and the source's own words say which
+    # span it is.
     limit = index.duration_ticks(asset_id, clock_id)
     overshoot = 0
+    recovery: dict[str, Any] | None = None
     if limit is not None and end > limit:
         tolerance = index.frame_ticks(clock_id)
-        if tolerance is None or end - limit > tolerance:
-            return None, (f"the record's interval ends at tick {end}, past "
-                          f"the source's own {limit} ticks on this clock: "
-                          f"the span is not a span of this source")
-        overshoot = end - limit
+        if tolerance is not None and end - limit <= tolerance:
+            overshoot = end - limit
+        else:
+            recovered, recovery = _recover_span(observation, index)
+            if recovered is None:
+                return None, (f"the record's interval ends at tick {end}, past "
+                              f"the source's own {limit} ticks on this clock: "
+                              f"the span is not a span of this source")
+            start, end = recovered
     modality = MODALITY_OF_STORED.get(str(observation.get("modality")),
                                       "derived")
     lane = lane_of(observation.get("provenance_id"))
@@ -860,6 +1130,8 @@ def portable_record_from_observation(observation: Mapping[str, Any],
     record["migration"]["span_end_overshoot_ticks"] = overshoot
     if dropped:
         record["migration"]["dropped_references"] = dropped
+    if recovery:
+        record["migration"].update(recovery)
     return record, None
 
 

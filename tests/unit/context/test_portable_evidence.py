@@ -477,3 +477,168 @@ def test_a_document_carrying_a_local_path_is_refused():
     with pytest.raises(pe.PortableEvidenceError) as refusal:
         pe.assert_portable({"sources": [{"uri": local}]})
     assert "local path" in str(refusal.value)
+
+
+# ── The M0 source metadata row ─────────────────────────────────────
+
+
+def _m0_observation(duration: float, rate: int):
+    """The M0 row as the model holds it, after the reel build's clock.
+
+    The M0 lane measures on the millisecond grid and covers the span it
+    measured, so its row ends on the next whole millisecond. The reel
+    build re-bases that grid onto a finer clock, and the row's span
+    lands where that cover lands.
+    """
+    grid = source_reference.SOURCE_TICKS_PER_SECOND
+    end = int(-(-duration * grid // 1)) * (rate // grid)
+    contract = _contract(measurement_type="media.source_metadata",
+                          value={"duration_seconds": duration},
+                          unit="record", certainty="measured")
+    return {
+        "id": "obs-a-m0-0001",
+        "asset_id": "asset-a",
+        "interval": {"clock_id": "clock-a", "start": 0, "end": end},
+        "modality": "source_metadata",
+        "payload": {"duration_seconds": duration,
+                    "evidence_contract": contract},
+        "confidence": None,
+        "provenance_id": "prov-a-m0",
+    }
+
+
+def test_the_source_metadata_row_is_a_span_of_its_own_source():
+    """The defect: the M0 row is the source's length, and the reader
+    measured that length on a different grid.
+
+    The M0 lane counts on the millisecond and covers the span it
+    measured, so its row's span ends on the next whole millisecond -
+    and the reel build re-bases that span onto a clock that counts
+    120 times finer. A reader that refused a span past the source's
+    own length refused the row: the row said 4099.596 s where the
+    reader's own length said 4099.5955 s, and half a millisecond of
+    nothing was enough to refuse a record that IS the source. The
+    source's length is counted UP, and a span that ends one frame past
+    it is the source's length, rounded by the duration it was measured
+    from - and the record says how far past it reached.
+    """
+    duration = 10.0005
+    model = _model([_m0_observation(duration, 120000)])
+    model["assets"][0]["metadata"]["duration_seconds"] = duration
+    model["clocks"][0]["ticks_per_second"] = 120000
+    records, refusals = pe.migrate_observations(model,
+                                                model["observations"])
+    assert refusals == []
+    assert len(records) == 1
+    record = records[0]
+    assert record["kind"] == "interval"
+    assert record["source_references"]
+    assert record["provenance"]["class"] == "measured"
+    assert record["coverage"]["kind"] == "complete"
+    assert record["lossy"] is False
+    assert record["migration"]["span_end_overshoot_ticks"] == 60
+
+
+def test_the_source_length_is_read_one_way():
+    """One reading of the source's length, asked the same way twice.
+
+    The portable model counts the source's length UP on the clock's
+    own rate, and the reel build's own writer asks the model the same
+    question, so a span one of them accepts is a span the other wrote.
+    """
+    model = _model()
+    index = pe.ModelIndex(model)
+    assert index.duration_ticks("asset-a", "clock-a") == 10000
+    assert index.frame_ticks("clock-a") == 40
+    assert index.duration_ticks("asset-a", "clock-missing") is None
+
+
+# ── The reel build's own rows ──────────────────────────────────────
+
+
+def _reel_build_model(observations=None):
+    """A model with the reel build's rows and the source's own words."""
+    model = _model(observations or [])
+    model["clocks"][0]["ticks_per_second"] = 120000
+    model["streams"][0]["metadata"]["codec_type"] = "video"
+    model["provenance"].append({"id": "prov-reel-build",
+                                 "producer": "reel_project_model",
+                                 "producer_version": "1",
+                                 "source_digest": None})
+    return model
+
+
+def _reel_build_row(start: int, end: int, text: str = "hello there"):
+    """One reel-build row: words, a speaker, and no contract of its own."""
+    return {
+        "id": "obs:speech:abc123",
+        "asset_id": "asset-a",
+        "interval": {"clock_id": "clock-a", "start": start, "end": end},
+        "modality": "speech",
+        "payload": {"text": text, "speaker_entity_id": "speaker-1"},
+        "confidence": None,
+        "provenance_id": "prov-reel-build",
+    }
+
+
+def _source_words(model, words=("hello", "there"), start=120000):
+    """The source's own words, as its transcript measured them."""
+    for index, word in enumerate(words):
+        model["observations"].append({
+            "id": f"obs-a-m1-{index:04d}",
+            "asset_id": "asset-a",
+            "interval": {"clock_id": "clock-a",
+                         "start": start + index * 40000,
+                         "end": start + (index + 1) * 40000},
+            "modality": "speech_word",
+            "payload": {"text": word, "utterance_index": 0},
+            "confidence": None,
+            "provenance_id": "prov-a-m1",
+        })
+    return model
+
+
+def test_a_span_rebased_onto_the_clock_upgrade_is_recovered():
+    """The defect: the reel build re-based its own rows, once per build.
+
+    The reel build used to replace the model's clock rows with the
+    evidence base's, so every build re-based the rows it had already
+    written onto the finer clock - multiplying their span by the grid
+    ratio, again and again. 431 rows of one reel ended up on 1e43
+    ticks of a 4099.6 s source: a span on another grid, from which no
+    frame can be recovered.
+
+    The recovery is arithmetic on the row's own integers - the span
+    that was measured, times a whole number of grid ratios - and the
+    source's own transcript says which multiple is undone.
+    """
+    row = _reel_build_row(120000 * 120, 240000 * 120)
+    model = _reel_build_model([row])
+    _source_words(model)
+    records, refusals = pe.migrate_observations(model, [row])
+    assert refusals == []
+    assert len(records) == 1
+    record = records[0]
+    assert record["interval"] == {"clock_id": "clock-a",
+                                  "start": 120000, "end": 240000}
+    assert record["lossy"] is True
+    assert record["provenance"]["class"] == "inferred"
+    assert record["coverage"]["kind"] == "complete"
+    recovered = record["migration"]["span_recovered"]
+    assert recovered["rebased_by"] == 120
+    assert recovered["words_aligned"] == 2
+    assert "search" in recovered["anchored_by"]
+
+
+def test_a_row_the_source_transcript_does_not_hold_is_refused_by_name():
+    """A passage is placed by SEARCH, so a passage the source's own
+    transcript does not hold is REFUSED, never placed somewhere that
+    merely fits.
+    """
+    row = _reel_build_row(120000 * 120, 240000 * 120,
+                          text="words the source never said")
+    model = _reel_build_model([row])
+    _source_words(model)
+    records, refusals = pe.migrate_observations(model, [row])
+    assert records == []
+    assert refusals and "not a span of this source" in refusals[0]["reason"]
