@@ -33,6 +33,7 @@ reference is refused by name instead of being half-understood.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 ASSET = "asset"
@@ -80,6 +81,75 @@ class SourceReferenceError(ValueError):
     def __init__(self, message: str, *, kind: str | None = None) -> None:
         self.kind = kind
         super().__init__(message)
+
+
+#: The ticks per second of a source's own clock in the canonical Project
+#: Model: one millisecond per tick. The clock policy belongs to the
+#: model that carries the clock, and this is the one it writes.
+SOURCE_TICKS_PER_SECOND = 1000
+
+
+def asset_id_for_digest(content_digest: str) -> str:
+    """The id a source's asset is known by.
+
+    One spelling, so a reference built by a query surface and a
+    reference built by the model that carries it name the same asset.
+    """
+    if not content_digest:
+        raise SourceReferenceError("an asset id names a digest")
+    return f"asset-{content_digest}"
+
+
+def clock_id_for_digest(content_digest: str) -> str:
+    """The id a source's clock is known by."""
+    if not content_digest:
+        raise SourceReferenceError("a clock id names a digest")
+    return f"clock-{content_digest}"
+
+
+def stream_id_for_digest(content_digest: str, stream_index: int = 0) -> str:
+    """The id a source's stream is known by."""
+    if not content_digest:
+        raise SourceReferenceError("a stream id names a digest")
+    if stream_index == 0:
+        return f"stream-{content_digest}"
+    return f"stream-{content_digest}-{stream_index}"
+
+
+def ticks_for_seconds(start_seconds: float, end_seconds: float
+                      ) -> tuple[int, int]:
+    """Float seconds to half-open integer ticks, or a refusal.
+
+    A span that is not finite, or not positive, cannot be counted: a
+    zero-length measurement is not a half-open interval, and widening
+    it would invent evidence.
+    """
+    try:
+        start = float(start_seconds)
+        end = float(end_seconds)
+    except (TypeError, ValueError):
+        raise SourceReferenceError("a span is counted in seconds") from None
+    if not (math.isfinite(start) and math.isfinite(end)):
+        raise SourceReferenceError("a span is finite")
+    start_tick = math.floor(start * SOURCE_TICKS_PER_SECOND)
+    end_tick = math.ceil(end * SOURCE_TICKS_PER_SECOND)
+    if end_tick <= start_tick:
+        raise SourceReferenceError("a span is non-empty")
+    return start_tick, end_tick
+
+
+def interval_for_digest(content_digest: str, start_seconds: float,
+                         end_seconds: float) -> dict[str, Any]:
+    """The reference to a span of a source, on that source's own clock.
+
+    The span is counted in whole ticks on the source's millisecond
+    clock, exactly as the canonical Project Model counts it, so a
+    reference means the same thing to a reader that holds the model and
+    to a reader that holds only the source memory.
+    """
+    start_tick, end_tick = ticks_for_seconds(start_seconds, end_seconds)
+    return interval(stream_id_for_digest(content_digest),
+                    clock_id_for_digest(content_digest), start_tick, end_tick)
 
 
 def asset(asset_id: str) -> dict[str, Any]:

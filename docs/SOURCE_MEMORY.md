@@ -788,6 +788,21 @@ question costs the question and not the episode:
 - a lane that was never built is ABSENT and is named - never an empty
   answer that reads as "nothing happened there".
 
+It is also the world's SEARCH surface: `SEARCH_MODES` is one
+enumeration of the six ways a consumer asks for media - speech,
+appearance, action, identity, relation and temporal order - and
+`World.search(query)` answers all six over the same canonical records.
+Every answer is GROUNDED MEDIA INTERVALS: each interval names the
+source bytes it came from (the universal source reference), the class
+its own producer earned (`claim_provenance`), and either a measured
+confidence or the named reason there is none. `World.evidence(start,
+end)` inspects what is behind a span - the frames, the verdicts, the
+lane records - without Resolve, so the evidence can be read on a
+machine that has none.
+
+The contract a consumer reads is `docs/QUERY_INTERFACE.md`; the
+measurement is `docs/benchmarks/2026-10-21-infra003-query-interface.md`.
+
 The lanes are read lazily, one question at a time: a question about
 speech never pays for M3's faces. The per-second view is not read by
 this module and is not rewritten by it; the file stays a derived view of
@@ -800,6 +815,10 @@ python3 -m library.tools.world_model_query entity <project> \
   --clip clip_003 --entity face_001
 python3 -m library.tools.world_model_query ask <project> \
   --clip clip_003 --start 40 --end 55 --question who
+python3 -m library.tools.world_model_query search <project> \
+  --clip clip_003 --mode action --action hand_near_mouth
+python3 -m library.tools.world_model_query evidence <project> \
+  --clip clip_003 --start 40 --end 55
 
 # the same three, from the world's own command:
 python3 -m library.tools.world_model interval <project> --clip clip_003 \

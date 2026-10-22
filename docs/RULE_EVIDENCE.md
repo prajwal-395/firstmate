@@ -11132,3 +11132,58 @@ rerun reads back the expected fixture and the request results.
 **What it does not fix.** It does not establish that a selected timeline has
 the media, markers, captions, speech, or track layout a fixture needs. Those
 conditions still require a fresh read-back before the editorial request runs.
+
+---
+
+## The world's question surface - INFRA-003
+
+**The incident.** The world's question surface (VI-013, PR 3139) answers
+narrow questions off the canonical records, and every fact it returned
+named the lane, the slot, the reader and the field it came from. What
+no fact named was the SOURCE: none of the 2,178 facts the M0 cases
+produced carried a reference to the bytes they were read from, and
+none of them carried the epistemic class their producer earned. A
+consumer that wanted to cut the picture, animate it or score it had to
+re-derive where the moment was, and could not tell a model's
+description from an instrument's record.
+
+The surface could also not be SEARCHED. It answered a span, an entity
+and a who/what/where question, and a consumer that wanted "the second
+time she covers her mouth" had to know that this lived in M7's
+candidates, be numbered per kind, and be asked for as an entity
+question. Asked the way the punchlist phrases a question - search by
+speech, appearance, action, identity, relation or temporal order - 0
+of the 31 M0 questions were answerable through the interface.
+
+**What was measured.** The same 31 M0 questions and the same 37 real
+reel candidates, asked of the same seven sources (10,895.1 s), before
+and after, with the VI-013 harness imported rather than copied
+(`docs/benchmarks/2026-10-21-infra003-query-interface.md`):
+
+| Measure | before | after |
+|---|---:|---:|
+| M0 questions answered / correct | 31/31, 31/31 | 31/31, 31/31 |
+| the same questions asked as searches | 0/31 | 31/31 |
+| facts with a source reference | 0/2,178 | 663/663 |
+| facts with an epistemic class | 0/2,178 | 663/663 |
+| facts with a confidence or a named uncertainty | 0/2,178 | 663/663 |
+| reel candidates answered, speaker set matching the plan | 37/37, 37/37 | 37/37, 37/37 |
+| reel intervals with a source reference | - | 1,143/1,143 |
+
+No fidelity regression: every case and every reel candidate scores the
+same before and after. The transcript lane's own `confidence: 0.0` is
+reported as NO score - a placeholder is not a measurement - and the
+relation mode is UNMEASURED on this corpus because M10 was never built
+for these sources, which it names rather than answering as an absence.
+
+**The rule.** A media interval names the source bytes it came from, the
+class its OWN producer earned, and either a measured confidence or the
+named reason there is none. A query surface that cannot be searched by
+the six ways a consumer asks is not a query surface. The evidence
+behind an interval is inspectable WITHOUT Resolve, and a reference that
+cannot be placed in a file is refused by name.
+
+`library/tools/world_model_query.py` owns the surface,
+`docs/QUERY_INTERFACE.md` the contract a consumer reads,
+`tests/unit/picture/test_world_model_query_search.py` names each
+defect.

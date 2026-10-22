@@ -30,6 +30,20 @@ costs the question and not the episode.
         --clip clip_003 --entity face_001
     python3 -m library.tools.world_model_query ask <project> \
         --clip clip_003 --start 40 --end 55
+    python3 -m library.tools.world_model_query search <project> \
+        --clip clip_003 --mode action --action hand_near_mouth
+    python3 -m library.tools.world_model_query evidence <project> \
+        --clip clip_003 --start 40 --end 55
+
+It is also the ONE SEARCH surface: a consumer asks for media by
+speech, appearance, action, identity, relation or temporal order, and
+gets GROUNDED MEDIA INTERVALS back - each interval naming the source
+bytes it came from (the universal source reference), the lane and field
+that produced it, the epistemic class its producer earned, and either a
+confidence or an explicit uncertainty. Evidence can be inspected
+without Resolve: the frames, verdicts and records behind an interval
+are read out of the source memory, and a reference that cannot be
+placed in a file is refused with a named reason rather than guessed.
 """
 
 from __future__ import annotations
@@ -37,27 +51,32 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
 try:
     from library.tools import (
+        claim_provenance,
         conversation_clock,
         event_spans,
         person_entity,
         person_measurements,
         source_memory,
+        source_reference,
         span_verification,
         token_measure,
     )
 except ImportError:  # imported as `tools.*` from inside library/
     from tools import (
+        claim_provenance,
         conversation_clock,
         event_spans,
         person_entity,
         person_measurements,
         source_memory,
+        source_reference,
         span_verification,
         token_measure,
     )
@@ -93,6 +112,7 @@ LANE_SLOT = {
     "m1": "transcript.words.json",
     "m3": "persons.json",
     "m3b": "identity.json",
+    "m3c": "expressions.json",
     "m4": "scenes.json",
     "m5": "sound.json",
     "m6": "clock.json",
@@ -108,6 +128,7 @@ LANE_READER = {
     "m1": "source_memory.read_m1",
     "m3": "person_measurements.read_m3",
     "m3b": "person_entity.read_identity",
+    "m3c": "source_memory.source_dir/slot_expressions",
     "m4": "source_memory.read_scenes",
     "m5": "source_memory.read_sound",
     "m6": "conversation_clock.read_clock",
@@ -116,13 +137,170 @@ LANE_READER = {
     "m10": "source_memory.read_relationships",
     "vi-09": "source_memory.source_dir/slot_scene_cinematography",
 }
+
 """The reader each lane is read through, so provenance names the CODE
 that produced the fact, not only the file it landed in."""
+
+SEARCH_MODES = ("speech", "appearance", "action", "identity", "relation",
+                "order")
+"""The ways a consumer asks the world for media.
+
+One enumeration, and the six modes are the six the punchlist names:
+speech, appearance, action, identity, relation and temporal order. A
+consumer that needs a seventh way to ask is a consumer this interface
+does not serve yet, and it is named here rather than smuggled in as a
+flag.
+"""
+
+MODE_LANES = {
+    "speech": ("m1", "m7"),
+    "appearance": ("m7", "m3b", "m3c"),
+    "action": ("m7", "m8"),
+    "identity": ("m3b", "m7", "m10"),
+    "relation": ("m10",),
+    "order": (),
+}
+"""The lanes each mode reads.
+
+A mode that consults a lane which was never built says so in the
+answer's `lanes_consulted_absent`, and the answer's `unanswered` names
+the reason. An absent lane is never an empty result.
+"""
+
+CLAIM_KEY_BY_FACT = {
+    ("speech", "utterance"): "words",
+    ("speech", "speaking"): "speaking_span",
+    ("people", "on_screen"): "visible_span",
+    ("people", "face_track"): "identity",
+    ("people", "voice_track"): "identity",
+    ("people", "expression"): "expression",
+    ("sound", "sound_event"): "sound_event",
+    ("scene", "scene"): "scene",
+}
+"""The claim each kind of fact is, and so the class its producer earned.
+
+The claim belongs to the producer, not to the reader
+(`claim_provenance`), so a fact carries the class the lane's own
+declaration earns - never a class this module invented.
+"""
+
+CLAIM_KEY_BY_ASPECT = {
+    "events": "candidate_span",
+    "relationships": "relationship",
+}
+"""The claim of a kind whose name varies - a candidate predicate, a
+relationship predicate."""
+
+NO_SCORE = "the lane published no score for this claim"
+"""Why a confidence is absent when the lane stored no number."""
+
+NO_TRANSCRIPT_SCORE = ("the transcript lane publishes no confidence score; "
+                       "its 0.0 is a placeholder, not a measurement")
+"""Why a transcribed utterance carries no confidence.
+
+The M1 document carries `confidence: 0.0` on every utterance and its
+own documentation says no arm publishes one. A 0.0 read as a score
+would be a false zero: the utterance is no less certain than a
+measured one, and the number says nothing at all.
+"""
+
+CANDIDATE_NOT_ANSWER = ("a geometric candidate, not an answer: the "
+                         "verifier's verdict is not a probability")
+
+PRESENCE_NOT_SCORE = ("the lane measured a presence, not a probability")
+"""Why an on-screen span carries no confidence.
+
+A person being in the picture is a measured span, not a score: the
+lane stored no number and none is invented here.
+"""
+
+SINGLE_SAMPLE = ("a single measured sample: it is named by the "
+                 "frame it was measured on, when that frame's index was "
+                 "measured")
+"""Why a one-instant measurement is referenced by a frame.
+
+A single sample is not a span: a zero-length measurement cannot be a
+half-open interval, and widening it would invent evidence. The frame
+it was measured on names it instead, and a sample whose frame index
+was never measured carries no reference at all - and says so.
+"""
+
+NO_FRAME_INDEX = ("the frame index of this sample was never measured, so "
+                  "the sample carries no reference")
+"""Why a one-instant measurement with no frame index has no reference."""
+
+ORDINALS = {"first": 1, "second": 2, "third": 3, "fourth": 4,
+            "fifth": 5}
+"""The ordinals an order may name, and the number each one means."""
+
+NO_REFERENCE = object()
+"""A row that carries NO reference, and says why.
+
+The default is to compute the reference; this is the one case where
+the measurement knows it cannot be placed and the reason is the
+caller's to give.
+"""
+
 
 
 def _overlap(start: float, end: float, lo: float, hi: float) -> bool:
     """Whether [start, end) overlaps [lo, hi)."""
     return start < hi and end > lo
+
+
+def _matches(text: str, query: str) -> bool:
+    """Whether a text carries every term of a query.
+
+    The match is on the words, not on the string: a query for
+    "car keys" finds the utterance that says "the car keys", and a
+    query for nothing matches everything.
+    """
+    terms = [term for term in re.split(r"\W+", str(query).lower()) if term]
+    if not terms:
+        return True
+    body = str(text or "").lower()
+    return all(term in body for term in terms)
+
+
+def _turn_speaker(turn: Optional[dict]) -> Optional[str]:
+    """The entity a measured speaking turn belongs to."""
+    if not turn:
+        return None
+    return turn.get("face_track") or turn.get("voice_track")
+
+
+def _turn_holds(turn: Optional[dict], entity: str) -> bool:
+    """Whether a measured speaking turn belongs to an entity.
+
+    The entity may be named by either of the turn's tracks: a face
+    track and a voice track are two names for the same measured turn.
+    """
+    if not turn:
+        return False
+    return entity in (turn.get("face_track"), turn.get("voice_track"))
+
+
+def _select_ordinal(rows: List[dict], ordinal) -> List[dict]:
+    """The rows whose occurrence of their kind is the ordinal asked for."""
+    if isinstance(ordinal, bool):
+        raise ValueError("an ordinal is a name or a number")
+    if isinstance(ordinal, int) or (isinstance(ordinal, str)
+                                    and ordinal.isdigit()):
+        want = int(ordinal)
+        return [row for row in rows if row.get("occurrence") == want]
+    if str(ordinal) == "last":
+        latest: Dict[str, tuple] = {}
+        for row in rows:
+            kind = row.get("kind")
+            count = row.get("occurrence") or 0
+            if count >= latest.get(kind, (0, None))[0]:
+                latest[kind] = (count, row)
+        return [pair[1] for pair in latest.values() if pair[1] is not None]
+    want = ORDINALS.get(str(ordinal))
+    if want is None:
+        raise ValueError(f"unknown ordinal {ordinal!r}; have "
+                         f"{', '.join(sorted(ORDINALS))}, last, or a number")
+    return [row for row in rows if row.get("occurrence") == want]
 
 
 def _number_occurrences(rows: List[dict]) -> None:
@@ -161,6 +339,19 @@ def _fact(aspect: str, kind: str, start: float, end: float,
     }
 
 
+def claim_key_for(aspect: str, kind: str) -> Optional[str]:
+    """The claim a kind of fact is, or None when nobody declared one.
+
+    A kind nobody declared keeps the class `unknown`: it is never
+    defaulted to a measurement, because the class is the producer's to
+    declare and this module is only the reader.
+    """
+    key = CLAIM_KEY_BY_FACT.get((aspect, kind))
+    if key is not None:
+        return key
+    return CLAIM_KEY_BY_ASPECT.get(aspect)
+
+
 class World:
     """One source's world, queried narrowly.
 
@@ -196,6 +387,14 @@ class World:
             return person_measurements.read_m3(digest, root)
         if name == "m3b":
             return person_entity.read_identity(digest, root)
+        if name == "m3c":
+            path = (source_memory.source_dir(digest, root)
+                    / source_memory.SLOT_EXPRESSIONS)
+            try:
+                document = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                return None
+            return document if isinstance(document, dict) else None
         if name == "m4":
             return source_memory.read_scenes(digest, root)
         if name == "m5":
@@ -247,6 +446,127 @@ class World:
             return None
         return self._names.get(entity)
 
+    # ── The grounding ───────────────────────────────────────────────
+
+    def grounding(self) -> dict:
+        """What every answer from this source is grounded in.
+
+        The source, its asset, its stream and the clock that counts it.
+        A consumer that holds this can place any interval this world
+        returns inside the original media, without Resolve and without
+        the project that asked.
+        """
+        digest = self.content_digest
+        return {
+            "content_digest": digest,
+            "asset_id": source_reference.asset_id_for_digest(digest),
+            "stream_id": source_reference.stream_id_for_digest(digest),
+            "clock_id": source_reference.clock_id_for_digest(digest),
+            "ticks_per_second": source_reference.SOURCE_TICKS_PER_SECOND,
+            "tick_unit": "millisecond",
+        }
+
+    def _reference(self, start: float, end: float) -> Optional[dict]:
+        """The universal reference to a span of this source.
+
+        None when the span cannot be counted on the source's clock: a
+        zero-length, negative or non-finite span is refused, never
+        widened into an interval nobody measured.
+        """
+        try:
+            return source_reference.interval_for_digest(
+                self.content_digest, float(start), float(end))
+        except source_reference.SourceReferenceError:
+            return None
+
+    def _sample_reference(self, instant: float) -> Optional[dict]:
+        """The reference to the frame a single sample was measured on.
+
+        A measurement at one instant is not a span, so it is named by
+        the frame that carries it - and only when that frame's index
+        was measured.
+        """
+        m2 = source_memory.read_m2(self.content_digest, self.root)
+        if not m2:
+            return None
+        frame = None
+        for row in m2.get("frames") or []:
+            moment = row.get("t")
+            if moment is None:
+                continue
+            if abs(float(moment) - float(instant)) <= 0.5:
+                frame = row
+                break
+        if frame is None:
+            return None
+        index = frame.get("frame_index")
+        if index is None:
+            return None
+        try:
+            return source_reference.element(
+                source_reference.stream_id_for_digest(self.content_digest),
+                source_reference.clock_id_for_digest(self.content_digest),
+                frame_index=int(index))
+        except (source_reference.SourceReferenceError, TypeError, ValueError):
+            return None
+
+    def _row(self, aspect: str, kind: str, start: float, end: float,
+             value: dict, lane: str, field: str,
+             entity: Optional[str] = None,
+             status: str = MEASURED,
+             confidence: Optional[float] = None,
+             confidence_basis: Optional[str] = None,
+             uncertainty_reason: Optional[str] = None,
+             reference=None) -> dict:
+        """One fact, grounded: the source, the class, the confidence.
+
+        The fact keeps the shape the surface already answered with, and
+        gains three things a consumer of media needs and a reader of a
+        fact alone does not get:
+
+        * `source_reference` - the universal reference to the span, so
+          the answer names the bytes it came from;
+        * `provenance.class` - the epistemic class the lane's own
+          producer earned (`claim_provenance`), never one this module
+          invented;
+        * `confidence` and `uncertainty` - either a measured score or
+          the named reason there is none.
+        """
+        row = _fact(aspect, kind, start, end, value, lane, field,
+                    entity=entity, status=status)
+        key = claim_key_for(aspect, kind)
+        tag = claim_provenance.tag(key) if key else {
+            "class": claim_provenance.UNKNOWN_CLASS, "claim": None}
+        row["provenance"].update({
+            "class": tag["class"],
+            "claim": tag.get("claim"),
+            "producer": tag.get("producer"),
+            "measurement_type": tag.get("measurement_type"),
+        })
+        if reference is NO_REFERENCE:
+            placed = None
+            refused = True
+        else:
+            placed = self._reference(start, end)
+            refused = False
+        row["source_reference"] = placed
+        row["confidence"] = {"value": confidence, "basis": confidence_basis}
+        reason = uncertainty_reason
+        if reason is None:
+            if status == "candidate":
+                reason = CANDIDATE_NOT_ANSWER
+            elif confidence is not None:
+                reason = ("the lane measured this score; the class says how "
+                          "far the claim can be trusted")
+            else:
+                reason = NO_SCORE
+        if placed is None and not refused:
+            reason = ("the span could not be counted on the source's "
+                      "clock, so it carries no reference")
+        row["uncertainty"] = {"class": tag["class"], "status": status,
+                              "reason": reason}
+        return row
+
     # ── The facts ───────────────────────────────────────────────────
 
     def facts(self, start: float, end: float,
@@ -292,11 +612,12 @@ class World:
                     continue
                 if not _overlap(float(start), float(end), lo, hi):
                     continue
-                rows.append(_fact(
+                rows.append(self._row(
                     "speech", "utterance", float(start), float(end),
                     {"text": utterance.get("text"),
                      "words": len(utterance.get("words") or [])},
-                    "m1", "utterances"))
+                    "m1", "utterances",
+                    uncertainty_reason=NO_TRANSCRIPT_SCORE))
         m7 = self.lane("m7")
         if m7:
             predicates = m7.get("predicates") or {}
@@ -307,7 +628,7 @@ class World:
                 if not _overlap(float(start), float(end), lo, hi):
                     continue
                 face_track = span.get("face_track")
-                rows.append(_fact(
+                rows.append(self._row(
                     "speech", "speaking", float(start), float(end),
                     {"voice_track": span.get("voice_track"),
                      "face_track": face_track,
@@ -328,7 +649,7 @@ class World:
                 if not _overlap(float(start), float(end), lo, hi):
                     continue
                 face_track = span.get("face_track")
-                rows.append(_fact(
+                rows.append(self._row(
                     "people", "on_screen", float(start), float(end),
                     {"face_track": face_track,
                      "person": self._name_of(face_track)},
@@ -343,18 +664,20 @@ class World:
                         continue
                     if not _overlap(float(start), float(end), lo, hi):
                         continue
-                    rows.append(_fact(
+                    rows.append(self._row(
                         "people", "face_track", float(start), float(end),
                         {"track_id": track_id,
                          "person": self._name_of(track_id)},
-                        "m3b", "faces.spans", entity=track_id))
+                        "m3b", "faces.spans", entity=track_id,
+                        confidence=span.get("det_score"),
+                        confidence_basis="m3b.faces[].spans[].det_score"))
             for voice in m3b.get("voices") or []:
                 track_id = voice.get("track_id")
                 for span in voice.get("spans") or []:
                     start, end = span[0], span[1]
                     if not _overlap(float(start), float(end), lo, hi):
                         continue
-                    rows.append(_fact(
+                    rows.append(self._row(
                         "people", "voice_track", float(start), float(end),
                         {"track_id": track_id},
                         "m3b", "voices.spans", entity=track_id))
@@ -370,7 +693,7 @@ class World:
                     continue
                 if not _overlap(float(start), float(end), lo, hi):
                     continue
-                rows.append(_fact(
+                rows.append(self._row(
                     "scene", "scene", float(start), float(end),
                     {"location": segment.get("location"),
                      "type": segment.get("type"),
@@ -387,7 +710,7 @@ class World:
                         continue
                     if not _overlap(float(start), float(end), lo, hi):
                         continue
-                    rows.append(_fact(
+                    rows.append(self._row(
                         "scene", kind, float(start), float(end),
                         {"id": item.get("id")},
                         "vi-09", f"scene_cinematography.{key}"))
@@ -404,11 +727,13 @@ class World:
                 continue
             if not _overlap(float(start), float(end), lo, hi):
                 continue
-            rows.append(_fact(
+            rows.append(self._row(
                 "sound", "sound_event", float(start), float(end),
                 {"label": event.get("label"),
                  "confidence": event.get("confidence")},
-                "m5", "sound_events"))
+                "m5", "sound_events",
+                confidence=event.get("confidence"),
+                confidence_basis="m5.sound_events[].confidence"))
         return rows
 
     def _event_facts(self, lo: float, hi: float) -> List[dict]:
@@ -435,7 +760,7 @@ class World:
                                      for v in verdicts)
                               else "rejected")
                 face_track = span.get("face_track")
-                rows.append(_fact(
+                rows.append(self._row(
                     "events", name, float(start), float(end),
                     {"face_track": face_track,
                      "person": self._name_of(face_track),
@@ -484,7 +809,7 @@ class World:
                 if not _overlap(float(start), float(end), lo, hi):
                     continue
                 owners = span.get("owners") or []
-                rows.append(_fact(
+                rows.append(self._row(
                     "relationships", name, float(start), float(end),
                     {"owners": owners,
                      "people": [self._name_of(owner) for owner in owners],
@@ -554,7 +879,7 @@ class World:
                 if face.get("track_id") != entity_id:
                     continue
                 for span in face.get("spans") or []:
-                    rows.append(_fact(
+                    rows.append(self._row(
                         "people", "face_track", float(span["start"]),
                         float(span["end"]),
                         {"track_id": entity_id,
@@ -564,7 +889,7 @@ class World:
                 if voice.get("track_id") != entity_id:
                     continue
                 for span in voice.get("spans") or []:
-                    rows.append(_fact(
+                    rows.append(self._row(
                         "people", "voice_track", float(span[0]),
                         float(span[1]), {"track_id": entity_id},
                         "m3b", "voices.spans", entity=entity_id))
@@ -578,7 +903,7 @@ class World:
                     voice_track = span.get("voice_track")
                     if face_track != entity_id and voice_track != entity_id:
                         continue
-                    rows.append(_fact(
+                    rows.append(self._row(
                         "speech" if name == "speaking" else "people",
                         name, float(span["start"]), float(span["end"]),
                         {"face_track": face_track,
@@ -595,7 +920,7 @@ class World:
                     owners = span.get("owners") or []
                     if entity_id not in owners:
                         continue
-                    rows.append(_fact(
+                    rows.append(self._row(
                         "relationships", name, float(span["start"]),
                         float(span["end"]),
                         {"owners": owners,
@@ -609,7 +934,7 @@ class World:
                 for span in block.get("spans") or []:
                     if span.get("face_track") != entity_id:
                         continue
-                    rows.append(_fact(
+                    rows.append(self._row(
                         "events", name, float(span["start"]),
                         float(span["end"]),
                         {"face_track": entity_id,
@@ -640,6 +965,524 @@ class World:
             rows.append({"kind": "voice_track", "id": voice.get("track_id"),
                          "name": self._name_of(voice.get("track_id"))})
         return rows
+
+    # ── The search ──────────────────────────────────────────────────
+
+    def search(self, query: dict) -> dict:
+        """One search, answered as grounded media intervals.
+
+        The query names a MODE and that mode's own selectors. The
+        answer carries the intervals, the grounding they are placed in,
+        the lanes the mode consulted, the lanes that were never built,
+        and the reasons the answer could not be complete.
+
+        An interval is a MEDIA interval: it names the source bytes it
+        came from, the lane and field that produced it, the epistemic
+        class its producer earned, and either a confidence or the named
+        reason there is none. Nothing in the answer is Ren-specific,
+        so an animation, sound-design or asset consumer can read it
+        without a timeline, a reel or a running Resolve.
+        """
+        if not isinstance(query, dict):
+            raise ValueError("a search is a mapping")
+        mode = query.get("mode")
+        if mode not in SEARCH_MODES:
+            raise ValueError(f"unknown search mode {mode!r}; have "
+                             f"{', '.join(SEARCH_MODES)}")
+        rows, unanswered = self._search(mode, query)
+        lanes = self._search_lanes(mode, query)
+        absent = [lane for lane in lanes if self.lane(lane) is None]
+        return {
+            "query": dict(query),
+            "mode": mode,
+            "grounding": self.grounding(),
+            "intervals": rows,
+            "lanes_consulted": list(lanes),
+            "lanes_consulted_absent": absent,
+            "lanes_used": sorted({row["provenance"]["lane"] for row in rows}),
+            "unanswered": unanswered,
+        }
+
+    def _search_lanes(self, mode: str, query: dict) -> Sequence[str]:
+        """The lanes a mode consults."""
+        if mode == "order":
+            of = query.get("of") or "action"
+            return MODE_LANES.get(of, ())
+        return MODE_LANES.get(mode, ())
+
+    def _search(self, mode: str, query: dict):
+        if mode == "speech":
+            return self._search_speech(query)
+        if mode == "appearance":
+            return self._search_appearance(query)
+        if mode == "action":
+            return self._search_action(query)
+        if mode == "identity":
+            return self._search_identity(query)
+        if mode == "relation":
+            return self._search_relation(query)
+        return self._search_order(query)
+
+    def _window(self, query: dict) -> Optional[tuple]:
+        """The span a search is bounded by, or None for the whole source."""
+        window = query.get("window")
+        if window is None:
+            start, end = query.get("start"), query.get("end")
+            if start is None or end is None:
+                return None
+            window = (start, end)
+        try:
+            lo, hi = float(window[0]), float(window[1])
+        except (TypeError, ValueError, IndexError):
+            raise ValueError("a window is a pair of seconds") from None
+        if hi < lo:
+            lo, hi = hi, lo
+        return lo, hi
+
+    def _search_speech(self, query: dict):
+        """The words that were said, and the measured turns they fell in.
+
+        A speech search answers two things at once: the utterances that
+        carry the words, and the measured speaking turns that say who
+        said them. A query with no text returns every turn in its
+        window; a query with text returns the turns the matched
+        utterances fall in.
+        """
+        text = (query.get("text") or "").strip()
+        entity = query.get("entity")
+        window = self._window(query)
+        m1 = self.lane("m1")
+        if not m1:
+            return [], ["the m1 lane was never built for this source"]
+        rows: List[dict] = []
+        matched: List[tuple] = []
+        for utterance in m1.get("utterances") or []:
+            start, end = utterance.get("start"), utterance.get("end")
+            if start is None or end is None:
+                continue
+            if window and not _overlap(float(start), float(end), *window):
+                continue
+            body = utterance.get("text") or ""
+            if text and not _matches(body, text):
+                continue
+            turn = self._speaking_turn_at(float(start), float(end))
+            if entity and not _turn_holds(turn, entity):
+                continue
+            speaker = _turn_speaker(turn)
+            rows.append(self._row(
+                "speech", "utterance", float(start), float(end),
+                {"text": body,
+                 "matched_terms": text or None,
+                 "words": len(utterance.get("words") or []),
+                 "speaker": speaker,
+                 "speaker_basis": ("the measured speaking span that "
+                                   "overlaps the utterance")
+                 if speaker else None},
+                "m1", "utterances", entity=speaker,
+                uncertainty_reason=NO_TRANSCRIPT_SCORE))
+            matched.append((float(start), float(end)))
+        m7 = self.lane("m7")
+        if m7:
+            spans = (((m7.get("predicates") or {}).get("speaking") or {})
+                     .get("spans") or [])
+            for span in spans:
+                start, end = span.get("start"), span.get("end")
+                if start is None or end is None:
+                    continue
+                if window and not _overlap(float(start), float(end), *window):
+                    continue
+                if entity and not _turn_holds(span, entity):
+                    continue
+                if text and not any(_overlap(float(start), float(end),
+                                             low, high)
+                                    for low, high in matched):
+                    continue
+                face_track = span.get("face_track")
+                rows.append(self._row(
+                    "speech", "speaking", float(start), float(end),
+                    {"voice_track": span.get("voice_track"),
+                     "face_track": face_track,
+                     "person": self._name_of(face_track)},
+                    "m7", "predicates.speaking.spans",
+                    entity=face_track or span.get("voice_track")))
+        return rows, []
+
+    def _speaking_turn_at(self, start: float, end: float) -> Optional[dict]:
+        """The measured speaking turn that covers this instant."""
+        m7 = self.lane("m7")
+        if not m7:
+            return None
+        spans = (((m7.get("predicates") or {}).get("speaking") or {})
+                 .get("spans") or [])
+        best: Optional[dict] = None
+        best_overlap = 0.0
+        for span in spans:
+            low, high = span.get("start"), span.get("end")
+            if low is None or high is None:
+                continue
+            overlap = min(float(high), end) - max(float(low), start)
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best = span
+        return best
+
+    def _search_appearance(self, query: dict):
+        """Where a person is in the picture, and what was measured there."""
+        entity = query.get("entity")
+        expression = query.get("expression")
+        window = self._window(query)
+        rows: List[dict] = []
+        unanswered: List[str] = []
+        m7 = self.lane("m7")
+        if m7:
+            spans = (((m7.get("predicates") or {}).get("on_screen") or {})
+                     .get("spans") or [])
+            for span in spans:
+                start, end = span.get("start"), span.get("end")
+                if start is None or end is None:
+                    continue
+                if window and not _overlap(float(start), float(end), *window):
+                    continue
+                face_track = span.get("face_track")
+                if entity and face_track != entity:
+                    continue
+                rows.append(self._row(
+                    "people", "on_screen", float(start), float(end),
+                    {"face_track": face_track,
+                     "person": self._name_of(face_track)},
+                    "m7", "predicates.on_screen.spans", entity=face_track,
+                    uncertainty_reason=PRESENCE_NOT_SCORE))
+        else:
+            unanswered.append("the m7 lane was never built for this source")
+        m3b = self.lane("m3b")
+        if m3b:
+            for face in m3b.get("faces") or []:
+                track_id = face.get("track_id")
+                if entity and track_id != entity:
+                    continue
+                for span in face.get("spans") or []:
+                    start, end = span.get("start"), span.get("end")
+                    if start is None or end is None:
+                        continue
+                    if window and not _overlap(float(start), float(end),
+                                               *window):
+                        continue
+                    rows.append(self._row(
+                        "people", "face_track", float(start), float(end),
+                        {"track_id": track_id,
+                         "person": self._name_of(track_id),
+                         "box": span.get("box")},
+                        "m3b", "faces.spans", entity=track_id,
+                        confidence=span.get("det_score"),
+                        confidence_basis="m3b.faces[].spans[].det_score"))
+        else:
+            unanswered.append("the m3b lane was never built for this source")
+        m3c = self.lane("m3c")
+        if m3c:
+            for frame in m3c.get("frames") or []:
+                instant = frame.get("t")
+                if instant is None:
+                    continue
+                for face in frame.get("faces") or []:
+                    label = face.get("expression")
+                    if not label:
+                        continue
+                    if expression and label != expression:
+                        continue
+                    if window and not _overlap(float(instant), float(instant),
+                                               *window):
+                        continue
+                    sample = self._sample_reference(float(instant))
+                    rows.append(self._row(
+                        "people", "expression", float(instant),
+                        float(instant),
+                        {"expression": label,
+                         "box": face.get("box"),
+                         "person": self._name_of(entity)},
+                        "m3c", "frames[].faces[]", entity=entity,
+                        confidence=face.get("confidence"),
+                        confidence_basis="m3c.frames[].faces[].confidence",
+                        uncertainty_reason=SINGLE_SAMPLE if sample
+                        else NO_FRAME_INDEX,
+                        reference=sample if sample else NO_REFERENCE))
+        else:
+            unanswered.append("the m3c lane was never built for this source")
+        return rows, unanswered
+
+    def _search_action(self, query: dict):
+        """The candidate actions, with the verdicts that judged them."""
+        action = query.get("action")
+        entity = query.get("entity")
+        window = self._window(query)
+        verified = query.get("verified")
+        m7 = self.lane("m7")
+        if not m7:
+            return [], ["the m7 lane was never built for this source"]
+        m8 = self.lane("m8") or {}
+        rows: List[dict] = []
+        for name, block in (m7.get("candidates") or {}).items():
+            if action and name != action:
+                continue
+            if not isinstance(block, dict):
+                continue
+            for span in block.get("spans") or []:
+                start, end = span.get("start"), span.get("end")
+                if start is None or end is None:
+                    continue
+                if window and not _overlap(float(start), float(end), *window):
+                    continue
+                face_track = span.get("face_track")
+                if entity and face_track != entity:
+                    continue
+                verdicts = self._verdicts_for_span(span, m8)
+                status = CANDIDATE
+                if verdicts:
+                    status = ("verified"
+                              if any((v.get("answer") or "").lower() == "yes"
+                                     for v in verdicts)
+                              else "rejected")
+                if verified is True and status != "verified":
+                    continue
+                if verified is False and status == "verified":
+                    continue
+                rows.append(self._row(
+                    "events", name, float(start), float(end),
+                    {"face_track": face_track,
+                     "person": self._name_of(face_track),
+                     "verdicts": verdicts},
+                    "m7", f"candidates.{name}.spans", entity=face_track,
+                    status=status))
+        return rows, []
+
+    def _search_identity(self, query: dict):
+        """Every occurrence of one entity, across the lanes that name it."""
+        wanted = query.get("entity") or query.get("name")
+        if not wanted:
+            return [], ["the query named no entity"]
+        tracks = self._tracks_of(str(wanted))
+        if not tracks:
+            return [], [
+                (f"no entity named {wanted!r} was measured in this "
+                 "source")]
+        rows: List[dict] = []
+        for track in tracks:
+            rows.extend(self.entity(track)["occurrences"])
+        rows.sort(key=lambda row: (row["start"], row["end"], row["kind"]))
+        return rows, []
+
+    def _tracks_of(self, wanted: str) -> List[str]:
+        """The tracks a name or an id resolves to in this source."""
+        tracks: List[str] = []
+        m3b = self.lane("m3b")
+        if m3b:
+            for face in m3b.get("faces") or []:
+                if face.get("track_id") == wanted:
+                    tracks.append(wanted)
+            for voice in m3b.get("voices") or []:
+                if voice.get("track_id") == wanted:
+                    tracks.append(wanted)
+        if not tracks:
+            for track, name in self._names.items():
+                if name == wanted and track not in tracks:
+                    tracks.append(track)
+        return tracks
+
+    def _search_relation(self, query: dict):
+        """The relationship candidates, and who owns them."""
+        relation = query.get("relation")
+        entity = query.get("entity")
+        window = self._window(query)
+        m10 = self.lane("m10")
+        if not m10:
+            return [], ["the m10 lane was never built for this source"]
+        rows: List[dict] = []
+        for name, block in (m10.get("relationships") or {}).items():
+            if relation and name != relation:
+                continue
+            if not isinstance(block, dict):
+                continue
+            for span in block.get("spans") or []:
+                start, end = span.get("start"), span.get("end")
+                if start is None or end is None:
+                    continue
+                if window and not _overlap(float(start), float(end), *window):
+                    continue
+                owners = span.get("owners") or []
+                if entity and entity not in owners:
+                    continue
+                rows.append(self._row(
+                    "relationships", name, float(start), float(end),
+                    {"owners": owners,
+                     "people": [self._name_of(owner) for owner in owners],
+                     "frames": len(span.get("frames") or [])},
+                    "m10", f"relationships.{name}.spans",
+                    entity=owners[0] if owners else None,
+                    status=CANDIDATE))
+        return rows, []
+
+    def _search_order(self, query: dict):
+        """The occurrences of one thing, in order, named by their ordinal.
+
+        An order is over another mode: the second time an action
+        happened, the last thing a person said, what came after a
+        given moment. The rows carry the ordinal of their own KIND, so
+        "the second time" is a nameable answer.
+        """
+        of = query.get("of") or "action"
+        if of == "order" or of not in SEARCH_MODES:
+            raise ValueError("an order is over a mode; have "
+                             f"{', '.join(m for m in SEARCH_MODES if m != 'order')}")
+        base = {key: value for key, value in query.items()
+                if key not in ("mode", "of", "ordinal", "relative",
+                               "reference")}
+        rows, unanswered = self._search(of, base)
+        rows = list(rows)
+        _number_occurrences(rows)
+        ordinal = query.get("ordinal")
+        if ordinal is not None:
+            rows = _select_ordinal(rows, ordinal)
+        relative = query.get("relative")
+        if relative:
+            reference = query.get("reference") or {}
+            low = reference.get("start")
+            high = reference.get("end")
+            if low is None or high is None:
+                return [], [
+                    ("an order relative to another event needs that "
+                     "event's start and end")]
+            if relative == "after":
+                rows = [row for row in rows if row["start"] >= float(high)]
+            elif relative == "before":
+                rows = [row for row in rows if row["end"] <= float(low)]
+            else:
+                raise ValueError("a relative order is 'after' or 'before'")
+        return rows, unanswered
+
+    # ── The evidence ────────────────────────────────────────────────
+
+    def evidence(self, start: float, end: float, *,
+                 aspects: Optional[Sequence[str]] = None,
+                 model: Optional[dict] = None,
+                 project_folder: Optional[str] = None) -> dict:
+        """The evidence behind a span, inspected WITHOUT Resolve.
+
+        The intervals are the world's own facts for the span. The
+        evidence rows are what supports them and can be opened: the
+        frames sampled inside the span, the verdicts on the candidate
+        spans, and the lane record each fact was read from.
+
+        A reference that cannot be placed in a file is refused with a
+        named reason - and nothing here needs a running Resolve, so the
+        evidence can be inspected on a machine that has none.
+        """
+        lo, hi = float(start), float(end)
+        if hi < lo:
+            lo, hi = hi, lo
+        rows = self.facts(lo, hi, aspects)
+        evidence: List[dict] = []
+        m2 = source_memory.read_m2(self.content_digest, self.root)
+        if m2:
+            for frame in m2.get("frames") or []:
+                instant = frame.get("t")
+                if instant is None:
+                    continue
+                if not _overlap(float(instant), float(instant), lo, hi):
+                    continue
+                evidence.append({
+                    "kind": "frame",
+                    "t": float(instant),
+                    "file": frame.get("file"),
+                    "path": source_memory.frame_abspath(self.content_digest,
+                                                        frame, self.root),
+                    "frame_index": frame.get("frame_index"),
+                    "provenance": {
+                        "lane": "m2", "slot": source_memory.SLOT_FRAMES_INDEX,
+                        "reader": "source_memory.read_m2",
+                        "field": "frames[]", "status": "measured",
+                    },
+                })
+        else:
+            evidence.append({
+                "kind": "absence",
+                "reason": "the m2 lane was never built for this source, so "
+                          "no frame shows what this span holds",
+                "provenance": {"lane": "m2",
+                               "slot": source_memory.SLOT_FRAMES_INDEX,
+                               "reader": "source_memory.read_m2",
+                               "field": "frames[]", "status": "absent"},
+            })
+        for row in rows:
+            for verdict in (row.get("value") or {}).get("verdicts") or []:
+                evidence.append({
+                    "kind": "verdict",
+                    "statement": verdict.get("statement"),
+                    "answer": verdict.get("answer"),
+                    "reason": verdict.get("reason"),
+                    "model": verdict.get("model"),
+                    "interval": {"start": row["start"], "end": row["end"]},
+                    "provenance": dict(row["provenance"]),
+                })
+        for lane in sorted({row["provenance"]["lane"] for row in rows}):
+            slot = LANE_SLOT.get(lane)
+            evidence.append({
+                "kind": "record",
+                "lane": lane,
+                "slot": slot,
+                "path": str(source_memory.source_dir(self.content_digest,
+                                                     self.root) / slot)
+                if slot else None,
+                "provenance": {"lane": lane, "slot": slot,
+                               "reader": LANE_READER.get(lane),
+                               "field": "the record the facts were read from",
+                               "status": "measured"},
+            })
+        resolution = self._resolve(rows, model, project_folder)
+        return {
+            "span": {"start": lo, "end": hi},
+            "grounding": self.grounding(),
+            "intervals": rows,
+            "evidence": evidence,
+            "resolution": resolution,
+        }
+
+    def _resolve(self, rows: List[dict], model: Optional[dict],
+                 project_folder: Optional[str]) -> dict:
+        """Where the bytes behind these intervals are, or why not.
+
+        The reference is placed against the canonical Project Model when
+        one is given. A model that carries no measured frame table
+        cannot place an interval in a file, and says so by name.
+        """
+        if model is None:
+            return {"status": "not_attempted",
+                    "reason": "no project model was given, so no reference "
+                              "was placed in a file",
+                    "resolved": 0, "refused": 0}
+        from library.tools import reference_resolver
+        resolved = 0
+        refusals: List[dict] = []
+        for row in rows:
+            reference = row.get("source_reference")
+            if not reference:
+                continue
+            try:
+                placed = reference_resolver.resolve(
+                    model, reference, project_folder=project_folder,
+                    memory_root=self.root)
+            except reference_resolver.ReferenceResolutionError as exc:
+                refusals.append({"reference": reference, "reason": exc.reason,
+                                  "detail": str(exc)})
+                continue
+            resolved += 1
+            refusals.append({"reference": reference, "reason": "resolved",
+                             "detail": placed.to_dict()})
+        return {
+            "status": "resolved" if resolved else "refused",
+            "resolved": resolved,
+            "refused": sum(1 for row in refusals
+                           if row.get("reason") != "resolved"),
+            "placements": refusals,
+        }
 
 
 # ── The project's roster ─────────────────────────────────────────────
@@ -754,6 +1597,26 @@ def _world_for_clip(project_folder: str, clip_id: str,
     raise SystemExit(f"no catalog clip {clip_id!r} in {project_folder}")
 
 
+def _search_query(args) -> dict:
+    """The query a `search` invocation asks."""
+    query: dict = {"mode": args.mode}
+    for name in ("text", "action", "relation", "expression", "entity", "of",
+                 "ordinal", "relative"):
+        value = getattr(args, name, None)
+        if value:
+            query[name] = value
+    if args.start is not None and args.end is not None:
+        query["window"] = (args.start, args.end)
+    if args.verified == "yes":
+        query["verified"] = True
+    elif args.verified == "no":
+        query["verified"] = False
+    if args.reference_start is not None and args.reference_end is not None:
+        query["reference"] = {"start": args.reference_start,
+                              "end": args.reference_end}
+    return query
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog="world_model_query",
@@ -787,6 +1650,41 @@ def main(argv=None) -> int:
                        choices=sorted(QUESTION_ASPECTS))
     p_ask.add_argument("--memory-root")
 
+    p_search = sub.add_parser(
+        "search", help="search the world for media intervals")
+    p_search.add_argument("project")
+    p_search.add_argument("--clip", required=True)
+    p_search.add_argument("--mode", required=True, choices=list(SEARCH_MODES))
+    p_search.add_argument("--text", help="the words to look for (speech)")
+    p_search.add_argument("--action", help="the action predicate (action)")
+    p_search.add_argument("--relation", help="the relation predicate")
+    p_search.add_argument("--expression", help="the expression label")
+    p_search.add_argument("--entity", help="a face track, a voice track or "
+                                            "a declared name")
+    p_search.add_argument("--start", type=float)
+    p_search.add_argument("--end", type=float)
+    p_search.add_argument("--of", help="the mode an order is over")
+    p_search.add_argument("--ordinal", help="first, second, last, or a number")
+    p_search.add_argument("--relative", choices=["after", "before"])
+    p_search.add_argument("--reference-start", type=float)
+    p_search.add_argument("--reference-end", type=float)
+    p_search.add_argument("--verified", choices=["yes", "no"],
+                          help="only the candidates a verifier judged")
+    p_search.add_argument("--memory-root")
+
+    p_evidence = sub.add_parser(
+        "evidence", help="the evidence behind a span, without Resolve")
+    p_evidence.add_argument("project")
+    p_evidence.add_argument("--clip", required=True)
+    p_evidence.add_argument("--start", type=float, required=True)
+    p_evidence.add_argument("--end", type=float, required=True)
+    p_evidence.add_argument("--aspect", action="append",
+                            choices=list(ASPECTS))
+    p_evidence.add_argument("--model", action="store_true",
+                            help="place every reference in the project's "
+                                 "canonical model (it is large)")
+    p_evidence.add_argument("--memory-root")
+
     args = parser.parse_args(argv)
     if not args.command:
         parser.print_help()
@@ -806,6 +1704,18 @@ def main(argv=None) -> int:
         world = _world_for_clip(args.project, args.clip, root)
         payload = world.answer({"aspect": args.question,
                                 "start": args.start, "end": args.end})
+    elif args.command == "search":
+        world = _world_for_clip(args.project, args.clip, root)
+        payload = world.search(_search_query(args))
+    elif args.command == "evidence":
+        world = _world_for_clip(args.project, args.clip, root)
+        model = None
+        if args.model:
+            from library.tools import project_model_store
+            _revision, model = project_model_store.load_project_model(
+                Path(args.project).expanduser())
+        payload = world.evidence(args.start, args.end, aspects=args.aspect,
+                                 model=model, project_folder=args.project)
     else:
         parser.print_help()
         return 2

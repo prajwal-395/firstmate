@@ -1,0 +1,2066 @@
+{
+  "corpus": [
+    {
+      "content_digest": "157522998320e9352229df48c41722da817438bae118534410cb7d7411bb1c7c",
+      "duration_seconds": 4099.5955,
+      "lanes": [
+        "m0",
+        "m1",
+        "m3",
+        "m3b",
+        "m6",
+        "m7"
+      ]
+    },
+    {
+      "content_digest": "4fa282cea14702c4883091dfa5a326e183b8f283b50510c9df81f5ab50695049",
+      "duration_seconds": 288.955333,
+      "lanes": [
+        "m0",
+        "m1",
+        "m3",
+        "m3b",
+        "m6",
+        "m7"
+      ]
+    },
+    {
+      "content_digest": "9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+      "duration_seconds": 225.225,
+      "lanes": [
+        "m0",
+        "m1",
+        "m3",
+        "m3b",
+        "m6",
+        "m7"
+      ]
+    },
+    {
+      "content_digest": "c11218156a07c8cb4d3666c29f7d80c7ebd13e49e27765ff5d73dd4e7ff66d73",
+      "duration_seconds": 287.620667,
+      "lanes": [
+        "m0",
+        "m1",
+        "m3",
+        "m3b",
+        "m6",
+        "m7"
+      ]
+    },
+    {
+      "content_digest": "d19007c31379d0706cfff08b90777227acddb40c48a1971ba70da680c93db5a4",
+      "duration_seconds": 214.547667,
+      "lanes": [
+        "m0",
+        "m1",
+        "m3",
+        "m3b",
+        "m4",
+        "m5",
+        "m6",
+        "m7"
+      ]
+    },
+    {
+      "content_digest": "dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea",
+      "duration_seconds": 4941.102833,
+      "lanes": [
+        "m0",
+        "m1",
+        "m3",
+        "m3b",
+        "m6",
+        "m7"
+      ]
+    },
+    {
+      "content_digest": "f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1",
+      "duration_seconds": 838.003833,
+      "lanes": [
+        "m0",
+        "m1",
+        "m3",
+        "m3b",
+        "m6",
+        "m7"
+      ]
+    }
+  ],
+  "m0_questions": [
+    {
+      "content_digest": "157522998320e9352229df48c41722da817438bae118534410cb7d7411bb1c7c",
+      "case": "M0-1",
+      "question": "the second time face_001 covers their mouth",
+      "truth": {
+        "start": 124.958,
+        "end": 125.458
+      },
+      "before": {
+        "answered": true,
+        "correct": true,
+        "reason": "the occurrence was resolved, boundary error 0.000s",
+        "facts": 3,
+        "grounding": {
+          "facts": 3,
+          "with_a_source_reference": 0,
+          "with_an_epistemic_class": 0,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 0
+        },
+        "context_bytes": 1566
+      },
+      "after": {
+        "answered": true,
+        "correct": true,
+        "reason": "the occurrence was resolved, boundary error 0.000s",
+        "facts": 1,
+        "grounding": {
+          "facts": 1,
+          "with_a_source_reference": 1,
+          "with_an_epistemic_class": 1,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 1
+        },
+        "context_bytes": 1521
+      }
+    },
+    {
+      "content_digest": "157522998320e9352229df48c41722da817438bae118534410cb7d7411bb1c7c",
+      "case": "M0-2",
+      "question": "the boundary of the second time face_001 covers their mouth",
+      "truth": {
+        "start": 124.958,
+        "end": 125.458
+      },
+      "before": {
+        "answered": true,
+        "correct": true,
+        "reason": "boundary error 0.000s (bar 0.125s)",
+        "facts": 3,
+        "grounding": {
+          "facts": 3,
+          "with_a_source_reference": 0,
+          "with_an_epistemic_class": 0,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 0
+        },
+        "context_bytes": 1566
+      },
+      "after": {
+        "answered": true,
+        "correct": true,
+        "reason": "boundary error 0.000s (bar 0.125s)",
+        "facts": 1,
+        "grounding": {
+          "facts": 1,
+          "with_a_source_reference": 1,
+          "with_an_epistemic_class": 1,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 1
+        },
+        "context_bytes": 1521
+      }
+    },
+    {
+      "content_digest": "157522998320e9352229df48c41722da817438bae118534410cb7d7411bb1c7c",
+      "case": "M0-3",
+      "question": "when does face_001 cover their mouth, and which one is the second",
+      "truth": {
+        "start": 124.958,
+        "end": 125.458
+      },
+      "before": {
+        "answered": true,
+        "correct": true,
+        "reason": "the second occurrence is named",
+        "facts": 511,
+        "grounding": {
+          "facts": 511,
+          "with_a_source_reference": 0,
+          "with_an_epistemic_class": 0,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 0
+        },
+        "context_bytes": 306090
+      },
+      "after": {
+        "answered": true,
+        "correct": true,
+        "reason": "the second occurrence is named",
+        "facts": 1,
+        "grounding": {
+          "facts": 1,
+          "with_a_source_reference": 1,
+          "with_an_epistemic_class": 1,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 1
+        },
+        "context_bytes": 1521
+      }
+    },
+    {
+      "content_digest": "157522998320e9352229df48c41722da817438bae118534410cb7d7411bb1c7c",
+      "case": "M0-P",
+      "question": "what is face_001 doing at 125.06s",
+      "truth": {
+        "start": 124.958,
+        "end": 125.458
+      },
+      "before": {
+        "answered": true,
+        "correct": true,
+        "reason": "the moment was reported, boundary error 0.000s",
+        "facts": 1,
+        "grounding": {
+          "facts": 1,
+          "with_a_source_reference": 0,
+          "with_an_epistemic_class": 0,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 0
+        },
+        "context_bytes": 947
+      },
+      "after": {
+        "answered": true,
+        "correct": true,
+        "reason": "the moment was reported, boundary error 0.000s",
+        "facts": 1,
+        "grounding": {
+          "facts": 1,
+          "with_a_source_reference": 1,
+          "with_an_epistemic_class": 1,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 1
+        },
+        "context_bytes": 1504
+      }
+    },
+    {
+      "content_digest": "157522998320e9352229df48c41722da817438bae118534410cb7d7411bb1c7c",
+      "case": "M0-8",
+      "question": "did the person ever cover their mouth",
+      "truth": null,
+      "before": {
+        "answered": true,
+        "correct": true,
+        "reason": "the lane ran, and its answer is reported",
+        "facts": 213,
+        "grounding": {
+          "facts": 213,
+          "with_a_source_reference": 0,
+          "with_an_epistemic_class": 0,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 0
+        },
+        "context_bytes": 203711
+      },
+      "after": {
+        "answered": true,
+        "correct": true,
+        "reason": "the lane ran, and its answer is reported",
+        "facts": 213,
+        "grounding": {
+          "facts": 213,
+          "with_a_source_reference": 213,
+          "with_an_epistemic_class": 213,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 213
+        },
+        "context_bytes": 322703
+      }
+    },
+    {
+      "content_digest": "4fa282cea14702c4883091dfa5a326e183b8f283b50510c9df81f5ab50695049",
+      "case": "M0-1",
+      "question": "the second time face_001 covers their mouth",
+      "truth": {
+        "start": 25.359,
+        "end": 26.359
+      },
+      "before": {
+        "answered": true,
+        "correct": true,
+        "reason": "the occurrence was resolved, boundary error 0.000s",
+        "facts": 1,
+        "grounding": {
+          "facts": 1,
+          "with_a_source_reference": 0,
+          "with_an_epistemic_class": 0,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 0
+        },
+        "context_bytes": 931
+      },
+      "after": {
+        "answered": true,
+        "correct": true,
+        "reason": "the occurrence was resolved, boundary error 0.000s",
+        "facts": 1,
+        "grounding": {
+          "facts": 1,
+          "with_a_source_reference": 1,
+          "with_an_epistemic_class": 1,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 1
+        },
+        "context_bytes": 1503
+      }
+    },
+    {
+      "content_digest": "4fa282cea14702c4883091dfa5a326e183b8f283b50510c9df81f5ab50695049",
+      "case": "M0-2",
+      "question": "the boundary of the second time face_001 covers their mouth",
+      "truth": {
+        "start": 25.359,
+        "end": 26.359
+      },
+      "before": {
+        "answered": true,
+        "correct": true,
+        "reason": "boundary error 0.000s (bar 0.125s)",
+        "facts": 1,
+        "grounding": {
+          "facts": 1,
+          "with_a_source_reference": 0,
+          "with_an_epistemic_class": 0,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 0
+        },
+        "context_bytes": 931
+      },
+      "after": {
+        "answered": true,
+        "correct": true,
+        "reason": "boundary error 0.000s (bar 0.125s)",
+        "facts": 1,
+        "grounding": {
+          "facts": 1,
+          "with_a_source_reference": 1,
+          "with_an_epistemic_class": 1,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 1
+        },
+        "context_bytes": 1503
+      }
+    },
+    {
+      "content_digest": "4fa282cea14702c4883091dfa5a326e183b8f283b50510c9df81f5ab50695049",
+      "case": "M0-3",
+      "question": "when does face_001 cover their mouth, and which one is the second",
+      "truth": {
+        "start": 25.359,
+        "end": 26.359
+      },
+      "before": {
+        "answered": true,
+        "correct": true,
+        "reason": "the second occurrence is named",
+        "facts": 52,
+        "grounding": {
+          "facts": 52,
+          "with_a_source_reference": 0,
+          "with_an_epistemic_class": 0,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 0
+        },
+        "context_bytes": 25271
+      },
+      "after": {
+        "answered": true,
+        "correct": true,
+        "reason": "the second occurrence is named",
+        "facts": 1,
+        "grounding": {
+          "facts": 1,
+          "with_a_source_reference": 1,
+          "with_an_epistemic_class": 1,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 1
+        },
+        "context_bytes": 1503
+      }
+    },
+    {
+      "content_digest": "4fa282cea14702c4883091dfa5a326e183b8f283b50510c9df81f5ab50695049",
+      "case": "M0-P",
+      "question": "what is face_001 doing at 25.46s",
+      "truth": {
+        "start": 25.359,
+        "end": 26.359
+      },
+      "before": {
+        "answered": true,
+        "correct": true,
+        "reason": "the moment was reported, boundary error 0.000s",
+        "facts": 1,
+        "grounding": {
+          "facts": 1,
+          "with_a_source_reference": 0,
+          "with_an_epistemic_class": 0,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 0
+        },
+        "context_bytes": 931
+      },
+      "after": {
+        "answered": true,
+        "correct": true,
+        "reason": "the moment was reported, boundary error 0.000s",
+        "facts": 1,
+        "grounding": {
+          "facts": 1,
+          "with_a_source_reference": 1,
+          "with_an_epistemic_class": 1,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 1
+        },
+        "context_bytes": 1486
+      }
+    },
+    {
+      "content_digest": "4fa282cea14702c4883091dfa5a326e183b8f283b50510c9df81f5ab50695049",
+      "case": "M0-8",
+      "question": "did the person ever cover their mouth",
+      "truth": null,
+      "before": {
+        "answered": true,
+        "correct": true,
+        "reason": "the lane ran, and its answer is reported",
+        "facts": 13,
+        "grounding": {
+          "facts": 13,
+          "with_a_source_reference": 0,
+          "with_an_epistemic_class": 0,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 0
+        },
+        "context_bytes": 12657
+      },
+      "after": {
+        "answered": true,
+        "correct": true,
+        "reason": "the lane ran, and its answer is reported",
+        "facts": 13,
+        "grounding": {
+          "facts": 13,
+          "with_a_source_reference": 13,
+          "with_an_epistemic_class": 13,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 13
+        },
+        "context_bytes": 19888
+      }
+    },
+    {
+      "content_digest": "9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+      "case": "M0-1",
+      "question": "the second time face_001 covers their mouth",
+      "truth": {
+        "start": 2.336,
+        "end": 5.839
+      },
+      "before": {
+        "answered": true,
+        "correct": true,
+        "reason": "the occurrence was resolved, boundary error 0.000s",
+        "facts": 3,
+        "grounding": {
+          "facts": 3,
+          "with_a_source_reference": 0,
+          "with_an_epistemic_class": 0,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 0
+        },
+        "context_bytes": 1241
+      },
+      "after": {
+        "answered": true,
+        "correct": true,
+        "reason": "the occurrence was resolved, boundary error 0.000s",
+        "facts": 1,
+        "grounding": {
+          "facts": 1,
+          "with_a_source_reference": 1,
+          "with_an_epistemic_class": 1,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 1
+        },
+        "context_bytes": 1104
+      }
+    },
+    {
+      "content_digest": "9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+      "case": "M0-2",
+      "question": "the boundary of the second time face_001 covers their mouth",
+      "truth": {
+        "start": 2.336,
+        "end": 5.839
+      },
+      "before": {
+        "answered": true,
+        "correct": true,
+        "reason": "boundary error 0.000s (bar 0.125s)",
+        "facts": 3,
+        "grounding": {
+          "facts": 3,
+          "with_a_source_reference": 0,
+          "with_an_epistemic_class": 0,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 0
+        },
+        "context_bytes": 1241
+      },
+      "after": {
+        "answered": true,
+        "correct": true,
+        "reason": "boundary error 0.000s (bar 0.125s)",
+        "facts": 1,
+        "grounding": {
+          "facts": 1,
+          "with_a_source_reference": 1,
+          "with_an_epistemic_class": 1,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 1
+        },
+        "context_bytes": 1104
+      }
+    },
+    {
+      "content_digest": "9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+      "case": "M0-3",
+      "question": "when does face_001 cover their mouth, and which one is the second",
+      "truth": {
+        "start": 2.336,
+        "end": 5.839
+      },
+      "before": {
+        "answered": true,
+        "correct": true,
+        "reason": "the second occurrence is named",
+        "facts": 57,
+        "grounding": {
+          "facts": 57,
+          "with_a_source_reference": 0,
+          "with_an_epistemic_class": 0,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 0
+        },
+        "context_bytes": 24452
+      },
+      "after": {
+        "answered": true,
+        "correct": true,
+        "reason": "the second occurrence is named",
+        "facts": 1,
+        "grounding": {
+          "facts": 1,
+          "with_a_source_reference": 1,
+          "with_an_epistemic_class": 1,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 1
+        },
+        "context_bytes": 1104
+      }
+    },
+    {
+      "content_digest": "9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+      "case": "M0-P",
+      "question": "what is face_001 doing at 2.44s",
+      "truth": {
+        "start": 2.336,
+        "end": 5.839
+      },
+      "before": {
+        "answered": true,
+        "correct": true,
+        "reason": "the moment was reported, boundary error 0.000s",
+        "facts": 1,
+        "grounding": {
+          "facts": 1,
+          "with_a_source_reference": 0,
+          "with_an_epistemic_class": 0,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 0
+        },
+        "context_bytes": 534
+      },
+      "after": {
+        "answered": true,
+        "correct": true,
+        "reason": "the moment was reported, boundary error 0.000s",
+        "facts": 1,
+        "grounding": {
+          "facts": 1,
+          "with_a_source_reference": 1,
+          "with_an_epistemic_class": 1,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 1
+        },
+        "context_bytes": 1087
+      }
+    },
+    {
+      "content_digest": "9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+      "case": "M0-8",
+      "question": "did the person ever cover their mouth",
+      "truth": null,
+      "before": {
+        "answered": true,
+        "correct": true,
+        "reason": "the lane ran, and its answer is reported",
+        "facts": 26,
+        "grounding": {
+          "facts": 26,
+          "with_a_source_reference": 0,
+          "with_an_epistemic_class": 0,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 0
+        },
+        "context_bytes": 14127
+      },
+      "after": {
+        "answered": true,
+        "correct": true,
+        "reason": "the lane ran, and its answer is reported",
+        "facts": 26,
+        "grounding": {
+          "facts": 26,
+          "with_a_source_reference": 26,
+          "with_an_epistemic_class": 26,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 26
+        },
+        "context_bytes": 28576
+      }
+    },
+    {
+      "content_digest": "c11218156a07c8cb4d3666c29f7d80c7ebd13e49e27765ff5d73dd4e7ff66d73",
+      "case": "M0-1",
+      "question": "the second time face_001 covers their mouth",
+      "truth": {
+        "start": 13.847,
+        "end": 15.849
+      },
+      "before": {
+        "answered": true,
+        "correct": true,
+        "reason": "the occurrence was resolved, boundary error 0.000s",
+        "facts": 4,
+        "grounding": {
+          "facts": 4,
+          "with_a_source_reference": 0,
+          "with_an_epistemic_class": 0,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 0
+        },
+        "context_bytes": 1536
+      },
+      "after": {
+        "answered": true,
+        "correct": true,
+        "reason": "the occurrence was resolved, boundary error 0.000s",
+        "facts": 1,
+        "grounding": {
+          "facts": 1,
+          "with_a_source_reference": 1,
+          "with_an_epistemic_class": 1,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 1
+        },
+        "context_bytes": 1144
+      }
+    },
+    {
+      "content_digest": "c11218156a07c8cb4d3666c29f7d80c7ebd13e49e27765ff5d73dd4e7ff66d73",
+      "case": "M0-2",
+      "question": "the boundary of the second time face_001 covers their mouth",
+      "truth": {
+        "start": 13.847,
+        "end": 15.849
+      },
+      "before": {
+        "answered": true,
+        "correct": true,
+        "reason": "boundary error 0.000s (bar 0.125s)",
+        "facts": 4,
+        "grounding": {
+          "facts": 4,
+          "with_a_source_reference": 0,
+          "with_an_epistemic_class": 0,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 0
+        },
+        "context_bytes": 1536
+      },
+      "after": {
+        "answered": true,
+        "correct": true,
+        "reason": "boundary error 0.000s (bar 0.125s)",
+        "facts": 1,
+        "grounding": {
+          "facts": 1,
+          "with_a_source_reference": 1,
+          "with_an_epistemic_class": 1,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 1
+        },
+        "context_bytes": 1144
+      }
+    },
+    {
+      "content_digest": "c11218156a07c8cb4d3666c29f7d80c7ebd13e49e27765ff5d73dd4e7ff66d73",
+      "case": "M0-3",
+      "question": "when does face_001 cover their mouth, and which one is the second",
+      "truth": {
+        "start": 13.847,
+        "end": 15.849
+      },
+      "before": {
+        "answered": true,
+        "correct": true,
+        "reason": "the second occurrence is named",
+        "facts": 77,
+        "grounding": {
+          "facts": 77,
+          "with_a_source_reference": 0,
+          "with_an_epistemic_class": 0,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 0
+        },
+        "context_bytes": 33005
+      },
+      "after": {
+        "answered": true,
+        "correct": true,
+        "reason": "the second occurrence is named",
+        "facts": 1,
+        "grounding": {
+          "facts": 1,
+          "with_a_source_reference": 1,
+          "with_an_epistemic_class": 1,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 1
+        },
+        "context_bytes": 1144
+      }
+    },
+    {
+      "content_digest": "c11218156a07c8cb4d3666c29f7d80c7ebd13e49e27765ff5d73dd4e7ff66d73",
+      "case": "M0-P",
+      "question": "what is face_001 doing at 13.95s",
+      "truth": {
+        "start": 13.847,
+        "end": 15.849
+      },
+      "before": {
+        "answered": true,
+        "correct": true,
+        "reason": "the moment was reported, boundary error 0.000s",
+        "facts": 1,
+        "grounding": {
+          "facts": 1,
+          "with_a_source_reference": 0,
+          "with_an_epistemic_class": 0,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 0
+        },
+        "context_bytes": 572
+      },
+      "after": {
+        "answered": true,
+        "correct": true,
+        "reason": "the moment was reported, boundary error 0.000s",
+        "facts": 1,
+        "grounding": {
+          "facts": 1,
+          "with_a_source_reference": 1,
+          "with_an_epistemic_class": 1,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 1
+        },
+        "context_bytes": 1127
+      }
+    },
+    {
+      "content_digest": "c11218156a07c8cb4d3666c29f7d80c7ebd13e49e27765ff5d73dd4e7ff66d73",
+      "case": "M0-8",
+      "question": "did the person ever cover their mouth",
+      "truth": null,
+      "before": {
+        "answered": true,
+        "correct": true,
+        "reason": "the lane ran, and its answer is reported",
+        "facts": 33,
+        "grounding": {
+          "facts": 33,
+          "with_a_source_reference": 0,
+          "with_an_epistemic_class": 0,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 0
+        },
+        "context_bytes": 18310
+      },
+      "after": {
+        "answered": true,
+        "correct": true,
+        "reason": "the lane ran, and its answer is reported",
+        "facts": 33,
+        "grounding": {
+          "facts": 33,
+          "with_a_source_reference": 33,
+          "with_an_epistemic_class": 33,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 33
+        },
+        "context_bytes": 36668
+      }
+    },
+    {
+      "content_digest": "d19007c31379d0706cfff08b90777227acddb40c48a1971ba70da680c93db5a4",
+      "case": "M0-8",
+      "question": "did the person ever cover their mouth",
+      "truth": null,
+      "before": {
+        "answered": true,
+        "correct": true,
+        "reason": "the lane ran, and its answer is reported",
+        "facts": 0,
+        "grounding": {
+          "facts": 0,
+          "with_a_source_reference": 0,
+          "with_an_epistemic_class": 0,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 0
+        },
+        "context_bytes": 13
+      },
+      "after": {
+        "answered": true,
+        "correct": true,
+        "reason": "the lane ran, and its answer is reported",
+        "facts": 0,
+        "grounding": {
+          "facts": 0,
+          "with_a_source_reference": 0,
+          "with_an_epistemic_class": 0,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 0
+        },
+        "context_bytes": 13
+      }
+    },
+    {
+      "content_digest": "dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea",
+      "case": "M0-1",
+      "question": "the second time face_001 covers their mouth",
+      "truth": {
+        "start": 4.338,
+        "end": 7.841
+      },
+      "before": {
+        "answered": true,
+        "correct": true,
+        "reason": "the occurrence was resolved, boundary error 0.000s",
+        "facts": 4,
+        "grounding": {
+          "facts": 4,
+          "with_a_source_reference": 0,
+          "with_an_epistemic_class": 0,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 0
+        },
+        "context_bytes": 1662
+      },
+      "after": {
+        "answered": true,
+        "correct": true,
+        "reason": "the occurrence was resolved, boundary error 0.000s",
+        "facts": 1,
+        "grounding": {
+          "facts": 1,
+          "with_a_source_reference": 1,
+          "with_an_epistemic_class": 1,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 1
+        },
+        "context_bytes": 1141
+      }
+    },
+    {
+      "content_digest": "dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea",
+      "case": "M0-2",
+      "question": "the boundary of the second time face_001 covers their mouth",
+      "truth": {
+        "start": 4.338,
+        "end": 7.841
+      },
+      "before": {
+        "answered": true,
+        "correct": true,
+        "reason": "boundary error 0.000s (bar 0.125s)",
+        "facts": 4,
+        "grounding": {
+          "facts": 4,
+          "with_a_source_reference": 0,
+          "with_an_epistemic_class": 0,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 0
+        },
+        "context_bytes": 1662
+      },
+      "after": {
+        "answered": true,
+        "correct": true,
+        "reason": "boundary error 0.000s (bar 0.125s)",
+        "facts": 1,
+        "grounding": {
+          "facts": 1,
+          "with_a_source_reference": 1,
+          "with_an_epistemic_class": 1,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 1
+        },
+        "context_bytes": 1141
+      }
+    },
+    {
+      "content_digest": "dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea",
+      "case": "M0-3",
+      "question": "when does face_001 cover their mouth, and which one is the second",
+      "truth": {
+        "start": 4.338,
+        "end": 7.841
+      },
+      "before": {
+        "answered": true,
+        "correct": true,
+        "reason": "the second occurrence is named",
+        "facts": 646,
+        "grounding": {
+          "facts": 646,
+          "with_a_source_reference": 0,
+          "with_an_epistemic_class": 0,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 0
+        },
+        "context_bytes": 292098
+      },
+      "after": {
+        "answered": true,
+        "correct": true,
+        "reason": "the second occurrence is named",
+        "facts": 1,
+        "grounding": {
+          "facts": 1,
+          "with_a_source_reference": 1,
+          "with_an_epistemic_class": 1,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 1
+        },
+        "context_bytes": 1141
+      }
+    },
+    {
+      "content_digest": "dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea",
+      "case": "M0-P",
+      "question": "what is face_001 doing at 4.44s",
+      "truth": {
+        "start": 4.338,
+        "end": 7.841
+      },
+      "before": {
+        "answered": true,
+        "correct": true,
+        "reason": "the moment was reported, boundary error 0.000s",
+        "facts": 1,
+        "grounding": {
+          "facts": 1,
+          "with_a_source_reference": 0,
+          "with_an_epistemic_class": 0,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 0
+        },
+        "context_bytes": 571
+      },
+      "after": {
+        "answered": true,
+        "correct": true,
+        "reason": "the moment was reported, boundary error 0.000s",
+        "facts": 1,
+        "grounding": {
+          "facts": 1,
+          "with_a_source_reference": 1,
+          "with_an_epistemic_class": 1,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 1
+        },
+        "context_bytes": 1124
+      }
+    },
+    {
+      "content_digest": "dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea",
+      "case": "M0-8",
+      "question": "did the person ever cover their mouth",
+      "truth": null,
+      "before": {
+        "answered": true,
+        "correct": true,
+        "reason": "the lane ran, and its answer is reported",
+        "facts": 323,
+        "grounding": {
+          "facts": 323,
+          "with_a_source_reference": 0,
+          "with_an_epistemic_class": 0,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 0
+        },
+        "context_bytes": 178988
+      },
+      "after": {
+        "answered": true,
+        "correct": true,
+        "reason": "the lane ran, and its answer is reported",
+        "facts": 323,
+        "grounding": {
+          "facts": 323,
+          "with_a_source_reference": 323,
+          "with_an_epistemic_class": 323,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 323
+        },
+        "context_bytes": 359331
+      }
+    },
+    {
+      "content_digest": "f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1",
+      "case": "M0-1",
+      "question": "the second time face_001 covers their mouth",
+      "truth": {
+        "start": 11.345,
+        "end": 14.347
+      },
+      "before": {
+        "answered": true,
+        "correct": true,
+        "reason": "the occurrence was resolved, boundary error 0.000s",
+        "facts": 3,
+        "grounding": {
+          "facts": 3,
+          "with_a_source_reference": 0,
+          "with_an_epistemic_class": 0,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 0
+        },
+        "context_bytes": 1496
+      },
+      "after": {
+        "answered": true,
+        "correct": true,
+        "reason": "the occurrence was resolved, boundary error 0.000s",
+        "facts": 1,
+        "grounding": {
+          "facts": 1,
+          "with_a_source_reference": 1,
+          "with_an_epistemic_class": 1,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 1
+        },
+        "context_bytes": 1461
+      }
+    },
+    {
+      "content_digest": "f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1",
+      "case": "M0-2",
+      "question": "the boundary of the second time face_001 covers their mouth",
+      "truth": {
+        "start": 11.345,
+        "end": 14.347
+      },
+      "before": {
+        "answered": true,
+        "correct": true,
+        "reason": "boundary error 0.000s (bar 0.125s)",
+        "facts": 3,
+        "grounding": {
+          "facts": 3,
+          "with_a_source_reference": 0,
+          "with_an_epistemic_class": 0,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 0
+        },
+        "context_bytes": 1496
+      },
+      "after": {
+        "answered": true,
+        "correct": true,
+        "reason": "boundary error 0.000s (bar 0.125s)",
+        "facts": 1,
+        "grounding": {
+          "facts": 1,
+          "with_a_source_reference": 1,
+          "with_an_epistemic_class": 1,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 1
+        },
+        "context_bytes": 1461
+      }
+    },
+    {
+      "content_digest": "f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1",
+      "case": "M0-3",
+      "question": "when does face_001 cover their mouth, and which one is the second",
+      "truth": {
+        "start": 11.345,
+        "end": 14.347
+      },
+      "before": {
+        "answered": true,
+        "correct": true,
+        "reason": "the second occurrence is named",
+        "facts": 154,
+        "grounding": {
+          "facts": 154,
+          "with_a_source_reference": 0,
+          "with_an_epistemic_class": 0,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 0
+        },
+        "context_bytes": 69601
+      },
+      "after": {
+        "answered": true,
+        "correct": true,
+        "reason": "the second occurrence is named",
+        "facts": 1,
+        "grounding": {
+          "facts": 1,
+          "with_a_source_reference": 1,
+          "with_an_epistemic_class": 1,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 1
+        },
+        "context_bytes": 1461
+      }
+    },
+    {
+      "content_digest": "f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1",
+      "case": "M0-P",
+      "question": "what is face_001 doing at 11.45s",
+      "truth": {
+        "start": 11.345,
+        "end": 14.347
+      },
+      "before": {
+        "answered": true,
+        "correct": true,
+        "reason": "the moment was reported, boundary error 0.000s",
+        "facts": 1,
+        "grounding": {
+          "facts": 1,
+          "with_a_source_reference": 0,
+          "with_an_epistemic_class": 0,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 0
+        },
+        "context_bytes": 889
+      },
+      "after": {
+        "answered": true,
+        "correct": true,
+        "reason": "the moment was reported, boundary error 0.000s",
+        "facts": 1,
+        "grounding": {
+          "facts": 1,
+          "with_a_source_reference": 1,
+          "with_an_epistemic_class": 1,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 1
+        },
+        "context_bytes": 1444
+      }
+    },
+    {
+      "content_digest": "f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1",
+      "case": "M0-8",
+      "question": "did the person ever cover their mouth",
+      "truth": null,
+      "before": {
+        "answered": true,
+        "correct": true,
+        "reason": "the lane ran, and its answer is reported",
+        "facts": 31,
+        "grounding": {
+          "facts": 31,
+          "with_a_source_reference": 0,
+          "with_an_epistemic_class": 0,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 0
+        },
+        "context_bytes": 29653
+      },
+      "after": {
+        "answered": true,
+        "correct": true,
+        "reason": "the lane ran, and its answer is reported",
+        "facts": 31,
+        "grounding": {
+          "facts": 31,
+          "with_a_source_reference": 31,
+          "with_an_epistemic_class": 31,
+          "with_a_confidence": 0,
+          "with_a_named_uncertainty": 31
+        },
+        "context_bytes": 46904
+      }
+    }
+  ],
+  "routes": {
+    "before": {
+      "questions": 31,
+      "answered": "31/31",
+      "correct": "31/31",
+      "facts": 2178,
+      "facts_with_a_source_reference": "0/2178",
+      "facts_with_an_epistemic_class": "0/2178",
+      "facts_with_a_confidence": "0/2178",
+      "facts_with_a_named_uncertainty": "0/2178",
+      "context_bytes_per_call": 39654,
+      "per_case": {
+        "M0-1": "6/6",
+        "M0-2": "6/6",
+        "M0-3": "6/6",
+        "M0-8": "7/7",
+        "M0-P": "6/6"
+      }
+    },
+    "after": {
+      "questions": 31,
+      "answered": "31/31",
+      "correct": "31/31",
+      "facts": 663,
+      "facts_with_a_source_reference": "663/663",
+      "facts_with_an_epistemic_class": "663/663",
+      "facts_with_a_confidence": "0/663",
+      "facts_with_a_named_uncertainty": "663/663",
+      "context_bytes_per_call": 27273,
+      "per_case": {
+        "M0-1": "6/6",
+        "M0-2": "6/6",
+        "M0-3": "6/6",
+        "M0-8": "7/7",
+        "M0-P": "6/6"
+      }
+    }
+  },
+  "search_surface": {
+    "before": {
+      "questions": 31,
+      "answerable": "0/31",
+      "reason": "the surface had no search mode: a consumer had to read the canonical records itself"
+    },
+    "after": {
+      "questions": 31,
+      "answerable": "31/31"
+    }
+  },
+  "modes": {
+    "speech": {
+      "sources": 7,
+      "sources_with_a_missing_lane": 0,
+      "intervals": 3366,
+      "with_a_source_reference": 3366,
+      "with_an_epistemic_class": 3366,
+      "with_a_confidence": 0,
+      "with_a_named_uncertainty": 3366,
+      "unanswered_reasons": []
+    },
+    "appearance": {
+      "sources": 7,
+      "sources_with_a_missing_lane": 7,
+      "intervals": 476,
+      "with_a_source_reference": 476,
+      "with_an_epistemic_class": 476,
+      "with_a_confidence": 427,
+      "with_a_named_uncertainty": 476,
+      "unanswered_reasons": [
+        "the m3c lane was never built for this source"
+      ]
+    },
+    "action": {
+      "sources": 7,
+      "sources_with_a_missing_lane": 0,
+      "intervals": 639,
+      "with_a_source_reference": 639,
+      "with_an_epistemic_class": 639,
+      "with_a_confidence": 0,
+      "with_a_named_uncertainty": 639,
+      "unanswered_reasons": []
+    },
+    "identity": {
+      "sources": 7,
+      "sources_with_a_missing_lane": 7,
+      "intervals": 1531,
+      "with_a_source_reference": 1531,
+      "with_an_epistemic_class": 1531,
+      "with_a_confidence": 0,
+      "with_a_named_uncertainty": 1531,
+      "unanswered_reasons": []
+    },
+    "relation": {
+      "sources": 7,
+      "sources_with_a_missing_lane": 7,
+      "intervals": 0,
+      "with_a_source_reference": 0,
+      "with_an_epistemic_class": 0,
+      "with_a_confidence": 0,
+      "with_a_named_uncertainty": 0,
+      "unanswered_reasons": [
+        "the m10 lane was never built for this source"
+      ]
+    },
+    "order": {
+      "sources": 7,
+      "sources_with_a_missing_lane": 0,
+      "intervals": 6,
+      "with_a_source_reference": 6,
+      "with_an_epistemic_class": 6,
+      "with_a_confidence": 0,
+      "with_a_named_uncertainty": 6,
+      "unanswered_reasons": []
+    },
+    "corpus": {
+      "sources": 7,
+      "intervals": 6018,
+      "with_a_source_reference": 6018,
+      "with_an_epistemic_class": 6018,
+      "with_a_confidence": 427,
+      "with_a_named_uncertainty": 6018
+    }
+  },
+  "reel_plan": {
+    "before": {
+      "candidates": 37,
+      "answered": "37/37",
+      "speaker_set_match": "37/37",
+      "speaker_share_within_0.10": "32/37"
+    },
+    "after": {
+      "candidates": 37,
+      "answered": "37/37",
+      "speaker_set_match": "37/37",
+      "speaker_share_within_0.10": "32/37"
+    },
+    "intervals_returned": 1143,
+    "intervals_with_a_source_reference": "1143/1143",
+    "rows": [
+      {
+        "candidate": 0,
+        "plan_share": {
+          "Akshita": 0.414,
+          "Craig": 0.551
+        },
+        "before": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0175
+        },
+        "after": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0175
+        },
+        "intervals": 34,
+        "with_a_source_reference": 34
+      },
+      {
+        "candidate": 1,
+        "plan_share": {
+          "Akshita": 0.517,
+          "Craig": 0.453
+        },
+        "before": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.015
+        },
+        "after": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.015
+        },
+        "intervals": 32,
+        "with_a_source_reference": 32
+      },
+      {
+        "candidate": 2,
+        "plan_share": {
+          "Akshita": 0.603,
+          "Craig": 0.347
+        },
+        "before": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.025
+        },
+        "after": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.025
+        },
+        "intervals": 25,
+        "with_a_source_reference": 25
+      },
+      {
+        "candidate": 3,
+        "plan_share": {
+          "Akshita": 0.056,
+          "Craig": 0.914
+        },
+        "before": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.015
+        },
+        "after": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.015
+        },
+        "intervals": 32,
+        "with_a_source_reference": 32
+      },
+      {
+        "candidate": 4,
+        "plan_share": {
+          "Akshita": 0.578,
+          "Craig": 0.333
+        },
+        "before": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.1466
+        },
+        "after": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.1466
+        },
+        "intervals": 30,
+        "with_a_source_reference": 30
+      },
+      {
+        "candidate": 5,
+        "plan_share": {
+          "Akshita": 0.253,
+          "Craig": 0.724
+        },
+        "before": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0202
+        },
+        "after": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0202
+        },
+        "intervals": 41,
+        "with_a_source_reference": 41
+      },
+      {
+        "candidate": 6,
+        "plan_share": {
+          "Akshita": 0.747,
+          "Craig": 0.241
+        },
+        "before": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0139
+        },
+        "after": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0139
+        },
+        "intervals": 18,
+        "with_a_source_reference": 18
+      },
+      {
+        "candidate": 7,
+        "plan_share": {
+          "Akshita": 0.586,
+          "Craig": 0.386
+        },
+        "before": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0523
+        },
+        "after": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0523
+        },
+        "intervals": 49,
+        "with_a_source_reference": 49
+      },
+      {
+        "candidate": 8,
+        "plan_share": {
+          "Akshita": 0.599,
+          "Craig": 0.364
+        },
+        "before": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0252
+        },
+        "after": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0252
+        },
+        "intervals": 27,
+        "with_a_source_reference": 27
+      },
+      {
+        "candidate": 9,
+        "plan_share": {
+          "Akshita": 0.687,
+          "Craig": 0.309
+        },
+        "before": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.051
+        },
+        "after": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.051
+        },
+        "intervals": 25,
+        "with_a_source_reference": 25
+      },
+      {
+        "candidate": 10,
+        "plan_share": {
+          "Akshita": 0.414,
+          "Craig": 0.565
+        },
+        "before": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0119
+        },
+        "after": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0119
+        },
+        "intervals": 36,
+        "with_a_source_reference": 36
+      },
+      {
+        "candidate": 11,
+        "plan_share": {
+          "Akshita": 0.438,
+          "Craig": 0.527
+        },
+        "before": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0175
+        },
+        "after": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0175
+        },
+        "intervals": 41,
+        "with_a_source_reference": 41
+      },
+      {
+        "candidate": 12,
+        "plan_share": {
+          "Akshita": 0.602,
+          "Craig": 0.392
+        },
+        "before": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0088
+        },
+        "after": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0088
+        },
+        "intervals": 27,
+        "with_a_source_reference": 27
+      },
+      {
+        "candidate": 13,
+        "plan_share": {
+          "Akshita": 0.699,
+          "Craig": 0.266
+        },
+        "before": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0323
+        },
+        "after": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0323
+        },
+        "intervals": 22,
+        "with_a_source_reference": 22
+      },
+      {
+        "candidate": 14,
+        "plan_share": {
+          "Akshita": 0.107,
+          "Craig": 0.889
+        },
+        "before": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0039
+        },
+        "after": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0039
+        },
+        "intervals": 30,
+        "with_a_source_reference": 30
+      },
+      {
+        "candidate": 15,
+        "plan_share": {
+          "Akshita": 0.777,
+          "Craig": 0.215
+        },
+        "before": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0207
+        },
+        "after": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0207
+        },
+        "intervals": 27,
+        "with_a_source_reference": 27
+      },
+      {
+        "candidate": 16,
+        "plan_share": {
+          "Akshita": 0.819,
+          "Craig": 0.169
+        },
+        "before": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0764
+        },
+        "after": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0764
+        },
+        "intervals": 23,
+        "with_a_source_reference": 23
+      },
+      {
+        "candidate": 17,
+        "plan_share": {
+          "Akshita": 0.79,
+          "Craig": 0.181
+        },
+        "before": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0145
+        },
+        "after": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0145
+        },
+        "intervals": 24,
+        "with_a_source_reference": 24
+      },
+      {
+        "candidate": 18,
+        "plan_share": {
+          "Akshita": 0.786,
+          "Craig": 0.392
+        },
+        "before": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0931
+        },
+        "after": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0931
+        },
+        "intervals": 29,
+        "with_a_source_reference": 29
+      },
+      {
+        "candidate": 19,
+        "plan_share": {
+          "Akshita": 0.856,
+          "Craig": 0.133
+        },
+        "before": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0571
+        },
+        "after": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0571
+        },
+        "intervals": 29,
+        "with_a_source_reference": 29
+      },
+      {
+        "candidate": 20,
+        "plan_share": {
+          "Akshita": 0.593,
+          "Craig": 0.181
+        },
+        "before": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.113
+        },
+        "after": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.113
+        },
+        "intervals": 25,
+        "with_a_source_reference": 25
+      },
+      {
+        "candidate": 21,
+        "plan_share": {
+          "Akshita": 0.618,
+          "Craig": 0.371
+        },
+        "before": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0627
+        },
+        "after": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0627
+        },
+        "intervals": 29,
+        "with_a_source_reference": 29
+      },
+      {
+        "candidate": 22,
+        "plan_share": {
+          "Akshita": 0.907,
+          "Craig": 0.084
+        },
+        "before": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0294
+        },
+        "after": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0294
+        },
+        "intervals": 25,
+        "with_a_source_reference": 25
+      },
+      {
+        "candidate": 23,
+        "plan_share": {
+          "Akshita": 0.734,
+          "Craig": 0.261
+        },
+        "before": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0879
+        },
+        "after": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0879
+        },
+        "intervals": 27,
+        "with_a_source_reference": 27
+      },
+      {
+        "candidate": 24,
+        "plan_share": {
+          "Akshita": 0.54,
+          "Craig": 0.441
+        },
+        "before": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.2943
+        },
+        "after": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.2943
+        },
+        "intervals": 27,
+        "with_a_source_reference": 27
+      },
+      {
+        "candidate": 25,
+        "plan_share": {
+          "Akshita": 0.81,
+          "Craig": 0.366
+        },
+        "before": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.1756
+        },
+        "after": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.1756
+        },
+        "intervals": 33,
+        "with_a_source_reference": 33
+      },
+      {
+        "candidate": 26,
+        "plan_share": {
+          "Akshita": 0.773,
+          "Craig": 0.212
+        },
+        "before": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0959
+        },
+        "after": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0959
+        },
+        "intervals": 23,
+        "with_a_source_reference": 23
+      },
+      {
+        "candidate": 27,
+        "plan_share": {
+          "Akshita": 0.441,
+          "Craig": 0.549
+        },
+        "before": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0619
+        },
+        "after": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0619
+        },
+        "intervals": 23,
+        "with_a_source_reference": 23
+      },
+      {
+        "candidate": 28,
+        "plan_share": {
+          "Akshita": 0.813,
+          "Craig": 0.179
+        },
+        "before": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0121
+        },
+        "after": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0121
+        },
+        "intervals": 53,
+        "with_a_source_reference": 53
+      },
+      {
+        "candidate": 29,
+        "plan_share": {
+          "Akshita": 0.849,
+          "Craig": 0.141
+        },
+        "before": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0216
+        },
+        "after": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0216
+        },
+        "intervals": 28,
+        "with_a_source_reference": 28
+      },
+      {
+        "candidate": 30,
+        "plan_share": {
+          "Akshita": 0.749,
+          "Craig": 0.179
+        },
+        "before": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.1885
+        },
+        "after": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.1885
+        },
+        "intervals": 23,
+        "with_a_source_reference": 23
+      },
+      {
+        "candidate": 31,
+        "plan_share": {
+          "Akshita": 0.847,
+          "Craig": 0.137
+        },
+        "before": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0131
+        },
+        "after": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0131
+        },
+        "intervals": 33,
+        "with_a_source_reference": 33
+      },
+      {
+        "candidate": 32,
+        "plan_share": {
+          "Akshita": 0.847,
+          "Craig": 0.146
+        },
+        "before": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0836
+        },
+        "after": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0836
+        },
+        "intervals": 26,
+        "with_a_source_reference": 26
+      },
+      {
+        "candidate": 33,
+        "plan_share": {
+          "Akshita": 0.47,
+          "Craig": 0.523
+        },
+        "before": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0917
+        },
+        "after": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0917
+        },
+        "intervals": 55,
+        "with_a_source_reference": 55
+      },
+      {
+        "candidate": 34,
+        "plan_share": {
+          "Akshita": 0.652,
+          "Craig": 0.335
+        },
+        "before": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.031
+        },
+        "after": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.031
+        },
+        "intervals": 32,
+        "with_a_source_reference": 32
+      },
+      {
+        "candidate": 35,
+        "plan_share": {
+          "Akshita": 0.658,
+          "Craig": 0.258
+        },
+        "before": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0904
+        },
+        "after": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0904
+        },
+        "intervals": 46,
+        "with_a_source_reference": 46
+      },
+      {
+        "candidate": 36,
+        "plan_share": {
+          "Akshita": 0.791,
+          "Craig": 0.196
+        },
+        "before": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0812
+        },
+        "after": {
+          "answered": true,
+          "speaker_set_match": true,
+          "mean_absolute_share_difference": 0.0812
+        },
+        "intervals": 34,
+        "with_a_source_reference": 34
+      }
+    ]
+  },
+  "tokenizer": [
+    "utf8_bytes",
+    "o200k_base"
+  ]
+}

@@ -656,6 +656,36 @@ def main(argv=None) -> int:
     p_ask.add_argument("--question", default="what")
     p_ask.add_argument("--memory-root")
 
+    p_search = sub.add_parser(
+        "search", help="search the world for media intervals")
+    p_search.add_argument("project")
+    p_search.add_argument("--clip", required=True)
+    p_search.add_argument("--mode", required=True)
+    p_search.add_argument("--text")
+    p_search.add_argument("--action")
+    p_search.add_argument("--relation")
+    p_search.add_argument("--expression")
+    p_search.add_argument("--entity")
+    p_search.add_argument("--start", type=float)
+    p_search.add_argument("--end", type=float)
+    p_search.add_argument("--of")
+    p_search.add_argument("--ordinal")
+    p_search.add_argument("--relative", choices=["after", "before"])
+    p_search.add_argument("--reference-start", type=float)
+    p_search.add_argument("--reference-end", type=float)
+    p_search.add_argument("--verified", choices=["yes", "no"])
+    p_search.add_argument("--memory-root")
+
+    p_evidence = sub.add_parser(
+        "evidence", help="the evidence behind a span, without Resolve")
+    p_evidence.add_argument("project")
+    p_evidence.add_argument("--clip", required=True)
+    p_evidence.add_argument("--start", type=float, required=True)
+    p_evidence.add_argument("--end", type=float, required=True)
+    p_evidence.add_argument("--aspect", action="append")
+    p_evidence.add_argument("--model", action="store_true")
+    p_evidence.add_argument("--memory-root")
+
     args = parser.parse_args(argv)
     if not args.command:
         parser.print_help()
@@ -702,7 +732,7 @@ def main(argv=None) -> int:
             return 1
         print(json.dumps(entry, indent=2))
         return 0
-    if args.command in ("interval", "entity", "ask"):
+    if args.command in ("interval", "entity", "ask", "search", "evidence"):
         # The world's narrow questions. The per-second view above stays
         # exactly what it is; these read the canonical records behind it.
         from library.tools import world_model_query
@@ -713,9 +743,28 @@ def main(argv=None) -> int:
                 argv_rest += ["--aspect", aspect]
         elif args.command == "entity":
             argv_rest += ["--entity", args.entity]
-        else:
+        elif args.command == "ask":
             argv_rest += ["--start", str(args.start), "--end", str(args.end),
                           "--question", args.question]
+        elif args.command == "search":
+            argv_rest += ["--mode", args.mode]
+            for name in ("text", "action", "relation", "expression",
+                         "entity", "of", "ordinal", "relative", "verified"):
+                value = getattr(args, name, None)
+                if value:
+                    argv_rest += [f"--{name}", str(value)]
+            if args.start is not None and args.end is not None:
+                argv_rest += ["--start", str(args.start), "--end", str(args.end)]
+            if args.reference_start is not None \
+                    and args.reference_end is not None:
+                argv_rest += ["--reference-start", str(args.reference_start),
+                              "--reference-end", str(args.reference_end)]
+        else:
+            argv_rest += ["--start", str(args.start), "--end", str(args.end)]
+            for aspect in args.aspect or []:
+                argv_rest += ["--aspect", aspect]
+            if args.model:
+                argv_rest += ["--model"]
         if args.memory_root:
             argv_rest += ["--memory-root", args.memory_root]
         return world_model_query.main([args.command] + argv_rest)
