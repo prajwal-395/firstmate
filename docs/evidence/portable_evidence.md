@@ -61,6 +61,9 @@ a measurement. The report:
 `docs/benchmarks/2026-10-21-portable-evidence.json`; the defect-naming
 tests: `tests/unit/context/test_portable_evidence.py`.
 
+**Continued.** The `m3d` and `m6` producers were lifted in
+`docs/evidence/portable_evidence_m3d_m6.md`.
+
 **Left.** One producer is migrated. The others - `m3b`, `m3d`, `m6`,
 `m0` and the reel build - are counted and named, not yet lifted. The
 Project Model's events, relations, tracks, masks, signals and identity

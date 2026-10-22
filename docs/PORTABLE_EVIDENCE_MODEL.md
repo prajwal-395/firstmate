@@ -5,7 +5,8 @@ evidence model."* One enumeration:
 `library/tools/portable_evidence.py`.
 
 The history behind this module - the incident, the measurement and the
-numbers - is `docs/evidence/portable_evidence.md`.
+numbers - is `docs/evidence/portable_evidence.md` (the M1 lane) and
+`docs/evidence/portable_evidence_m3d_m6.md` (the M3d and M6 lanes).
 
 ## What it is
 
@@ -45,7 +46,8 @@ semantic      the description, when it has one
 value         the measurement, when it has one
 entities      the entities the record is about
 relation      {subject, predicate, object}, for a relationship
-migration     {from_version, migrated_from, dropped_references}
+migration     {from_version, migrated_from, dropped_references,
+               span_end_overshoot_ticks}
 ```
 
 ## The rules it refuses by
@@ -60,6 +62,8 @@ migration     {from_version, migrated_from, dropped_references}
 | A LOSSY description is never filed as a measurement | "a lossy description is not a measurement" |
 | A record newer than this reader is never half-read | "this reader knows v1" |
 | A span that does not fit its source is refused | "the span is not a span of this source" |
+| A pre-contract index that does not land in the record's own span is dropped | "the pre-contract frame index N is not a frame of the span it was measured over" |
+| A standing that names no second source is refused | "the relationship names no other source" |
 | A portable document carries no local path | "a portable document names the media, not where this machine keeps it" |
 
 ## The two sections of a portable document
@@ -88,7 +92,20 @@ Two honest limits, both visible in the document rather than hidden:
   four audio channels) is a CHOICE, and the record says how many
   alternatives the clock holds (`streams_of_this_modality`);
 - a span that ends past the source's own length is on another grid,
-  and is refused rather than referenced.
+  and is refused rather than referenced. One frame of overshoot is
+  the exception: a duration measured to the millisecond ends a
+  fraction of a frame past the source it measured, and that is the
+  source's own length, not another grid. The record says how far past
+  it reached (`migration.span_end_overshoot_ticks`).
+
+A pre-contract reference carries an index and no clock, so the index
+may be an address in ANY space: a source frame, an ordinal in a
+SAMPLED frame set, a number in a shot list. The record's own span
+says where in the source it was measured, and an index that does not
+land there does not name a place in the source: it is dropped, by
+name, and the span stands alone. The M3d region rows are exactly this
+case - their index is the ordinal of the sampled frame, and the
+source's own frame at that moment is a different number.
 
 ## Semantic observations are explicitly lossy
 
@@ -110,7 +127,10 @@ portable shape by `migrate_observations`:
   `evidence` field or the `payload.evidence_contract` - by the ONE dual
   read (`epistemic_vocabulary.contract_of`);
 - the pre-contract reference spellings (`source_frame`, `source_sample`)
-  are upgraded to the modern `element` and are never written again;
+  are upgraded to the modern `element` and are never written again -
+  and an upgraded index that does not land inside the record's own
+  span is DROPPED, by name, because an index in another space is not a
+  place in this source;
 - a record with no reference is given one: the span it was measured
   over, on its own clock;
 - the class comes from the REGISTRY, not from the stored filing, and
@@ -133,7 +153,9 @@ python3 -m library.tools.portable_evidence census \
     --model <project>/project_model/snapshot.json --reel reel-26
 ```
 
-The report: `docs/benchmarks/2026-10-21-portable-evidence.json`.
+The reports: `docs/benchmarks/2026-10-21-portable-evidence.json` (the
+M1 lane) and `docs/benchmarks/2026-10-22-portable-evidence-m3d-m6.json`
+(the M3d and M6 lanes).
 
 ### Distinct evidence record shapes in production
 
@@ -151,7 +173,7 @@ The report: `docs/benchmarks/2026-10-21-portable-evidence.json`.
 ### The three attributes, before and after
 
 The BEFORE is the stored model. The AFTER is the same records lifted
-onto the portable model - one producer at a time, and this is the first:
+onto the portable model - one producer at a time. This is the first:
 **the M1 transcript lane**, which is 75,455 of the reel's 95,653
 observations.
 
@@ -173,6 +195,47 @@ all.
 The 60,336 rows whose stored filing disagreed with their producer's
 declaration keep that disagreement as `filed_class`: the correction is
 in the record, and the evidence of the old filing stays beside it.
+
+### The M3d and M6 lanes
+
+The next two producers of the same reel: **the M3d person-region
+frames** (18,988 rows) and **the M6 multicam offsets** (3 rows). The
+detail is `docs/evidence/portable_evidence_m3d_m6.md`.
+
+| Measure | Before (M3d) | After (M3d) | Before (M6) | After (M6) |
+|---|---:|---:|---:|---:|
+| records | 18,988 | 18,064 | 3 | 3 |
+| distinct record shapes | 1 | **1** | 1 | **1** |
+| carry a source reference | 18,064 (95.1%) | **18,064 (100%)** | 0 (0.0%) | **3 (100%)** |
+| ...in the pre-contract spelling | 18,064 (100%) | 0 (0.0%) | 0 (0.0%) | 0 (0.0%) |
+| ...naming a place in the source | 0 (0.0%) | **18,064 (100%)** | 0 (0.0%) | **3 (100%)** |
+| carry a provenance class | 18,064 (95.1%) | 18,064 (100%) | 3 (100%) | 3 (100%) |
+| carry a coverage | 18,064 (95.1%) | 18,064 (100%) | 3 (100%) | 3 (100%) |
+| carry all three | 18,064 (95.1%) | **18,064 (100%)** | 0 (0.0%) | **3 (100%)** |
+| file a model's claim as a measurement | 18,064 (100%) | **0 (0.0%)** | 0 (0.0%) | 0 (0.0%) |
+| refused (named) | - | 924 | - | 0 |
+
+The 924 refusals are the `region_track` summary rows, which carry no
+evidence contract at all: no class, no coverage and no registry type
+to lift. The M6 rows are `relationship` records - a standing between
+two sources - and they name the audio they were measured from.
+
+### What the measurement found, beyond the numbers (continued)
+
+5. **The M3d rows' references name an address in another space.** All
+   18,064 of them are in the pre-contract spelling, and the index in
+   that spelling is the ordinal of the SAMPLED frame, not the source's
+   own frame number: the source runs at 24000/1001 fps, so the frame
+   measured at t=0.083 s is the source's frame 2 while the reference
+   says frame 0. Upgraded as they stand, every one of them would
+   recover the WRONG original frames. The record's own span is the
+   place in the source, and the mis-addressed index is dropped, by
+   name.
+6. **The M6 rows are a standing between two sources, not an interval
+   of one.** Their contracts carry no reference at all, and what they
+   measure is how far one source's clock sits from its group's
+   reference. Lifted as an interval they would name one source for a
+   claim about two.
 
 ### What the measurement found, beyond the numbers
 
@@ -196,19 +259,23 @@ in the record, and the evidence of the old filing stays beside it.
    not there.
 4. **The only rows that carried a reference used the pre-contract
    spelling** (`source_frame`), which PR 3116 says is read and never
-   written. The migration upgrades them to the modern `element`.
+   written. The migration upgrades them to the modern `element`, and
+   drops the ones whose index does not land in the record's own span
+   (see below).
 
 ## What is left undone
 
-- One producer is migrated: the M1 transcript lane. The other
-  producers of this reel's records - `m3b`, `m3d`, `m6`, `m0` and the
-  reel build - are counted and named, not yet migrated. `m3d` is next:
-  it is 18,988 rows, and it is the only producer that already carries
-  references.
+- Three producers are migrated: the M1 transcript lane, the M3d
+  person-region frames and the M6 multicam offsets. The other
+  producers of this reel's records - `m3b` (773 rows), `m0` (3 rows)
+  and the reel build - are counted and named, not yet migrated.
 - The portable model covers the Project Model's observations. The
   events, relations, tracks, masks, signals and identity links are
   counted by the census but not yet lifted: a relationship and an event
   need their own kind and their own entity references, and the Project
-  Model's schema has no `evidence` field on them yet.
+  Model's schema has no `evidence` field on them yet. The M3d track
+  summaries (924 rows) are refused for the same reason: they carry no
+  evidence contract, so they have no class, no coverage and no
+  registry type to lift.
 - The reel build's own rows (431) are refused, not migrated. Their
   intervals are wrong, and no reference can be made from them.

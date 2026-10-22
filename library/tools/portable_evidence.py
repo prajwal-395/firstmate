@@ -41,7 +41,25 @@ carries source references over the SOURCE's own clock, and the document
 carries that clock's rate. A reference that cannot be placed on its
 clock - a span longer than the source it claims to be in - is REFUSED
 rather than emitted: a wrong reference is worse than a missing one,
-because a wrong one is believed.
+because a wrong one is believed. A span that ends ONE FRAME past the
+source's own length is the source's length, rounded by the duration it
+was measured from, and the record says how far past it reached.
+
+**A pre-contract index is an address until it lands.** The old
+``source_frame`` spelling carries an index and no clock, so the index
+may be an address in any space: a source frame, an ordinal in a
+SAMPLED frame set, a number in a shot list. A record's own span says
+where in the source it was measured, and an index that does not land
+there is not a place in the source: it is DROPPED, by name, and the
+span stands alone. The M3d region rows are exactly this case, and
+upgrading their indices as they stand would recover the wrong frames.
+
+**A standing between two things is a relationship.** A multicam offset
+is not an interval of one source: it says how far one source's clock
+sits from its group's reference. The record is a RELATIONSHIP, it
+names its subject, its predicate and its object, and the object is the
+other source, named by its content digest - the same name on every
+machine, under any path.
 
 **Semantic observations are explicitly lossy.** A transcription, a
 scene description, a label: these describe the media, they are not the
@@ -64,6 +82,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -144,11 +163,28 @@ DESCRIPTIVE_KEYS = (
 #: whatever else it carries.
 DESCRIPTIVE_UNITS = ("text", "labels", "regions")
 
+#: The registry types whose claim is a STANDING between two sources
+#: rather than an interval of one. A multicam offset says how far one
+#: source's clock sits from its group's reference: it is a relation
+#: between two assets, and the portable record says so.
+RELATIONSHIP_TYPES = ("sync.multicam_offset",)
+
+#: The key a relationship claim names its OTHER source by. The value is
+#: the content digest of that source, so the second side is named by
+#: its bytes and not by where this machine keeps them.
+RELATION_OBJECT_KEY = "reference_digest"
+
+#: The modality a lane's claim was READ from, when the record's own
+#: modality cannot say. A multicam offset is computed over two
+#: sources, but it was read from the AUDIO: the words it matched are
+#: in the sound.
+LANE_READ_MODALITY = {"m6": "audio"}
+
 #: The producers this module has been given. One at a time, on purpose:
 #: a producer is migrated when its records can be lifted onto the
 #: portable shape without losing a value, and the census names the ones
 #: that are still pending.
-MIGRATED_PRODUCERS = ("m1",)
+MIGRATED_PRODUCERS = ("m1", "m3d", "m6")
 
 
 class PortableEvidenceError(ValueError):
@@ -201,7 +237,8 @@ def build_record(*, id: str, kind: str, modality: str, asset_id: str,
         "entities": list(entities),
         "relation": dict(relation) if relation else None,
         "migration": {"from_version": SCHEMA_VERSION if migrated_from is None
-                      else 0, "migrated_from": migrated_from},
+                      else 0, "migrated_from": migrated_from,
+                      "span_end_overshoot_ticks": 0},
     }
     return parse_record(record)
 
@@ -399,9 +436,12 @@ class ModelIndex:
     def duration_ticks(self, asset_id: str, clock_id: str) -> int | None:
         """How many ticks of this clock the source itself holds.
 
-        The asset's measured duration, on the clock's own rate. A span
-        longer than this is not a span of the source, and a reference to
-        it cannot be recovered.
+        The asset's measured duration, on the clock's own rate, counted
+        UP: a half-open span that ends on the source's last boundary
+        is the source's own length, and the boundary past a measured
+        duration is still the source's boundary. A span longer than
+        this is not a span of the source, and a reference to it cannot
+        be recovered.
         """
         asset = self.assets.get(asset_id) or {}
         duration = (asset.get("metadata") or {}).get("duration_seconds")
@@ -411,7 +451,52 @@ class ModelIndex:
             return None
         if duration <= 0 or rate <= 0:
             return None
-        return int(duration * rate)
+        return math.ceil(duration * rate)
+
+    def frame_ticks(self, clock_id: str) -> int | None:
+        """The length of one frame of the clock's own grid, in ticks.
+
+        One frame is the unit a source's own length is measured in, so
+        it is the tolerance a span that ends just past the source gets:
+        a source whose duration was rounded to the millisecond ends a
+        fraction of a frame past its measured length, and that is not a
+        span on another grid.
+        """
+        clock = self.clock(clock_id) or {}
+        rate = clock.get("ticks_per_second")
+        frame_rate = clock.get("frame_rate") or {}
+        numerator = frame_rate.get("numerator")
+        denominator = frame_rate.get("denominator")
+        if not isinstance(rate, int) or rate <= 0:
+            return None
+        if not isinstance(numerator, int) or not isinstance(denominator, int):
+            return None
+        if numerator <= 0 or denominator <= 0:
+            return None
+        return int(rate * denominator / numerator)
+
+    def frames_covering(self, clock_id: str, start: int, end: int
+                        ) -> tuple[int, int] | None:
+        """The frames a span on this clock covers, or None.
+
+        None when the clock has no frame grid: there are then no frames
+        to cover, and a span on such a clock is not refused for that.
+        """
+        clock = self.clock(clock_id) or {}
+        rate = clock.get("ticks_per_second")
+        frame_rate = clock.get("frame_rate") or {}
+        numerator = frame_rate.get("numerator")
+        denominator = frame_rate.get("denominator")
+        if not isinstance(rate, int) or rate <= 0:
+            return None
+        if not isinstance(numerator, int) or not isinstance(denominator, int):
+            return None
+        if numerator <= 0 or denominator <= 0:
+            return None
+        frames_per_second = numerator / denominator
+        low = math.floor((start / rate) * frames_per_second)
+        high = math.ceil((end / rate) * frames_per_second) - 1
+        return low, max(low, high)
 
     def provenance_row(self, provenance_id: str | None
                        ) -> dict[str, Any] | None:
@@ -468,6 +553,51 @@ def _migrate_references(references: Any, clock_id: str
         except source_reference.SourceReferenceError as exc:
             dropped.append(str(exc))
     return modern, dropped
+
+
+def _misaddressed(reference: Mapping[str, Any], start: int, end: int,
+                  covered: tuple[int, int] | None) -> str | None:
+    """Why a reference does not name a place inside the record's own span.
+
+    The pre-contract spelling carries an index and no clock, so the
+    index could be an address in ANY space: a source frame, an
+    ordinal in a sampled frame set, a number in a shot list. The
+    record's own span says where in the source it was measured, and an
+    index that does not land there is not a place in the source at all.
+
+    Such a reference is DROPPED and named. It is not carried forward
+    as a modern element reference: a wrong reference is believed, and
+    a believed wrong frame is worse than a missing one.
+    """
+    if reference.get("kind") != source_reference.ELEMENT:
+        return None
+    element = reference.get("element") or {}
+    if element.get("kind") != source_reference.FRAME:
+        return None
+    index = element.get("frame_index")
+    if not isinstance(index, int) or isinstance(index, bool):
+        return None
+    if covered is None:
+        return None
+    low, high = covered
+    if low <= index <= high:
+        return None
+    return (f"the pre-contract frame index {index} is not a frame of the "
+            f"span it was measured over (frames {low}..{high}): it names an "
+            f"address in another space, not a place in this source")
+
+
+def _names_a_place(reference: Mapping[str, Any], start: int, end: int,
+                   covered: tuple[int, int] | None) -> bool:
+    """Whether a reference names a place in the source it claims.
+
+    A reference that reaches the source but lands outside the record's
+    own span is an address in another space, and it does not name a
+    place in this source.
+    """
+    if not source_reference.names_source(reference):
+        return False
+    return _misaddressed(reference, start, end, covered) is None
 
 
 def _is_lossy(payload: Mapping[str, Any], unit: str | None) -> bool:
@@ -532,6 +662,24 @@ def _filed_class(contract: Mapping[str, Any]) -> str | None:
     return None
 
 
+def _relation_object(value: Any) -> str | None:
+    """The other source a relationship claim stands between.
+
+    The value names that source by its content digest, so the second
+    side is named by its bytes: the same name on every machine, under
+    any path.
+    """
+    if not isinstance(value, Mapping):
+        return None
+    digest = value.get(RELATION_OBJECT_KEY)
+    if not isinstance(digest, str) or not digest:
+        return None
+    try:
+        return source_reference.asset_id_for_digest(digest)
+    except source_reference.SourceReferenceError:
+        return None
+
+
 def portable_record_from_observation(observation: Mapping[str, Any],
                                      index: ModelIndex,
                                      ) -> tuple[dict[str, Any] | None, str | None]:
@@ -567,17 +715,28 @@ def portable_record_from_observation(observation: Mapping[str, Any],
         return None, "the record names an asset with no stream on its clock"
     # The span has to FIT the source it claims to be in. A span longer
     # than the source is a span on another grid, and a reference to it
-    # would recover the wrong frames.
+    # would recover the wrong frames. A span that ends ONE FRAME past
+    # the source's own length is the source's length, rounded by the
+    # duration it was measured from: that is not another grid.
     limit = index.duration_ticks(asset_id, clock_id)
+    overshoot = 0
     if limit is not None and end > limit:
-        return None, (f"the record's interval ends at tick {end}, past the "
-                      f"source's own {limit} ticks on this clock: the span "
-                      f"is not a span of this source")
+        tolerance = index.frame_ticks(clock_id)
+        if tolerance is None or end - limit > tolerance:
+            return None, (f"the record's interval ends at tick {end}, past "
+                          f"the source's own {limit} ticks on this clock: "
+                          f"the span is not a span of this source")
+        overshoot = end - limit
     modality = MODALITY_OF_STORED.get(str(observation.get("modality")),
                                       "derived")
-    if modality == "derived":
-        modality = index.modality_of_stream(stream)
+    lane = lane_of(observation.get("provenance_id"))
     source_modality = SOURCE_MODALITY.get(modality)
+    if source_modality is None:
+        # A DERIVED record was read from ONE of the sources it was
+        # computed over, and the lane says which: a multicam offset
+        # was read from the audio, because the words it matched are in
+        # the sound.
+        source_modality = LANE_READ_MODALITY.get(lane)
     if source_modality is None:
         source_modality = index.modality_of_stream(stream)
     # The reference names the stream of the modality the record was
@@ -591,11 +750,40 @@ def portable_record_from_observation(observation: Mapping[str, Any],
         modality_streams = [stream]
     reference_stream = modality_streams[0]
     stream_id = str(reference_stream.get("id"))
+    covered = index.frames_covering(clock_id, start, end)
     references, dropped = _migrate_references(contract.get("references"),
                                               clock_id)
-    if not references:
-        references = [source_reference.interval(stream_id, clock_id,
-                                                start, end)]
+    kept: list[dict[str, Any]] = []
+    for reference in references:
+        reason = _misaddressed(reference, start, end, covered)
+        if reason:
+            dropped.append(reason)
+            continue
+        kept.append(reference)
+    references = kept
+    kind = "interval"
+    relation = None
+    entities: list[str] = []
+    if measurement_type in RELATIONSHIP_TYPES:
+        # A STANDING between two sources is not an interval of one: it
+        # names a subject, a predicate and an object, and the object is
+        # the other source, named by its content digest.
+        other = _relation_object(contract.get("value"))
+        if other is None:
+            return None, ("the relationship names no other source: a "
+                          "standing between two things needs the second one")
+        kind = "relationship"
+        relation = {"subject": asset_id, "predicate": measurement_type,
+                    "object": other}
+        entities = [asset_id, other]
+        references.append(source_reference.asset(other))
+    if not any(source_reference.names_source(reference)
+               for reference in references):
+        # Nothing the record carried reaches the source, so the span it
+        # was measured over stands in as the reference: it is the one
+        # place in the source the record is about.
+        references.insert(0, source_reference.interval(stream_id, clock_id,
+                                                       start, end))
     if not any(source_reference.names_source(reference)
                for reference in references):
         return None, "the record's references name no source"
@@ -603,8 +791,11 @@ def portable_record_from_observation(observation: Mapping[str, Any],
     modality_refs = []
     for reference in references:
         reference_stream_id = reference.get("stream_id")
-        referenced = index.streams.get(reference_stream_id) \
-            if reference_stream_id else None
+        if not reference_stream_id:
+            # A reference to a whole asset names no stream, and so
+            # anchors no modality.
+            continue
+        referenced = index.streams.get(reference_stream_id)
         anchor = {
             "modality": index.modality_of_stream(referenced)
             if referenced else source_modality,
@@ -649,7 +840,7 @@ def portable_record_from_observation(observation: Mapping[str, Any],
         coverage["kind"] = "unavailable"
     record = build_record(
         id=str(observation.get("id") or ""),
-        kind="interval",
+        kind=kind,
         modality=modality,
         asset_id=asset_id,
         stream_id=stream_id,
@@ -662,8 +853,11 @@ def portable_record_from_observation(observation: Mapping[str, Any],
         lossy=lossy,
         semantic=semantic or None,
         value=value,
+        entities=entities,
+        relation=relation,
         migrated_from=str(observation.get("id") or ""),
     )
+    record["migration"]["span_end_overshoot_ticks"] = overshoot
     if dropped:
         record["migration"]["dropped_references"] = dropped
     return record, None
@@ -685,11 +879,23 @@ def _stored_rows(observations: Sequence[Mapping[str, Any]],
     rows: list[dict[str, Any]] = []
     for observation in observations:
         contract = epistemic_vocabulary.contract_of(observation) or {}
+        clock_id = str((observation.get("interval") or {}).get("clock_id") or "")
+        interval = observation.get("interval") or {}
+        start, end = interval.get("start"), interval.get("end")
         references, _dropped = _migrate_references(
-            contract.get("references"),
-            str((observation.get("interval") or {}).get("clock_id") or ""))
+            contract.get("references"), clock_id)
         has_reference = any(source_reference.names_source(reference)
                             for reference in references)
+        covered = None
+        if isinstance(start, int) and isinstance(end, int):
+            covered = index.frames_covering(clock_id, start, end)
+        names_a_place = any(_names_a_place(reference, start, end, covered)
+                            for reference in references)
+        legacy = any(
+            isinstance(reference, Mapping)
+            and reference.get("kind") in source_reference.LEGACY_REFERENCE_KINDS
+            for reference in (contract.get("references") or [])
+            if isinstance(contract.get("references"), Sequence))
         measurement_type = contract.get("measurement_type")
         declared = _declared_class(measurement_type) \
             if isinstance(measurement_type, str) else claim_provenance.UNKNOWN_CLASS
@@ -707,6 +913,8 @@ def _stored_rows(observations: Sequence[Mapping[str, Any]],
             "shape": tuple(sorted(observation)),
             "payload_shape": tuple(sorted(payload)),
             "source_reference": has_reference,
+            "legacy_reference": legacy,
+            "names_a_place": names_a_place,
             "provenance_class": filed,
             "declared_class": declared,
             "filed_class": filed,
@@ -730,6 +938,10 @@ def _portable_rows(records: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]
             "shape": tuple(sorted(record)),
             "payload_shape": (),
             "source_reference": any(
+                source_reference.names_source(reference)
+                for reference in record.get("source_references") or []),
+            "legacy_reference": False,
+            "names_a_place": any(
                 source_reference.names_source(reference)
                 for reference in record.get("source_references") or []),
             "provenance_class": declared
@@ -762,6 +974,7 @@ def census_rows(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     by_producer: dict[str, dict[str, int]] = {}
     by_kind: dict[str, int] = {}
     with_reference = with_class = with_coverage = with_all = 0
+    with_legacy = with_place = 0
     class_defects = 0
     filing_disagreements = 0
     lossy = 0
@@ -775,7 +988,8 @@ def census_rows(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         producer = str(row.get("producer") or "unknown")
         bucket = by_producer.setdefault(producer, {
             "rows": 0, "with_source_reference": 0, "with_provenance_class": 0,
-            "with_coverage": 0, "with_all_three": 0, "class_defects": 0})
+            "with_coverage": 0, "with_all_three": 0, "class_defects": 0,
+            "with_legacy_reference": 0, "with_a_place_in_the_source": 0})
         bucket["rows"] += 1
         kind = str(row.get("kind") or "unknown")
         by_kind[kind] = by_kind.get(kind, 0) + 1
@@ -785,6 +999,12 @@ def census_rows(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         if reference:
             with_reference += 1
             bucket["with_source_reference"] += 1
+        if row.get("legacy_reference"):
+            with_legacy += 1
+            bucket["with_legacy_reference"] += 1
+        if row.get("names_a_place"):
+            with_place += 1
+            bucket["with_a_place_in_the_source"] += 1
         if klass:
             with_class += 1
             bucket["with_provenance_class"] += 1
@@ -812,6 +1032,8 @@ def census_rows(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "distinct_payload_shapes": len(payload_shapes),
         "distinct_record_shapes": len(record_shapes),
         "with_source_reference": with_reference,
+        "with_legacy_reference": with_legacy,
+        "with_a_place_in_the_source": with_place,
         "with_provenance_class": with_class,
         "with_coverage": with_coverage,
         "with_all_three": with_all,
@@ -951,11 +1173,32 @@ def portable_sources(model: Mapping[str, Any], index: ModelIndex,
     return sources
 
 
+def assets_named_by(records: Sequence[Mapping[str, Any]]) -> list[str]:
+    """The assets the records name besides the ones they were read from.
+
+    A relationship stands between two sources, and the document has to
+    carry the second one: a record that names an asset the document
+    does not describe is a record that cannot be checked.
+    """
+    named: list[str] = []
+    for record in records:
+        relation = record.get("relation") or {}
+        for key in ("subject", "object"):
+            value = relation.get(key)
+            if isinstance(value, str) and value and value not in named:
+                named.append(value)
+    return named
+
+
 def build_portable_document(model: Mapping[str, Any],
                              records: Sequence[Mapping[str, Any]],
                              index: ModelIndex,
                              assets: Sequence[str]) -> dict[str, Any]:
     """The portable document: the immutable media, and the records."""
+    wanted = list(assets)
+    for asset_id in assets_named_by(records):
+        if asset_id not in wanted and asset_id in index.assets:
+            wanted.append(asset_id)
     document = {
         "schema": SCHEMA,
         "schema_version": SCHEMA_VERSION,
@@ -963,7 +1206,7 @@ def build_portable_document(model: Mapping[str, Any],
             "model_id": model.get("id"),
             "schema_version": model.get("schema_version"),
         },
-        "sources": portable_sources(model, index, assets),
+        "sources": portable_sources(model, index, wanted),
         "records": [dict(record) for record in records],
     }
     assert_portable(document)

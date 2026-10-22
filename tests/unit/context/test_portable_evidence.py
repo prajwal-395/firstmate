@@ -228,9 +228,14 @@ def test_a_transcription_points_at_the_audio_it_was_heard_in():
 
 
 def test_a_legacy_reference_is_upgraded_and_never_written():
-    """The pre-contract spelling is read; the modern one is written."""
+    """The pre-contract spelling is read; the modern one is written.
+
+    The frame index names a frame OF the span the record was measured
+    over - frames 25..37 on this clock - so it is an address in the
+    source and the upgrade keeps it.
+    """
     legacy = {"kind": "source_frame", "stream_id": "stream-a",
-              "frame_index": 12}
+              "frame_index": 30}
     model = _model([_observation(
         payload={"text": "hello",
                  "evidence_contract": _contract(references=[legacy])})])
@@ -238,8 +243,150 @@ def test_a_legacy_reference_is_upgraded_and_never_written():
                                                  model["observations"])
     reference = records[0]["source_references"][0]
     assert reference["kind"] == "element"
-    assert reference["element"] == {"kind": "frame", "frame_index": 12}
+    assert reference["element"] == {"kind": "frame", "frame_index": 30}
     assert reference["clock_id"] == "clock-a"
+
+
+def test_a_legacy_index_outside_the_span_is_dropped_by_name():
+    """The defect this lane found in production: an index in ANOTHER space.
+
+    The M3d region rows address the SAMPLED frame set, not the
+    source's own frames: their index is the ordinal of the sample, and
+    the source's frame at that moment is a different number. Upgraded
+    as it stands, the reference would recover the WRONG frames, and a
+    wrong reference is believed. It is dropped, by name, and the span
+    the record was measured over stands alone.
+    """
+    legacy = {"kind": "source_frame", "stream_id": "stream-a",
+              "frame_index": 12}
+    model = _model([_observation(
+        payload={"text": "hello",
+                 "evidence_contract": _contract(references=[legacy])})])
+    records, _refusals = pe.migrate_observations(model,
+                                                 model["observations"])
+    record = records[0]
+    reference = record["source_references"][0]
+    assert reference["kind"] == "interval"
+    assert reference["interval"] == {"clock_id": "clock-a",
+                                     "start": 1000, "end": 1500}
+    dropped = record["migration"]["dropped_references"]
+    assert dropped and "not a frame of the span" in dropped[0]
+
+
+def test_a_span_that_ends_one_frame_past_the_source_is_its_own_length():
+    """A duration measured to the millisecond ends a fraction of a
+    frame past the source it measured.
+
+    That is the source's own length, not a span on another grid, and
+    the record says how far past it reached.
+    """
+    one_frame = 1000 // 25
+    model = _model([_observation(
+        interval={"clock_id": "clock-a", "start": 0,
+                  "end": 10 * 1000 + one_frame})])
+    records, refusals = pe.migrate_observations(model,
+                                                 model["observations"])
+    assert refusals == []
+    assert records[0]["migration"]["span_end_overshoot_ticks"] == one_frame
+
+
+def test_a_span_further_than_one_frame_past_the_source_is_refused():
+    """One frame of rounding is the source's length; two frames is a
+    span on another grid, and it is refused by name."""
+    model = _model([_observation(
+        interval={"clock_id": "clock-a", "start": 0,
+                  "end": 10 * 1000 + 2 * (1000 // 25)})])
+    records, refusals = pe.migrate_observations(model,
+                                                 model["observations"])
+    assert records == []
+    assert refusals and "not a span of this source" in refusals[0]["reason"]
+
+
+def test_a_multicam_offset_is_a_relationship_between_two_sources():
+    """A standing between two things is not an interval of one.
+
+    The offset names the other source by its content digest, so the
+    second side travels with the record, and the reference still names
+    the source the offset was measured over.
+    """
+    other = "b" * 64
+    contract = _contract(measurement_type="sync.multicam_offset",
+                         unit="record",
+                         value={"group_id": "g", "reference_digest": other,
+                                "offset_to_reference_seconds": 3.8})
+    model = _model([_observation(
+        modality="multicam_offset", provenance_id="prov-a-m6",
+        payload={"evidence_contract": contract})])
+    model["provenance"].append({
+        "id": "prov-a-m6", "producer": "library.tools.conversation_clock",
+        "producer_version": "1", "source_digest": DIGEST})
+    records, refusals = pe.migrate_observations(model,
+                                                 model["observations"])
+    assert refusals == []
+    record = records[0]
+    assert record["kind"] == "relationship"
+    assert record["relation"] == {
+        "subject": "asset-a",
+        "predicate": "sync.multicam_offset",
+        "object": f"asset-{other}"}
+    assert record["entities"] == ["asset-a", f"asset-{other}"]
+    assert any(reference["kind"] == "asset"
+               and reference["asset_id"] == f"asset-{other}"
+               for reference in record["source_references"])
+
+
+def test_a_multicam_offset_is_read_from_the_audio_it_matched():
+    """The words it matched are in the sound, so the record says so.
+
+    A source carries four audio channels, and the choice between them
+    is a choice: the count of the alternatives travels with the record.
+    """
+    contract = _contract(measurement_type="sync.multicam_offset",
+                         unit="record",
+                         value={"group_id": "g", "reference_digest": "b" * 64,
+                                "offset_to_reference_seconds": 3.8})
+    model = _model([_observation(
+        modality="multicam_offset", provenance_id="prov-a-m6",
+        payload={"evidence_contract": contract})])
+    model["provenance"].append({
+        "id": "prov-a-m6", "producer": "library.tools.conversation_clock",
+        "producer_version": "1", "source_digest": DIGEST})
+    records, _refusals = pe.migrate_observations(model,
+                                                  model["observations"])
+    anchor = records[0]["modality_refs"][0]
+    assert anchor["modality"] == "audio"
+    assert anchor["reference"]["stream_id"] == "stream-a-1"
+
+
+def test_a_relationship_naming_no_other_source_is_refused():
+    """A standing between two things needs the second one."""
+    contract = _contract(measurement_type="sync.multicam_offset",
+                         unit="record", value={"group_id": "g"})
+    model = _model([_observation(
+        modality="multicam_offset", provenance_id="prov-a-m6",
+        payload={"evidence_contract": contract})])
+    model["provenance"].append({
+        "id": "prov-a-m6", "producer": "library.tools.conversation_clock",
+        "producer_version": "1", "source_digest": DIGEST})
+    records, refusals = pe.migrate_observations(model,
+                                                 model["observations"])
+    assert records == []
+    assert refusals and "no other source" in refusals[0]["reason"]
+
+
+def test_the_census_counts_the_pre_contract_spelling():
+    """The before is measured: a reference in the old spelling is a
+    reference, and the census says which spelling it is in."""
+    legacy = {"kind": "source_frame", "stream_id": "stream-a",
+              "frame_index": 12}
+    model = _model([_observation(
+        payload={"text": "hello",
+                 "evidence_contract": _contract(references=[legacy])})])
+    index = pe.ModelIndex(model)
+    stored = pe.census_rows(pe._stored_rows(model["observations"], index))
+    assert stored["with_source_reference"] == 1
+    assert stored["with_legacy_reference"] == 1
+    assert stored["with_a_place_in_the_source"] == 0
 
 
 # ── The refusals the model makes on a record ──────────────────────
