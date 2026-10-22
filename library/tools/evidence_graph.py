@@ -31,7 +31,6 @@ reason recorded beside the number.
 from __future__ import annotations
 
 import math
-from bisect import bisect_right
 from collections import defaultdict
 from typing import Any
 
@@ -169,7 +168,7 @@ class EvidenceIndex:
             raise ValueError("EvidenceIndex reads a Project Model dict")
         self._model = model
         self._by_clock: dict[str, list[tuple[int, int, dict]]] | None = None
-        self._clock_starts: dict[str, list[int]] | None = None
+        self._clock_maxend: dict[str, tuple[list, int]] | None = None
         self._obs_by_id: dict[str, dict] | None = None
         self._obs_entities: dict[str, set[str]] | None = None
         self._entity_obs: dict[str, set[str]] | None = None
@@ -200,8 +199,24 @@ class EvidenceIndex:
         for rows in by_clock.values():
             rows.sort(key=lambda row: (row[0], row[1]))
         self._by_clock = dict(by_clock)
-        self._clock_starts = {clock: [row[0] for row in rows]
-                              for clock, rows in by_clock.items()}
+        # Max-end augmentation over the start-sorted rows (I01): a
+        # segment tree per clock holding the maximum interval end in
+        # each node range, so a narrow query prunes subtrees that
+        # start too late or end too early instead of scanning every
+        # earlier-starting record. The tree is static - the model is
+        # read-only after build - and traversal runs left-to-right,
+        # so results keep the (start, end) order the bisect scan gave.
+        maxend = {}
+        for clock, rows in by_clock.items():
+            count = len(rows)
+            size = 1 << (count - 1).bit_length() if count else 1
+            tree: list = [float("-inf")] * (2 * size)
+            for pos, (_, row_end, _) in enumerate(rows):
+                tree[size + pos] = row_end
+            for pos in range(size - 1, 0, -1):
+                tree[pos] = max(tree[2 * pos], tree[2 * pos + 1])
+            maxend[clock] = (tree, size)
+        self._clock_maxend = maxend
         self._obs_by_id = obs_by_id
 
     def _ensure_entities(self) -> None:
@@ -287,24 +302,58 @@ class EvidenceIndex:
             rows.sort(key=lambda row: (row[0], row[1]))
         self._spatial = dict(spatial)
 
+    def _overlap_scan(self, clock_id: str, start: int, end: int,
+                      *, point: bool) -> list[dict]:
+        """Rows on a clock overlapping ``[start, end)`` in (start, end) order.
+
+        With ``point`` the window is the single tick ``start`` and the
+        containment read is ``row_start <= tick < row_end``; otherwise
+        the read is ``row_start < end and row_end > start``. Both match
+        the bisect scan this replaced, row for row.
+        """
+        self._ensure_temporal()
+        rows = (self._by_clock or {}).get(clock_id)
+        if not rows:
+            return []
+        tree, size = (self._clock_maxend or {})[clock_id]
+        count = len(rows)
+        found = []
+        stack = [(1, 0, size)]
+        while stack:
+            node, lo, hi = stack.pop()
+            if lo >= count:
+                continue
+            if tree[node] <= start:
+                # No row under this node ends after the window's
+                # start: nothing below can overlap.
+                continue
+            if hi - lo == 1:
+                row_start, row_end, obs = rows[lo]
+                if point:
+                    if row_start <= start < row_end:
+                        found.append(obs)
+                elif row_start < end and row_end > start:
+                    found.append(obs)
+                continue
+            if (rows[lo][0] > start) if point else (rows[lo][0] >= end):
+                # Every row under this node starts past the window
+                # (rows are start-sorted): nothing below can overlap.
+                continue
+            mid = (lo + hi) // 2
+            stack.append((2 * node + 1, mid, hi))
+            stack.append((2 * node, lo, mid))
+        return found
+
     def observations_at(self, clock_id: str, tick: int) -> list[dict]:
         """Observations live on a clock at one tick (DATA-049 temporal)."""
-        self._ensure_temporal()
-        rows = self._by_clock.get(clock_id, [])
-        starts = (self._clock_starts or {}).get(clock_id, [])
-        return [obs for start, end, obs in rows[:bisect_right(starts, tick)]
-                if start <= tick < end]
+        return self._overlap_scan(clock_id, tick, tick, point=True)
 
     def observations_overlapping(self, clock_id: str, start: int,
                                  end: int) -> list[dict]:
         """Observations on a clock overlapping ``[start, end)``."""
         if end <= start:
             raise ValueError("overlap window must be non-empty")
-        self._ensure_temporal()
-        rows = self._by_clock.get(clock_id, [])
-        starts = (self._clock_starts or {}).get(clock_id, [])
-        return [obs for _, obs_end, obs in rows[:bisect_right(starts, end - 1)]
-                if obs_end > start and obs["interval"]["start"] < end]
+        return self._overlap_scan(clock_id, start, end, point=False)
 
     def entities_for_observation(self, obs_id: str) -> set[str]:
         """Entity ids attributed to one observation."""

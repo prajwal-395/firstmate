@@ -92,6 +92,68 @@ def _model():
     }
 
 
+def test_index_matches_linear_scan_on_adversarial_intervals():
+    model = {
+        "id": "adv", "schema_version": 1, "clocks": [],
+        "entities": [], "observations": [
+            _obs("giant", "scene", "c1", 0, 100000, {}),
+            _obs("left", "scene", "c1", 0, 1000, {}),
+            _obs("right", "scene", "c1", 1000, 2000, {}),
+            _obs("same-a", "scene", "c1", 500, 1500, {}),
+            _obs("same-b", "scene", "c1", 500, 800, {}),
+            _obs("point", "scene", "c1", 3000, 3001, {}),
+            _obs("other-clock", "scene", "c2", 0, 500, {}),
+        ],
+        "identity_links": [], "events": [], "relations": [],
+        "tracks": [],
+    }
+    index = EvidenceIndex(model)
+    windows = [(s, s + w) for s in range(0, 4000, 137)
+               for w in (1, 999, 1000, 50000)]
+    for start, end in windows:
+        expected = [obs for obs in model["observations"]
+                    if obs["interval"].get("clock_id") == "c1"
+                    and obs["interval"]["start"] < end
+                    and obs["interval"]["end"] > start]
+        expected.sort(key=lambda obs: (obs["interval"]["start"],
+                                       obs["interval"]["end"]))
+        assert [obs["id"] for obs in
+                index.observations_overlapping("c1", start, end)] == [
+            obs["id"] for obs in expected]
+    for tick in range(0, 4000, 211):
+        expected = [obs for obs in model["observations"]
+                    if obs["interval"].get("clock_id") == "c1"
+                    and obs["interval"]["start"] <= tick
+                    and tick < obs["interval"]["end"]]
+        expected.sort(key=lambda obs: (obs["interval"]["start"],
+                                       obs["interval"]["end"]))
+        assert [obs["id"] for obs in index.observations_at("c1", tick)] == [
+            obs["id"] for obs in expected]
+    # Adjacent halves share no tick: a window ending exactly at the
+    # boundary sees the left half only.
+    assert [obs["id"] for obs in
+            index.observations_overlapping("c1", 0, 1000)] == [
+        "left", "giant", "same-b", "same-a"]
+    assert index.observations_overlapping("c9", 0, 100) == []
+    assert index.observations_at("c9", 50) == []
+
+
+def test_overlapping_keeps_start_end_order_on_shuffled_insert():
+    rows = [_obs(f"o{i}", "scene", "c1", s, e, {})
+            for i, (s, e) in enumerate([
+                (900, 1000), (0, 5000), (100, 200), (100, 150),
+                (4000, 4001), (200, 900)])]
+    model = {"id": "shuf", "schema_version": 1, "clocks": [],
+             "entities": [], "observations": list(reversed(rows)),
+             "identity_links": [], "events": [], "relations": [],
+             "tracks": []}
+    found = EvidenceIndex(model).observations_overlapping("c1", 0, 5000)
+    keys = [(obs["interval"]["start"], obs["interval"]["end"])
+            for obs in found]
+    assert keys == sorted(keys)
+    assert {obs["id"] for obs in found} == {obs["id"] for obs in rows}
+
+
 def test_temporal_predicates_use_the_bisected_index():
     index = EvidenceIndex(_model())
     at = index.observations_at("c1", 1500)
