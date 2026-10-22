@@ -53,7 +53,7 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 
 from library.tools.versions import store
@@ -142,13 +142,60 @@ def rows_for_revision(project_folder, revision_id: str) -> dict:
     return dict(found[1]["rows"])
 
 
+def _mint_identity(project_folder, final: str, *, entry: Mapping,
+                   resolve_project: str, resolve_timeline_id: str,
+                   author: str, assets: Sequence):
+    """The generation identity one version entry carries, or None.
+
+    None where the Resolve timeline identity is unknown: an identity
+    minted from an invented timeline id would be a lie that outlives
+    the run. The parent generation is the previous state of the SAME
+    Resolve timeline - the reel's ledger may hold generations of other
+    timelines under one name, and that is a collision, not a parent.
+    """
+    if not resolve_timeline_id:
+        return None
+    from library.tools import generation_identity
+
+    content_digest = str(entry.get("rows_digest") or "")
+    dependencies = [dict(asset) for asset in (assets or ())]
+    known = {str(asset.get("path") or "") for asset in dependencies}
+    for asset in generation_identity.assets_of_rows(entry.get("rows")):
+        if str(asset.get("path") or "") not in known:
+            known.add(str(asset.get("path") or ""))
+            dependencies.append(dict(asset))
+    return generation_identity.mint(
+        project_folder=project_folder,
+        resolve_project=resolve_project,
+        resolve_timeline_id=resolve_timeline_id,
+        timeline_name=str(final or ""),
+        content_digest=content_digest,
+        parent_generation_id=generation_identity.parent_of(
+            project_folder, final, resolve_timeline_id, content_digest),
+        author=author,
+        assets=dependencies,
+        recorded_at=str(entry.get("at") or ""),
+        revision_id=str(entry.get("revision_id") or ""))
+
+
 def record(project_folder, final: str, *, kind: str, rows: Mapping,
-           at: str | None = None, **fields) -> dict:
+           at: str | None = None, resolve_project: str = "",
+           resolve_timeline_id: str = "", author: str = "",
+           assets: Sequence = (), **fields) -> dict:
     """Append the next version of `final`. Returns the entry written.
 
     `fields` carries the kind's own evidence (`plan_moment`, `journal`,
     `round`, `built_with`, `undoes`, `batch`) verbatim; absent is
     recorded absent, never filled in.
+
+    VC-001: the entry carries its generation's DURABLE IDENTITY when
+    the Resolve timeline identity is known (`resolve_project` +
+    `resolve_timeline_id`) - the identity that survives a rename and
+    tells two timelines sharing a name apart. The identity preserves
+    the parent generation, the author, the accepted state and the asset
+    dependencies (`library/tools/generation_identity.py`). A version
+    recorded without a Resolve identity carries none: absent evidence,
+    never an invented one.
     """
     from library.tools.versions import rounds as _rounds
 
@@ -161,6 +208,9 @@ def record(project_folder, final: str, *, kind: str, rows: Mapping,
     from library.tools import creative_revision
 
     revision_id = fields.pop("revision_id", None)
+    # The author is popped from `fields` below (the canonical revision
+    # owns that key), so the identity's author is captured here.
+    declared_author = author or str(fields.get("author") or "")
     parent_revision = next((entry.get("revision_id") for entry in reversed(history)
                             if entry.get("revision_id")), None)
     existing_revision = (creative_revision.get(project_folder, revision_id)
@@ -173,7 +223,7 @@ def record(project_folder, final: str, *, kind: str, rows: Mapping,
         parents=(existing_revision.get("parents", ()) if existing_revision
                  else ([parent_revision] if parent_revision else ())),
         author=(existing_revision.get("author") if existing_revision
-                else fields.get("author")),
+                else (declared_author or fields.get("author"))),
         intent=(existing_revision.get("intent") if existing_revision
                 else ("build" if revision_id and kind == KIND_BUILD else
                       str(fields.get("intent") or fields.get("summary") or kind))),
@@ -217,6 +267,14 @@ def record(project_folder, final: str, *, kind: str, rows: Mapping,
     }
     entry.update({key: value for key, value in fields.items()
                   if value is not None})
+    identity = _mint_identity(
+        project_folder, final, entry=entry,
+        resolve_project=resolve_project,
+        resolve_timeline_id=resolve_timeline_id,
+        author=declared_author,
+        assets=assets)
+    if identity is not None:
+        entry["generation"] = identity.as_dict()
     history.append(entry)
     document["reels"][final] = history
     document["format"] = REEL_VERSIONS_FORMAT
@@ -265,11 +323,37 @@ def attach_recovery_archive(project_folder, final: str, version: int,
             entry["recovery_archives"] = receipts
             if entry.get("recovery_archive") is None:
                 entry["recovery_archive"] = dict(receipt)
+            _attach_assets(entry, receipt)
             document["reels"][final] = history
             _write(project_folder, document)
             return
     raise ReelVersionsUnreadable(
         f"{final!r} has no version {version} to attach its recovery archive.")
+
+
+def _attach_assets(entry: dict, receipt: Mapping) -> None:
+    """Add the archive's asset manifest to the generation's dependencies.
+
+    VC-001: a generation preserves the assets it depends on. The
+    recovery archive is the one record that carries the hashed manifest
+    of the media the generation plays, so the identity's asset
+    dependencies are completed here. Appended, never rewritten: what
+    the identity already carried stays.
+    """
+    identity = entry.get("generation")
+    if not isinstance(identity, dict):
+        return
+    assets = [dict(asset) for asset in (identity.get("assets") or ())]
+    known = {str(asset.get("path") or "") for asset in assets}
+    for asset in (receipt.get("assets") or ()):
+        if not isinstance(asset, Mapping):
+            continue
+        path = str(asset.get("path") or asset.get("media_path") or "")
+        if path and path in known:
+            continue
+        known.add(path)
+        assets.append(dict(asset))
+    identity["assets"] = assets
 
 
 def recovery_archives_of(entry: Mapping | None) -> list[dict]:

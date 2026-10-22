@@ -210,6 +210,8 @@ FAMILY_BLOCKERS = {
     "library.tools.fabric_permissions.ProposalRefused": "unsafe_state",
     "library.tools.frameio_import.FrameioImportRefused":
         "unsupported_operation",
+    "library.tools.generation_identity.GenerationRefused":
+        "ambiguous_intent",
     "library.tools.hooks.HookError": "unsupported_operation",
     "library.tools.jl_cut.JLCutRefused": "unsupported_operation",
     "library.tools.mask_seed.MaskSeedRefused": "insufficient_evidence",

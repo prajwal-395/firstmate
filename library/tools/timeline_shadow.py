@@ -427,6 +427,7 @@ def export_project(project_name: str, project_folder,
             "project": generation.project,
             "timeline_id": generation.timeline_id,
             "generation": generation.generation,
+            "generation_id": generation.generation_id,
             "timeline_name": generation.timeline_name,
             "hash": generation.hash,
             "source": generation.source,
@@ -576,12 +577,34 @@ class Generation:
     nle_binding_ids: tuple = ()
     """The model `NleBinding` ids verified against this generation."""
 
+    @property
+    def generation_id(self) -> str:
+        """This generation's DURABLE IDENTITY (VC-001).
+
+        Derived from what cannot change - the Resolve project, the
+        Resolve timeline's unique id and the generation's content hash -
+        so it survives a RENAME and tells two timelines that share a
+        name apart. The name is stored beside it as an assertion and is
+        never part of the identity.
+
+        Derived, not stored: the identity cannot drift from the state it
+        names, and the shadow's schema does not grow a column every
+        machine would have to migrate.
+        """
+        from library.tools import generation_identity
+
+        return generation_identity.generation_id(
+            resolve_project=self.project,
+            resolve_timeline_id=self.timeline_id,
+            content_digest=self.hash)
+
     def summary(self) -> dict:
         return {
             "project": self.project,
             "timeline": self.timeline_name,
             "timeline_id": self.timeline_id,
             "generation": self.generation,
+            "generation_id": self.generation_id,
             "hash": self.hash,
             "source": self.source,
             "patch_id": (self.patch or {}).get("id"),
@@ -1067,6 +1090,7 @@ class ShadowStore:
                 "project": generation.project,
                 "timeline_id": generation.timeline_id,
                 "generation": generation.generation,
+                "generation_id": generation.generation_id,
                 "timeline_name": generation.timeline_name,
                 "hash": generation.hash,
                 "source": generation.source,

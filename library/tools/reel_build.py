@@ -12368,7 +12368,11 @@ def recover_interrupted_promotions(project, project_folder: str) -> list:
         _record_reel_versions(
             project_folder, rows_by_final,
             round_number=stamped.get("round"),
-            transaction_id=record["transaction_id"])
+            transaction_id=record["transaction_id"],
+            timeline_ids={
+                row["final"]: str(candidate.GetUniqueId() or "")
+                for row, _original, candidate in matches
+                if candidate is not None})
         from library.tools import plan_provenance as _provenance
         for row, _original, candidate in matches:
             snapshot = _guard.full_timeline_snapshot(
@@ -12932,8 +12936,15 @@ def _connect_resolve():
 
 def _record_reel_versions(project_folder: str, rows_by_final: dict,
                           round_number=None, revision_ids=None,
-                          transaction_id=None) -> list:
-    """One `build` (or `rollback`) version per promoted reel, with its plan."""
+                          transaction_id=None, timeline_ids=None) -> list:
+    """One `build` (or `rollback`) version per promoted reel, with its plan.
+
+    VC-001: `timeline_ids` names the Resolve timeline identity of each
+    promoted reel, so the version carries its generation's durable
+    identity - the one that survives a rename and tells two timelines
+    sharing a name apart. A promotion whose identity is unknown
+    records none: absent evidence, never an invented id.
+    """
     from library.tools.plan_provenance import provenance_with_registry
     from library.tools.reel_proposal import proposal_path, read_proposal
     from library.tools.versions import reel_versions as _versions
@@ -12973,6 +12984,7 @@ def _record_reel_versions(project_folder: str, rows_by_final: dict,
             component_manifest = None
         redoes = _versions.take_pending_redo(project_folder, final)
         undoes = _versions.take_pending_rollback(project_folder, final)
+        resolve_timeline_id = str((timeline_ids or {}).get(final) or "")
         if redoes is not None:
             entry = _versions.record(
                 project_folder, final, kind=_versions.KIND_REDO,
@@ -12981,6 +12993,7 @@ def _record_reel_versions(project_folder: str, rows_by_final: dict,
                 plan_moment=moments.get(final),
                 built_with=built_with.get(final) or None, redoes=redoes,
                 component_manifest=component_manifest,
+                resolve_timeline_id=resolve_timeline_id, author="ren",
                 promotion_transaction_id=transaction_id)
             _versions.mark_redone(project_folder, final, redoes,
                                   entry["version"])
@@ -12992,6 +13005,7 @@ def _record_reel_versions(project_folder: str, rows_by_final: dict,
                 plan_moment=moments.get(final),
                 built_with=built_with.get(final) or None, undoes=undoes,
                 component_manifest=component_manifest,
+                resolve_timeline_id=resolve_timeline_id, author="ren",
                 promotion_transaction_id=transaction_id)
             _versions.mark_undone(project_folder, final, undoes,
                                   entry["version"])
@@ -13005,6 +13019,7 @@ def _record_reel_versions(project_folder: str, rows_by_final: dict,
                 plan_moment=moments.get(final),
                 built_with=built_with.get(final) or None,
                 component_manifest=component_manifest,
+                resolve_timeline_id=resolve_timeline_id, author="ren",
                 promotion_transaction_id=transaction_id)
         # The promotion half of the per-reel edit history
         # (`library/tools/reel_edit_history.py`): the build entry was
@@ -14523,7 +14538,12 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             revision_ids={final: stamped_round["reels"][final]["revision_id"]
                           for final in ok_finals
                           if final in (stamped_round.get("reels") or {})},
-            transaction_id=transaction_id)
+            transaction_id=transaction_id,
+            timeline_ids={
+                str(record.get("final") or ""): str(
+                    (record.get("candidate") or {}).get("id") or "")
+                for record in (candidate_lifecycle_records or ())
+                if record.get("final")})
     except Exception as record_failed:  # noqa: BLE001
         raise PromotionFailure(
             f"REFUSING to report this promotion: the reels above are "

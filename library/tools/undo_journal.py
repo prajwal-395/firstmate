@@ -2374,6 +2374,38 @@ def open_entry(project_folder, *, final: str, reel: int,
     return entry
 
 
+def _recorded_timeline_id(project_folder: str, final: str) -> str:
+    """The Resolve identity of the reel's last recorded generation.
+
+    VC-001: the durable identity the version ledger holds, which is how
+    a generation that no live timeline object is in hand still gets its
+    Resolve identity. Empty when the ledger holds none.
+    """
+    from library.tools import generation_identity
+
+    try:
+        identity = generation_identity.current_generation(
+            project_folder, final)
+    except Exception:  # noqa: BLE001 - an unread ledger holds no identity
+        return ""
+    return identity.resolve_timeline_id if identity else ""
+
+
+def _timeline_identity(timeline: Any) -> str:
+    """The Resolve timeline identity of a live timeline, or "".
+
+    The unique id a timeline keeps across a rename and that two
+    timelines sharing a name never share (VC-001). A timeline that
+    cannot answer carries none: absent evidence, never an invented id.
+    """
+    if timeline is None:
+        return ""
+    try:
+        return str(timeline.GetUniqueId() or "")
+    except Exception:  # noqa: BLE001 - a timeline that cannot answer
+        return ""
+
+
 def close_entry(project_folder, entry: dict, *, after_timeline: Any,
                 rows: Mapping, project=None,
                 preservation_snapshot: Mapping | None = None) -> dict:
@@ -2439,6 +2471,8 @@ def close_entry(project_folder, entry: dict, *, after_timeline: Any,
         axi_transaction_id=(entry.get("spec") or {}).get("transaction_id"),
         component_manifest=component_manifest,
         revision_id=entry.get("revision_id"),
+        resolve_timeline_id=_timeline_identity(after_timeline),
+        author="ren",
         **({"accepted": accepted_after} if accepted_after else {}),
         intent=(entry.get("accepted_edit") or {}).get("intent") or "touch-up",
         operations=[dict(operation)
@@ -3439,6 +3473,8 @@ def _undo_touch_connected(project_folder, entry, connect,
                                    kind=reel_versions.KIND_UNDO, rows=rows,
                                    undoes=entry.get("version"),
                                    journal=entry["id"],
+                                   resolve_timeline_id=_timeline_identity(live),
+                                   author="ren",
                                    axi_transaction_id=(entry.get("spec") or {}).get(
                                        "transaction_id"),
                                    **({"accepted": accepted_undo}
@@ -3729,6 +3765,7 @@ def _rollback_from_verified_archive(project_folder: str, final: str,
         project_folder, final, kind=reel_versions.KIND_ROLLBACK,
         rows=target["rows"], undoes=int(act["version"]),
         recovery_archive=dict(receipt),
+        resolve_timeline_id=normalized["timeline_id"], author="ren",
         preservation_verified=bool(preservation["verified"]),
         preservation_note=str(preservation.get("reason") or ""),
         restored_from_timeline_id=normalized["timeline_id"])
@@ -4274,6 +4311,7 @@ def restore_version(project_folder: str, final: str, version: int, *,
         project_folder, final, kind=reel_versions.KIND_ROLLBACK,
         rows=target.get("rows") or {}, undoes=int(current["version"]),
         recovery_archive=dict(receipt),
+        resolve_timeline_id=normalized["timeline_id"], author="ren",
         preservation_verified=bool(preservation["verified"]),
         preservation_note=str(preservation.get("reason") or ""),
         restored_from_timeline_id=normalized["timeline_id"])
@@ -4403,6 +4441,8 @@ def redo_touch(project_folder: str, entry_id: str, *, connect=None,
     version = reel_versions.record(
         project_folder, entry["final"], kind=reel_versions.KIND_REDO,
         rows=rows, redoes=undo_version, journal=entry["id"],
+        resolve_timeline_id=_recorded_timeline_id(
+            project_folder, entry["final"]), author="ren",
         axi_transaction_id=(entry.get("spec") or {}).get(
             "transaction_id"),
         **({"accepted": accepted_redo} if accepted_redo else {}))

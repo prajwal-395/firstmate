@@ -148,6 +148,27 @@ def _resolve_project_name(project_folder: str) -> str:
     return name
 
 
+def _reel_timeline_id(project_folder: str, project_name: str,
+                      reel: str) -> str:
+    """The reel's Resolve timeline identity, or "" when it is not known.
+
+    VC-001: the request names the timeline by its IDENTITY, so a name
+    that two live timelines share cannot redirect the write. An
+    identity that cannot be resolved is carried as absent: the
+    downstream resolution then refuses by name, which is what it did
+    before, and says why.
+    """
+    if not project_folder or not reel:
+        return ""
+    from library.tools import generation_identity
+
+    try:
+        return generation_identity.resolve_timeline_id(
+            project_folder, project_name, reel)
+    except Exception:  # noqa: BLE001 - absent, and the caller refuses
+        return ""
+
+
 # ── The durable record ──────────────────────────────────────────────
 
 
@@ -466,13 +487,17 @@ def _missing_targets(operations: Sequence[dict], snapshot: Mapping) -> list[str]
 
 
 def _compile_revision_program(program: dict, *, project: str, reel: str,
-                              record: dict):
+                              record: dict, project_folder: str = ""):
     """Approve and compile this revision's atomic program with its provenance.
 
     The editor's note is the evidence that authorizes the requested change.
     A clip target, when present, scopes the read-back criterion to its subject.
     Each operation gets a read-back criterion tied to its own target and
     declared postconditions, so approval cannot erase the reason for the edit.
+
+    VC-001: the request carries the reel's RESOLVE TIMELINE IDENTITY, so
+    the write is addressed to a timeline and not to a name that two live
+    timelines may share.
     """
     from library.tools import editorial_decisions
 
@@ -511,6 +536,7 @@ def _compile_revision_program(program: dict, *, project: str, reel: str,
                                                decisions=approved)
     request = editorial_decisions.compile_to_edit_request(
         graph, project=project, timeline=reel,
+        timeline_id=_reel_timeline_id(project_folder, project, reel),
         request_id=str(program.get("id") or record.get("revise_id") or ""),
         idempotency_key=str(program.get("idempotency_key")
                             or program.get("id")
@@ -649,18 +675,28 @@ def _intervening(project: str, reel: str, revise_id: str, base: int,
 
 
 def _recorded_reel(project: str, reel: str):
-    """`(head generation, snapshot)` of the reel, or a refusal saying why."""
-    from library.tools import edit_spec, timeline_shadow
+    """`(head generation, snapshot)` of the reel, or a refusal saying why.
+
+    The reel is named by its IDENTITY, not by its name
+    (`library/tools/generation_identity.py`, VC-001): the identity the
+    project's own records hold for the reel's current generation, then
+    the journal, and the shadow last. Resolving by the name alone is
+    what let a name shared by two live timelines block the write
+    before its first write.
+    """
+    from library.tools import edit_spec, generation_identity, timeline_shadow
 
     try:
         project_name = edit_spec._resolve_project_name(project)
         store = timeline_shadow.ShadowStore()
-        head = store.head(project_name,
-                          store.resolve_timeline(project_name, reel))
+        timeline_id = generation_identity.resolve_timeline_id(
+            project, project_name, reel)
+        head = store.head(project_name, timeline_id)
         if head is None:
             raise timeline_shadow.ShadowError(f"no generation of {reel!r}")
         return head, store.snapshot(head)
-    except (edit_spec.EditSpecError, timeline_shadow.ShadowError) as exc:
+    except (edit_spec.EditSpecError, timeline_shadow.ShadowError,
+            generation_identity.GenerationRefused) as exc:
         raise ReviseRefused(
             f"the reel {reel!r} has no recorded generation to patch",
             f"a patch names items of the reel as it was last read ({exc})",
@@ -843,7 +879,7 @@ def _patch(project: str, record: dict, spec: dict, verdict: dict,
     change = region_summary(reel, snapshot, operations)
     request = _compile_revision_program(
         program, project=_resolve_project_name(project), reel=reel,
-        record=record)
+        record=record, project_folder=project)
     record["assignment_id"] = spine.attach_revision(
         project, reel, request=record["note"],
         assignment_id=record.get("requested_assignment_id", "")
@@ -1438,7 +1474,7 @@ def advance(project, revise_id: str, *, answer: str = "",
                      or record["reel"])
             _request = _compile_revision_program(
                 spec["program"], project=_resolve_project_name(project),
-                reel=_reel, record=record)
+                reel=_reel, record=record, project_folder=project)
             record["edit_request"] = _request.to_dict()
             record["preparation"] = resolve_axi_core.prepare_edit_request(
                 _request)

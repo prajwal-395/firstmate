@@ -151,7 +151,8 @@ class PreparationResult:
 def _read_base_snapshot(project_folder: str | None,
                         stored: Mapping[str, Any] | None,
                         project: str, timeline: str,
-                        base_generation: int | None
+                        base_generation: int | None,
+                        timeline_id: str = ""
                         ) -> tuple[dict | None, int | None, list[str]]:
     """The snapshot the request is planned against, with its generation."""
     assumptions: list[str] = []
@@ -173,7 +174,12 @@ def _read_base_snapshot(project_folder: str | None,
             f"({exc})") from exc
     store = timeline_shadow.ShadowStore()
     try:
-        timeline_id = store.resolve_timeline(project_name, timeline)
+        # VC-001: the request's own RESOLVE IDENTITY picks the timeline
+        # when it carries one; the name is an assertion about it. A
+        # request without an identity resolves by name, and the shadow
+        # still refuses when two of its timelines share that name.
+        timeline_id = timeline_id or store.resolve_timeline(
+            project_name, timeline)
     except Exception as exc:
         raise PreparationRefused(
             f"timeline {timeline!r} has no recorded identity "
@@ -759,7 +765,7 @@ def prepare(request: EditRequest | Mapping[str, Any], *,
         base_generation = request.expected_base_generation
     base, generation, assumptions = _read_base_snapshot(
         project_folder, base_snapshot, request.project, request.timeline,
-        base_generation)
+        base_generation, str(request.timeline_id or ""))
     model, model_notes = _read_model_revision(project_folder,
                                                model_revision
                                                if model_revision is not None

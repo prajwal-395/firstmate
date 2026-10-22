@@ -322,6 +322,7 @@ def _adopt(project_folder: str, project, resolve, timeline_name: str, *,
         intent="external hand edit",
         operations=[{"kind": "external_hand_edit"}],
         timeline_id=unique_id,
+        resolve_timeline_id=str(unique_id or ""),
         adopted=True,
         **({"accepted": accepted} if accepted else {}),
         recovery_archive=receipt)

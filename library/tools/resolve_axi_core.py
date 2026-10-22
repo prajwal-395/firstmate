@@ -1793,6 +1793,38 @@ def _feasibility_of(request, compiled, snapshot, route_context):
     return plan_feasibility.assess(compiled.operations, state=state)
 
 
+def _recorded_base(store, project_key: str, request):
+    """The recorded base a request is planned against.
+
+    VC-001: the request names its timeline by the RESOLVE IDENTITY
+    (``timeline_id``) whenever it carries one, and the human-readable
+    name is then an ASSERTION about that timeline rather than the only
+    way to reach it. A name two live timelines share therefore stops
+    blocking a write: the identity says which one the request means.
+
+    A request without an identity keeps the old resolution, and it
+    still refuses when the name is ambiguous - the engine will not pick
+    one of two live timelines.
+    """
+    snapshots = store.current_snapshots(project_key)
+    timeline_id = str(getattr(request, "timeline_id", "") or "")
+    if timeline_id:
+        by_identity = [(generation, snapshot) for generation, snapshot
+                       in snapshots if generation.timeline_id == timeline_id]
+        if not by_identity:
+            raise ValueError(
+                f"the request names timeline {timeline_id!r}, which holds "
+                f"no recorded generation in {project_key!r}")
+        return by_identity[0]
+    candidates = [(generation, snapshot) for generation, snapshot
+                  in snapshots if generation.timeline_name == request.timeline]
+    if len(candidates) != 1:
+        raise ValueError(
+            f"recorded base for {project_key!r}/{request.timeline!r} "
+            f"resolved to {len(candidates)} timelines")
+    return candidates[0]
+
+
 def _prepare_request_plan(request, *, resolve=None):
     """Validate an edit request against its recorded base.
 
@@ -1816,16 +1848,7 @@ def _prepare_request_plan(request, *, resolve=None):
         request = EditRequest.from_dict(request)
     store = timeline_shadow.ShadowStore()
     project_key = _shadow_project_key(request.project)
-    candidates = [
-        (generation, snapshot)
-        for generation, snapshot in store.current_snapshots(project_key)
-        if generation.timeline_name == request.timeline
-    ]
-    if len(candidates) != 1:
-        raise ValueError(
-            f"recorded base for {project_key!r}/{request.timeline!r} "
-            f"resolved to {len(candidates)} timelines")
-    generation, snapshot = candidates[0]
+    generation, snapshot = _recorded_base(store, project_key, request)
     if (request.expected_base_generation is not None
             and generation.generation != request.expected_base_generation):
         raise ValueError(
