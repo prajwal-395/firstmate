@@ -4,13 +4,57 @@ from __future__ import annotations
 
 import argparse
 import json
+from datetime import date
 from pathlib import Path
 from typing import Any
-from datetime import date
 
+from library.tools import model_admission
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DATABASE = ROOT / "data" / "model_watch" / "candidates.json"
+
+_IMPLEMENTATIONS: list[dict[str, Any]] | None = None
+
+
+def _registry_implementations() -> list[dict[str, Any]]:
+    """The registry's implementations, read once per process."""
+    global _IMPLEMENTATIONS
+    if _IMPLEMENTATIONS is None:
+        from library.tools import model_registry
+
+        _IMPLEMENTATIONS = model_registry.load_registry().get("implementations", [])
+    return _IMPLEMENTATIONS
+
+
+def registry_admission(implementation_id: str | None) -> dict[str, Any] | None:
+    """The admission record of the registry implementation a candidate names."""
+    if not implementation_id:
+        return None
+    for item in _registry_implementations():
+        if item.get("id") == implementation_id:
+            return item.get("admission")
+    return None
+
+
+def admission_record(candidate: dict[str, Any]) -> dict[str, Any] | None:
+    """A candidate's own admission record, or the registry row it inherits.
+
+    A candidate that IS a registered implementation inherits that
+    implementation's record: the watchlist is a lead list, and the registry
+    is where a model's licence, size and required gain are recorded.
+    """
+    record = candidate.get("admission")
+    if record is None:
+        record = registry_admission(candidate.get("registry_implementation"))
+    return record
+
+
+def admission_missing(candidate: dict[str, Any]) -> list[str]:
+    """Name every field this candidate's admission record still lacks."""
+    record = admission_record(candidate)
+    if record is None:
+        return list(model_admission.REQUIRED_FIELDS)
+    return model_admission.missing_fields({"id": candidate["id"], "admission": record})
 
 
 def load_database(path: Path = DEFAULT_DATABASE) -> dict[str, Any]:
@@ -34,6 +78,15 @@ def load_database(path: Path = DEFAULT_DATABASE) -> dict[str, Any]:
             raise ValueError(f"{candidate['id']}: invalid performance status")
         if candidate["decision"]["status"] not in {"watch", "candidate", "rejected", "adopted"}:
             raise ValueError(f"{candidate['id']}: invalid decision status")
+        # A candidate is a LEAD. It becomes part of Ren only by being
+        # admitted, and admission needs a complete record: the licence, the
+        # commercial use, the size and the measured gain it must show.
+        if candidate["decision"]["status"] == "adopted":
+            missing = admission_missing(candidate)
+            if missing:
+                raise ValueError(
+                    f"{candidate['id']}: an adopted candidate needs a complete "
+                    f"admission record (missing {', '.join(missing)})")
     return data
 
 
@@ -72,7 +125,10 @@ def main() -> None:
     else:
         print(heading)
         for candidate in candidates:
-            print(f"{candidate['id']}\t{candidate['name']}\t{candidate['capability']}\t{candidate['decision']['status']}")
+            missing = admission_missing(candidate)
+            admission = "record" if not missing else "no record: " + ", ".join(missing)
+            print(f"{candidate['id']}\t{candidate['name']}\t{candidate['capability']}\t"
+                  f"{candidate['decision']['status']}\t{admission}")
         print(f"{len(candidates)} candidate(s)")
 
 

@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from library.tools import model_admission
 from ren import edition
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -94,6 +95,16 @@ def validate_registry(registry: dict[str, Any]) -> None:
             if not user_license.get("license_name") or not user_license.get("entitlement_env"):
                 raise ModelRegistryError(
                     f"{implementation.get('id')}: user license slot must name its license and entitlement variable")
+        # An optional model is admitted only with a complete record: its
+        # licence, its commercial use, the size of the weights it downloads
+        # and the measured gain it must show. A record that is malformed is
+        # refused here; a record that is MISSING is refused by the gate, at
+        # the point the model would be loaded.
+        if implementation.get("admission") is not None:
+            try:
+                model_admission.validate_record(implementation)
+            except model_admission.AdmissionRecordError as exc:
+                raise ModelRegistryError(str(exc)) from exc
 
 
 def _authorized(
@@ -311,6 +322,9 @@ def _ineligible_reason(
     slot = implementation.get("user_license")
     if slot is not None and entitlement_authorizes(implementation, user_licenses) is None:
         return f"a user-supplied {slot['license_name']} license is required"
+    missing = model_admission.missing_fields(implementation)
+    if missing:
+        return f"admission record is missing {', '.join(missing)}"
     if implementation.get("qualification") != "qualified":
         return f"qualification is {implementation.get('qualification', 'unknown')}"
     metrics = implementation.get("qualification_metrics", {})
@@ -373,6 +387,10 @@ def require_implementation(
             f"cannot {action} model implementation {implementation_id!r}: "
             f"license/purpose {purpose!r} is not authorized "
             f"(status={item['license_evidence']['approval_status']})")
+    try:
+        model_admission.require_record(item, action=action)
+    except model_admission.AdmissionRecordError as exc:
+        raise ModelRegistryError(str(exc)) from exc
     return item
 
 
@@ -544,6 +562,13 @@ def ingest_license_records(
             })
             implementation["checkpoint"]["version"] = record["exact_revision"]
             implementation["license_evidence"]["approval_status"] = status
+            # The admission record states the licence and the commercial use
+            # of the model it admits. New evidence moves both, or the record
+            # would contradict the evidence it claims to summarise.
+            admission = implementation.get("admission")
+            if admission is not None:
+                admission["license"] = record["license"]
+                admission["commercial_use"] = model_admission.COMMERCIAL_USE_BY_APPROVAL[status]
             if status in {"unresolved", "rejected"}:
                 implementation["purposes"] = [
                     purpose for purpose in implementation["purposes"]

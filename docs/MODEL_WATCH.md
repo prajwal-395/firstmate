@@ -2,6 +2,14 @@
 
 `data/model_watch/candidates.json` is the candidate record store. `library.tools.model_watch` is a read-only reader and flagger. The seed includes all rows in section 15.2 of the 2026-10-15 model-upgrade punchlist, plus additional models and implementations named in its capability, license, and benchmark sections. It preserves rejected candidates and their reconsideration conditions.
 
+## The admission gate
+
+The watchlist is a queue for evaluation, not an admission list. A candidate becomes part of Ren by being **admitted**, and admission needs a complete record: the licence, the commercial use, the size of the weights, and the measured gain the model must show. `library.tools.model_admission` owns that record; `library/model_registry/registry.json` holds it for every registered implementation.
+
+A candidate that names a registered implementation inherits that implementation's record through `registry_implementation`, and the reader says so in its report. A candidate may not reach `decision.status: "adopted"` without one: `load_database` refuses it. Nothing here downloads, benchmarks or admits a candidate.
+
+See [`docs/MODEL_ADMISSION_GATE.md`](MODEL_ADMISSION_GATE.md).
+
 ## Read and triage
 
 From the repository root:

@@ -234,6 +234,9 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/caption_reading.py",
         "library/tools/single_track_diarization.py",
         "library/tools/model_registry.py",
+        # The registry gates every optional model on its admission
+        # record, so a fix to the gate changes what may be loaded.
+        "library/tools/model_admission.py",
         "library/tools/evidence_license.py",
         # Diarization's default implementation is selected and its model
         # output reuse terms are checked through these registry readers.
@@ -940,6 +943,9 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/caption_reading.py",
         "library/tools/single_track_diarization.py",
         "library/tools/model_registry.py",
+        # The registry gates every optional model on its admission
+        # record, so a fix to the gate changes what may be loaded.
+        "library/tools/model_admission.py",
         "library/tools/evidence_license.py",
         # The diarization default and output reuse terms are resolved
         # through the model and evidence-license registries.
@@ -1736,6 +1742,9 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/caption_reading.py",
         "library/tools/single_track_diarization.py",
         "library/tools/model_registry.py",
+        # The registry gates every optional model on its admission
+        # record, so a fix to the gate changes what may be loaded.
+        "library/tools/model_admission.py",
         "library/tools/evidence_license.py",
         # Diarization routes through the model registry and emits
         # registry-derived license obligations with reusable outputs.
@@ -2422,6 +2431,9 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/caption_reading.py",
         "library/tools/single_track_diarization.py",
         "library/tools/model_registry.py",
+        # The registry gates every optional model on its admission
+        # record, so a fix to the gate changes what may be loaded.
+        "library/tools/model_admission.py",
         "library/tools/evidence_license.py",
         "library/tools/transcript_confidence.py",
         "library/tools/transcript_corrections.py",
@@ -3142,6 +3154,9 @@ STEP_IMPLEMENTATION_DEPS = {
         # which speaker and voice embedding the cached segments carry.
         "library/tools/single_track_diarization.py",
         "library/tools/model_registry.py",
+        # The registry gates every optional model on its admission
+        # record, so a fix to the gate changes what may be loaded.
+        "library/tools/model_admission.py",
         "library/tools/evidence_license.py",
         # The executed sound-event measurement: PANNs AudioSet spans
         # per clip, so a fix here changes the cached sound_events.

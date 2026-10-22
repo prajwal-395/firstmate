@@ -1184,6 +1184,7 @@
         "https://github.com/FluidInference/FluidAudio/blob/main/Documentation/Diarization/GettingStarted.md"
       ],
       "capability_mapping": "ANE speech and diarization; compare selected backend with current diarization and transcription.",
+      "registry_implementation": "sortformer.offline_coreml",
       "priority": "P0",
       "decision": {
         "status": "candidate",
@@ -2096,6 +2097,7 @@
         "https://huggingface.co/google"
       ],
       "capability_mapping": "Incumbent semantic VLM; preserve as comparison baseline.",
+      "registry_implementation": "gemma.vision_4_12b_it_4bit",
       "priority": "P0",
       "decision": {
         "status": "candidate",
@@ -2144,6 +2146,7 @@
         "https://github.com/openai/CLIP"
       ],
       "capability_mapping": "Existing visual retrieval baseline; primary comparison for PE Core and WeMM.",
+      "registry_implementation": "clip.openai_vit_large_patch14",
       "priority": "P0",
       "decision": {
         "status": "candidate",
@@ -2245,6 +2248,7 @@
         "https://huggingface.co/models?search=MiniLM"
       ],
       "capability_mapping": "Existing efficient text retrieval baseline; preserve as speed comparator.",
+      "registry_implementation": "minilm.all_minilm_l6_v2",
       "priority": "P0",
       "decision": {
         "status": "candidate",
@@ -2293,6 +2297,7 @@
         "https://github.com/facebookresearch/sam2"
       ],
       "capability_mapping": "Current tracking baseline; compare MLX and EdgeTAM alternatives on calibration and held-out material.",
+      "registry_implementation": "sam2.1_hiera_small",
       "priority": "P0",
       "decision": {
         "status": "candidate",
@@ -2512,6 +2517,7 @@
         "https://github.com/Rikorose/DeepFilterNet"
       ],
       "capability_mapping": "Existing enhancement baseline for targeted audio cleanup.",
+      "registry_implementation": "deepfilternet.v0_5_6",
       "priority": "P1",
       "decision": {
         "status": "candidate",
@@ -2596,6 +2602,7 @@
         "https://github.com/qiuqiangkong/audioset_tagging_cnn"
       ],
       "capability_mapping": "Existing audio event reference for comparison with timed/open-vocabulary sound models.",
+      "registry_implementation": "panns.cnn14_decision_max",
       "priority": "P2",
       "decision": {
         "status": "candidate",
@@ -2819,6 +2826,7 @@
         "https://github.com/IDEA-Research/GroundingDINO"
       ],
       "capability_mapping": "Current alternative for grounding and detection; compare with OWLv2 and new candidates.",
+      "registry_implementation": "grounding_dino.tiny",
       "priority": "P1",
       "decision": {
         "status": "candidate",
@@ -2868,6 +2876,7 @@
         "https://huggingface.co/google/owlv2-base-patch16-ensemble"
       ],
       "capability_mapping": "Incumbent open-vocabulary detection baseline; compare against RF-DETR and SAM text detection.",
+      "registry_implementation": "owlv2.base_patch16",
       "priority": "P0",
       "decision": {
         "status": "candidate",

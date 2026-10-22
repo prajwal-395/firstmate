@@ -112,6 +112,39 @@
         "license_evidence_ref": "implementations.ecapa.speechbrain_voxceleb.license_evidence",
         "review_required": false,
         "review_note": null
+      },
+      "admission": {
+        "license": "Apache-2.0 recipe; CC-BY-4.0 VoxCeleb training data",
+        "commercial_use": "conditional",
+        "size": {
+          "parts": [
+            {
+              "source": "https://huggingface.co/api/models/speechbrain/spkrec-ecapa-voxceleb/revision/0f99f2d0ebe89ac095bcc5903c4dd8f72b367286?blobs=true",
+              "method": "hub_api_blobs",
+              "files": [
+                "embedding_model.ckpt",
+                "classifier.ckpt"
+              ],
+              "bytes": 88851014
+            }
+          ],
+          "bytes": 88851014,
+          "basis": "runtime_weights"
+        },
+        "required_gain": {
+          "metric": "diarization_precision",
+          "unit": "ratio",
+          "split": "held_out_seed_22",
+          "direction": "higher_is_better",
+          "incumbent": "sortformer.offline_coreml",
+          "incumbent_value": null,
+          "measured_value": 0.42,
+          "comparison": "establish_baseline",
+          "threshold": null,
+          "basis": "The single-track ECAPA arm measured precision 0.42 and recall 0.36 on the constructed podcast overlap at held-out seed 22, and did not ship; that overlap is a construction, not natural noise. The shipped Sortformer arm has no comparable number, so both arms must be scored on one fixture before either is admitted.",
+          "fixture": "docs/benchmarks/2026-10-16-model-upgrade-baseline.md",
+          "evidence": "library/tools/speech_eval.py"
+        }
       }
     },
     {
@@ -210,6 +243,41 @@
         "license_evidence_ref": "implementations.sortformer.offline_coreml.license_evidence",
         "review_required": true,
         "review_note": "Retain FluidInference/NVIDIA attribution, mark the local 6-bit palettization, and satisfy the NVIDIA Open Model License. FluidAudio Apache-2.0 applies when its runtime is distributed."
+      },
+      "admission": {
+        "license": "CC-BY-4.0 for published CoreML conversion (Hub model card); Apache-2.0 for FluidAudio conversion/runtime source. The locally palettized derivative carries the upstream model terms.",
+        "commercial_use": "conditional",
+        "size": {
+          "parts": [
+            {
+              "source": "https://huggingface.co/api/models/FluidInference/diar-streaming-sortformer-coreml/tree/ae9a27ab45dc0aa3abede7d2d6bad2b7a69aa6d1/v3/palettized/SortformerOffline_v2.1.mlmodelc?recursive=true",
+              "method": "hub_api_tree",
+              "files": [
+                "v3/palettized/SortformerOffline_v2.1.mlmodelc/analytics/coremldata.bin",
+                "v3/palettized/SortformerOffline_v2.1.mlmodelc/coremldata.bin",
+                "v3/palettized/SortformerOffline_v2.1.mlmodelc/model.mil",
+                "v3/palettized/SortformerOffline_v2.1.mlmodelc/weights/weight.bin"
+              ],
+              "bytes": 92234785
+            }
+          ],
+          "bytes": 92234785,
+          "basis": "runtime_weights"
+        },
+        "required_gain": {
+          "metric": "diarization_precision",
+          "unit": "ratio",
+          "split": "held_out",
+          "direction": "higher_is_better",
+          "incumbent": "sortformer.offline_coreml",
+          "incumbent_value": null,
+          "measured_value": null,
+          "comparison": "establish_baseline",
+          "threshold": null,
+          "basis": "The registry marks this route qualified, but no diarization score is recorded against a Ren fixture. The qualification lane must record one before the route counts as measured rather than merely licensed.",
+          "fixture": "docs/benchmarks/2026-10-15-asr-alternatives.md",
+          "evidence": "library/tools/speech_eval.py"
+        }
       }
     },
     {
@@ -303,6 +371,38 @@
         "license_evidence_ref": "license_evidence.primary_evidence:panns_weights",
         "review_required": false,
         "review_note": null
+      },
+      "admission": {
+        "license": "CC BY 4.0",
+        "commercial_use": "conditional",
+        "size": {
+          "parts": [
+            {
+              "source": "https://zenodo.org/api/records/3987831",
+              "method": "zenodo_record_files",
+              "files": [
+                "Cnn14_DecisionLevelMax_mAP=0.385.pth"
+              ],
+              "bytes": 327428481
+            }
+          ],
+          "bytes": 327428481,
+          "basis": "runtime_weights"
+        },
+        "required_gain": {
+          "metric": "event_label_f1",
+          "unit": "ratio",
+          "split": "calibration",
+          "direction": "higher_is_better",
+          "incumbent": "ast.audioset",
+          "incumbent_value": null,
+          "measured_value": null,
+          "comparison": "establish_baseline",
+          "threshold": null,
+          "basis": "The publisher's mAP 0.385 is not a Ren measurement. AUD-052 reproduces the PANNs baseline on the synthetic sound-event fixtures, and that reproduction is the number admission needs, scored beside the AST arm on the same fixtures.",
+          "fixture": "library/tools/analysis/sound_event_fixtures.py",
+          "evidence": "docs/benchmarks/sound_event_bench.py"
+        }
       }
     },
     {
@@ -368,6 +468,54 @@
         "license_evidence_ref": "implementations.mfa.english_us_arpa.license_evidence",
         "review_required": false,
         "review_note": null
+      },
+      "admission": {
+        "license": "CC-BY-4.0 models; MIT aligner",
+        "commercial_use": "permitted",
+        "size": {
+          "parts": [
+            {
+              "source": "https://api.github.com/repos/MontrealCorpusTools/mfa-models/releases/tags/acoustic-english_us_arpa-v3.0.0",
+              "method": "github_release_asset",
+              "files": [
+                "english_us_arpa.zip"
+              ],
+              "bytes": 91928208
+            },
+            {
+              "source": "https://api.github.com/repos/MontrealCorpusTools/mfa-models/releases/tags/dictionary-english_us_arpa-v3.0.0",
+              "method": "github_release_asset",
+              "files": [
+                "english_us_arpa.dict"
+              ],
+              "bytes": 7186498
+            },
+            {
+              "source": "https://api.github.com/repos/MontrealCorpusTools/mfa-models/releases/tags/g2p-english_us_arpa-v2.0.0a",
+              "method": "github_release_asset",
+              "files": [
+                "english_us_arpa.zip"
+              ],
+              "bytes": 11094999
+            }
+          ],
+          "bytes": 110209705,
+          "basis": "runtime_weights"
+        },
+        "required_gain": {
+          "metric": "alignment_boundary_error",
+          "unit": "seconds",
+          "split": "reviewed_spans",
+          "direction": "lower_is_better",
+          "incumbent": "mfa.english_us_arpa",
+          "incumbent_value": null,
+          "measured_value": null,
+          "comparison": "establish_baseline",
+          "threshold": null,
+          "basis": "MFA is the only production aligner. The comparison that adopted it measured speed and timing agreement, not an accuracy win, so no boundary-error floor exists yet; admission needs one measured against the reviewed spans.",
+          "fixture": "docs/MFA_ADOPTION_VERIFIED.md",
+          "evidence": "library/tools/speech_eval.py"
+        }
       }
     },
     {
@@ -472,6 +620,39 @@
         "license_evidence_ref": "license_evidence.primary_evidence:gemma4",
         "review_required": false,
         "review_note": null
+      },
+      "admission": {
+        "license": "Apache-2.0 on Google HF",
+        "commercial_use": "unresolved",
+        "size": {
+          "parts": [
+            {
+              "source": "https://huggingface.co/api/models/mlx-community/gemma-4-12b-it-4bit/revision/73bcf09092aa277861d5a191b989b666f7f32e8f?blobs=true",
+              "method": "hub_api_blobs",
+              "files": [
+                "model-00001-of-00002.safetensors",
+                "model-00002-of-00002.safetensors"
+              ],
+              "bytes": 6741039511
+            }
+          ],
+          "bytes": 6741039511,
+          "basis": "runtime_weights"
+        },
+        "required_gain": {
+          "metric": "description_validity",
+          "unit": "ratio",
+          "split": "held_out",
+          "direction": "higher_is_better",
+          "incumbent": "gemma.vision_4_12b_it_4bit",
+          "incumbent_value": null,
+          "measured_value": null,
+          "comparison": "establish_baseline",
+          "threshold": null,
+          "basis": "The cached EVAL-08 probe measured parseability - 3 calls, 12 section outputs - and no usefulness. Admission needs a scored description comparison, not a parse rate.",
+          "fixture": "docs/benchmarks/2026-10-15-vlm-task-audit.md",
+          "evidence": "docs/benchmarks/semantic_vlm_probe.py"
+        }
       }
     },
     {
@@ -516,11 +697,11 @@
           "conditions": "Artifact revision is mutable or not pinned unless exact_revision says otherwise. This is a scout assessment, not legal advice. Check base models, adapters, tokenizer, training data terms, conversion rights, and license-file consistency before packaging. Current Ren loader has no immutable revision; exact_revision is the audit snapshot only, not a runtime pin. library/tools/frame_ranker.py:95; library/tools/analysis/footage_frames.py:164-165.",
           "status": "unresolved",
           "evidence_quotes": [
-            "The CLIP model was developed by researchers at OpenAI to learn about what contributes to robustness in computer vision tasks. The model was also developed to test the ability of models to generalize to arbitrary image classification tasks in a zero-shot manner. It was not developed for general model deployment - to deploy models like CLIP, researchers will first need to carefully study their capabilities in relation to the specific context they\u2019re being deployed within.",
+            "The CLIP model was developed by researchers at OpenAI to learn about what contributes to robustness in computer vision tasks. The model was also developed to test the ability of models to generalize to arbitrary image classification tasks in a zero-shot manner. It was not developed for general model deployment - to deploy models like CLIP, researchers will first need to carefully study their capabilities in relation to the specific context they’re being deployed within.",
             "The model is intended as a research output for research communities. We hope that this model will enable researchers to better understand and explore zero-shot, arbitrary image classification. We also hope it can be used for interdisciplinary studies of the potential impact of such models - the CLIP paper includes a discussion of potential downstream impacts to provide an example for this sort of analysis.",
             "The primary intended users of these models are AI researchers.",
             "We primarily imagine the model will be used by researchers to better understand robustness, generalization, and other capabilities, biases, and constraints of computer vision models.",
-            "**Any** deployed use case of the model - whether commercial or not - is currently out of scope. Non-deployed use cases such as image search in a constrained environment, are also not recommended unless there is thorough in-domain testing of the model with a specific, fixed class taxonomy. This is because our safety assessment demonstrated a high need for task specific testing especially given the variability of CLIP\u2019s performance with different class taxonomies. This makes untested and unconstrained deployment of the model in any use case currently potentially harmful."
+            "**Any** deployed use case of the model - whether commercial or not - is currently out of scope. Non-deployed use cases such as image search in a constrained environment, are also not recommended unless there is thorough in-domain testing of the model with a specific, fixed class taxonomy. This is because our safety assessment demonstrated a high need for task specific testing especially given the variability of CLIP’s performance with different class taxonomies. This makes untested and unconstrained deployment of the model in any use case currently potentially harmful."
           ],
           "evidence_sources": [
             "https://huggingface.co/openai/clip-vit-large-patch14/tree/32bd64288804d66eefd0ccbe215aa642df71cc41"
@@ -582,6 +763,38 @@
         "license_evidence_ref": "license_evidence.primary_evidence:clip",
         "review_required": false,
         "review_note": null
+      },
+      "admission": {
+        "license": "MIT per OpenAI repository",
+        "commercial_use": "unresolved",
+        "size": {
+          "parts": [
+            {
+              "source": "https://huggingface.co/api/models/openai/clip-vit-large-patch14/revision/32bd64288804d66eefd0ccbe215aa642df71cc41?blobs=true",
+              "method": "hub_api_blobs",
+              "files": [
+                "model.safetensors"
+              ],
+              "bytes": 1710540580
+            }
+          ],
+          "bytes": 1710540580,
+          "basis": "runtime_weights"
+        },
+        "required_gain": {
+          "metric": "macro_recall",
+          "unit": "recall",
+          "split": "held_out_visual_8q",
+          "direction": "higher_is_better",
+          "incumbent": "clip.openai_vit_large_patch14",
+          "incumbent_value": 0.1473,
+          "measured_value": 0.1473,
+          "comparison": "no_regression",
+          "threshold": 0.1473,
+          "basis": "The frozen 8-query visual held-out set measured a present-query macro recall of 0.1473 (95% query-bootstrap CI 0.0-0.2945). The shipped frame embedder gains nothing over itself; admission asks only that it does not regress below the number already measured.",
+          "fixture": "docs/benchmarks/2026-10-16-model-upgrade-baseline.md",
+          "evidence": "library/tools/retrieval_eval.py"
+        }
       }
     },
     {
@@ -714,6 +927,38 @@
         "license_evidence_ref": "license_evidence.primary_evidence:minilm",
         "review_required": false,
         "review_note": null
+      },
+      "admission": {
+        "license": "apache-2.0",
+        "commercial_use": "conditional",
+        "size": {
+          "parts": [
+            {
+              "source": "https://huggingface.co/api/models/sentence-transformers/all-MiniLM-L6-v2/revision/1110a243fdf4706b3f48f1d95db1a4f5529b4d41?blobs=true",
+              "method": "hub_api_blobs",
+              "files": [
+                "model.safetensors"
+              ],
+              "bytes": 90868376
+            }
+          ],
+          "bytes": 90868376,
+          "basis": "runtime_weights"
+        },
+        "required_gain": {
+          "metric": "absent_subject_max_cosine",
+          "unit": "cosine",
+          "split": "calibration_001_409",
+          "direction": "lower_is_better",
+          "incumbent": "minilm.all_minilm_l6_v2",
+          "incumbent_value": 0.396,
+          "measured_value": 0.396,
+          "comparison": "no_regression",
+          "threshold": 0.396,
+          "basis": "Measured on 001, 409 segments with transformers+mean-pooling over all-MiniLM-L6-v2: the highest cosine for an absent subject was 0.396 and the dense floor is 0.40, which is what separates absent from present. A different text encoder does not inherit that floor; it earns its own measurement, and until then it must not score absent subjects above the band the incumbent holds.",
+          "fixture": "docs/FOOTAGE_INDEX_PROTOTYPE.md",
+          "evidence": "library/tools/analysis/footage_query.py"
+        }
       }
     },
     {
@@ -777,6 +1022,38 @@
         "license_evidence_ref": "implementations.laion.clap_htsat_unfused.license_evidence",
         "review_required": false,
         "review_note": null
+      },
+      "admission": {
+        "license": "Apache-2.0",
+        "commercial_use": "permitted",
+        "size": {
+          "parts": [
+            {
+              "source": "https://huggingface.co/api/models/laion/clap-htsat-unfused/revision/8fa0f1c6d0433df6e97c127f64b2a1d6c0dcda8a?blobs=true",
+              "method": "hub_api_blobs",
+              "files": [
+                "pytorch_model.bin"
+              ],
+              "bytes": 614525833
+            }
+          ],
+          "bytes": 614525833,
+          "basis": "runtime_weights"
+        },
+        "required_gain": {
+          "metric": "event_label_f1",
+          "unit": "ratio",
+          "split": "calibration",
+          "direction": "higher_is_better",
+          "incumbent": "ast.audioset",
+          "incumbent_value": null,
+          "measured_value": null,
+          "comparison": "establish_baseline",
+          "threshold": null,
+          "basis": "CLAP scores audio against text labels and has no Ren scorecard row on the sound-event fixtures. It must be scored there beside the AST arm before it can be compared with it.",
+          "fixture": "library/tools/analysis/sound_event_fixtures.py",
+          "evidence": "docs/benchmarks/sound_event_bench.py"
+        }
       }
     },
     {
@@ -886,6 +1163,38 @@
         "license_evidence_ref": "license_evidence.primary_evidence:audio_flamingo_next",
         "review_required": false,
         "review_note": null
+      },
+      "admission": {
+        "license": "other",
+        "commercial_use": "prohibited",
+        "size": {
+          "parts": [
+            {
+              "source": "https://huggingface.co/api/models/nvidia/audio-flamingo-next-captioner-hf/revision/62aa63a66927f04f8308620f8e4b65696d3ea0a6?blobs=true",
+              "method": "hub_api_blobs",
+              "files": [
+                "model.safetensors"
+              ],
+              "bytes": 16534531504
+            }
+          ],
+          "bytes": 16534531504,
+          "basis": "runtime_weights"
+        },
+        "required_gain": {
+          "metric": "caption_validity",
+          "unit": "ratio",
+          "split": "held_out",
+          "direction": "higher_is_better",
+          "incumbent": null,
+          "incumbent_value": null,
+          "measured_value": null,
+          "comparison": "establish_baseline",
+          "threshold": null,
+          "basis": "No Ren measurement of the audio captioner exists, and the NVIDIA OneWay Noncommercial license keeps it out of every client configuration. The record exists so the refusal has a stated reason rather than a bare prohibition.",
+          "fixture": "docs/benchmarks/sound_event_bench.py",
+          "evidence": "docs/benchmarks/sound_event_bench.py"
+        }
       }
     },
     {
@@ -974,6 +1283,38 @@
         "license_evidence_ref": "license_evidence.primary_evidence:insightface_buffalo_l",
         "review_required": false,
         "review_note": null
+      },
+      "admission": {
+        "license": "Non-commercial research only absent separate commercial license. Code MIT does not grant weights rights.",
+        "commercial_use": "prohibited",
+        "size": {
+          "parts": [
+            {
+              "source": "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip",
+              "method": "http_content_length",
+              "files": [
+                "buffalo_l.zip"
+              ],
+              "bytes": 288621354
+            }
+          ],
+          "bytes": 288621354,
+          "basis": "runtime_weights"
+        },
+        "required_gain": {
+          "metric": "identity_match_accuracy",
+          "unit": "ratio",
+          "split": "held_out",
+          "direction": "higher_is_better",
+          "incumbent": "insightface.buffalo_l",
+          "incumbent_value": null,
+          "measured_value": null,
+          "comparison": "establish_baseline",
+          "threshold": null,
+          "basis": "The face pack's identity accuracy on Ren's footage is not recorded; the scout measured its sex and age attributes as wrong and they are not used. The non-commercial research license keeps it out of client work regardless of the measurement.",
+          "fixture": "docs/benchmarks/2026-10-14-object-continuity-benchmark.md",
+          "evidence": "library/tools/person_entity.py"
+        }
       }
     },
     {
@@ -1062,6 +1403,38 @@
         "license_evidence_ref": "license_evidence.primary_evidence:deepfilternet",
         "review_required": false,
         "review_note": null
+      },
+      "admission": {
+        "license": "MIT OR Apache-2.0 per upstream",
+        "commercial_use": "unresolved",
+        "size": {
+          "parts": [
+            {
+              "source": "https://raw.githubusercontent.com/Rikorose/DeepFilterNet/v0.5.6/models/DeepFilterNet3.zip",
+              "method": "http_content_length",
+              "files": [
+                "DeepFilterNet3.zip"
+              ],
+              "bytes": 7986207
+            }
+          ],
+          "bytes": 7986207,
+          "basis": "runtime_weights"
+        },
+        "required_gain": {
+          "metric": "denoise_quality",
+          "unit": "ratio",
+          "split": "held_out",
+          "direction": "higher_is_better",
+          "incumbent": "deepfilternet.v0_5_6",
+          "incumbent_value": null,
+          "measured_value": null,
+          "comparison": "establish_baseline",
+          "threshold": null,
+          "basis": "The lane measured the binary's cost, not its quality. Admission needs a measured denoise score against the unprocessed audio on a Ren fixture before this filter is compared with anything.",
+          "fixture": "docs/benchmarks/2026-10-15-asr-alternatives.md",
+          "evidence": "library/tools/speech_eval.py"
+        }
       }
     },
     {
@@ -1157,6 +1530,38 @@
         "license_evidence_ref": "license_evidence.primary_evidence:ast_audio_labels",
         "review_required": false,
         "review_note": null
+      },
+      "admission": {
+        "license": "bsd-3-clause",
+        "commercial_use": "conditional",
+        "size": {
+          "parts": [
+            {
+              "source": "https://huggingface.co/api/models/MIT/ast-finetuned-audioset-10-10-0.4593/revision/f826b80d28226b62986cc218e5cec390b1096902?blobs=true",
+              "method": "hub_api_blobs",
+              "files": [
+                "model.safetensors"
+              ],
+              "bytes": 346404948
+            }
+          ],
+          "bytes": 346404948,
+          "basis": "runtime_weights"
+        },
+        "required_gain": {
+          "metric": "event_label_f1",
+          "unit": "ratio",
+          "split": "calibration",
+          "direction": "higher_is_better",
+          "incumbent": "panns.cnn14_decision_max",
+          "incumbent_value": null,
+          "measured_value": null,
+          "comparison": "establish_baseline",
+          "threshold": null,
+          "basis": "The publisher's mAP 0.459 is not a Ren measurement. AST and PANNs both serve audio label work and neither has a recorded scorecard row; both must be scored on the same synthetic fixtures before either is admitted.",
+          "fixture": "library/tools/analysis/sound_event_fixtures.py",
+          "evidence": "docs/benchmarks/sound_event_bench.py"
+        }
       }
     },
     {
@@ -1255,6 +1660,38 @@
         "license_evidence_ref": "license_evidence.primary_evidence:depth_v2_small",
         "review_required": false,
         "review_note": null
+      },
+      "admission": {
+        "license": "apache-2.0",
+        "commercial_use": "conditional",
+        "size": {
+          "parts": [
+            {
+              "source": "https://huggingface.co/api/models/depth-anything/Depth-Anything-V2-Small/revision/03876f8651c73a60fe4c2c48294e09fcb6838fcf?blobs=true",
+              "method": "hub_api_blobs",
+              "files": [
+                "depth_anything_v2_vits.pth"
+              ],
+              "bytes": 99218434
+            }
+          ],
+          "bytes": 99218434,
+          "basis": "runtime_weights"
+        },
+        "required_gain": {
+          "metric": "depth_ordinal_accuracy",
+          "unit": "ratio",
+          "split": "held_out",
+          "direction": "higher_is_better",
+          "incumbent": "depth_anything_v2.small",
+          "incumbent_value": null,
+          "measured_value": null,
+          "comparison": "establish_baseline",
+          "threshold": null,
+          "basis": "The depth lane measured cost (about 70 ms per frame on MPS), not accuracy. Admission needs a measured depth ordering score before a second depth estimator may be compared with this one.",
+          "fixture": "docs/benchmarks/2026-10-12-depth-on-demand.md",
+          "evidence": "library/tools/depth.py"
+        }
       }
     },
     {
@@ -1354,6 +1791,38 @@
         "license_evidence_ref": "license_evidence.primary_evidence:florence2",
         "review_required": false,
         "review_note": null
+      },
+      "admission": {
+        "license": "mit",
+        "commercial_use": "conditional",
+        "size": {
+          "parts": [
+            {
+              "source": "https://huggingface.co/api/models/microsoft/Florence-2-base/revision/5ca5edf5bd017b9919c05d08aebef5e4c7ac3bac?blobs=true",
+              "method": "hub_api_blobs",
+              "files": [
+                "model.safetensors"
+              ],
+              "bytes": 463221266
+            }
+          ],
+          "bytes": 463221266,
+          "basis": "runtime_weights"
+        },
+        "required_gain": {
+          "metric": "detection_recall_iou_0_5",
+          "unit": "recall",
+          "split": "sampled_frames_40",
+          "direction": "higher_is_better",
+          "incumbent": "owlv2.base_patch16",
+          "incumbent_value": 0.892,
+          "measured_value": null,
+          "comparison": "delta_over_incumbent",
+          "threshold": 0.0892,
+          "basis": "Florence-2 was NOT VIABLE in the bakeoff: its weights failed to load, which is not a zero. It has no measured recall at all, and it must first reach the incumbent's 0.892 and then beat it by at least 10% relative (0.0892 absolute) on the same 148 boxes.",
+          "fixture": "docs/benchmarks/object-detector-bakeoff-2026-10-13.md",
+          "evidence": "library/tools/analysis/open_vocabulary_detect.py"
+        }
       }
     },
     {
@@ -1454,6 +1923,38 @@
         "license_evidence_ref": "license_evidence.primary_evidence:owlv2",
         "review_required": false,
         "review_note": null
+      },
+      "admission": {
+        "license": "apache-2.0",
+        "commercial_use": "conditional",
+        "size": {
+          "parts": [
+            {
+              "source": "https://huggingface.co/api/models/google/owlv2-base-patch16-ensemble/revision/cfd3195ba4ea9592eec887ded089f4c08eff231d?blobs=true",
+              "method": "hub_api_blobs",
+              "files": [
+                "model.safetensors"
+              ],
+              "bytes": 619918824
+            }
+          ],
+          "bytes": 619918824,
+          "basis": "runtime_weights"
+        },
+        "required_gain": {
+          "metric": "detection_recall_iou_0_5",
+          "unit": "recall",
+          "split": "sampled_frames_40",
+          "direction": "higher_is_better",
+          "incumbent": "owlv2.base_patch16",
+          "incumbent_value": 0.892,
+          "measured_value": 0.892,
+          "comparison": "no_regression",
+          "threshold": 0.892,
+          "basis": "The open-vocabulary bakeoff on 40 stills and 148 hand-labelled boxes measured OWLv2 recall 0.892 (132/148) at IoU >= 0.5. It is the detector that seeds SAM 2; admission asks that it does not regress below the measured recall.",
+          "fixture": "docs/benchmarks/object-detector-bakeoff-2026-10-13.md",
+          "evidence": "library/tools/analysis/open_vocabulary_detect.py"
+        }
       }
     },
     {
@@ -1552,6 +2053,38 @@
         "license_evidence_ref": "license_evidence.primary_evidence:grounding_dino",
         "review_required": false,
         "review_note": null
+      },
+      "admission": {
+        "license": "apache-2.0",
+        "commercial_use": "conditional",
+        "size": {
+          "parts": [
+            {
+              "source": "https://huggingface.co/api/models/IDEA-Research/grounding-dino-tiny/revision/a2bb814dd30d776dcf7e30523b00659f4f141c71?blobs=true",
+              "method": "hub_api_blobs",
+              "files": [
+                "model.safetensors"
+              ],
+              "bytes": 689359096
+            }
+          ],
+          "bytes": 689359096,
+          "basis": "runtime_weights"
+        },
+        "required_gain": {
+          "metric": "detection_recall_iou_0_5",
+          "unit": "recall",
+          "split": "sampled_frames_40",
+          "direction": "higher_is_better",
+          "incumbent": "owlv2.base_patch16",
+          "incumbent_value": 0.892,
+          "measured_value": 0.27,
+          "comparison": "delta_over_incumbent",
+          "threshold": 0.0892,
+          "basis": "The same bakeoff measured Grounding DINO at recall 0.27 (40/148) against OWLv2's 0.892 on the same 40 stills and the same 148 boxes. Admission needs a gain of at least 10% relative over the incumbent's 0.892, which is 0.0892 absolute recall.",
+          "fixture": "docs/benchmarks/object-detector-bakeoff-2026-10-13.md",
+          "evidence": "library/tools/analysis/open_vocabulary_detect.py"
+        }
       }
     },
     {
@@ -1663,6 +2196,38 @@
         "license_evidence_ref": "license_evidence.primary_evidence:sam21",
         "review_required": false,
         "review_note": null
+      },
+      "admission": {
+        "license": "apache-2.0",
+        "commercial_use": "conditional",
+        "size": {
+          "parts": [
+            {
+              "source": "https://huggingface.co/api/models/facebook/sam2.1-hiera-small/revision/ee5bba1d82bb8749febdf90f45e84b687142ba03?blobs=true",
+              "method": "hub_api_blobs",
+              "files": [
+                "sam2.1_hiera_small.pt"
+              ],
+              "bytes": 184416285
+            }
+          ],
+          "bytes": 184416285,
+          "basis": "runtime_weights"
+        },
+        "required_gain": {
+          "metric": "selected_subject_track_coverage",
+          "unit": "coverage",
+          "split": "sampled_frames_1615",
+          "direction": "higher_is_better",
+          "incumbent": "sam2.1_hiera_small",
+          "incumbent_value": 0.956,
+          "measured_value": 0.956,
+          "comparison": "no_regression",
+          "threshold": 0.956,
+          "basis": "The Apple 001 run covered 1,544 of 1,615 sampled frames (95.6%) for the selected subject track. That is selected-track coverage, not detection recall; admission asks that it does not regress below the measured coverage.",
+          "fixture": "docs/SUBJECT_MASKING_MEASURED.md",
+          "evidence": "library/tools/analysis/object_segmentation.py"
+        }
       }
     },
     {
@@ -1726,6 +2291,38 @@
         "license_evidence_ref": "implementations.vjepa2.1_vitb_384.license_evidence",
         "review_required": false,
         "review_note": null
+      },
+      "admission": {
+        "license": "MIT",
+        "commercial_use": "permitted",
+        "size": {
+          "parts": [
+            {
+              "source": "https://dl.fbaipublicfiles.com/vjepa2/vjepa2_1_vitb_dist_vitG_384.pt",
+              "method": "http_content_length",
+              "files": [
+                "vjepa2_1_vitb_dist_vitG_384.pt"
+              ],
+              "bytes": 1664223428
+            }
+          ],
+          "bytes": 1664223428,
+          "basis": "runtime_weights"
+        },
+        "required_gain": {
+          "metric": "average_precision",
+          "unit": "ratio",
+          "split": "calibration",
+          "direction": "higher_is_better",
+          "incumbent": "clip.openai_vit_large_patch14",
+          "incumbent_value": null,
+          "measured_value": null,
+          "comparison": "establish_baseline",
+          "threshold": null,
+          "basis": "V-JEPA has no Ren quality row. The video-features bench scores the clip arm and the Farneback incumbent on the frozen window fixture; V-JEPA must be scored on that same fixture with the same denominators before it can be compared with the frame encoder it would replace.",
+          "fixture": "docs/benchmarks/mu33_video_features_windows.py",
+          "evidence": "docs/benchmarks/mu33_video_features_bench.py"
+        }
       }
     }
   ]
