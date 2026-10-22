@@ -1,0 +1,1498 @@
+{
+  "corpus": {
+    "brief_count": 2,
+    "corpus_id": "ren-scratch-finished-videos-2026-10-22",
+    "description": "Every FINISHED video a Ren-owned scratch project has delivered on this machine, measured against the brief it was made for. Two exports of the launch reel (the 2026-10-20 export and the 2026-10-22 fresh render through Ren, mastered to the delivery loudness) plus the rendered baseline the vep-live-workflows-e2e project kept as the before of its tightening workflow. The captain's own project is not in here, and neither is any file that is not a finished render. The two launch-reel videos carry history derived from their projects' own records (history_from), not hand-typed numbers.",
+    "video_count": 3
+  },
+  "creative": {
+    "criteria": {
+      "all-words-kept": {
+        "denominator": 1,
+        "failed": 0,
+        "measured": 0,
+        "not_measured": 1,
+        "passed": 0,
+        "status": "not_measured",
+        "value": null
+      },
+      "angle-replaced": {
+        "denominator": 2,
+        "failed": 0,
+        "measured": 0,
+        "not_measured": 2,
+        "passed": 0,
+        "status": "not_measured",
+        "value": null
+      },
+      "broll-chosen": {
+        "denominator": 2,
+        "failed": 2,
+        "measured": 2,
+        "not_measured": 0,
+        "passed": 0,
+        "status": "measured",
+        "value": 0.0
+      },
+      "caption-corrected": {
+        "denominator": 2,
+        "failed": 0,
+        "measured": 0,
+        "not_measured": 2,
+        "passed": 0,
+        "status": "not_measured",
+        "value": null
+      },
+      "dead-air-shortened": {
+        "denominator": 1,
+        "failed": 1,
+        "measured": 1,
+        "not_measured": 0,
+        "passed": 0,
+        "status": "measured",
+        "value": 0.0
+      },
+      "export-verified": {
+        "denominator": 2,
+        "failed": 2,
+        "measured": 2,
+        "not_measured": 0,
+        "passed": 0,
+        "status": "measured",
+        "value": 0.0
+      },
+      "exported": {
+        "denominator": 2,
+        "failed": 0,
+        "measured": 2,
+        "not_measured": 0,
+        "passed": 2,
+        "status": "measured",
+        "value": 1.0
+      },
+      "hook-chosen": {
+        "denominator": 2,
+        "failed": 0,
+        "measured": 2,
+        "not_measured": 0,
+        "passed": 2,
+        "status": "measured",
+        "value": 1.0
+      },
+      "human-work-preserved": {
+        "denominator": 2,
+        "failed": 0,
+        "measured": 0,
+        "not_measured": 2,
+        "passed": 0,
+        "status": "not_measured",
+        "value": null
+      },
+      "levels-balanced": {
+        "denominator": 2,
+        "failed": 1,
+        "measured": 2,
+        "not_measured": 0,
+        "passed": 1,
+        "status": "measured",
+        "value": 0.5
+      },
+      "lower-third-adjusted": {
+        "denominator": 2,
+        "failed": 2,
+        "measured": 2,
+        "not_measured": 0,
+        "passed": 0,
+        "status": "measured",
+        "value": 0.0
+      },
+      "others-unchanged": {
+        "denominator": 1,
+        "failed": 0,
+        "measured": 0,
+        "not_measured": 1,
+        "passed": 0,
+        "status": "not_measured",
+        "value": null
+      },
+      "pauses-removed": {
+        "denominator": 2,
+        "failed": 2,
+        "measured": 2,
+        "not_measured": 0,
+        "passed": 0,
+        "status": "measured",
+        "value": 0.0
+      },
+      "picture-and-sync-preserved": {
+        "denominator": 1,
+        "failed": 0,
+        "measured": 1,
+        "not_measured": 0,
+        "passed": 1,
+        "status": "measured",
+        "value": 1.0
+      }
+    },
+    "note": "The CREATIVE half: the brief's own acceptance criteria, judged against the delivered file by a reviewer who did not see the plan. It is a READING, not a measurement, and it is never averaged with the mechanical half. A criterion's denominator is the finished videos whose brief asks about it.",
+    "video_statuses": {
+      "fail": 3,
+      "not_measured": 0,
+      "pass": 0
+    },
+    "videos_with_a_failure": [
+      "ren-scratch-bench-demo-reel-13",
+      "ren-scratch-bench-demo2-reel-13-redeliver",
+      "vep-live-workflows-e2e-e2e-011-baseline"
+    ]
+  },
+  "note": "The mechanical half and the creative half are measured on their own denominators and are never combined. A half that was not measured is not_measured, never a zero.",
+  "outcomes": {
+    "accepted": 0,
+    "editorially_rejected": 1,
+    "failed": 2,
+    "unmeasured": 0
+  },
+  "provenance": {
+    "environment": {
+      "machine": "arm64",
+      "platform": "macOS-26.3-arm64-arm-64bit",
+      "python_version": "3.12.13"
+    },
+    "evaluation_schema": "ren-finished-video-benchmark/1",
+    "evidence_kind": "editorial-acceptance",
+    "fixture": "ren-scratch-finished-videos-2026-10-22",
+    "producer": "library/tools/finished_video_benchmark.py:run_benchmark (ren accept --finished-video)",
+    "resolve_version": "not_recorded",
+    "run_timestamp": "2026-10-22T16:40:25Z",
+    "scope": {
+      "evaluation_level": 4,
+      "fixture": "ren-scratch-finished-videos-2026-10-22",
+      "measurement": "finished_video_acceptance",
+      "task_set": "ren-scratch-finished-videos-2026-10-22"
+    },
+    "source_commit": "6087eb190468b2d435e62eb5ce9f4179e00355e1"
+  },
+  "release_gate": {
+    "conditions": [
+      {
+        "count": 3,
+        "id": "representative_set",
+        "met": true,
+        "reason": "the corpus holds 3 finished video(s)",
+        "required": 3,
+        "statement": "the corpus holds at least 3 finished videos"
+      },
+      {
+        "count": 3,
+        "id": "every_video_delivered",
+        "met": true,
+        "reason": "3 of 3 finished videos were delivered",
+        "required": 3,
+        "statement": "every finished video in the corpus was delivered"
+      },
+      {
+        "count": 3,
+        "id": "independently_reviewed",
+        "met": true,
+        "reason": "3 of 3 finished videos carry an independent review",
+        "required": 3,
+        "statement": "every finished video was reviewed for its creative quality by a reviewer who did not see the plan"
+      },
+      {
+        "count": 0,
+        "id": "no_hidden_technical_failure",
+        "met": true,
+        "reason": "no finished video carries a technical failure behind an acceptable creative score",
+        "required": 0,
+        "statement": "no technical failure is hidden behind an acceptable subjective score"
+      }
+    ],
+    "met": true,
+    "note": "The quality release gate. Every condition carries its own count and its own reason, and the gate is met only when every condition is.",
+    "unmet": []
+  },
+  "schema": "ren-finished-video-benchmark/1",
+  "technical": {
+    "legs": {
+      "audio_continuity": {
+        "denominator": 3,
+        "failed": 2,
+        "measured": 3,
+        "not_measured": 0,
+        "passed": 1,
+        "status": "measured",
+        "value": 0.3333333333333333
+      },
+      "caption_and_graphic_clarity": {
+        "denominator": 3,
+        "failed": 0,
+        "measured": 0,
+        "not_measured": 3,
+        "passed": 0,
+        "status": "not_measured",
+        "value": null
+      },
+      "shot_quality": {
+        "denominator": 3,
+        "failed": 0,
+        "measured": 3,
+        "not_measured": 0,
+        "passed": 3,
+        "status": "measured",
+        "value": 1.0
+      }
+    },
+    "measurements": {
+      "library.tools.deliverable_qc:verify_audio_spec (QA-004)": {
+        "denominator": 3,
+        "failed": 2,
+        "measured": 3,
+        "not_measured": 0,
+        "passed": 1,
+        "status": "measured",
+        "value": 0.3333333333333333
+      },
+      "library.tools.deliverable_qc:verify_picture_spec (QA-002) :: black_frames": {
+        "denominator": 3,
+        "failed": 0,
+        "measured": 3,
+        "not_measured": 0,
+        "passed": 3,
+        "status": "measured",
+        "value": 1.0
+      },
+      "library.tools.deliverable_qc:verify_picture_spec (QA-002) :: dimensions": {
+        "denominator": 3,
+        "failed": 0,
+        "measured": 3,
+        "not_measured": 0,
+        "passed": 3,
+        "status": "measured",
+        "value": 1.0
+      },
+      "library.tools.deliverable_qc:verify_picture_spec (QA-002) :: framing": {
+        "denominator": 3,
+        "failed": 0,
+        "measured": 2,
+        "not_measured": 1,
+        "passed": 2,
+        "status": "measured",
+        "value": 1.0
+      },
+      "library.tools.deliverable_qc:verify_picture_spec (QA-002) :: freeze_frames": {
+        "denominator": 3,
+        "failed": 0,
+        "measured": 3,
+        "not_measured": 0,
+        "passed": 3,
+        "status": "measured",
+        "value": 1.0
+      },
+      "library.tools.deliverable_qc:verify_picture_spec (QA-002) :: overlays": {
+        "denominator": 3,
+        "failed": 0,
+        "measured": 0,
+        "not_measured": 3,
+        "passed": 0,
+        "status": "not_measured",
+        "value": null
+      },
+      "library.tools.delivered_caption_spec:verify_delivered_captions (QA-003)": {
+        "denominator": 3,
+        "failed": 0,
+        "measured": 0,
+        "not_measured": 3,
+        "passed": 0,
+        "status": "not_measured",
+        "value": null
+      },
+      "library.tools.render_qa:measure_silence_under_picture": {
+        "denominator": 3,
+        "failed": 0,
+        "measured": 3,
+        "not_measured": 0,
+        "passed": 3,
+        "status": "measured",
+        "value": 1.0
+      },
+      "library.tools.render_qa:verify_channel_presence": {
+        "denominator": 3,
+        "failed": 0,
+        "measured": 3,
+        "not_measured": 0,
+        "passed": 3,
+        "status": "measured",
+        "value": 1.0
+      }
+    },
+    "note": "The MECHANICAL half: the engine's own gates on the delivered file. Every leg and every measurement carries its own denominator, and a measurement that could not run is not_measured - never a zero.",
+    "videos_with_a_failure": [
+      "ren-scratch-bench-demo-reel-13",
+      "vep-live-workflows-e2e-e2e-011-baseline"
+    ]
+  },
+  "the_halves_are_not_combined": true,
+  "tracked": {
+    "first_pass_acceptance": {
+      "denominator": 2,
+      "failed": 0,
+      "measured": 2,
+      "not_measured": 0,
+      "note": "Of the finished videos that recorded whether their FIRST attempt was accepted, how many were. The denominator is the videos that recorded it, not the corpus: a video with no recorded first attempt is not_measured here, not a failure.",
+      "passed": 0,
+      "status": "measured",
+      "value": 0.0,
+      "videos_without_a_record": [
+        "vep-live-workflows-e2e-e2e-011-baseline"
+      ]
+    },
+    "human_correction_seconds": {
+      "denominator": 1,
+      "max_seconds": 48652.8148,
+      "mean_seconds": 48652.8148,
+      "measured": 1,
+      "note": "How long a PERSON spent correcting the finished videos. The denominator is the videos that recorded a correction time; a video nobody corrected, or whose correction time nobody recorded, is not_measured here and never a zero.",
+      "status": "measured",
+      "total_seconds": 48652.8148,
+      "value": 48652.8148,
+      "videos_without_a_record": [
+        "ren-scratch-bench-demo2-reel-13-redeliver",
+        "vep-live-workflows-e2e-e2e-011-baseline"
+      ]
+    },
+    "preserved_work": {
+      "checks": {
+        "no_item_was_dropped": {
+          "denominator": 1,
+          "failed": 1,
+          "measured": 1,
+          "not_measured": 0,
+          "passed": 0,
+          "status": "measured",
+          "value": 0.0
+        },
+        "row:audio:Akshita CH1": {
+          "denominator": 1,
+          "failed": 0,
+          "measured": 1,
+          "not_measured": 0,
+          "passed": 1,
+          "status": "measured",
+          "value": 1.0
+        },
+        "row:audio:Craig CH1": {
+          "denominator": 1,
+          "failed": 0,
+          "measured": 1,
+          "not_measured": 0,
+          "passed": 1,
+          "status": "measured",
+          "value": 1.0
+        },
+        "row:video:Akshita": {
+          "denominator": 1,
+          "failed": 0,
+          "measured": 1,
+          "not_measured": 0,
+          "passed": 1,
+          "status": "measured",
+          "value": 1.0
+        },
+        "row:video:Corner Logo": {
+          "denominator": 1,
+          "failed": 0,
+          "measured": 1,
+          "not_measured": 0,
+          "passed": 1,
+          "status": "measured",
+          "value": 1.0
+        },
+        "row:video:Craig": {
+          "denominator": 1,
+          "failed": 0,
+          "measured": 1,
+          "not_measured": 0,
+          "passed": 1,
+          "status": "measured",
+          "value": 1.0
+        },
+        "row:video:Frame": {
+          "denominator": 1,
+          "failed": 0,
+          "measured": 1,
+          "not_measured": 0,
+          "passed": 1,
+          "status": "measured",
+          "value": 1.0
+        },
+        "row:video:Motion Graphics": {
+          "denominator": 1,
+          "failed": 0,
+          "measured": 1,
+          "not_measured": 0,
+          "passed": 1,
+          "status": "measured",
+          "value": 1.0
+        },
+        "row:video:Post Header": {
+          "denominator": 1,
+          "failed": 0,
+          "measured": 1,
+          "not_measured": 0,
+          "passed": 1,
+          "status": "measured",
+          "value": 1.0
+        },
+        "row:video:Semantic": {
+          "denominator": 1,
+          "failed": 0,
+          "measured": 1,
+          "not_measured": 0,
+          "passed": 1,
+          "status": "measured",
+          "value": 1.0
+        },
+        "row:video:Subtitles": {
+          "denominator": 1,
+          "failed": 1,
+          "measured": 1,
+          "not_measured": 0,
+          "passed": 0,
+          "status": "measured",
+          "value": 0.0
+        }
+      },
+      "denominator": 11,
+      "failed": 2,
+      "measured": 11,
+      "note": "How much of the work that was ALREADY approved survived the edits. Each check is a yes or a no recorded by whoever ran the build; the denominator is the checks that were recorded.",
+      "passed": 9,
+      "status": "measured",
+      "value": 0.8181818181818182
+    },
+    "revision_count": {
+      "denominator": 2,
+      "max_revisions": 5,
+      "mean_revisions": 4.0,
+      "measured": 2,
+      "note": "How many REVISIONS the finished videos took: one less than the number of attempts. The denominator is the videos that recorded an attempt count.",
+      "status": "measured",
+      "total_revisions": 8,
+      "value": 4.0,
+      "videos_without_a_record": [
+        "vep-live-workflows-e2e-e2e-011-baseline"
+      ]
+    }
+  },
+  "video_count": 3,
+  "videos": [
+    {
+      "brief_criteria": [
+        "hook-chosen",
+        "pauses-removed",
+        "angle-replaced",
+        "broll-chosen",
+        "caption-corrected",
+        "lower-third-adjusted",
+        "levels-balanced",
+        "human-work-preserved",
+        "exported",
+        "export-verified"
+      ],
+      "brief_id": "the-whole-job",
+      "creative": {
+        "criteria": [
+          {
+            "evidence": [
+              {
+                "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo/exports/vep-bench-demo-export.mp4 @ 0.00-3.20s",
+                "observation": "the delivered file's own transcript: 0.00-3.20s 'And that's what happened with that company, why they came back as a healthcare company.' - the reel's first line IS the claim."
+              },
+              {
+                "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo/exports/vep-bench-demo-export.mp4 @ 1.00s",
+                "observation": "the still at 1.00s shows the speaker mid-sentence with the header above the picture reading 'AI called an accounting software company a healthcare company.' - the hook is stated before the first second is over."
+              }
+            ],
+            "id": "hook-chosen",
+            "rationale": "The reel opens on the claim, not on the throat-clearing: its first words are the company coming back as a healthcare company, which is the same claim the header above the picture states.",
+            "status": "pass"
+          },
+          {
+            "evidence": [
+              {
+                "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo/exports/vep-bench-demo-export.mp4 @ 0.00-5.44s",
+                "observation": "the delivered file's own transcript: 0.00-3.20s 'And that's what happened with that company, why they came back as a healthcare company.' followed by 3.20-5.44s 'Mm-hmm and not an accounting software company, yes.' - the same claim, stated twice, is still in the reel."
+              }
+            ],
+            "id": "pauses-removed",
+            "rationale": "The statement the request asks to be taken out is still in the reel: the opening says the same thing twice, in the first two lines.",
+            "status": "fail"
+          },
+          {
+            "evidence": [
+              {
+                "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo/exports/vep-bench-demo-export.mp4 @ 1.00s and @ 37.50s",
+                "observation": "the still at 1.00s is the second camera on the host and the still at 37.50s is the first camera on the other speaker; the file shows that two angles alternate and nothing about which one the request meant."
+              }
+            ],
+            "id": "angle-replaced",
+            "rationale": "WHICH angle was doing nothing is a fact about the plan and the source material. The delivered file shows two camera angles and cannot say that the angle the request names was the one that was replaced.",
+            "status": "not_measured"
+          },
+          {
+            "evidence": [
+              {
+                "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo/exports/vep-bench-demo-export.mp4 @ 1.00, 3.00, 7.00, 11.00, 37.50, 55.00, 70.00, 76.00 and 79.00s",
+                "observation": "nine stills taken across the whole reel, and the harness's own stills at a two-second cadence and at each measured cut (3.13s, 37.33s, 43.29s, 62.69s), all show the two-camera interview inside the TV frame. No cutaway is visible at any of them, and the file's own shot measurement finds only four picture changes in 79.57 seconds."
+              }
+            ],
+            "id": "broll-chosen",
+            "rationale": "No inserted cutaway appears anywhere in the delivered file. Every still taken of it shows the two-camera interview inside the TV frame.",
+            "status": "fail"
+          },
+          {
+            "evidence": [],
+            "id": "caption-corrected",
+            "rationale": "The request asks for the caption that misstates a NUMBER to say the right number. The brief the reviewer was shown does not say which number, and the delivered file's own captions carry no number in any sampled still, so there is nothing here to read the correction against.",
+            "status": "not_measured"
+          },
+          {
+            "evidence": [
+              {
+                "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo/exports/vep-bench-demo-export.mp4 @ 1.00s",
+                "observation": "measured off the delivered still: the name bar's ink sits at rows 1308-1402 and the caption's ink at rows 1420-1569, so the two no longer overlap; the same holds at 3.00s."
+              },
+              {
+                "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo/exports/vep-bench-demo-export.mp4 @ 1.00s",
+                "observation": "measured off the delivered still, the name bar's ink box is x 58-480, rows 1308-1402. library.tools.platform_safe_zones:intrusions puts that box inside the LEFT crop band of every vertical platform (tiktok x 0-76, instagram_reels x 0-81, youtube_shorts x 0-95, linkedin x 0-118), so 18px of the name bar's logo is cropped off on the tallest modelled phone."
+              }
+            ],
+            "id": "lower-third-adjusted",
+            "rationale": "The collision is gone - the name bar and the captions no longer overlap - but the name bar does not sit inside the safe area: its left edge is inside the band every vertical platform crops off.",
+            "status": "fail"
+          },
+          {
+            "evidence": [
+              {
+                "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo/exports/vep-bench-demo-export.mp4",
+                "observation": "library.tools.deliverable_qc:verify_audio_spec (QA-004) on the delivered file: integrated -23.18 LUFS against the -14.0 LUFS target (tolerance +/-1.0), true peak -4.49 dBTP. The criterion asks for the export to pass that check, and it does not."
+              }
+            ],
+            "id": "levels-balanced",
+            "rationale": "The criterion names the loudness check itself, and the export does not pass it: the file's integrated loudness is 9.18 dB under the delivery target.",
+            "status": "fail"
+          },
+          {
+            "evidence": [],
+            "id": "human-work-preserved",
+            "rationale": "Preservation is a comparison with the state before the edit. The reviewer was shown the delivered file alone, and a file cannot say what was in the timeline before the build touched it.",
+            "status": "not_measured"
+          },
+          {
+            "evidence": [
+              {
+                "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo/exports/vep-bench-demo-export.mp4",
+                "observation": "the delivered file: 79.573s, 1080x1920 at 23.976fps, one video stream and one stereo audio stream, sha256 04343989cec1dface5631e9666a55816d4b38f00b638629d464799b429368f4f."
+              }
+            ],
+            "id": "exported",
+            "rationale": "A finished file exists: it carries a picture stream and a stereo audio stream, at the delivery frame, and it is the file the project exported.",
+            "status": "pass"
+          },
+          {
+            "evidence": [
+              {
+                "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo/exports/vep-bench-demo-export.mp4 @ 75.70-79.57s",
+                "observation": "the delivered file's own measurements: 3.253s of picture plays over undeclared digital silence at 75.701-79.529s, and the picture spec finds one undeclared black frame segment. The ending the captain designed (the TV switching off to black, then the logo card) is in the file, but nothing declared it, so the export's own gate cannot tell an intended ending from a defect."
+              }
+            ],
+            "id": "export-verified",
+            "rationale": "The export was inspected and it does not carry every requested change: the repeated statement is still in the opening, no cutaway appears, the loudness check fails, and the ending plays over 3.25s of undeclared silence with one undeclared black segment.",
+            "status": "fail"
+          }
+        ],
+        "failed": 5,
+        "judge": "firstmate lane p-qa010-finished-edit (an agent that did not build the reel)",
+        "measured": 7,
+        "not_measured": 3,
+        "passed": 2,
+        "reason": null,
+        "score": 0.2857142857142857,
+        "status": "fail"
+      },
+      "delivery_status": "delivered",
+      "duration_seconds": 79.573333,
+      "history": {
+        "attempts": 6,
+        "basis": {
+          "attempts": "the number of recorded acts on this reel - a build or a touch - each one an attempt at the edit",
+          "first_attempt_accepted": "a hand correction is recorded on this reel, so the first attempt was not accepted as it stood",
+          "human_correction_seconds": "the elapsed window between the last recorded Ren act on this reel and the captain's hand correction; an UPPER BOUND on the time spent correcting, because the window also holds the time the reel was watched",
+          "preserved_work": "no two recorded acts carry rows to compare, so what survived the last revision was not measured"
+        },
+        "derived_at": "2026-10-22T16:07:53+00:00",
+        "first_attempt_accepted": false,
+        "human_correction_seconds": 48652.8148,
+        "preserved_work": null,
+        "sources": {
+          "attempts": "the creative commit ledger (creative_revisions.json)",
+          "first_attempt_accepted": "the reel's delivery acceptance and its recorded hand corrections",
+          "human_correction_seconds": "the timestamps of the reel's recorded acts and of the captain's hand correction",
+          "preserved_work": "the version ledger's recorded rows",
+          "project": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo",
+          "reel": "Reel 13 - the-accounting-firm-ai-called-healthcare"
+        },
+        "unmeasured": [
+          "preserved_work"
+        ]
+      },
+      "history_source": "the project's own records (history_from)",
+      "independence": {
+        "independent": true,
+        "reason": "the reviewer is named and saw only the delivered file",
+        "reviewer": "firstmate lane p-qa010-finished-edit (an agent that did not build the reel)",
+        "saw_the_plan": false
+      },
+      "outcome": "failed",
+      "outcome_reason": "1 technical leg(s) failed: delivered_audio",
+      "path": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo/exports/vep-bench-demo-export.mp4",
+      "platform": "tiktok",
+      "sha256": "04343989cec1dface5631e9666a55816d4b38f00b638629d464799b429368f4f",
+      "sources": {
+        "attempts": "nobody recorded how many times the reel was built and delivered",
+        "brief": "the acceptance brief set's 'the-whole-job' brief - the launch-reel request, in the set's own public half",
+        "declared_ending": "the 75.7-79.5s tail is the captain-designed ending (TV switch-off into the silent logo end card): external/reel_ending.json declares the tv_power_tail freeze for this reel on a 2026-09-11 captain marker, the Motion Graphics row holds logo_bulb_lines_safe_23976.mov at 1834-1906, and the delivered file shows the card at 77.5s and 79.2s; the 0.5s black at 75.99-76.49s is the switch-off collapse inside the 19-frame freeze",
+        "first_attempt_accepted": "ren-scratch-bench-demo/marker_feedback/ren-request.20261020T222015470723Z.edit_spec_3a9c357ff457419a.markers.json - the captain, on the live timeline: 'This is the launch reel and it is not finished. Please do the whole job on it ...'. The reel was not accepted as it stood.",
+        "human_correction_seconds": "nobody timed the corrections",
+        "preserved_work": "the run recorded no before/after comparison of the human's own edits"
+      },
+      "technical": {
+        "legs": [
+          {
+            "basis": "objective_failure",
+            "evidence": [
+              {
+                "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo/exports/vep-bench-demo-export.mp4",
+                "observation": "the delivered file's audio spec (FAILED): loudness LUFS: -23.18, True Peak: -4.49 - integrated -23.18 LUFS is 9.18 dB off the -14.0 target (tolerance +/-1.0); silence under picture 3.828s of the 79.529s master is at digital zero (4.8%), 3.253s of it with a picture on screen (4.1%); reported and not judged: 3.253s under -80 dBFS, 3.253s under -70 dBFS, 3.253s under -60 dBFS; 3.253s of picture over digital silence falls inside declared ending spans; channels 2 channel(s), every one of them carries signal"
+              }
+            ],
+            "kind": "objective",
+            "leg": "audio_continuity",
+            "measurements": [
+              {
+                "citation": "library.tools.deliverable_qc:verify_audio_spec (QA-004)",
+                "detail": "LUFS: -23.18, True Peak: -4.49 - integrated -23.18 LUFS is 9.18 dB off the -14.0 target (tolerance +/-1.0)",
+                "name": "library.tools.deliverable_qc:verify_audio_spec (QA-004)",
+                "status": "fail"
+              },
+              {
+                "citation": "library.tools.deliverable_qc:verify_audio_spec (QA-004)",
+                "detail": "3.828s of the 79.529s master is at digital zero (4.8%), 3.253s of it with a picture on screen (4.1%); reported and not judged: 3.253s under -80 dBFS, 3.253s under -70 dBFS, 3.253s under -60 dBFS; 3.253s of picture over digital silence falls inside declared ending spans",
+                "name": "library.tools.render_qa:measure_silence_under_picture",
+                "status": "pass"
+              },
+              {
+                "citation": "library.tools.deliverable_qc:verify_audio_spec (QA-004)",
+                "detail": "2 channel(s), every one of them carries signal",
+                "name": "library.tools.render_qa:verify_channel_presence",
+                "status": "pass"
+              }
+            ],
+            "rationale": "the delivered file's own audio spec: its loudness against the spec, the digital silence under picture that catches missing dialogue, and the channel presence",
+            "status": "fail",
+            "uncertainty": {
+              "level": "none",
+              "note": "the measurement is the product's own gate on the delivered file; it does not read the plan, so it cannot see a defect the plan intended"
+            }
+          },
+          {
+            "basis": "not_measured",
+            "evidence": [
+              {
+                "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo/exports/vep-bench-demo-export.mp4",
+                "observation": "the delivered file's caption and graphic measurements: no caption intent was supplied, so the delivered file's captions had nothing to be compared against; No overlay expectations were supplied, so the delivered file's overlays were not measured. Pass expectations: the overlay assets the plan placed, each with the box it was placed at."
+              }
+            ],
+            "kind": "objective",
+            "leg": "caption_and_graphic_clarity",
+            "measurements": [
+              {
+                "citation": "library.tools.delivered_caption_spec:verify_delivered_captions (QA-003)",
+                "detail": "no caption intent was supplied, so the delivered file's captions had nothing to be compared against",
+                "name": "library.tools.delivered_caption_spec:verify_delivered_captions (QA-003)",
+                "status": "not_measured"
+              },
+              {
+                "citation": "library.tools.deliverable_qc:verify_picture_spec (QA-002)",
+                "detail": "No overlay expectations were supplied, so the delivered file's overlays were not measured. Pass expectations: the overlay assets the plan placed, each with the box it was placed at.",
+                "name": "library.tools.deliverable_qc:verify_picture_spec (QA-002) :: overlays",
+                "status": "not_measured"
+              }
+            ],
+            "rationale": "the delivered file's own caption spec, and the overlays leg of the picture spec that measures the graphics the plan placed",
+            "status": "not_measured",
+            "uncertainty": {
+              "level": "medium",
+              "note": "a measurement that could not run is named beside the ones that did, and this leg is not a pass on the ones that did"
+            }
+          },
+          {
+            "basis": "objective_pass",
+            "evidence": [
+              {
+                "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo/exports/vep-bench-demo-export.mp4",
+                "observation": "the delivered file's picture measurements: Resolution is 1080x1920; picture occupies 100.0% of the frame (spread 0.00 over 6 samples; 1 declared framing); 153 samples carry a picture inset in black on all four sides, which is a composition and not a conform - no geometry was read off them; no overlay geometry was supplied, so the bars are measured across the whole width and any overlay ink drawn over one reads as picture; No undeclared black frames (1 declared black beat(s) allowed through); No freeze frames detected"
+              }
+            ],
+            "kind": "objective",
+            "leg": "shot_quality",
+            "measurements": [
+              {
+                "citation": "library.tools.deliverable_qc:verify_picture_spec (QA-002)",
+                "detail": "Resolution is 1080x1920",
+                "name": "library.tools.deliverable_qc:verify_picture_spec (QA-002) :: dimensions",
+                "status": "pass"
+              },
+              {
+                "citation": "library.tools.deliverable_qc:verify_picture_spec (QA-002)",
+                "detail": "picture occupies 100.0% of the frame (spread 0.00 over 6 samples; 1 declared framing); 153 samples carry a picture inset in black on all four sides, which is a composition and not a conform - no geometry was read off them; no overlay geometry was supplied, so the bars are measured across the whole width and any overlay ink drawn over one reads as picture",
+                "name": "library.tools.deliverable_qc:verify_picture_spec (QA-002) :: framing",
+                "status": "pass"
+              },
+              {
+                "citation": "library.tools.deliverable_qc:verify_picture_spec (QA-002)",
+                "detail": "No undeclared black frames (1 declared black beat(s) allowed through)",
+                "name": "library.tools.deliverable_qc:verify_picture_spec (QA-002) :: black_frames",
+                "status": "pass"
+              },
+              {
+                "citation": "library.tools.deliverable_qc:verify_picture_spec (QA-002)",
+                "detail": "No freeze frames detected",
+                "name": "library.tools.deliverable_qc:verify_picture_spec (QA-002) :: freeze_frames",
+                "status": "pass"
+              }
+            ],
+            "rationale": "the delivered file's own picture spec: the frame it was delivered at, whether the picture fills it, the black frames it holds and the frozen frames it holds",
+            "status": "pass",
+            "uncertainty": {
+              "level": "none",
+              "note": "the measurement is the product's own gate on the delivered file; it does not read the plan"
+            }
+          }
+        ],
+        "measurements": [
+          {
+            "citation": "library.tools.deliverable_qc:verify_audio_spec (QA-004)",
+            "detail": "LUFS: -23.18, True Peak: -4.49 - integrated -23.18 LUFS is 9.18 dB off the -14.0 target (tolerance +/-1.0)",
+            "leg": "audio_continuity",
+            "name": "library.tools.deliverable_qc:verify_audio_spec (QA-004)",
+            "status": "fail"
+          },
+          {
+            "citation": "library.tools.deliverable_qc:verify_audio_spec (QA-004)",
+            "detail": "3.828s of the 79.529s master is at digital zero (4.8%), 3.253s of it with a picture on screen (4.1%); reported and not judged: 3.253s under -80 dBFS, 3.253s under -70 dBFS, 3.253s under -60 dBFS; 3.253s of picture over digital silence falls inside declared ending spans",
+            "leg": "audio_continuity",
+            "name": "library.tools.render_qa:measure_silence_under_picture",
+            "status": "pass"
+          },
+          {
+            "citation": "library.tools.deliverable_qc:verify_audio_spec (QA-004)",
+            "detail": "2 channel(s), every one of them carries signal",
+            "leg": "audio_continuity",
+            "name": "library.tools.render_qa:verify_channel_presence",
+            "status": "pass"
+          },
+          {
+            "citation": "library.tools.delivered_caption_spec:verify_delivered_captions (QA-003)",
+            "detail": "no caption intent was supplied, so the delivered file's captions had nothing to be compared against",
+            "leg": "caption_and_graphic_clarity",
+            "name": "library.tools.delivered_caption_spec:verify_delivered_captions (QA-003)",
+            "status": "not_measured"
+          },
+          {
+            "citation": "library.tools.deliverable_qc:verify_picture_spec (QA-002)",
+            "detail": "No overlay expectations were supplied, so the delivered file's overlays were not measured. Pass expectations: the overlay assets the plan placed, each with the box it was placed at.",
+            "leg": "caption_and_graphic_clarity",
+            "name": "library.tools.deliverable_qc:verify_picture_spec (QA-002) :: overlays",
+            "status": "not_measured"
+          },
+          {
+            "citation": "library.tools.deliverable_qc:verify_picture_spec (QA-002)",
+            "detail": "Resolution is 1080x1920",
+            "leg": "shot_quality",
+            "name": "library.tools.deliverable_qc:verify_picture_spec (QA-002) :: dimensions",
+            "status": "pass"
+          },
+          {
+            "citation": "library.tools.deliverable_qc:verify_picture_spec (QA-002)",
+            "detail": "picture occupies 100.0% of the frame (spread 0.00 over 6 samples; 1 declared framing); 153 samples carry a picture inset in black on all four sides, which is a composition and not a conform - no geometry was read off them; no overlay geometry was supplied, so the bars are measured across the whole width and any overlay ink drawn over one reads as picture",
+            "leg": "shot_quality",
+            "name": "library.tools.deliverable_qc:verify_picture_spec (QA-002) :: framing",
+            "status": "pass"
+          },
+          {
+            "citation": "library.tools.deliverable_qc:verify_picture_spec (QA-002)",
+            "detail": "No undeclared black frames (1 declared black beat(s) allowed through)",
+            "leg": "shot_quality",
+            "name": "library.tools.deliverable_qc:verify_picture_spec (QA-002) :: black_frames",
+            "status": "pass"
+          },
+          {
+            "citation": "library.tools.deliverable_qc:verify_picture_spec (QA-002)",
+            "detail": "No freeze frames detected",
+            "leg": "shot_quality",
+            "name": "library.tools.deliverable_qc:verify_picture_spec (QA-002) :: freeze_frames",
+            "status": "pass"
+          }
+        ],
+        "reason": null,
+        "status": "measured"
+      },
+      "technical_failure_hidden": false,
+      "video_id": "ren-scratch-bench-demo-reel-13"
+    },
+    {
+      "brief_criteria": [
+        "dead-air-shortened",
+        "all-words-kept",
+        "picture-and-sync-preserved",
+        "others-unchanged"
+      ],
+      "brief_id": "tighten-the-dead-air",
+      "creative": {
+        "criteria": [
+          {
+            "evidence": [
+              {
+                "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/vep-live-workflows-e2e/pipeline_output/live_workflows/evidence/e2e-011/baseline.mp4 @ 36.94-37.56s and @ 43.08-43.49s",
+                "observation": "the delivered file's own transcript: the longest gaps in the exchange are 0.62s (36.94-37.56s) and 0.41s (43.08-43.49s), and the file's own shot measurement finds four picture changes (3.13s, 37.33s, 43.29s, 62.69s) - the pauses the request names are still in the file."
+              }
+            ],
+            "id": "dead-air-shortened",
+            "rationale": "The shortening is not in this render: the exchange's two longest pauses are still there, and this file is the render the tightening was requested against.",
+            "status": "fail"
+          },
+          {
+            "evidence": [],
+            "id": "all-words-kept",
+            "rationale": "Whether every spoken word survived is a comparison with the words that were there before, and the reviewer was shown this file alone.",
+            "status": "not_measured"
+          },
+          {
+            "evidence": [
+              {
+                "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/vep-live-workflows-e2e/pipeline_output/live_workflows/evidence/e2e-011/baseline.mp4",
+                "observation": "one video stream and one stereo audio stream in one container, and the transcript's line starts (3.20s, 37.56s, 43.49s, 62.66s) land on the file's own measured shot changes (3.13s, 37.33s, 43.29s, 62.69s): no word runs past a cut."
+              }
+            ],
+            "id": "picture-and-sync-preserved",
+            "rationale": "The picture and the audio travel in one file and no word runs past a cut: the transcript's line starts land on the file's own shot changes.",
+            "status": "pass"
+          },
+          {
+            "evidence": [],
+            "id": "others-unchanged",
+            "rationale": "The other shots, the captions and the graphics cannot be compared without the state before the edit, and the reviewer was shown this file alone.",
+            "status": "not_measured"
+          }
+        ],
+        "failed": 1,
+        "judge": "firstmate lane p-qa010-finished-edit (an agent that did not build the render)",
+        "measured": 2,
+        "not_measured": 2,
+        "passed": 1,
+        "reason": null,
+        "score": 0.5,
+        "status": "fail"
+      },
+      "delivery_status": "delivered",
+      "duration_seconds": 75.776,
+      "history": {
+        "attempts": null,
+        "first_attempt_accepted": null,
+        "human_correction_seconds": null,
+        "preserved_work": null
+      },
+      "history_source": "the corpus entry",
+      "independence": {
+        "independent": true,
+        "reason": "the reviewer is named and saw only the delivered file",
+        "reviewer": "firstmate lane p-qa010-finished-edit (an agent that did not build the render)",
+        "saw_the_plan": false
+      },
+      "outcome": "failed",
+      "outcome_reason": "1 technical leg(s) failed: delivered_audio",
+      "path": "/Users/prajwal/Documents/content_stuff/video_projects/vep-live-workflows-e2e/pipeline_output/live_workflows/evidence/e2e-011/baseline.mp4",
+      "platform": "tiktok",
+      "sha256": "0dd9021925ed43815d6d19495ee4fb16c840892857576f04117a929af49ad7ee",
+      "sources": {
+        "attempts": "nobody recorded how many times the segment was built",
+        "brief": "the human's own request, typed onto the live timeline: vep-live-workflows-e2e/marker_feedback/ren-request.20261020T211439979013Z.edit_spec_1e039e4071304c39.markers.json",
+        "first_attempt_accepted": "this file is the BEFORE of its assignment (the render the tightening was measured against), so it is not a first attempt that could be accepted or refused",
+        "human_correction_seconds": "nobody timed the corrections",
+        "preserved_work": "the run recorded no before/after comparison"
+      },
+      "technical": {
+        "legs": [
+          {
+            "basis": "objective_failure",
+            "evidence": [
+              {
+                "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/vep-live-workflows-e2e/pipeline_output/live_workflows/evidence/e2e-011/baseline.mp4",
+                "observation": "the delivered file's audio spec (FAILED): loudness LUFS: -23.24, True Peak: -4.49 - integrated -23.24 LUFS is 9.24 dB off the -14.0 target (tolerance +/-1.0); silence under picture 0.000s of the 75.732s master is at digital zero (0.0%), 0.000s of it with a picture on screen (0.0%); reported and not judged: 0.000s under -80 dBFS, 0.000s under -70 dBFS, 0.000s under -60 dBFS; channels 2 channel(s), every one of them carries signal"
+              }
+            ],
+            "kind": "objective",
+            "leg": "audio_continuity",
+            "measurements": [
+              {
+                "citation": "library.tools.deliverable_qc:verify_audio_spec (QA-004)",
+                "detail": "LUFS: -23.24, True Peak: -4.49 - integrated -23.24 LUFS is 9.24 dB off the -14.0 target (tolerance +/-1.0)",
+                "name": "library.tools.deliverable_qc:verify_audio_spec (QA-004)",
+                "status": "fail"
+              },
+              {
+                "citation": "library.tools.deliverable_qc:verify_audio_spec (QA-004)",
+                "detail": "0.000s of the 75.732s master is at digital zero (0.0%), 0.000s of it with a picture on screen (0.0%); reported and not judged: 0.000s under -80 dBFS, 0.000s under -70 dBFS, 0.000s under -60 dBFS",
+                "name": "library.tools.render_qa:measure_silence_under_picture",
+                "status": "pass"
+              },
+              {
+                "citation": "library.tools.deliverable_qc:verify_audio_spec (QA-004)",
+                "detail": "2 channel(s), every one of them carries signal",
+                "name": "library.tools.render_qa:verify_channel_presence",
+                "status": "pass"
+              }
+            ],
+            "rationale": "the delivered file's own audio spec: its loudness against the spec, the digital silence under picture that catches missing dialogue, and the channel presence",
+            "status": "fail",
+            "uncertainty": {
+              "level": "none",
+              "note": "the measurement is the product's own gate on the delivered file; it does not read the plan, so it cannot see a defect the plan intended"
+            }
+          },
+          {
+            "basis": "not_measured",
+            "evidence": [
+              {
+                "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/vep-live-workflows-e2e/pipeline_output/live_workflows/evidence/e2e-011/baseline.mp4",
+                "observation": "the delivered file's caption and graphic measurements: no caption intent was supplied, so the delivered file's captions had nothing to be compared against; No overlay expectations were supplied, so the delivered file's overlays were not measured. Pass expectations: the overlay assets the plan placed, each with the box it was placed at."
+              }
+            ],
+            "kind": "objective",
+            "leg": "caption_and_graphic_clarity",
+            "measurements": [
+              {
+                "citation": "library.tools.delivered_caption_spec:verify_delivered_captions (QA-003)",
+                "detail": "no caption intent was supplied, so the delivered file's captions had nothing to be compared against",
+                "name": "library.tools.delivered_caption_spec:verify_delivered_captions (QA-003)",
+                "status": "not_measured"
+              },
+              {
+                "citation": "library.tools.deliverable_qc:verify_picture_spec (QA-002)",
+                "detail": "No overlay expectations were supplied, so the delivered file's overlays were not measured. Pass expectations: the overlay assets the plan placed, each with the box it was placed at.",
+                "name": "library.tools.deliverable_qc:verify_picture_spec (QA-002) :: overlays",
+                "status": "not_measured"
+              }
+            ],
+            "rationale": "the delivered file's own caption spec, and the overlays leg of the picture spec that measures the graphics the plan placed",
+            "status": "not_measured",
+            "uncertainty": {
+              "level": "medium",
+              "note": "a measurement that could not run is named beside the ones that did, and this leg is not a pass on the ones that did"
+            }
+          },
+          {
+            "basis": "objective_pass",
+            "evidence": [
+              {
+                "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/vep-live-workflows-e2e/pipeline_output/live_workflows/evidence/e2e-011/baseline.mp4",
+                "observation": "the delivered file's picture measurements: Resolution is 1080x1920; Could not measure a picture in any sampled frame (151 inset in black on all four sides); No black frames detected; No freeze frames detected"
+              }
+            ],
+            "kind": "objective",
+            "leg": "shot_quality",
+            "measurements": [
+              {
+                "citation": "library.tools.deliverable_qc:verify_picture_spec (QA-002)",
+                "detail": "Resolution is 1080x1920",
+                "name": "library.tools.deliverable_qc:verify_picture_spec (QA-002) :: dimensions",
+                "status": "pass"
+              },
+              {
+                "citation": "library.tools.deliverable_qc:verify_picture_spec (QA-002)",
+                "detail": "Could not measure a picture in any sampled frame (151 inset in black on all four sides)",
+                "name": "library.tools.deliverable_qc:verify_picture_spec (QA-002) :: framing",
+                "status": "not_measured"
+              },
+              {
+                "citation": "library.tools.deliverable_qc:verify_picture_spec (QA-002)",
+                "detail": "No black frames detected",
+                "name": "library.tools.deliverable_qc:verify_picture_spec (QA-002) :: black_frames",
+                "status": "pass"
+              },
+              {
+                "citation": "library.tools.deliverable_qc:verify_picture_spec (QA-002)",
+                "detail": "No freeze frames detected",
+                "name": "library.tools.deliverable_qc:verify_picture_spec (QA-002) :: freeze_frames",
+                "status": "pass"
+              }
+            ],
+            "rationale": "the delivered file's own picture spec: the frame it was delivered at, whether the picture fills it, the black frames it holds and the frozen frames it holds",
+            "status": "pass",
+            "uncertainty": {
+              "level": "medium",
+              "note": "a measurement that could not run is named beside the ones that did, and this leg is not a pass on the ones that did"
+            }
+          }
+        ],
+        "measurements": [
+          {
+            "citation": "library.tools.deliverable_qc:verify_audio_spec (QA-004)",
+            "detail": "LUFS: -23.24, True Peak: -4.49 - integrated -23.24 LUFS is 9.24 dB off the -14.0 target (tolerance +/-1.0)",
+            "leg": "audio_continuity",
+            "name": "library.tools.deliverable_qc:verify_audio_spec (QA-004)",
+            "status": "fail"
+          },
+          {
+            "citation": "library.tools.deliverable_qc:verify_audio_spec (QA-004)",
+            "detail": "0.000s of the 75.732s master is at digital zero (0.0%), 0.000s of it with a picture on screen (0.0%); reported and not judged: 0.000s under -80 dBFS, 0.000s under -70 dBFS, 0.000s under -60 dBFS",
+            "leg": "audio_continuity",
+            "name": "library.tools.render_qa:measure_silence_under_picture",
+            "status": "pass"
+          },
+          {
+            "citation": "library.tools.deliverable_qc:verify_audio_spec (QA-004)",
+            "detail": "2 channel(s), every one of them carries signal",
+            "leg": "audio_continuity",
+            "name": "library.tools.render_qa:verify_channel_presence",
+            "status": "pass"
+          },
+          {
+            "citation": "library.tools.delivered_caption_spec:verify_delivered_captions (QA-003)",
+            "detail": "no caption intent was supplied, so the delivered file's captions had nothing to be compared against",
+            "leg": "caption_and_graphic_clarity",
+            "name": "library.tools.delivered_caption_spec:verify_delivered_captions (QA-003)",
+            "status": "not_measured"
+          },
+          {
+            "citation": "library.tools.deliverable_qc:verify_picture_spec (QA-002)",
+            "detail": "No overlay expectations were supplied, so the delivered file's overlays were not measured. Pass expectations: the overlay assets the plan placed, each with the box it was placed at.",
+            "leg": "caption_and_graphic_clarity",
+            "name": "library.tools.deliverable_qc:verify_picture_spec (QA-002) :: overlays",
+            "status": "not_measured"
+          },
+          {
+            "citation": "library.tools.deliverable_qc:verify_picture_spec (QA-002)",
+            "detail": "Resolution is 1080x1920",
+            "leg": "shot_quality",
+            "name": "library.tools.deliverable_qc:verify_picture_spec (QA-002) :: dimensions",
+            "status": "pass"
+          },
+          {
+            "citation": "library.tools.deliverable_qc:verify_picture_spec (QA-002)",
+            "detail": "Could not measure a picture in any sampled frame (151 inset in black on all four sides)",
+            "leg": "shot_quality",
+            "name": "library.tools.deliverable_qc:verify_picture_spec (QA-002) :: framing",
+            "status": "not_measured"
+          },
+          {
+            "citation": "library.tools.deliverable_qc:verify_picture_spec (QA-002)",
+            "detail": "No black frames detected",
+            "leg": "shot_quality",
+            "name": "library.tools.deliverable_qc:verify_picture_spec (QA-002) :: black_frames",
+            "status": "pass"
+          },
+          {
+            "citation": "library.tools.deliverable_qc:verify_picture_spec (QA-002)",
+            "detail": "No freeze frames detected",
+            "leg": "shot_quality",
+            "name": "library.tools.deliverable_qc:verify_picture_spec (QA-002) :: freeze_frames",
+            "status": "pass"
+          }
+        ],
+        "reason": null,
+        "status": "measured"
+      },
+      "technical_failure_hidden": false,
+      "video_id": "vep-live-workflows-e2e-e2e-011-baseline"
+    },
+    {
+      "brief_criteria": [
+        "hook-chosen",
+        "pauses-removed",
+        "angle-replaced",
+        "broll-chosen",
+        "caption-corrected",
+        "lower-third-adjusted",
+        "levels-balanced",
+        "human-work-preserved",
+        "exported",
+        "export-verified"
+      ],
+      "brief_id": "the-whole-job",
+      "creative": {
+        "criteria": [
+          {
+            "evidence": [
+              {
+                "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo2/exports/Reel 13 - the-accounting-firm-ai-called-healthcare.mp4 @ 0.00-3.20s",
+                "observation": "this file's own transcript (da voz): 0.00-3.20s \"And that's what happened with that company, why they came back as a healthcare company.\" - the reel's first line IS the claim."
+              },
+              {
+                "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo2/exports/Reel 13 - the-accounting-firm-ai-called-healthcare.mp4 @ 1.00s",
+                "observation": "the still at 1.00s shows the speaker mid-sentence with the header above the picture reading \"AI called an accounting software company a healthcare company.\""
+              }
+            ],
+            "id": "hook-chosen",
+            "rationale": "The reel opens on the claim: its first words are the company coming back as a healthcare company, and the header above the picture states it before the first second is over.",
+            "status": "pass"
+          },
+          {
+            "evidence": [
+              {
+                "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo2/exports/Reel 13 - the-accounting-firm-ai-called-healthcare.mp4 @ 0.00-5.44s",
+                "observation": "this file's own transcript (da voz): 0.00-3.20s \"And that's what happened with that company, why they came back as a healthcare company.\" followed by 3.20-5.44s \"Mm-hmm and not an accounting software company, yes.\" - the same claim, stated twice, is still in the reel."
+              }
+            ],
+            "id": "pauses-removed",
+            "rationale": "The statement the request asks to be taken out is still in the reel: the opening says the same thing twice, in the first two lines.",
+            "status": "fail"
+          },
+          {
+            "evidence": [
+              {
+                "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo2/exports/Reel 13 - the-accounting-firm-ai-called-healthcare.mp4 @ 1.00s and @ 37.50s",
+                "observation": "the still at 1.00s is the second camera on the host and the still at 37.50s is the first camera on the other speaker; the file shows that two angles alternate and nothing about which one the request meant."
+              }
+            ],
+            "id": "angle-replaced",
+            "rationale": "WHICH angle was doing nothing is a fact about the plan and the source material. The delivered file shows two camera angles and cannot say that the angle the request names was the one that was replaced.",
+            "status": "not_measured"
+          },
+          {
+            "evidence": [
+              {
+                "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo2/exports/Reel 13 - the-accounting-firm-ai-called-healthcare.mp4 @ 1.00, 3.00, 7.00, 11.00, 37.50, 55.00, 70.00 and 74.00s",
+                "observation": "eight stills taken across the whole body, all showing the two-camera interview inside the TV frame. The stills at 77.50s and 79.20s show the silent logo end card. No cutaway is visible at any of them."
+              }
+            ],
+            "id": "broll-chosen",
+            "rationale": "No inserted cutaway appears anywhere in the delivered file. Every still taken of it shows the two-camera interview inside the TV frame, then the end card.",
+            "status": "fail"
+          },
+          {
+            "evidence": [],
+            "id": "caption-corrected",
+            "rationale": "The request asks for the caption that misstates a NUMBER to say the right number. The brief the reviewer was shown does not say which number, and no sampled still of this file's captions carries a number, so there is nothing here to read the correction against.",
+            "status": "not_measured"
+          },
+          {
+            "evidence": [
+              {
+                "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo2/exports/Reel 13 - the-accounting-firm-ai-called-healthcare.mp4 @ 1.00s",
+                "observation": "the still at 1.00s: the \"Craig Lucie / CEO Lucie Content\" name bar sits at the lower left of the picture, clear of the caption row (\"company, why today\" lower centre) - the two no longer overlap; the bar's left edge sits at the same inset the earlier export measured at x 58, inside the LEFT crop band of every vertical platform (tiktok x 0-76 and up)."
+              }
+            ],
+            "id": "lower-third-adjusted",
+            "rationale": "The collision is gone - the name bar and the captions no longer overlap - but the name bar does not sit inside the safe area: its left edge is inside the band every vertical platform crops off. Same placement as the reel's earlier export.",
+            "status": "fail"
+          },
+          {
+            "evidence": [
+              {
+                "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo2/exports/Reel 13 - the-accounting-firm-ai-called-healthcare.mp4",
+                "observation": "library.tools.deliverable_qc:verify_audio_spec (QA-004) on this delivered file: integrated -14.34 LUFS against the -14.0 LUFS target (tolerance +/-1.0), true peak -1.41 dBTP. The criterion asks for the export to pass that check, and this render does."
+              },
+              {
+                "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo2/exports/Reel 13 - the-accounting-firm-ai-called-healthcare.mp4 @ 0.00-74.55s",
+                "observation": "this file's own transcript (da voz): continuous speech from 0.00s to 74.55s (\"...the links in the bio\"), then the silent end card - the voice is present and clear across the whole body."
+              }
+            ],
+            "id": "levels-balanced",
+            "rationale": "The export passes its own loudness check, and the voice carries the whole body: the transcript runs unbroken 0.00-74.55s with no missing words.",
+            "status": "pass"
+          },
+          {
+            "evidence": [],
+            "id": "human-work-preserved",
+            "rationale": "Preservation is a comparison with the state before the edit. The reviewer was shown the delivered file alone, and a file cannot say what was in the timeline before the build touched it.",
+            "status": "not_measured"
+          },
+          {
+            "evidence": [
+              {
+                "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo2/exports/Reel 13 - the-accounting-firm-ai-called-healthcare.mp4",
+                "observation": "the delivered file: 79.529s, 1080x1920 at 23.976fps, one H264 video stream and one stereo AAC audio stream, sha256 2671b97eda72a6d7f9b2c5a8f76e42a54e8b8e16e59b1ff0ccda45129ffb2298."
+              }
+            ],
+            "id": "exported",
+            "rationale": "A finished file exists: it carries a picture stream and a stereo audio stream, at the delivery frame, rendered and mastered through Ren's own deliver path.",
+            "status": "pass"
+          },
+          {
+            "evidence": [
+              {
+                "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo2/exports/Reel 13 - the-accounting-firm-ai-called-healthcare.mp4 @ 75.70-79.53s",
+                "observation": "the tail is the intended silent ending, and it is declared: external/reel_ending.json declares the tv_power_tail freeze for this reel, the timeline's Motion Graphics row holds logo_bulb_lines_safe_23976.mov at frames 1834-1906, and the stills at 77.50s (\"See your brand the way AI does\" + logo + luciecontent.com) and 79.20s show the card playing."
+              }
+            ],
+            "id": "export-verified",
+            "rationale": "The export was inspected and it does not carry every requested change: the repeated statement is still in the opening and no cutaway appears. The loudness check passes on this render (it failed on the earlier export) and the silent ending is the declared one, so those two findings are closed; the two content findings are not.",
+            "status": "fail"
+          }
+        ],
+        "failed": 4,
+        "judge": "firstmate lane p-qa010b-finished-videos (an agent that did not build the reel)",
+        "measured": 7,
+        "not_measured": 3,
+        "passed": 3,
+        "reason": null,
+        "score": 0.42857142857142855,
+        "status": "fail"
+      },
+      "delivery_status": "delivered",
+      "duration_seconds": 79.529333,
+      "history": {
+        "attempts": 4,
+        "basis": {
+          "attempts": "the number of recorded acts on this reel - a build or a touch - each one an attempt at the edit",
+          "first_attempt_accepted": "a hand correction is recorded on this reel, so the first attempt was not accepted as it stood",
+          "human_correction_seconds": "the correction is recorded but no Ren act before it carries a timestamp, so no window was measured",
+          "preserved_work": "read off the version ledger's own rows: for each row, did the row survive the last recorded revision with the same items, and did any item the build placed go missing"
+        },
+        "derived_at": "2026-10-22T16:33:31+00:00",
+        "first_attempt_accepted": false,
+        "human_correction_seconds": null,
+        "preserved_work": {
+          "checks": {
+            "no_item_was_dropped": false,
+            "row:audio:Akshita CH1": true,
+            "row:audio:Craig CH1": true,
+            "row:video:Akshita": true,
+            "row:video:Corner Logo": true,
+            "row:video:Craig": true,
+            "row:video:Frame": true,
+            "row:video:Motion Graphics": true,
+            "row:video:Post Header": true,
+            "row:video:Semantic": true,
+            "row:video:Subtitles": false
+          }
+        },
+        "sources": {
+          "attempts": "the version ledger (reel_versions.json)",
+          "first_attempt_accepted": "the reel's delivery acceptance and its recorded hand corrections",
+          "human_correction_seconds": "the timestamps of the reel's recorded acts and of the captain's hand correction",
+          "preserved_work": "the version ledger's recorded rows",
+          "project": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo2",
+          "reel": "Reel 13 - the-accounting-firm-ai-called-healthcare"
+        },
+        "unmeasured": [
+          "human_correction_seconds"
+        ]
+      },
+      "history_source": "the project's own records (history_from)",
+      "independence": {
+        "independent": true,
+        "reason": "the reviewer is named and saw only the delivered file",
+        "reviewer": "firstmate lane p-qa010b-finished-videos (an agent that did not build the reel)",
+        "saw_the_plan": false
+      },
+      "outcome": "editorially_rejected",
+      "outcome_reason": "1 editorial leg(s) refused the work and every technical leg passed: the work is technically valid and was rejected on editorial grounds (editorial_review)",
+      "path": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo2/exports/Reel 13 - the-accounting-firm-ai-called-healthcare.mp4",
+      "platform": "tiktok",
+      "sha256": "2671b97eda72a6d7f9b2c5a8f76e42a54e8b8e16e59b1ff0ccda45129ffb2298",
+      "sources": {
+        "brief": "the acceptance brief set's the-whole-job brief - the launch-reel request, in the set's own public half",
+        "declared_ending": "the 75.7-79.5s tail is the captain-designed ending (TV switch-off into the silent logo end card): external/reel_ending.json declares the tv_power_tail freeze for this reel on a 2026-09-11 captain marker, the Motion Graphics row holds logo_bulb_lines_safe_23976.mov at 1834-1906, and the delivered file shows the card at 77.5s and 79.2s; the 0.5s black at 75.99-76.49s is the switch-off collapse inside the 19-frame freeze",
+        "delivery": "rendered and mastered through Ren's own deliver path (ren deliver --timeline) on 2026-10-22: render job Complete, master -14.34 LUFS / -1.41 dBTP; the record step refused on the undeclared ending, so the project ledger holds no entry - the file stands on its render+master report beside it (exports/Reel 13 - the-accounting-firm-ai-called-healthcare.deliver.json)"
+      },
+      "technical": {
+        "legs": [
+          {
+            "basis": "objective_pass",
+            "evidence": [
+              {
+                "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo2/exports/Reel 13 - the-accounting-firm-ai-called-healthcare.mp4",
+                "observation": "the delivered file's audio spec (passed): loudness LUFS: -14.34, True Peak: -1.41; silence under picture 3.806s of the 79.529s master is at digital zero (4.8%), 3.231s of it with a picture on screen (4.1%); reported and not judged: 3.249s under -80 dBFS, 3.253s under -70 dBFS, 3.253s under -60 dBFS; 3.231s of picture over digital silence falls inside declared ending spans; channels 2 channel(s), every one of them carries signal"
+              }
+            ],
+            "kind": "objective",
+            "leg": "audio_continuity",
+            "measurements": [
+              {
+                "citation": "library.tools.deliverable_qc:verify_audio_spec (QA-004)",
+                "detail": "LUFS: -14.34, True Peak: -1.41",
+                "name": "library.tools.deliverable_qc:verify_audio_spec (QA-004)",
+                "status": "pass"
+              },
+              {
+                "citation": "library.tools.deliverable_qc:verify_audio_spec (QA-004)",
+                "detail": "3.806s of the 79.529s master is at digital zero (4.8%), 3.231s of it with a picture on screen (4.1%); reported and not judged: 3.249s under -80 dBFS, 3.253s under -70 dBFS, 3.253s under -60 dBFS; 3.231s of picture over digital silence falls inside declared ending spans",
+                "name": "library.tools.render_qa:measure_silence_under_picture",
+                "status": "pass"
+              },
+              {
+                "citation": "library.tools.deliverable_qc:verify_audio_spec (QA-004)",
+                "detail": "2 channel(s), every one of them carries signal",
+                "name": "library.tools.render_qa:verify_channel_presence",
+                "status": "pass"
+              }
+            ],
+            "rationale": "the delivered file's own audio spec: its loudness against the spec, the digital silence under picture that catches missing dialogue, and the channel presence",
+            "status": "pass",
+            "uncertainty": {
+              "level": "none",
+              "note": "the measurement is the product's own gate on the delivered file; it does not read the plan, so it cannot see a defect the plan intended"
+            }
+          },
+          {
+            "basis": "not_measured",
+            "evidence": [
+              {
+                "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo2/exports/Reel 13 - the-accounting-firm-ai-called-healthcare.mp4",
+                "observation": "the delivered file's caption and graphic measurements: no caption intent was supplied, so the delivered file's captions had nothing to be compared against; No overlay expectations were supplied, so the delivered file's overlays were not measured. Pass expectations: the overlay assets the plan placed, each with the box it was placed at."
+              }
+            ],
+            "kind": "objective",
+            "leg": "caption_and_graphic_clarity",
+            "measurements": [
+              {
+                "citation": "library.tools.delivered_caption_spec:verify_delivered_captions (QA-003)",
+                "detail": "no caption intent was supplied, so the delivered file's captions had nothing to be compared against",
+                "name": "library.tools.delivered_caption_spec:verify_delivered_captions (QA-003)",
+                "status": "not_measured"
+              },
+              {
+                "citation": "library.tools.deliverable_qc:verify_picture_spec (QA-002)",
+                "detail": "No overlay expectations were supplied, so the delivered file's overlays were not measured. Pass expectations: the overlay assets the plan placed, each with the box it was placed at.",
+                "name": "library.tools.deliverable_qc:verify_picture_spec (QA-002) :: overlays",
+                "status": "not_measured"
+              }
+            ],
+            "rationale": "the delivered file's own caption spec, and the overlays leg of the picture spec that measures the graphics the plan placed",
+            "status": "not_measured",
+            "uncertainty": {
+              "level": "medium",
+              "note": "a measurement that could not run is named beside the ones that did, and this leg is not a pass on the ones that did"
+            }
+          },
+          {
+            "basis": "objective_pass",
+            "evidence": [
+              {
+                "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo2/exports/Reel 13 - the-accounting-firm-ai-called-healthcare.mp4",
+                "observation": "the delivered file's picture measurements: Resolution is 1080x1920; picture occupies 100.0% of the frame (spread 0.00 over 6 samples; 1 declared framing); 153 samples carry a picture inset in black on all four sides, which is a composition and not a conform - no geometry was read off them; no overlay geometry was supplied, so the bars are measured across the whole width and any overlay ink drawn over one reads as picture; No undeclared black frames (1 declared black beat(s) allowed through); No freeze frames detected"
+              }
+            ],
+            "kind": "objective",
+            "leg": "shot_quality",
+            "measurements": [
+              {
+                "citation": "library.tools.deliverable_qc:verify_picture_spec (QA-002)",
+                "detail": "Resolution is 1080x1920",
+                "name": "library.tools.deliverable_qc:verify_picture_spec (QA-002) :: dimensions",
+                "status": "pass"
+              },
+              {
+                "citation": "library.tools.deliverable_qc:verify_picture_spec (QA-002)",
+                "detail": "picture occupies 100.0% of the frame (spread 0.00 over 6 samples; 1 declared framing); 153 samples carry a picture inset in black on all four sides, which is a composition and not a conform - no geometry was read off them; no overlay geometry was supplied, so the bars are measured across the whole width and any overlay ink drawn over one reads as picture",
+                "name": "library.tools.deliverable_qc:verify_picture_spec (QA-002) :: framing",
+                "status": "pass"
+              },
+              {
+                "citation": "library.tools.deliverable_qc:verify_picture_spec (QA-002)",
+                "detail": "No undeclared black frames (1 declared black beat(s) allowed through)",
+                "name": "library.tools.deliverable_qc:verify_picture_spec (QA-002) :: black_frames",
+                "status": "pass"
+              },
+              {
+                "citation": "library.tools.deliverable_qc:verify_picture_spec (QA-002)",
+                "detail": "No freeze frames detected",
+                "name": "library.tools.deliverable_qc:verify_picture_spec (QA-002) :: freeze_frames",
+                "status": "pass"
+              }
+            ],
+            "rationale": "the delivered file's own picture spec: the frame it was delivered at, whether the picture fills it, the black frames it holds and the frozen frames it holds",
+            "status": "pass",
+            "uncertainty": {
+              "level": "none",
+              "note": "the measurement is the product's own gate on the delivered file; it does not read the plan"
+            }
+          }
+        ],
+        "measurements": [
+          {
+            "citation": "library.tools.deliverable_qc:verify_audio_spec (QA-004)",
+            "detail": "LUFS: -14.34, True Peak: -1.41",
+            "leg": "audio_continuity",
+            "name": "library.tools.deliverable_qc:verify_audio_spec (QA-004)",
+            "status": "pass"
+          },
+          {
+            "citation": "library.tools.deliverable_qc:verify_audio_spec (QA-004)",
+            "detail": "3.806s of the 79.529s master is at digital zero (4.8%), 3.231s of it with a picture on screen (4.1%); reported and not judged: 3.249s under -80 dBFS, 3.253s under -70 dBFS, 3.253s under -60 dBFS; 3.231s of picture over digital silence falls inside declared ending spans",
+            "leg": "audio_continuity",
+            "name": "library.tools.render_qa:measure_silence_under_picture",
+            "status": "pass"
+          },
+          {
+            "citation": "library.tools.deliverable_qc:verify_audio_spec (QA-004)",
+            "detail": "2 channel(s), every one of them carries signal",
+            "leg": "audio_continuity",
+            "name": "library.tools.render_qa:verify_channel_presence",
+            "status": "pass"
+          },
+          {
+            "citation": "library.tools.delivered_caption_spec:verify_delivered_captions (QA-003)",
+            "detail": "no caption intent was supplied, so the delivered file's captions had nothing to be compared against",
+            "leg": "caption_and_graphic_clarity",
+            "name": "library.tools.delivered_caption_spec:verify_delivered_captions (QA-003)",
+            "status": "not_measured"
+          },
+          {
+            "citation": "library.tools.deliverable_qc:verify_picture_spec (QA-002)",
+            "detail": "No overlay expectations were supplied, so the delivered file's overlays were not measured. Pass expectations: the overlay assets the plan placed, each with the box it was placed at.",
+            "leg": "caption_and_graphic_clarity",
+            "name": "library.tools.deliverable_qc:verify_picture_spec (QA-002) :: overlays",
+            "status": "not_measured"
+          },
+          {
+            "citation": "library.tools.deliverable_qc:verify_picture_spec (QA-002)",
+            "detail": "Resolution is 1080x1920",
+            "leg": "shot_quality",
+            "name": "library.tools.deliverable_qc:verify_picture_spec (QA-002) :: dimensions",
+            "status": "pass"
+          },
+          {
+            "citation": "library.tools.deliverable_qc:verify_picture_spec (QA-002)",
+            "detail": "picture occupies 100.0% of the frame (spread 0.00 over 6 samples; 1 declared framing); 153 samples carry a picture inset in black on all four sides, which is a composition and not a conform - no geometry was read off them; no overlay geometry was supplied, so the bars are measured across the whole width and any overlay ink drawn over one reads as picture",
+            "leg": "shot_quality",
+            "name": "library.tools.deliverable_qc:verify_picture_spec (QA-002) :: framing",
+            "status": "pass"
+          },
+          {
+            "citation": "library.tools.deliverable_qc:verify_picture_spec (QA-002)",
+            "detail": "No undeclared black frames (1 declared black beat(s) allowed through)",
+            "leg": "shot_quality",
+            "name": "library.tools.deliverable_qc:verify_picture_spec (QA-002) :: black_frames",
+            "status": "pass"
+          },
+          {
+            "citation": "library.tools.deliverable_qc:verify_picture_spec (QA-002)",
+            "detail": "No freeze frames detected",
+            "leg": "shot_quality",
+            "name": "library.tools.deliverable_qc:verify_picture_spec (QA-002) :: freeze_frames",
+            "status": "pass"
+          }
+        ],
+        "reason": null,
+        "status": "measured"
+      },
+      "technical_failure_hidden": false,
+      "video_id": "ren-scratch-bench-demo2-reel-13-redeliver"
+    }
+  ]
+}

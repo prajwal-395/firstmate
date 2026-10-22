@@ -113,6 +113,47 @@ The command prints the baseline table, the four tracked numbers with
 their denominators, and the gate's verdict, and writes the report to
 `tests/live/reports/finished-video-benchmark.json`.
 
+## The second run (2026-10-22): the gate is met
+
+Corpus `ren-scratch-finished-videos-2026-10-22`: the two launch-reel
+exports plus the tightening baseline. The 2026-10-22 render came through
+Ren's own deliver path (render Complete, mastered to -14.34 LUFS) on
+`ren-scratch-bench-demo2`; the record step refused on the undeclared
+ending, so the project ledger holds no entry and the file stands on its
+render+master report. The corpus declares the intended silent ending per
+video (`declared_silence`, `declared_black`, with the basis in each
+entry), and the two launch-reel histories are derived from their
+projects' own records (`history_from` -
+`library/tools/finished_video_history.py`) instead of hand-typed. Report:
+`tests/live/reports/finished-video-benchmark--finished_video_acceptance-4.json`
+(the writer keeps the 2026-10-21 report beside it rather than
+overwriting a differently-scoped one).
+
+| finished video | delivered | tech legs measured | tech legs failed | tech legs not measured | creative measured | creative passed | creative failed | outcome | failure hidden | revisions | human correction s |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| ren-scratch-bench-demo-reel-13 | delivered | 2 | 1 | 1 | 7 | 2 | 5 | failed | False | 5 | 48652.8148 |
+| vep-live-workflows-e2e-e2e-011-baseline | delivered | 2 | 1 | 1 | 2 | 1 | 1 | failed | False | | |
+| ren-scratch-bench-demo2-reel-13-redeliver | delivered | 2 | 0 | 1 | 7 | 3 | 4 | editorially_rejected | False | 3 | | |
+
+| number | denominator | value | status |
+|---|---|---|---|
+| first-pass acceptance | 2 | 0.0 | measured |
+| revision count | 2 | mean 4.0 (total 8, max 5) | measured |
+| human correction time | 1 | mean 48652.8s | measured |
+| preserved work | 11 checks | 9 of 11 | measured |
+
+The release gate: **MET** - 3 videos, all delivered, all independently
+reviewed, no technical failure behind an acceptable creative score. The
+gate measures the benchmark's completeness, not the product's success:
+all three outcomes read `failed`/`editorially_rejected`, zero accepted.
+The old export still fails its loudness (-23.18 LUFS); the declaration
+fixed the ending findings and nothing else. The caption leg is still
+`not_measured` on all three (no attributable caption intent), and
+`ren deliver` still cannot record the timeline (the silent logo card the
+motion-graphics layer places declares no silence project-side). Detail
+and what is still open:
+`docs/evidence/finished-video-acceptance.md`.
+
 ## The baseline (2026-10-21)
 
 The corpus is every distinct finished render in Ren's own scratch

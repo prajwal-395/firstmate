@@ -1,7 +1,7 @@
 {
   "schema": "ren-finished-video-corpus/1",
-  "corpus_id": "ren-scratch-finished-videos-2026-10-21",
-  "description": "Every FINISHED video a Ren-owned scratch project has delivered on this machine, measured against the brief it was made for. The two files here are the only distinct finished renders in the Ren-owned scratch projects: the exported launch reel of ren-scratch-bench-demo and the rendered baseline of the Reel 13 segment that the live-workflows-e2e project kept as the before of its tightening workflow. The captain's own project is not in here, and neither is any file that is not a finished render.",
+  "corpus_id": "ren-scratch-finished-videos-2026-10-22",
+  "description": "Every FINISHED video a Ren-owned scratch project has delivered on this machine, measured against the brief it was made for. Two exports of the launch reel (the 2026-10-20 export and the 2026-10-22 fresh render through Ren, mastered to the delivery loudness) plus the rendered baseline the vep-live-workflows-e2e project kept as the before of its tightening workflow. The captain's own project is not in here, and neither is any file that is not a finished render. The two launch-reel videos carry history derived from their projects' own records (history_from), not hand-typed numbers.",
   "brief_set": "library/tools/editorial_acceptance/brief_set.json",
   "videos": [
     {
@@ -123,19 +123,24 @@
           ]
         }
       ],
-      "history": {
-        "first_attempt_accepted": false,
-        "attempts": null,
-        "human_correction_seconds": null,
-        "preserved_work": null
-      },
       "sources": {
         "first_attempt_accepted": "ren-scratch-bench-demo/marker_feedback/ren-request.20261020T222015470723Z.edit_spec_3a9c357ff457419a.markers.json - the captain, on the live timeline: 'This is the launch reel and it is not finished. Please do the whole job on it ...'. The reel was not accepted as it stood.",
-        "attempts": "nobody recorded how many times the reel was built and delivered",
-        "human_correction_seconds": "nobody timed the corrections",
-        "preserved_work": "the run recorded no before/after comparison of the human's own edits",
-        "brief": "the acceptance brief set's 'the-whole-job' brief - the launch-reel request, in the set's own public half"
-      }
+        "attempts": "derived from the project's own records: the creative commit ledger (creative_revisions.json) carries every recorded act on this reel",
+        "human_correction_seconds": "derived from the project's own records: the timestamps of the reel's recorded acts and of the captain's hand correction in the unified edit history",
+        "preserved_work": "derived from the project's own records: no two recorded acts carry rows to compare, so what survived was not measured",
+        "brief": "the acceptance brief set's 'the-whole-job' brief - the launch-reel request, in the set's own public half",
+        "declared_ending": "the 75.7-79.5s tail is the captain-designed ending (TV switch-off into the silent logo end card): external/reel_ending.json declares the tv_power_tail freeze for this reel on a 2026-09-11 captain marker, the Motion Graphics row holds logo_bulb_lines_safe_23976.mov at 1834-1906, and the delivered file shows the card at 77.5s and 79.2s; the 0.5s black at 75.99-76.49s is the switch-off collapse inside the 19-frame freeze"
+      },
+      "history_from": {
+        "project": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo",
+        "reel": "Reel 13 - the-accounting-firm-ai-called-healthcare"
+      },
+      "declared_silence": [
+        "75.70:79.57"
+      ],
+      "declared_black": [
+        "75.99:76.49"
+      ]
     },
     {
       "video_id": "vep-live-workflows-e2e-e2e-011-baseline",
@@ -225,6 +230,141 @@
         "human_correction_seconds": "nobody timed the corrections",
         "preserved_work": "the run recorded no before/after comparison",
         "brief": "the human's own request, typed onto the live timeline: vep-live-workflows-e2e/marker_feedback/ren-request.20261020T211439979013Z.edit_spec_1e039e4071304c39.markers.json"
+      }
+    },
+    {
+      "video_id": "ren-scratch-bench-demo2-reel-13-redeliver",
+      "brief_id": "the-whole-job",
+      "path": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo2/exports/Reel 13 - the-accounting-firm-ai-called-healthcare.mp4",
+      "platform": "tiktok",
+      "expected_duration_seconds": 79.53787120453788,
+      "has_captions": true,
+      "declared_silence": [
+        "75.70:79.53"
+      ],
+      "declared_black": [
+        "75.99:76.49"
+      ],
+      "reviewer": "firstmate lane p-qa010b-finished-videos (an agent that did not build the reel)",
+      "saw_the_plan": false,
+      "judgments": [
+        {
+          "id": "hook-chosen",
+          "status": "pass",
+          "rationale": "The reel opens on the claim: its first words are the company coming back as a healthcare company, and the header above the picture states it before the first second is over.",
+          "evidence": [
+            {
+              "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo2/exports/Reel 13 - the-accounting-firm-ai-called-healthcare.mp4 @ 0.00-3.20s",
+              "observation": "this file's own transcript (da voz): 0.00-3.20s \"And that's what happened with that company, why they came back as a healthcare company.\" - the reel's first line IS the claim."
+            },
+            {
+              "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo2/exports/Reel 13 - the-accounting-firm-ai-called-healthcare.mp4 @ 1.00s",
+              "observation": "the still at 1.00s shows the speaker mid-sentence with the header above the picture reading \"AI called an accounting software company a healthcare company.\""
+            }
+          ]
+        },
+        {
+          "id": "pauses-removed",
+          "status": "fail",
+          "rationale": "The statement the request asks to be taken out is still in the reel: the opening says the same thing twice, in the first two lines.",
+          "evidence": [
+            {
+              "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo2/exports/Reel 13 - the-accounting-firm-ai-called-healthcare.mp4 @ 0.00-5.44s",
+              "observation": "this file's own transcript (da voz): 0.00-3.20s \"And that's what happened with that company, why they came back as a healthcare company.\" followed by 3.20-5.44s \"Mm-hmm and not an accounting software company, yes.\" - the same claim, stated twice, is still in the reel."
+            }
+          ]
+        },
+        {
+          "id": "angle-replaced",
+          "status": "not_measured",
+          "rationale": "WHICH angle was doing nothing is a fact about the plan and the source material. The delivered file shows two camera angles and cannot say that the angle the request names was the one that was replaced.",
+          "evidence": [
+            {
+              "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo2/exports/Reel 13 - the-accounting-firm-ai-called-healthcare.mp4 @ 1.00s and @ 37.50s",
+              "observation": "the still at 1.00s is the second camera on the host and the still at 37.50s is the first camera on the other speaker; the file shows that two angles alternate and nothing about which one the request meant."
+            }
+          ]
+        },
+        {
+          "id": "broll-chosen",
+          "status": "fail",
+          "rationale": "No inserted cutaway appears anywhere in the delivered file. Every still taken of it shows the two-camera interview inside the TV frame, then the end card.",
+          "evidence": [
+            {
+              "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo2/exports/Reel 13 - the-accounting-firm-ai-called-healthcare.mp4 @ 1.00, 3.00, 7.00, 11.00, 37.50, 55.00, 70.00 and 74.00s",
+              "observation": "eight stills taken across the whole body, all showing the two-camera interview inside the TV frame. The stills at 77.50s and 79.20s show the silent logo end card. No cutaway is visible at any of them."
+            }
+          ]
+        },
+        {
+          "id": "caption-corrected",
+          "status": "not_measured",
+          "rationale": "The request asks for the caption that misstates a NUMBER to say the right number. The brief the reviewer was shown does not say which number, and no sampled still of this file's captions carries a number, so there is nothing here to read the correction against.",
+          "evidence": []
+        },
+        {
+          "id": "lower-third-adjusted",
+          "status": "fail",
+          "rationale": "The collision is gone - the name bar and the captions no longer overlap - but the name bar does not sit inside the safe area: its left edge is inside the band every vertical platform crops off. Same placement as the reel's earlier export.",
+          "evidence": [
+            {
+              "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo2/exports/Reel 13 - the-accounting-firm-ai-called-healthcare.mp4 @ 1.00s",
+              "observation": "the still at 1.00s: the \"Craig Lucie / CEO Lucie Content\" name bar sits at the lower left of the picture, clear of the caption row (\"company, why today\" lower centre) - the two no longer overlap; the bar's left edge sits at the same inset the earlier export measured at x 58, inside the LEFT crop band of every vertical platform (tiktok x 0-76 and up)."
+            }
+          ]
+        },
+        {
+          "id": "levels-balanced",
+          "status": "pass",
+          "rationale": "The export passes its own loudness check, and the voice carries the whole body: the transcript runs unbroken 0.00-74.55s with no missing words.",
+          "evidence": [
+            {
+              "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo2/exports/Reel 13 - the-accounting-firm-ai-called-healthcare.mp4",
+              "observation": "library.tools.deliverable_qc:verify_audio_spec (QA-004) on this delivered file: integrated -14.34 LUFS against the -14.0 LUFS target (tolerance +/-1.0), true peak -1.41 dBTP. The criterion asks for the export to pass that check, and this render does."
+            },
+            {
+              "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo2/exports/Reel 13 - the-accounting-firm-ai-called-healthcare.mp4 @ 0.00-74.55s",
+              "observation": "this file's own transcript (da voz): continuous speech from 0.00s to 74.55s (\"...the links in the bio\"), then the silent end card - the voice is present and clear across the whole body."
+            }
+          ]
+        },
+        {
+          "id": "human-work-preserved",
+          "status": "not_measured",
+          "rationale": "Preservation is a comparison with the state before the edit. The reviewer was shown the delivered file alone, and a file cannot say what was in the timeline before the build touched it.",
+          "evidence": []
+        },
+        {
+          "id": "exported",
+          "status": "pass",
+          "rationale": "A finished file exists: it carries a picture stream and a stereo audio stream, at the delivery frame, rendered and mastered through Ren's own deliver path.",
+          "evidence": [
+            {
+              "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo2/exports/Reel 13 - the-accounting-firm-ai-called-healthcare.mp4",
+              "observation": "the delivered file: 79.529s, 1080x1920 at 23.976fps, one H264 video stream and one stereo AAC audio stream, sha256 2671b97eda72a6d7f9b2c5a8f76e42a54e8b8e16e59b1ff0ccda45129ffb2298."
+            }
+          ]
+        },
+        {
+          "id": "export-verified",
+          "status": "fail",
+          "rationale": "The export was inspected and it does not carry every requested change: the repeated statement is still in the opening and no cutaway appears. The loudness check passes on this render (it failed on the earlier export) and the silent ending is the declared one, so those two findings are closed; the two content findings are not.",
+          "evidence": [
+            {
+              "artifact": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo2/exports/Reel 13 - the-accounting-firm-ai-called-healthcare.mp4 @ 75.70-79.53s",
+              "observation": "the tail is the intended silent ending, and it is declared: external/reel_ending.json declares the tv_power_tail freeze for this reel, the timeline's Motion Graphics row holds logo_bulb_lines_safe_23976.mov at frames 1834-1906, and the stills at 77.50s (\"See your brand the way AI does\" + logo + luciecontent.com) and 79.20s show the card playing."
+            }
+          ]
+        }
+      ],
+      "history_from": {
+        "project": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo2",
+        "reel": "Reel 13 - the-accounting-firm-ai-called-healthcare"
+      },
+      "sources": {
+        "delivery": "rendered and mastered through Ren's own deliver path (ren deliver --timeline) on 2026-10-22: render job Complete, master -14.34 LUFS / -1.41 dBTP; the record step refused on the undeclared ending, so the project ledger holds no entry - the file stands on its render+master report beside it (exports/Reel 13 - the-accounting-firm-ai-called-healthcare.deliver.json)",
+        "declared_ending": "the 75.7-79.5s tail is the captain-designed ending (TV switch-off into the silent logo end card): external/reel_ending.json declares the tv_power_tail freeze for this reel on a 2026-09-11 captain marker, the Motion Graphics row holds logo_bulb_lines_safe_23976.mov at 1834-1906, and the delivered file shows the card at 77.5s and 79.2s; the 0.5s black at 75.99-76.49s is the switch-off collapse inside the 19-frame freeze",
+        "brief": "the acceptance brief set's the-whole-job brief - the launch-reel request, in the set's own public half"
       }
     }
   ]

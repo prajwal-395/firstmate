@@ -86,7 +86,7 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from library.tools import acceptance_state, report_provenance
+from library.tools import acceptance_state, finished_video_history, report_provenance
 from library.tools.editorial_acceptance import briefs, delivery, judgement
 
 CORPUS_SCHEMA = "ren-finished-video-corpus/1"
@@ -181,6 +181,28 @@ def validate_corpus(corpus: Any) -> list[str]:
         problems.extend(f"{where}: {problem}"
                         for problem in _validate_history(
                             entry.get("history")))
+        problems.extend(f"{where}: {problem}"
+                        for problem in _validate_history_from(
+                            entry.get("history_from")))
+    return problems
+
+
+def _validate_history_from(declared: Any) -> list[str]:
+    """The declared source of a derived history, checked.
+
+    An entry either records its history by hand or names the project
+    the numbers are derived from.  Both at once is ambiguous and is
+    refused here rather than silently resolved by the reader.
+    """
+    if declared is None:
+        return []
+    if not isinstance(declared, Mapping):
+        return ["the history_from is not an object"]
+    problems: list[str] = []
+    if not str(declared.get("project") or "").strip():
+        problems.append("the history_from names no project")
+    if not str(declared.get("reel") or "").strip():
+        problems.append("the history_from names no reel")
     return problems
 
 
@@ -408,6 +430,10 @@ def score_video(entry: Mapping[str, Any], *,
 
     video_id = str(entry.get("video_id") or "")
     path = str(entry.get("path") or "")
+    history = finished_video_history.history_for_corpus(entry)
+    history_source = ("the project's own records (history_from)"
+                      if entry.get("history_from") is not None
+                      else "the corpus entry")
     brief = resolve_brief(entry, brief_set)
     platform = str(entry.get("platform") or "")
     spec = delivery_spec.resolve_delivery_spec(platform)
@@ -431,7 +457,8 @@ def score_video(entry: Mapping[str, Any], *,
         "outcome": acceptance_state.OUTCOME_UNMEASURED,
         "outcome_reason": "",
         "technical_failure_hidden": False,
-        "history": dict(entry.get("history") or {}),
+        "history": history,
+        "history_source": history_source,
         "sources": dict(entry.get("sources") or {}),
     }
 
