@@ -62,11 +62,13 @@ a measurement. The report:
 tests: `tests/unit/context/test_portable_evidence.py`.
 
 **Continued.** The `m3d` and `m6` producers were lifted in
-`docs/evidence/portable_evidence_m3d_m6.md`.
+`docs/evidence/portable_evidence_m3d_m6.md`, the `m3b` identity lane in
+`docs/evidence/portable_evidence_m3b.md`, and the `m0` lane and the reel
+build's own rows in `docs/evidence/portable_evidence_m0_reel_build.md`.
 
-**Left.** One producer is migrated. The others - `m3b`, `m3d`, `m6`,
-`m0` and the reel build - are counted and named, not yet lifted. The
-Project Model's events, relations, tracks, masks, signals and identity
-links are counted by the census and not yet migrated: a relationship
-and an event need their own kind and their own entity references, and
-the Project Model's schema has no `evidence` field on them yet.
+**Left.** One producer is migrated here. No producer of Reel 26's
+records is still counted and named but unlifted. The Project Model's
+events, relations, tracks, masks and signals are counted by the census
+and not yet migrated: an event needs its own kind and its own entity
+references, and the Project Model's schema has no `evidence` field on
+them yet.

@@ -420,6 +420,225 @@ def _portable_record(**overrides):
     return record
 
 
+# ── The M3b identity lane ─────────────────────────────────────────
+
+
+def _m3b_observation(obs_id, modality, measurement_type, payload,
+                     start, end, unit="normalized"):
+    """One stored M3b observation: a face box, or a voice turn."""
+    contract = _contract(measurement_type=measurement_type, value=payload,
+                         unit=unit, method="insightface",
+                         coverage="sampled", coverage_samples=1)
+    return {
+        "id": obs_id,
+        "asset_id": "asset-a",
+        "interval": {"clock_id": "clock-a", "start": start, "end": end},
+        "modality": modality,
+        "payload": {**payload, "evidence_contract": contract},
+        "confidence": 0.9,
+        "provenance_id": f"prov-{DIGEST}-m3b",
+    }
+
+
+def _m3b_model():
+    """A Project Model with the M3b identity lane in it.
+
+    Two observations - a face box and a diarized voice turn - and the
+    identity links that say who each of them belongs to.
+    """
+    model = _model([
+        _m3b_observation("obs-face", "face", "person.face_box",
+                         {"face_track": "face_001",
+                          "box": [10.0, 20.0, 30.0, 40.0]}, 1000, 1500),
+        _m3b_observation("obs-voice", "voice_turn", "person.voice_turn",
+                         {"voice_track": "voice_001"}, 2000, 3000,
+                         unit="span"),
+    ])
+    model["provenance"].append({
+        "id": f"prov-{DIGEST}-m3b",
+        "producer": "library.tools.person_entity",
+        "producer_version": "1",
+        "source_digest": DIGEST,
+    })
+    model["identity_links"] = [
+        {"id": "link-face", "entity_id": "person_001",
+         "method": "face_embedding_cluster", "observation_id": "obs-face",
+         "provenance_id": f"prov-{DIGEST}-m3b", "status": "verified",
+         "confidence": 0.91},
+        {"id": "link-voice", "entity_id": "speaker-a-voice_001",
+         "method": "diarization", "observation_id": "obs-voice",
+         "provenance_id": f"prov-{DIGEST}-m3b", "status": "verified",
+         "confidence": None},
+    ]
+    return model
+
+
+def test_the_m3b_lane_is_migrated():
+    """The lane is declared, not left pending.
+
+    The census names the producers it has been given; a lane that is
+    lifted but not declared is a lane nobody can measure.
+    """
+    assert "m3b" in pe.MIGRATED_PRODUCERS
+
+
+def test_a_face_box_points_at_the_picture_it_was_seen_in():
+    """A face box is a reading of the PICTURE.
+
+    The reference names the video stream, so the frames the face was
+    seen in can be recovered from the record alone.
+    """
+    model = _m3b_model()
+    lane = pe.migrate_lane(model, model["observations"])
+    assert lane["refusals"] == []
+    face = next(row for row in lane["records"] if row["id"] == "obs-face")
+    assert face["modality"] == "video"
+    assert face["source_references"][0]["stream_id"] == "stream-a"
+    assert face["modality_refs"][0]["modality"] == "video"
+
+
+def test_a_diarized_voice_turn_is_not_a_text_record():
+    """The defect: a voice turn carries no words.
+
+    It was filed as a TEXT record - a reading of words - when it is a
+    reading of the SOUND: a span of audio a voice was heard in. A
+    reader who believes it is text looks for a transcript that is not
+    there.
+    """
+    model = _m3b_model()
+    lane = pe.migrate_lane(model, model["observations"])
+    voice = next(row for row in lane["records"] if row["id"] == "obs-voice")
+    assert voice["modality"] == "audio"
+    assert voice["source_references"][0]["stream_id"] == "stream-a-1"
+    assert voice["modality_refs"][0]["modality"] == "audio"
+
+
+def test_an_m3b_record_names_the_entity_it_is_about():
+    """A record that says nothing about WHO it measured is half a record.
+
+    The identity lane's links say who a face track and a voice turn
+    belong to, and the observation carries that with it.
+    """
+    model = _m3b_model()
+    lane = pe.migrate_lane(model, model["observations"])
+    face = next(row for row in lane["records"] if row["id"] == "obs-face")
+    voice = next(row for row in lane["records"] if row["id"] == "obs-voice")
+    assert face["entities"] == ["person_001"]
+    assert voice["entities"] == ["speaker-a-voice_001"]
+
+
+def test_an_identity_link_lifts_as_a_relationship():
+    """The links are the lane's own evidence, and they are relationships.
+
+    A face track is this person's face: a subject, a predicate and an
+    object, on the portable shape the model declares for it.
+    """
+    model = _m3b_model()
+    lane = pe.migrate_lane(model, model["observations"])
+    assert lane["refusals"] == []
+    link = next(row for row in lane["link_records"]
+                if row["id"] == "link-face")
+    assert link["kind"] == "relationship"
+    assert link["relation"] == {"subject": "face_001",
+                                 "predicate": "face_embedding_cluster",
+                                 "object": "person_001"}
+    assert link["entities"] == ["person_001"]
+
+
+def test_an_identity_link_names_the_source_and_not_the_observation():
+    """A link is grounded in the media, never in the record it rests on.
+
+    Grounding a claim in a description of a frame is grounding it in a
+    caption; the reference names the source stream and its span.
+    """
+    model = _m3b_model()
+    lane = pe.migrate_lane(model, model["observations"])
+    link = next(row for row in lane["link_records"]
+                if row["id"] == "link-face")
+    reference = link["source_references"][0]
+    assert reference["kind"] == "interval"
+    assert reference["stream_id"] == "stream-a"
+    assert "obs-face" not in str(reference)
+    assert link["interval"]["start"] == 1000
+    assert link["interval"]["end"] == 1500
+
+
+def test_an_identity_link_is_a_description_and_never_a_measurement():
+    """Who a face belongs to is a claim about the media, not a reading.
+
+    A relationship is LOSSY, and the model refuses to file one as an
+    instrument's measurement.
+    """
+    model = _m3b_model()
+    lane = pe.migrate_lane(model, model["observations"])
+    link = next(row for row in lane["link_records"]
+                if row["id"] == "link-face")
+    assert link["lossy"] is True
+    assert link["provenance"]["class"] == "inferred"
+    with pytest.raises(pe.PortableEvidenceError) as refusal:
+        filed = dict(link["provenance"])
+        filed["class"] = "measured"
+        pe.parse_record(dict(link, provenance=filed))
+    assert "not a measurement" in str(refusal.value)
+
+
+def test_a_link_whose_observation_names_no_track_is_refused_by_name():
+    """A relationship with no subject is not a relationship.
+
+    The refusal names what was missing, rather than guessing at a
+    track, and it is counted on the LINKS' own denominator.
+    """
+    model = _m3b_model()
+    model["observations"][0]["payload"] = {
+        "evidence_contract": model["observations"][0]["payload"][
+            "evidence_contract"]}
+    lane = pe.migrate_lane(model, model["observations"])
+    refused = [row for row in lane["link_refusals"]
+               if row["id"] == "link-face"]
+    assert refused and "no track" in refused[0]["reason"]
+    assert lane["refusals"] == []
+
+
+def test_a_stored_identity_link_carries_none_of_the_three_attributes():
+    """The before: a link is a row of keys and nothing else.
+
+    It names no source, declares no class and carries no coverage, and
+    the census says so instead of assuming the attributes the portable
+    record gives it.
+    """
+    model = _m3b_model()
+    rows = pe.census_rows(pe._link_rows(model["identity_links"]))
+    assert rows["records"] == 2
+    assert rows["with_source_reference"] == 0
+    assert rows["with_provenance_class"] == 0
+    assert rows["with_coverage"] == 0
+    assert rows["with_all_three"] == 0
+
+
+def test_the_census_counts_the_identity_links_of_the_reels_sources():
+    """The defect: the identity links of the reel's sources were invisible.
+
+    The census scoped the links by a producer lane that named one
+    lane, so the M3b lane's links - the bulk of them - were counted as
+    if they did not exist. A denominator that misses the lane's own
+    evidence is not a denominator.
+    """
+    model = _m3b_model()
+    report = pe.other_evidence_shapes(model, ["asset-a"])
+    assert report["identity_links"]["rows"] == 2
+    assert report["identity_links"]["distinct_shapes"] == 1
+
+
+def test_the_lane_lifts_without_a_refusal():
+    """The whole lane, both collections, nothing refused by name."""
+    model = _m3b_model()
+    lane = pe.migrate_lane(model, model["observations"])
+    assert lane["refusals"] == []
+    assert len(lane["records"]) == 2
+    assert len(lane["link_records"]) == 2
+    assert {row["kind"] for row in lane["link_records"]} == {"relationship"}
+
+
 def test_a_record_with_no_source_reference_is_refused():
     """A record that names no source is a record about nothing."""
     with pytest.raises(pe.PortableEvidenceError) as refusal:

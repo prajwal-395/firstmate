@@ -73,6 +73,16 @@ spellings become the modern ones; the contract nested in a payload is
 lifted to the top level), and a record NEWER than this reader is
 REFUSED, never half-read.
 
+**The producers, one at a time.** A lane is MIGRATED when its records
+can be lifted onto the portable shape without losing a value. The M1
+transcript lane, the M3b identity lane, the M3d region lane and the M6
+clock lane are migrated. The M3b lane writes observations AND the
+identity links about them, and the links lift as RELATIONSHIP records:
+a face track is this person's face, a voice turn is this speaker's
+voice. A link is a description of the media rather than a reading of
+it, so it is LOSSY, and it names the source it was read from rather
+than the observation it rests on.
+
     python3 -m library.tools.portable_evidence census --model MODEL.json
     python3 -m library.tools.portable_evidence migrate --model MODEL.json \\
         --out portable.json [--reel reel-26] [--producer m1]
@@ -118,7 +128,9 @@ COVERAGE_KINDS = ("complete", "sampled", "inferred", "unavailable")
 
 #: The stored observation modality -> the portable modality. A
 #: transcription is a reading of WORDS, so it is a text record that
-#: points at audio; a face box is a reading of the PICTURE.
+#: points at audio; a face box is a reading of the PICTURE; a
+#: diarized voice turn is a reading of the SOUND and carries no words,
+#: so it is an audio record.
 MODALITY_OF_STORED = {
     "speech": "text",
     "speech_word": "text",
@@ -128,7 +140,7 @@ MODALITY_OF_STORED = {
     "speech_disfluency": "text",
     "speech_repetition": "text",
     "speech_take_link": "text",
-    "voice_turn": "text",
+    "voice_turn": "audio",
     "cross_modal_report": "text",
     "face": "video",
     "region_frame": "video",
@@ -185,7 +197,7 @@ LANE_READ_MODALITY = {"m6": "audio"}
 #: a producer is migrated when its records can be lifted onto the
 #: portable shape without losing a value, and the census names the ones
 #: that are still pending.
-MIGRATED_PRODUCERS = ("m1", "m3d", "m6", "m0", "reel-build")
+MIGRATED_PRODUCERS = ("m1", "m3b", "m3d", "m6", "m0", "reel-build")
 
 #: The registry type a producer's records ARE, for a producer whose
 #: stored rows carry no contract of their own.  The reel build wrote its
@@ -942,6 +954,7 @@ def _declared_contract(observation: Mapping[str, Any], index: ModelIndex
 
 def portable_record_from_observation(observation: Mapping[str, Any],
                                      index: ModelIndex,
+                                     entity_ids: Sequence[str] = (),
                                      ) -> tuple[dict[str, Any] | None, str | None]:
     """Lift one stored observation onto the portable record shape.
 
@@ -1108,6 +1121,12 @@ def portable_record_from_observation(observation: Mapping[str, Any],
     }
     if coverage["kind"] not in COVERAGE_KINDS:
         coverage["kind"] = "unavailable"
+    # The entities the record is ABOUT: the lane's own identity links
+    # say who a face track and a voice turn belong to, and a record
+    # that says nothing about WHO it measured is half a record.
+    for entity in entity_ids:
+        if entity not in entities:
+            entities.append(entity)
     record = build_record(
         id=str(observation.get("id") or ""),
         kind=kind,
@@ -1133,6 +1152,210 @@ def portable_record_from_observation(observation: Mapping[str, Any],
     if recovery:
         record["migration"].update(recovery)
     return record, None
+
+
+# ── The identity lane: relationships ──────────────────────────────
+
+
+def identity_links(model: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """The identity links the model holds.
+
+    A link is a row, not an evidence contract: it says how two things
+    stand to each other and nothing else. It is stored evidence, and it
+    is the M3b lane's own.
+    """
+    return [dict(row) for row in model.get("identity_links") or []
+            if isinstance(row, Mapping)]
+
+
+def declared_type_for_lane(lane: str) -> str | None:
+    """The registry type a lane's claims are filed under.
+
+    Read from the lane's own declaration (``claim_provenance``), so
+    the answer is the producer's, not this module's. A lane that
+    declares SEVERAL types has no single answer and is refused rather
+    than guessed at.
+    """
+    types = {declaration.get("measurement_type")
+             for declaration in claim_provenance.CLAIM_DECLARATIONS.values()
+             if declaration.get("lane") == lane}
+    types.discard(None)
+    if len(types) != 1:
+        return None
+    return str(types.pop())
+
+
+def relationship_record_from_link(link: Mapping[str, Any],
+                                   observation: Mapping[str, Any],
+                                   index: ModelIndex,
+                                   ) -> tuple[dict[str, Any] | None, str | None]:
+    """Lift one identity link onto a portable RELATIONSHIP record.
+
+    A link says how two things stand to each other: this face track is
+    this person's face, this voice turn is this speaker's voice. The
+    SUBJECT is the thing the media was read from - the track - and the
+    OBJECT is the entity it stands to, the same way a standing between
+    two sources names the other source as its object.
+
+    It is a DESCRIPTION of the media rather than a reading of it, so
+    the record is LOSSY, and the model refuses to file it as a
+    measurement. The record names the SOURCE the link was read from -
+    the frames or the samples it was measured over - and never the
+    observation it rests on: grounding a claim in a description of a
+    frame is grounding it in a caption.
+    """
+    entity_id = link.get("entity_id")
+    method = link.get("method")
+    if not isinstance(entity_id, str) or not entity_id:
+        return None, "the link names no entity"
+    if not isinstance(method, str) or not method:
+        return None, "the link names no method"
+    payload = observation.get("payload")
+    payload = payload if isinstance(payload, Mapping) else {}
+    track = payload.get("face_track") or payload.get("voice_track")
+    if not isinstance(track, str) or not track:
+        return None, "the link's observation names no track to be about"
+    asset_id = observation.get("asset_id")
+    interval = observation.get("interval")
+    if not isinstance(asset_id, str) or not asset_id:
+        return None, "the link's observation names no asset"
+    if not isinstance(interval, Mapping):
+        return None, "the link's observation carries no interval"
+    clock_id = interval.get("clock_id")
+    if not isinstance(clock_id, str) or not clock_id:
+        return None, "the link's observation names no clock"
+    start, end = interval.get("start"), interval.get("end")
+    scope = link.get("scope")
+    if isinstance(scope, Mapping) and scope.get("clock_id") == clock_id:
+        start, end = scope.get("start", start), scope.get("end", end)
+    if not isinstance(start, int) or not isinstance(end, int):
+        return None, "the link's span is not counted in whole ticks"
+    if end <= start:
+        return None, "the link's span is empty"
+    stream = index.stream_for(asset_id, clock_id)
+    if stream is None:
+        return None, "the link names an asset with no stream on its clock"
+    limit = index.duration_ticks(asset_id, clock_id)
+    if limit is not None and end > limit:
+        return None, (f"the link's span ends at tick {end}, past the "
+                      f"source's own {limit} ticks on this clock: the span "
+                      f"is not a span of this source")
+    modality = MODALITY_OF_STORED.get(str(observation.get("modality")),
+                                      "derived")
+    if modality == "derived":
+        modality = index.modality_of_stream(stream)
+    source_modality = SOURCE_MODALITY.get(modality) \
+        or index.modality_of_stream(stream)
+    modality_streams = index.streams_of_modality(asset_id, clock_id,
+                                                 source_modality)
+    if not modality_streams:
+        modality_streams = [stream]
+    reference_stream = modality_streams[0]
+    stream_id = str(reference_stream.get("id"))
+    reference = source_reference.interval(stream_id, clock_id, start, end)
+    modality_refs = [{
+        "modality": source_modality,
+        "reference": dict(reference),
+    }]
+    if len(modality_streams) > 1:
+        modality_refs[0]["streams_of_this_modality"] = len(modality_streams)
+    lane = lane_of(link.get("provenance_id"))
+    measurement_type = declared_type_for_lane(lane)
+    if measurement_type is None:
+        return None, (f"the lane {lane!r} declares no single registry "
+                      f"type for its claims")
+    provenance_row = index.provenance_row(link.get("provenance_id"))
+    provenance = {
+        "class": _declared_class(measurement_type),
+        "filed_class": None,
+        "producer": (provenance_row or {}).get("producer") or "unknown",
+        "producer_version": (provenance_row or {}).get("producer_version"),
+        "method": method,
+        "measurement_type": measurement_type,
+        "provenance_id": link.get("provenance_id"),
+    }
+    contract = epistemic_vocabulary.contract_of(observation) or {}
+    coverage = {
+        "kind": contract.get("coverage") or "unavailable",
+        "samples": contract.get("coverage_samples") or 0,
+        "scope": contract.get("coverage_scope"),
+        "status": contract.get("coverage_status"),
+        "freshness": contract.get("freshness"),
+    }
+    if coverage["kind"] not in COVERAGE_KINDS:
+        coverage["kind"] = "unavailable"
+    record = build_record(
+        id=str(link.get("id") or ""),
+        kind="relationship",
+        modality=source_modality,
+        asset_id=asset_id,
+        stream_id=stream_id,
+        clock_id=clock_id,
+        interval={"clock_id": clock_id, "start": start, "end": end},
+        source_references=[reference],
+        modality_refs=modality_refs,
+        provenance=provenance,
+        coverage=coverage,
+        lossy=True,
+        semantic={"status": link.get("status"),
+                  "confidence": link.get("confidence")},
+        value=None,
+        entities=[entity_id],
+        relation={"subject": str(track), "predicate": method,
+                  "object": entity_id},
+        migrated_from=str(link.get("id") or ""),
+    )
+    return record, None
+
+
+def migrate_lane(model: Mapping[str, Any],
+                 observations: Sequence[Mapping[str, Any]],
+                 producers: Sequence[str] = MIGRATED_PRODUCERS,
+                 ) -> dict[str, Any]:
+    """Lift one producer lane's evidence onto the portable shape.
+
+    A lane's evidence is two collections: the observations it wrote,
+    and the identity links it wrote about them. Both are lifted, and
+    the observations name the entities the links say they are about -
+    a record that says nothing about WHO it measured is half a record.
+
+    Returns the portable records, the portable relationship records,
+    the stored links they came from, and the refusals by name.
+    """
+    index = ModelIndex(model)
+    producers = tuple(producers)
+    scoped = [row for row in observations
+              if lane_of(row.get("provenance_id")) in producers]
+    by_id = {str(row.get("id")): row for row in scoped
+             if row.get("id")}
+    links = [link for link in identity_links(model)
+             if lane_of(link.get("provenance_id")) in producers
+             and str(link.get("observation_id")) in by_id]
+    entity_ids: dict[str, set[str]] = {}
+    for link in links:
+        entity = link.get("entity_id")
+        if isinstance(entity, str) and entity:
+            entity_ids.setdefault(str(link["observation_id"]), set()).add(
+                entity)
+    records, refusals = migrate_observations(model, scoped, entity_ids)
+    link_records: list[dict[str, Any]] = []
+    link_refusals: list[dict[str, str]] = []
+    for link in links:
+        observation = by_id[str(link["observation_id"])]
+        record, reason = relationship_record_from_link(link, observation,
+                                                       index)
+        if record is None:
+            link_refusals.append({"id": str(link.get("id") or ""),
+                                  "reason": reason or "refused"})
+            continue
+        link_records.append(record)
+    return {
+        "records": records,
+        "link_records": link_records,
+        "stored_links": links,
+        "refusals": refusals,
+        "link_refusals": link_refusals,
+    }
 
 
 # ── The census ─────────────────────────────────────────────────────
@@ -1194,6 +1417,35 @@ def _stored_rows(observations: Sequence[Mapping[str, Any]],
             "lossy": _is_lossy(payload, unit),
             "producer": lane_of(observation.get("provenance_id")),
             "kind": "interval",
+        })
+    return rows
+
+
+def _link_rows(links: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """One row per stored identity link, with the three attributes read.
+
+    A link is stored as a row of keys and nothing else: it names no
+    source, declares no class and carries no coverage. The census says
+    so, rather than assuming the attributes the portable record will
+    give it.
+    """
+    rows: list[dict[str, Any]] = []
+    for link in links:
+        lane = lane_of(link.get("provenance_id"))
+        measurement_type = declared_type_for_lane(lane)
+        rows.append({
+            "shape": tuple(sorted(link)),
+            "payload_shape": (),
+            "source_reference": False,
+            "provenance_class": None,
+            "declared_class": (_declared_class(measurement_type)
+                               if measurement_type else
+                               claim_provenance.UNKNOWN_CLASS),
+            "filed_class": None,
+            "coverage": None,
+            "lossy": True,
+            "producer": lane,
+            "kind": "relationship",
         })
     return rows
 
@@ -1386,9 +1638,20 @@ def other_evidence_shapes(model: Mapping[str, Any],
         if collection == "signals":
             rows = [row for row in rows if row.get("asset_id") in wanted]
         elif collection == "identity_links":
+            # A link carries no clock: it is scoped by the SOURCE it
+            # was measured in, which its provenance names by digest.
+            # The reel build's own links name no digest and are
+            # counted as they were.
+            digests = {str((row or {}).get("content_digest") or "")
+                       for row in model.get("assets") or []
+                       if isinstance(row, Mapping)
+                       and row.get("id") in wanted}
             rows = [row for row in rows
-                    if str(row.get("provenance_id") or "").endswith("-m1")
-                    or str(row.get("provenance_id") or "") == "prov-reel-build"]
+                    if str(row.get("provenance_id") or "")
+                    == "prov-reel-build"
+                    or any(digest and digest in str(row.get("provenance_id")
+                                                   or "")
+                           for digest in digests)]
         else:
             rows = [row for row in rows
                     if str((row.get("interval") or {}).get("clock_id")
@@ -1517,18 +1780,27 @@ def load_model(path: str | Path) -> dict[str, Any]:
 
 def migrate_observations(model: Mapping[str, Any],
                          observations: Sequence[Mapping[str, Any]],
+                         entity_ids: Mapping[str, Sequence[str]] | None = None,
                          ) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
     """Lift the given observations onto the portable shape.
 
     Returns the portable records and the refusals, one per record that
     could not be lifted. A refusal is named, never dropped: a record
     that cannot be portable is a defect somebody has to see.
+
+    ``entity_ids`` names the entities each observation is about, keyed
+    by the observation's id - the identity lane's links say who a face
+    track and a voice turn belong to, and the record carries that with
+    it.
     """
     index = ModelIndex(model)
+    entity_ids = entity_ids or {}
     records: list[dict[str, Any]] = []
     refusals: list[dict[str, str]] = []
     for observation in observations:
-        record, reason = portable_record_from_observation(observation, index)
+        record, reason = portable_record_from_observation(
+            observation, index,
+            entity_ids=sorted(entity_ids.get(str(observation.get("id")), ())))
         if record is None:
             refusals.append({
                 "id": str(observation.get("id") or ""),
@@ -1552,23 +1824,29 @@ def _census_report(model: Mapping[str, Any], reel: str | None,
                 if lane_of(row.get("provenance_id")) in producers]
     stored_migrated = [row for row in stored
                        if row["producer"] in producers]
-    records, refusals = migrate_observations(model, selected)
-    portable = _portable_rows(records)
+    lane = migrate_lane(model, observations, producers)
     before = census_rows(stored)
     before_migrated = census_rows(stored_migrated)
-    after = census_rows(portable)
+    before_links = census_rows(_link_rows(lane["stored_links"]))
+    after = census_rows(_portable_rows(lane["records"]))
+    after_links = census_rows(_portable_rows(lane["link_records"]))
     return {
         "reel": reel,
         "assets": assets,
         "migrated_producers": list(producers),
         "before": before,
         "before_migrated_producers": before_migrated,
+        "before_migrated_links": before_links,
         "after": after,
+        "after_links": after_links,
         "other_evidence": other_evidence_shapes(model, assets),
-        "refusals": refusals,
+        "refusals": lane["refusals"],
+        "link_refusals": lane["link_refusals"],
         "scope": {
             "observations_in_scope": len(observations),
             "observations_of_migrated_producers": len(selected),
+            "identity_links_of_migrated_producers":
+                len(lane["stored_links"]),
         },
     }
 
@@ -1605,9 +1883,9 @@ def main(argv: list[str] | None = None) -> int:
     observations = scope_observations(model, assets) if args.reel else [
         row for row in model.get("observations") or []
         if isinstance(row, Mapping)]
-    selected = [row for row in observations
-                if lane_of(row.get("provenance_id")) in producers]
-    records, refusals = migrate_observations(model, selected)
+    lane = migrate_lane(model, observations, producers)
+    records = lane["records"] + lane["link_records"]
+    refusals = lane["refusals"] + lane["link_refusals"]
     document = build_portable_document(model, records, ModelIndex(model),
                                        assets)
     target = Path(args.out)

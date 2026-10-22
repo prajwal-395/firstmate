@@ -5,8 +5,9 @@ evidence model."* One enumeration:
 `library/tools/portable_evidence.py`.
 
 The history behind this module - the incident, the measurement and the
-numbers - is `docs/evidence/portable_evidence.md` (the M1 lane) and
-`docs/evidence/portable_evidence_m3d_m6.md` (the M3d and M6 lanes).
+numbers - is `docs/evidence/portable_evidence.md` (the M1 lane),
+`docs/evidence/portable_evidence_m3d_m6.md` (the M3d and M6 lanes) and
+`docs/evidence/portable_evidence_m3b.md` (the M3b identity lane).
 
 ## What it is
 
@@ -49,6 +50,24 @@ relation      {subject, predicate, object}, for a relationship
 migration     {from_version, migrated_from, dropped_references,
                span_end_overshoot_ticks}
 ```
+
+## The producers, one at a time
+
+A lane is migrated when its records can be lifted onto the portable
+shape without losing a value. Six lanes are migrated: the M1
+transcript lane, the M3b identity lane, the M3d person-region lane, the
+M6 clock lane, the M0 source-metadata lane and the reel build's own
+rows.
+
+The M3b lane writes two collections: the observations it measured (a
+face box, a diarized voice turn) and the identity links that say who
+each of them belongs to. Both are lifted - the observations as
+`interval` records that name the entities their own links say they are
+about, and the links as **`relationship`** records, the kind the model
+declares and the first three collections had no reader for. A link is
+a description of the media rather than a reading of it, so it is LOSSY,
+and it is grounded in the SOURCE it was measured over rather than in
+the observation it rests on.
 
 ## The rules it refuses by
 
@@ -150,6 +169,11 @@ portable shape by `migrate_observations`:
 - a record that cannot be lifted is REFUSED with a named reason, never
   approximated.
 
+A lane's identity links are lifted by `migrate_lane`: each becomes a
+`relationship` record, grounded in the source it was measured over,
+and the observations it links are named as the entities the record is
+about.
+
 ## The measurement
 
 One real reel: **Reel 26 - write-for-the-question-your-customer-ask**,
@@ -168,7 +192,9 @@ The reports: `docs/benchmarks/2026-10-21-portable-evidence.json` (the
 M1 lane), `docs/benchmarks/2026-10-22-portable-evidence-m3d-m6.json`
 (the M3d and M6 lanes) and
 `docs/benchmarks/2026-10-22-portable-evidence-m0-reel-build.json` (the
-M0 lane and the reel build).
+M0 lane and the reel build) and
+`docs/benchmarks/2026-10-22-portable-evidence-m3b.json` (the M3b
+identity lane).
 
 ### Distinct evidence record shapes in production
 
@@ -181,7 +207,13 @@ M0 lane and the reel build).
 | tracks | 924 | 1 |
 | masks | 927 | 1 |
 | signals | 26,226 | 1 |
-| identity_links | 431 | 1 |
+| identity_links | 11,859 | 4 |
+
+The identity links are scoped by the SOURCE they were measured in,
+which their provenance names by digest. The first measurement of this
+reel counted them by a producer lane that named one lane, and reported
+431 rows in 1 shape - the M3b lane's own links, 11,130 of them, were
+counted as if they did not exist.
 
 ### The three attributes, before and after
 
@@ -252,6 +284,54 @@ evidence contract at all: no class, no coverage and no registry type
 to lift. The M6 rows are `relationship` records - a standing between
 two sources - and they name the audio they were measured from.
 
+### The M3b identity lane
+
+Another producer of the same reel: **the M3b identity lane**, which
+writes observations AND the identity links that say who each of them
+belongs to. The detail is `docs/evidence/portable_evidence_m3b.md`.
+The two collections keep their own denominators.
+
+The lane's observations - 773 rows, 324 face boxes and 449 voice turns:
+
+| Measure | Before (M3b) | After (M3b) |
+|---|---:|---:|
+| records | 773 | 773 |
+| distinct record shapes | 2 | **1** |
+| carry a source reference | 0 (0.0%) | **773 (100%)** |
+| carry a provenance class | 773 (100%) | 773 (100%) |
+| carry a coverage | 773 (100%) | 773 (100%) |
+| carry all three | 0 (0.0%) | **773 (100%)** |
+| file a model's claim as a measurement | 773 (100%) | **0 (0.0%)** |
+| name the entity they are about | 0 (0.0%) | **773 (100%)** |
+| refused (named) | - | 0 |
+
+The lane's identity links - 11,130 rows, over the same 773
+observations:
+
+| Measure | Before (M3b links) | After (M3b links) |
+|---|---:|---:|
+| records | 11,130 | 11,130 |
+| distinct record shapes | 2 | **1** |
+| carry a source reference | 0 (0.0%) | **11,130 (100%)** |
+| carry a provenance class | 0 (0.0%) | **11,130 (100%)** |
+| carry a coverage | 0 (0.0%) | **11,130 (100%)** |
+| carry all three | 0 (0.0%) | **11,130 (100%)** |
+| refused (named) | - | 0 |
+
+The links lift as `relationship` records - the subject is the thing the
+media was read from (this face track), the object is the entity it
+stands to (this person) - and they are LOSSY: who a face belongs to is
+a description of the media, not a reading of it.
+
+One fidelity correction came with the lane: a **voice turn is a
+reading of the SOUND, not of words**. It was carried as a `text`
+record - the modality of a transcription - while carrying no words at
+all. The 449 voice turns of this reel are `audio` records now, pointing
+at the audio stream they were heard in; the M1 transcription lane is
+untouched, and a word is still a text record read from audio.
+
+The report: `docs/benchmarks/2026-10-22-portable-evidence-m3b.json`.
+
 ### What the measurement found, beyond the numbers (continued)
 
 5. **The M3d rows' references name an address in another space.** All
@@ -301,18 +381,18 @@ two sources - and they name the audio they were measured from.
 
 ## What is left undone
 
-- Five producers are migrated: the M1 transcript lane, the M3d
-  person-region frames, the M6 multicam offsets, the M0 source-metadata
-  lane and the reel build's own rows. The one producer of this reel's
-  records still counted and named is `m3b` (773 rows).
-- The portable model covers the Project Model's observations. The
-  events, relations, tracks, masks, signals and identity links are
-  counted by the census but not yet lifted: a relationship and an event
-  need their own kind and their own entity references, and the Project
-  Model's schema has no `evidence` field on them yet. The M3d track
-  summaries (924 rows) are refused for the same reason: they carry no
-  evidence contract, so they have no class, no coverage and no
-  registry type to lift.
+- Six producers are migrated: the M1 transcript lane, the M3b identity
+  lane, the M3d person-region frames, the M6 multicam offsets, the M0
+  source-metadata lane and the reel build's own rows. No producer of
+  this reel's records is still counted and named but unlifted.
+- The portable model covers the Project Model's observations, and the
+  identity links of the lanes whose links name a track. The events,
+  relations, tracks, masks and signals are counted by the census but
+  not yet lifted: a relationship now has its own kind, and the Project
+  Model's own `relations` collection is the next thing that can use it.
+  The M3d track summaries (924 rows) are refused for the same reason
+  the M3d identity links are refused: they carry no evidence contract,
+  so they have no class, no coverage and no registry type to lift.
 - The reel build's rows are recovered in the model that is stored
   today. The next reel build writes them again, correctly, with the
   contract they now carry.

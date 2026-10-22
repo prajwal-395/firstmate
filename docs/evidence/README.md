@@ -12,3 +12,8 @@ behind a single module's docstring.
 
 Each file was moved verbatim from its module. Where a file and the code
 disagree, the code and its docstring win.
+
+A module's history may be split across more than one file when a lane
+lands later: one file per lane, so two lanes never conflict on the same
+paragraph. `portable_evidence.md` and `portable_evidence_m3b.md` are the
+M1 transcript lane and the M3b identity lane of one module.
