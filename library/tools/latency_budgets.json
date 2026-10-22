@@ -1,0 +1,171 @@
+{
+  "machine": {
+    "cores": 10,
+    "cpu": "Apple M5",
+    "machine": "arm64",
+    "platform": "Darwin",
+    "release": "25.3.0"
+  },
+  "measured_on": "2026-10-21",
+  "operations": {
+    "capability_discovery": {
+      "basis": "p50 of 15 completed sample(s) of one registry derivation, broker and scheduler waits removed",
+      "class": "metadata_read",
+      "divisor": "one",
+      "measured_on": "2026-10-21",
+      "samples": 15,
+      "signals": [
+        "probe:capability_discovery"
+      ],
+      "source": "a live probe of this machine: 15 cold derivations",
+      "target_s": 0.5257,
+      "unit": "one registry derivation"
+    },
+    "caption_text_revision": {
+      "basis": "p50 of 1 completed sample(s) of one caption revision, broker and scheduler waits removed",
+      "class": "caption_graphic_revision",
+      "divisor": "one",
+      "measured_on": "2026-10-21",
+      "samples": 1,
+      "signals": [
+        "task:axi.caption_fix"
+      ],
+      "source": "1 run(s) from ren-scratch copies: run-20261020T225948Z-ebb9e2",
+      "target_s": 57.8511,
+      "unit": "one caption revision"
+    },
+    "catalogue_read": {
+      "basis": "p50 of 7 completed sample(s) of one source file catalogued, broker and scheduler waits removed",
+      "class": "metadata_read",
+      "divisor": "source_files",
+      "measured_on": "2026-10-21",
+      "samples": 7,
+      "signals": [
+        "capability:catalog",
+        "capability:footage.catalog"
+      ],
+      "source": "8 run(s) from ren-scratch copies: run-20261020T064609Z-bb66b6, run-20261021T153156Z-33bf76, run-20261021T153200Z-682dff, +5 more",
+      "target_s": 0.33,
+      "unit": "one source file catalogued"
+    },
+    "coarse_frame_decode": {
+      "basis": "p50 of 3 completed sample(s) of one decoded frame, broker and scheduler waits removed",
+      "class": "source_analysis",
+      "divisor": "calls",
+      "measured_on": "2026-10-21",
+      "samples": 3,
+      "signals": [
+        "span:media_decode"
+      ],
+      "source": "1 run(s) from ren-scratch copies: run-20261020T064609Z-bb66b6",
+      "target_s": 0.4745,
+      "unit": "one decoded frame"
+    },
+    "overlay_position_revision": {
+      "basis": "UNMEASURED - no completed sample of this operation exists (1 refused or failed)",
+      "class": "caption_graphic_revision",
+      "divisor": "one",
+      "measured_on": "",
+      "samples": 0,
+      "signals": [
+        "task:axi.overlay_position"
+      ],
+      "source": "",
+      "target_s": null,
+      "unit": "one overlay revision"
+    },
+    "project_scan": {
+      "basis": "p50 of 1 completed sample(s) of one project folder scan, broker and scheduler waits removed",
+      "class": "metadata_read",
+      "divisor": "one",
+      "measured_on": "2026-10-21",
+      "samples": 1,
+      "signals": [
+        "capability:scan"
+      ],
+      "source": "1 run(s) from ren-scratch copies: run-20261020T064609Z-bb66b6",
+      "target_s": 30.195,
+      "unit": "one project folder scan"
+    },
+    "reel_build": {
+      "basis": "p50 of 13 completed sample(s) of one reel build, broker and scheduler waits removed",
+      "class": "reel_construction",
+      "divisor": "one",
+      "measured_on": "2026-10-21",
+      "samples": 13,
+      "signals": [
+        "capability:reel.build"
+      ],
+      "source": "13 run(s) from ren-scratch copies: run-20261020T093338Z-baa612, run-20261020T211105Z-875157, run-20261021T023030Z-a427fe, +10 more",
+      "target_s": 332.2661,
+      "unit": "one reel build"
+    },
+    "reel_render": {
+      "basis": "p50 of 4 completed sample(s) of one rendered frame at 1920x1080, broker and scheduler waits removed",
+      "class": "delivery_render",
+      "divisor": "frames",
+      "measured_on": "2026-10-21",
+      "samples": 4,
+      "signals": [
+        "span:resolve_render"
+      ],
+      "source": "4 run(s) from ren qualification runs: 20261009T040937345586Z, 20261009T043637323701Z, 20261009T045535362682Z, +1 more",
+      "target_s": 0.0083,
+      "unit": "one rendered frame at 1920x1080"
+    },
+    "reel_verification": {
+      "basis": "p50 of 11 completed sample(s) of one verification, broker and scheduler waits removed",
+      "class": "delivery_render",
+      "divisor": "one",
+      "measured_on": "2026-10-21",
+      "samples": 11,
+      "signals": [
+        "span:verification"
+      ],
+      "source": "11 run(s) from ren-scratch copies: run-20261020T211105Z-875157, run-20261021T023030Z-a427fe, run-20261021T023958Z-c1b962, +8 more",
+      "target_s": 9.096,
+      "unit": "one verification"
+    },
+    "timeline_property_edit": {
+      "basis": "p50 of 3 completed sample(s) of one property edit, broker and scheduler waits removed",
+      "class": "property_edit",
+      "divisor": "one",
+      "measured_on": "2026-10-21",
+      "samples": 3,
+      "signals": [
+        "task:axi.property_change"
+      ],
+      "source": "3 run(s) from ren-scratch copies: run-20261020T224524Z-fcc0c7, run-20261021T132742Z-c6bf37, run-20261021T155321Z-2453dd",
+      "target_s": 188.524,
+      "unit": "one property edit"
+    },
+    "timeline_trim": {
+      "basis": "UNMEASURED - no completed sample of this operation exists (64 refused or failed)",
+      "class": "structural_edit",
+      "divisor": "one",
+      "measured_on": "",
+      "samples": 0,
+      "signals": [
+        "task:axi.trim"
+      ],
+      "source": "",
+      "target_s": null,
+      "unit": "one trim"
+    },
+    "video_reasoning": {
+      "basis": "p50 of 139 completed sample(s) of one model call, broker and scheduler waits removed",
+      "class": "source_analysis",
+      "divisor": "calls",
+      "measured_on": "2026-10-21",
+      "samples": 139,
+      "signals": [
+        "span:gemma_inference"
+      ],
+      "source": "4 run(s) from ren qualification runs: 20261009T040937345586Z, 20261009T043637323701Z, 20261009T045535362682Z, +1 more",
+      "target_s": 17.985,
+      "unit": "one model call"
+    }
+  },
+  "revision": 1,
+  "schema": "ren-latency-budgets/1"
+}

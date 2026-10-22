@@ -193,6 +193,7 @@ const VERBS: &[Verb] = &[
     Verb { name: "ops", group: "Projects", summary: "List the named pipeline operations and the scopes each runs at (read only)" },
     Verb { name: "trace", group: "Projects", summary: "Regenerate the run traceback and artifact index" },
     Verb { name: "profile", group: "Projects", summary: "Show where a run spent its time, layer by layer (read only)" },
+    Verb { name: "budget", group: "Projects", summary: "Compare each operation class's measured work against its budget (read only)" },
     Verb { name: "progress", group: "Projects", summary: "Read plain-language progress and currently available capabilities" },
     Verb { name: "organize", group: "Projects", summary: "Bring a project folder onto the standard layout" },
     Verb { name: "archive", group: "Projects", summary: "Archive a finished project" },

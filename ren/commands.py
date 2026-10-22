@@ -364,6 +364,18 @@ VERBS = (
                  "layers. `ren profile --agent` summarizes only the opt-in privacy-safe agent-cost "
                  "aggregates by host and task class (never conversation text). Changes nothing",
           params=(MCP_PROJECT_OPT,)),
+    Verb("budget", "Projects", "Compare each operation class's measured work against its budget (read only)",
+         effects=("read",), json=True,
+         module_argv=("library.tools.latency_budget",),
+          detail="Read the performance ledger back as one table of latency budgets by operation class: "
+                 "metadata reads and capability discovery, timeline property edits, caption and graphic "
+                 "revisions, structural edits, reel construction, source analysis, and delivery and "
+                 "rendering. Each row prices one UNIT of work - one source file catalogued, one decoded "
+                 "frame, one reel built - with the time spent queueing for the one Resolve instance "
+                 "removed, so a budget measures the engine and not the hour's contention. A class with no "
+                 "completed sample reads as unmeasured, never as zero. `--json` gives the same as a "
+                 "structure. Changes nothing",
+          params=(MCP_PROJECT_OPT,)),
     Verb("progress", "Projects", "Read plain-language progress and currently available capabilities",
          effects=("read", "resolve_read"),
          module_argv=("library.tools.progress",),

@@ -11297,3 +11297,84 @@ truth's ordinal (the engine finds 12 hand-at-lips contacts; the adjudicated
 six lists 6 keys arrivals, and at least two of the twelve are keys-at-lips
 moments the adjudication omitted - the captain's re-adjudication is owed).
 `docs/benchmarks/2026-10-21-m0-contact-occurrences.md`.
+
+## the-budget-that-measured-the-weather
+
+**The rule:** A latency budget is priced PER UNIT of comparable work, and
+the seconds an operation spent QUEUEING are not its work. A class with
+no completed sample is UNMEASURED, never zero.
+
+**What happened.** The punch list's PERF-005 asked for latency budgets by
+operation class, with targets set from measured uncontended baselines. The
+measurement was available - the performance ledger records the wait for
+the one Resolve instance separately from the hold - but two things had to
+be settled before a target could mean anything.
+
+The first was the WAIT. The scratch project's successful
+`axi.property_change` task (run `2026-10-21T132742Z-c6bf37`) took
+**1088.8 s** of wall:
+
+```
+resolve_wait   refused   900.025 s   <- queued for the one Resolve
+resolve_hold                14.540 s   <- the lease, doing the work
+touchup_direct              24.333 s
+touchup_duplicate             0.698 s
+touchup_conform_compose_verify 41.133 s
+touchup_promote              55.203 s
+task axi.property_change    1088.800 s  outcome ok
+```
+
+**900.0 s of that 1088.8 s was queueing** - the operation did not hold
+the lease for most of its own life, and a budget set on the wall would
+have said a property edit costs 1088 s. The same edit on a quiet machine
+cost **188.5 s**. The broker's own KPI work (PR 3087) separates the wait
+from the hold; the budget uses that separation, so contention never sets
+the target.
+
+The second was the UNIT. The scratch ledger's decode spans cost **24.2 s
+for 47 frames** and **467.4 s for 990 frames** - a 19x spread in one
+class, entirely from clip length. Divided by the frames each span
+actually requested (a count the row itself carries), they are **0.516 s
+and 0.472 s per frame**: the same operation, and a number that means
+something. A budget in raw seconds for "one catalogue read" would have
+been a statement about one project, not about the engine.
+
+The third was the OUTCOMES. The same ledger holds **33 refused
+`axi.property_change` tasks against 3 that succeeded**, and **104 failed
+`reel.build` capabilities against 13 that finished**. Pooling them would
+say a property edit costs 95 s when the three that actually happened cost
+59-379 s and the 33 that did not happen cost nothing at all. Only a
+COMPLETED operation contributes to a budget; refusals are counted and
+reported beside them, never mixed in.
+
+**Where it is.** `library/tools/latency_budget.py` owns the seven
+operation classes, the measurement and the check; the measured baseline
+table is `library/tools/latency_budgets.json`, written from the ledger by
+`scripts/write_latency_budgets.py` so every number names the runs it came
+from; the front door is `ren budget <project>`. The baseline is measured
+on Ren-owned scratch copies only - a budget set on somebody else's
+footage would be a budget for their content, not for the engine. The
+detail is `docs/LATENCY_BUDGETS.md`.
+
+The check compares a class's TYPICAL (p50) cost against its baseline and
+fires only when the class costs MATERIALLY more - above the baseline's
+own magnitude, or above a five-second floor. The machine is shared by
+every lane, so a class's measured cost moves with the load, and a gate
+that fired on that movement would be noise dressed as a regression. This
+is the same shape as the suite-performance gate's regression check
+(`scripts/ci_perf_report.py`).
+
+**What it does not fix.** The ledger records **no** successful
+`axi.trim` task and **no** successful `axi.overlay_position` task on
+any Ren-owned project, so those two operations read as UNMEASURED in the
+table rather than carrying a number nobody measured. That is the honest
+state, not a gap the rule papers over: the check says a class is
+unmeasured, and a class with no sample never reads as within budget.
+The live measurements for them were refused repeatedly by the shared
+broker (`REN_RESOLVE_BUSY`, other lanes holding the one Resolve), and a
+refused measurement is not a measurement.
+
+The two operations the scratch ledgers never covered - the render and
+the vision model's reading - are measured from Ren's own qualification
+runs, which build and render on synthetic footage. Their rows carry the
+same `frames` and `calls` counts, so their units are the same units.
