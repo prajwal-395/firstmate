@@ -122,7 +122,9 @@ DATABASE_LIST_NAME = ("Library/Preferences/Blackmagic Design/"
 
 Colon-delimited text, NOT JSON - one database per line,
 `<name>:<path>:*:::DISK`, e.g.
-`poetic:/Users/<you>/Pictures/Davinci:*:::DISK`.
+`poetic:<home>/Pictures/Davinci:*:::DISK`, where `<home>` is the
+user's home directory - the machine's own, read here through
+`Path.home()` and never written down by a checkout.
 """
 
 
