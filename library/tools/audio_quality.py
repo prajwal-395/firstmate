@@ -4,6 +4,20 @@ One source is measured per invocation. Each decoded channel is written to
 one temporary mono WAV at a time, keeping full-source memory bounded. The
 BS.1770 loudness and true-peak values come from the same ``loudnorm``
 measurement used by :mod:`library.tools.master_loudness`.
+
+Measuring a source out of band
+------------------------------
+This lane was only ever called by hand, so a pipeline run that never
+measured it left every audio reading absent - and the technical leg's
+``usable_speech`` indicator absent with it, for every candidate. The
+functions below bring the lane INTO a run: ``stored_record`` says what
+this lane already holds for a source, ``ensure_measured`` gives one
+source its reading (measured now, or the one it already carries), and
+``ensure_readings`` does it for the sources of a set of candidates and
+reports what happened to each.
+
+A reading that could not be taken is reported with its reason and stays
+absent. It is never a zero, and it never fails the run that asked.
 """
 from __future__ import annotations
 
@@ -13,12 +27,14 @@ import math
 import os
 import subprocess
 import tempfile
+import time
 import wave
 from pathlib import Path
 
 import numpy as np
 
 from library.tools import footage_identity, source_memory
+from library.tools.heavy_work_lock import heavy_work_lock
 from library.tools.master_loudness import _loudnorm_measure
 
 ANALYSIS_RATE_HZ = 48_000
@@ -266,6 +282,184 @@ def measure_audio_quality(source_file: str, *, root: Path | None = None,
     }
     source_memory.write_audio_quality(digest, record, root)
     return record
+
+
+# ── Bringing the lane into a run ─────────────────────────────────────
+
+
+def stored_record(source_file: str, *,
+                  root: Path | None = None) -> dict | None:
+    """The M11 reading this lane already holds for one source.
+
+    The reading is filed under the source's own content digest, so the
+    same file is the same reading. A record written by ANOTHER version of
+    this lane is not this lane's reading: it is reported as absent, so
+    the caller measures it again rather than reusing numbers this lane
+    did not produce.
+    """
+    if not source_file:
+        return None
+    try:
+        digest = str(
+            footage_identity.fingerprint(source_file)["content_digest"])
+    except (OSError, KeyError):
+        return None
+    record = source_memory.read_audio_quality(digest, root)
+    if not isinstance(record, dict) or record.get("method") != METHOD:
+        return None
+    return record
+
+
+def ensure_measured(source_file: str, *, root: Path | None = None,
+                    force: bool = False) -> dict:
+    """The M11 reading for one source, measured now when it has none.
+
+    The report names what happened and never raises:
+
+        {"status": "already_measured" | "measured" | "unmeasurable",
+         "reason": str | None,
+         "record": dict | None}
+
+    A source with no audio stream, a missing file and a failed
+    measurement are all reported as ``unmeasurable`` with the reason, and
+    the reading stays absent: an absent measurement is a fact, not a
+    zero, and the run that asked for it is not the measurement's to fail.
+    """
+    if not source_file or not os.path.exists(source_file):
+        return {"status": "unmeasurable", "reason": "source_not_found",
+                "record": None}
+    if not force:
+        stored = stored_record(source_file, root=root)
+        if stored is not None:
+            return {"status": "already_measured", "reason": None,
+                    "record": stored}
+    try:
+        with heavy_work_lock("vep-audio-quality"):
+            record = measure_audio_quality(source_file, root=root, force=force)
+    except ValueError as exc:
+        # No audio stream in the file, or a channel count that cannot be
+        # measured: there is no speech here to read.
+        return {"status": "unmeasurable", "reason": str(exc), "record": None}
+    except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+        return {"status": "unmeasurable",
+                "reason": f"measurement_failed: {exc}", "record": None}
+    return {"status": "measured", "reason": None, "record": record}
+
+
+def source_duration(source_file: str) -> float | None:
+    """The source's duration in seconds, or None when it cannot be read.
+
+    The lane decodes the WHOLE source, so a caller that bounds its work
+    needs to know how long a source is before it starts.
+    """
+    if not source_file or not os.path.exists(source_file):
+        return None
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "json", source_file],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=120, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    try:
+        duration = json.loads(result.stdout or "{}")["format"]["duration"]
+    except (KeyError, TypeError, ValueError):
+        return None
+    try:
+        return float(duration)
+    except (TypeError, ValueError):
+        return None
+
+
+def ensure_readings(clips: list, *, root: Path | None = None,
+                    max_sources: int | None = None,
+                    max_source_seconds: float | None = None,
+                    budget_seconds: float | None = None) -> dict:
+    """Make sure each clip's source carries an M11 reading.
+
+    The candidates a selection offers are compared on more than their
+    picture, and one of the indicators that comparison reads is the share
+    of the speech band carrying energy. That reading is this lane's, so a
+    run that never measured it left the indicator absent on every
+    candidate.
+
+    ``clips`` are catalog entries; each names its source by
+    ``source_file`` or ``path``. Two clips behind one file are one source
+    and are measured once. A source that already carries a reading is not
+    measured again.
+
+    The lane decodes a WHOLE source, so this call is bounded three ways
+    and says which bound each source ran into:
+
+    ``max_sources``
+        how many sources ONE call measures;
+    ``max_source_seconds``
+        a source longer than this is not measured at all - a run cannot
+        spend half an hour on one file;
+    ``budget_seconds``
+        the wall clock one call may spend measuring.
+
+    The sources it measured are filed, so the next call continues with
+    the ones it did not reach.
+
+    The report names every source it was asked about:
+
+        {"sources": int,
+         "already_measured": [clip_id, ...],
+         "measured": [clip_id, ...],
+         "unmeasurable": {clip_id: reason, ...},
+         "not_reached": {clip_id: reason, ...}}
+    """
+    report: dict = {"sources": 0, "already_measured": [], "measured": [],
+                    "unmeasurable": {}, "not_reached": {}}
+    seen: set[str] = set()
+    measured_count = 0
+    started = time.monotonic()
+    for clip in clips or []:
+        if not isinstance(clip, dict):
+            continue
+        clip_id = clip.get("clip_id") or ""
+        path = clip.get("source_file") or clip.get("path") or ""
+        if not path:
+            report["unmeasurable"][clip_id] = "no_source_path"
+            continue
+        key = os.path.abspath(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        report["sources"] += 1
+        if stored_record(path, root=root) is not None:
+            report["already_measured"].append(clip_id)
+            continue
+        if max_sources is not None and measured_count >= max_sources:
+            report["not_reached"][clip_id] = (
+                f"this call measured {max_sources} source(s) already; the "
+                f"readings are stored for the next run")
+            continue
+        if max_source_seconds is not None:
+            duration = clip.get("duration_seconds")
+            if not isinstance(duration, (int, float)) or duration <= 0:
+                duration = source_duration(path)
+            if isinstance(duration, (int, float)) and duration > max_source_seconds:
+                report["not_reached"][clip_id] = (
+                    f"the source is {duration:.0f}s long and this call "
+                    f"measures at most {max_source_seconds:.0f}s of source")
+                continue
+        if budget_seconds is not None and \
+                time.monotonic() - started >= budget_seconds:
+            report["not_reached"][clip_id] = (
+                f"this call spent its {budget_seconds:.0f}s measuring "
+                f"budget; the readings are stored for the next run")
+            continue
+        outcome = ensure_measured(path, root=root)
+        measured_count += 1
+        if outcome["status"] == "measured":
+            report["measured"].append(clip_id)
+        else:
+            report["unmeasurable"][clip_id] = (
+                outcome["reason"] or "unmeasurable")
+    return report
 
 
 def main(argv: list[str] | None = None) -> int:

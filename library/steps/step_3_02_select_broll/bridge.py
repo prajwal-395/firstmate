@@ -39,6 +39,7 @@ import os
 import sys
 from pathlib import Path
 
+from library.tools import audio_quality, media_quality
 from library.tools import window_frames as wf
 from library.tools.brief_reference import build_reference
 from library.tools.cutaway_window import filter_broll_candidates
@@ -49,7 +50,6 @@ from library.tools.footage_reference import (
     REFERENCE_WHY,
     footage_document,
 )
-from library.tools import media_quality
 from library.tools.pipeline_validation import require_keys
 from library.tools.project_layout import Area, ProjectLayout, layout_for
 from library.tools.semantic_index import build_semantic_lookup, clip_observations
@@ -60,6 +60,17 @@ from library.tools.vision_schema_adapter import adapt_semantic_document
 # on unusually large catalogs; whatever it drops is reported, never
 # silently truncated.
 MAX_CANDIDATE_CLIPS = 60
+
+#: How many sources ONE run MEASURES for the candidate table's
+#: usable-speech reading, how long a source may be for this run to
+#: measure it, and how long the run may spend measuring. The audio lane
+#: decodes a WHOLE source, so an unbounded run would spend an hour on a
+#: catalog of sixty candidates - and half an hour on one long file. The
+#: sources it measured are filed in the source memory, so the next run
+#: continues with the ones this one did not reach.
+MAX_MEASURED_SOURCES_PER_RUN = 8
+MAX_MEASURED_SOURCE_SECONDS = 1800.0
+MEASUREMENT_BUDGET_SECONDS = 900.0
 
 # Descriptions are time-bounded scene prose, not a caption. Long enough to
 # carry every segment of a multi-scene clip.
@@ -91,8 +102,9 @@ samples, confidence]`.
   interval out of how many it needs. A half-measured candidate says so.
 - `confidence` is `full` (every sample the interval needs), `partial`
   (some of them), `single_sample` (one sample stands for it) or `none`.
-- `-` means the lane that measures this indicator never ran. It is not a
-  zero and not a bad value: nobody looked.
+- `-` means the lane that measures this indicator never ran, or could not
+  measure this candidate - a source with no audio, or one this run did
+  not reach. It is not a zero and not a bad value: nobody looked.
 - Sharpness is a PROXY: it cannot separate defocus, motion blur and low
   texture. The speech figure is a frequency-coverage proxy, never
   intelligibility.
@@ -307,7 +319,8 @@ def _technical_interval(assessment, duration):
     return None
 
 
-def build_technical_legs(data, catalog, documents, temporal_lookup):
+def build_technical_legs(data, catalog, documents, temporal_lookup,
+                        clip_ids=None):
     """The technical leg of every candidate, over its relevant interval.
 
     A leg is a MEASUREMENT over an interval, with its coverage and its
@@ -318,18 +331,51 @@ def build_technical_legs(data, catalog, documents, temporal_lookup):
     A lane that cannot answer never fails the step: an absent
     measurement is the honest answer, and the step's own choice is not
     the measurement's to gate.
+
+    `clip_ids` names the candidates the table OFFERS. A clip nobody may
+    choose is not measured: the run's measuring budget belongs to the
+    candidates the planner will actually read.
     """
     project_folder = data.get("project_folder") or ""
     legs = {}
     if not project_folder:
         return legs
+    # The candidates this table offers, and the interval each leg covers.
+    spans = []
     for clip_id, clip_info in catalog.items():
+        if clip_ids is not None and clip_id not in clip_ids:
+            continue
         doc = (documents or {}).get(clip_id) or {}
         assessment = adapt_semantic_document(doc).get("assessment") or {}
         duration = float(clip_info.get("duration_seconds") or 0.0)
         interval = _technical_interval(assessment, duration)
         if interval is None:
             continue
+        spans.append((clip_id, clip_info, interval))
+
+    # The `usable_speech` indicator is read from the audio lane, and that
+    # lane was measured out of band: a run that never measured it left
+    # the indicator absent on EVERY candidate, so the planner could not
+    # compare two candidates acoustically at all. Measure it here, for
+    # the sources this table offers, and file it in the source memory:
+    # the reading is stored once per source and read from then on.
+    report = audio_quality.ensure_readings(
+        [clip_info for _clip_id, clip_info, _interval in spans],
+        max_sources=MAX_MEASURED_SOURCES_PER_RUN,
+        max_source_seconds=MAX_MEASURED_SOURCE_SECONDS,
+        budget_seconds=MEASUREMENT_BUDGET_SECONDS)
+    print(
+        f"  Usable-speech readings: {len(report['measured'])} measured, "
+        f"{len(report['already_measured'])} already measured, "
+        f"{len(report['unmeasurable'])} unmeasurable, "
+        f"{len(report['not_reached'])} not reached",
+        file=sys.stderr)
+    for clip_id, reason in sorted(report["unmeasurable"].items()):
+        print(f"    {clip_id}: {reason}", file=sys.stderr)
+    for clip_id, reason in sorted(report["not_reached"].items()):
+        print(f"    {clip_id}: not reached - {reason}", file=sys.stderr)
+
+    for clip_id, clip_info, interval in spans:
         try:
             leg = media_quality.technical_leg_for_clip(
                 project_folder, clip_info,
@@ -448,7 +494,8 @@ def main():
     # over the interval the candidate may be cut from. It is ONE LEG of
     # the choice and never a ranking (see TECHNICAL_LEG_BLOCK).
     technical_legs = build_technical_legs(
-        data, catalog, semantic, temporal_lookup)
+        data, catalog, semantic, temporal_lookup,
+        clip_ids={row["clip_id"] for row in candidates_rows})
     for candidate_row in candidates_rows:
         leg = technical_legs.get(candidate_row["clip_id"])
         if not leg or not leg.get("measured_indicators"):

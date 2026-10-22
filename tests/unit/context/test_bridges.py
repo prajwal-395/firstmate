@@ -109,6 +109,71 @@ def test_no_describable_clip_still_fails_the_step(tmp_path):
     assert "usable semantic description" in json.loads(proc.stdout)["error"]
 
 
+# ── The candidate table must carry a usable-speech reading ──────────
+#
+# The `tech_leg` column reads the technical measurements of each
+# candidate, and one of its seven indicators is `usable_speech`. That
+# reading comes from the audio lane, and the audio lane was measured out
+# of band: a run that never measured it left the indicator absent on
+# EVERY candidate, so the planner could not compare two candidates
+# acoustically at all. The run now measures the sources it offers.
+
+
+def _write_tone(path, seconds=2.0, hz=440.0):
+    """A mono tone in the speech band, so the band fraction is a number."""
+    import wave
+
+    import numpy as np
+
+    rate = 48_000
+    count = int(rate * seconds)
+    times = np.arange(count, dtype=np.float64) / rate
+    tone = 0.25 * np.sin(2 * np.pi * hz * times)
+    pcm = np.rint(tone * 32768).clip(-32768, 32767).astype("<i2")
+    with wave.open(str(path), "wb") as output:
+        output.setnchannels(1)
+        output.setsampwidth(2)
+        output.setframerate(rate)
+        output.writeframes(pcm.tobytes())
+    return path
+
+
+def test_the_candidate_table_carries_a_usable_speech_reading(tmp_path):
+    """A candidate with audio must arrive with its acoustic reading.
+
+    The defect this names: the audio lane was measured out of band, so
+    every candidate's `usable_speech` was absent and the planner could
+    not say which of two candidates was acoustically usable.
+    """
+    source = _write_tone(tmp_path / "spoken.wav")
+    catalog = [{"clip_id": "clip_audio", "path": str(source),
+                "source_file": str(source), "duration_seconds": 2.0}]
+    document = json.loads(json.dumps(V3_PROFILE))
+    document["clip_id"] = "clip_audio"
+    document["file_path"] = str(source)
+    document["duration_s"] = 2.0
+    document["assessment"] = dict(V3_PROFILE["assessment"],
+                                  usable_ranges=[[0.0, 2.0]])
+
+    proc = run_bridge({
+        "clip_catalog": catalog,
+        "a_roll_assignments": [{"segment_id": "block_1",
+                                "spine_block_position": 1,
+                                "video_segments": [{"clip_id": "clip_audio"}]}],
+        "semantic_analysis_documents": [document],
+    }, tmp_path)
+
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    _, rows = parse_table(json.loads(proc.stdout)["broll_candidates_toon"])
+    cell = rows[0]["tech_leg"]
+    assert "usable_speech=-" not in cell, cell
+    assert "usable_speech=" in cell, cell
+    # The reading states its coverage and its confidence, so a reader can
+    # tell a measured interval from a sampled one.
+    assert "usable_speech=" in cell and "[" in cell, cell
+    assert "Usable-speech readings: 1 measured" in proc.stderr, proc.stderr
+
+
 # ── The post-bridge must seek to the moment it matched, not to a guess ──
 
 # Blocks as the v3 adapter derives them: each action window carries the
