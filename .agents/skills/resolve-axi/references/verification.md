@@ -11,7 +11,7 @@ The contract names the operation's read-back verifier. A successful API return a
 | `angle_plan` | planning_only | `plan` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `audio.automation` | no_executor | `unique_id`, `param`, `keyframes` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `audio.fade` | implemented_unqualified | `unique_id`, `fade_in`, `fade_out` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
-| `audio.gain` | implemented_unqualified | `unique_id`, `db` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `audio.gain` | implemented_qualified | `unique_id`, `db` | yes | yes | yes | yes | post-write snapshot checked by the operation-specific algebra verifier |
 | `audio.pan` | no_executor | `unique_id`, `pan` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `audio_mix` | planning_only | `plan` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `brand_asset` | planning_only | `plan` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |

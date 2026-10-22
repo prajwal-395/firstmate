@@ -376,6 +376,13 @@ ROUTES: tuple[Route, ...] = (
     Route("overlay.resize", "reel_touchup",
           "library/tools/reel_touchup.py:_op_resize_overlay",
           ADAPTER_READBACK),
+    # The gain is judged by the RENDERED audio, not by the pre/post
+    # snapshot alone: the adapter reads the timeline back AND carries
+    # the measurement of the rendered audio, so the pair is listed with
+    # the verification it actually has.
+    Route("audio.gain", "resolve_axi",
+          "library/tools/edit_execution_adapters.py:_audio_gain",
+          PRE_POST_STATE),
 )
 
 

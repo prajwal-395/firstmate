@@ -371,13 +371,13 @@ PRIMITIVES = (
               "edit_patch.apply_live_patch", "commit",
               ("clip_disabled", "record_span_unchanged",
                "other_clip_unchanged")),
-    Primitive("audio_gain_refused", "AXI-022",
-              "Refuse a per-clip gain the Resolve API cannot set",
-              "audio.gain", "reel_touchup",
-              "resolve-axi edit-request submit (the router refuses it)",
-              "refuse",
-              ("refused", "refusal_names_the_operation",
-               "timeline_unchanged")),
+    Primitive("audio_gain_committed", "AXI-022",
+              "Set one clip's level, verified in the rendered audio",
+              "audio.gain", "resolve_axi",
+              "resolve-axi edit audio-gain",
+              "commit",
+              ("level_read_back", "other_clip_unchanged",
+               "linked_av_preserved")),
     Primitive("audio_automation_refused", "AXI-022",
               "Refuse a keyframed audio lane with no measured spelling",
               "audio.automation", "reel_touchup",
@@ -957,14 +957,23 @@ def _cases() -> dict:
                 ["timeline_structure"], "mute-clip")],
             "targets": ["qual_a.mp4"],
         },
-        "audio_gain_refused": {
+        "audio_gain_committed": {
             "operation": "audio.gain",
-            "setup": [_place("qual_a.mp4", 1, 0, source_out=47,
+            "setup": [_place("qual_a.mp4", 1, 0, source_out=95,
+                             media="both"),
+                      _place("qual_b.mp4", 1, 96, source_out=71,
                              media="both")],
-            "commands": [{"kind": "route", "operation": "audio.gain",
-                          "params": {"unique_id": "axc-audio",
-                                     "db": -6.0}}],
-            "targets": ["qual_a.mp4"],
+            # The guarded verb writes the level NATIVELY on the audio
+            # item and verifies it in the RENDERED audio: it renders
+            # the timeline before and after the write and rolls the
+            # level back when the render does not measure the request.
+            # The item's identity is only known once the fixture is
+            # placed, so the argv carries `$name@kind` and the broker
+            # script resolves it against the live timeline.
+            "commands": [_edit("audio-gain", "--item",
+                                "$qual_a.mp4@audio", "--db", "-6.0",
+                                "--apply")],
+            "targets": [{"name": "qual_a.mp4", "kind": "audio"}],
         },
         "audio_automation_refused": {
             "operation": "audio.automation",
@@ -1059,6 +1068,32 @@ ALLOWED_NAMES = {"qual_a.mp4", "qual_b.mp4", "qual_c.mp4",
                  OWNED_VIDEO_C.rsplit("/", 1)[-1],
                  OWNED_OVERLAY_A.rsplit("/", 1)[-1],
                  OWNED_OVERLAY_B.rsplit("/", 1)[-1]}
+
+
+def resolve_argv(argv, state):
+    """Replace every `$name@kind` in an argv with a live unique id.
+
+    An item's identity is only known once the fixture is placed, so a
+    command that addresses an item carries the name and the kind, and
+    the broker script resolves them against the live timeline.
+    """
+    resolved = []
+    for token in argv:
+        if isinstance(token, str) and token.startswith("$"):
+            wanted = token[1:]
+            kind = ""
+            if "@" in wanted:
+                wanted, kind = wanted.rsplit("@", 1)
+            matches = [row for row in state.get("items", [])
+                       if row.get("name") == wanted
+                       and (not kind or row.get("kind") == kind)]
+            if len(matches) != 1:
+                raise RuntimeError(
+                    "the name %r resolves to %d items" % (wanted,
+                                                         len(matches)))
+            token = str(matches[0]["unique_id"])
+        resolved.append(token)
+    return resolved
 
 
 def call(argv):
@@ -1555,7 +1590,7 @@ for name, case in CASES.items():
     receipts = []
     for command in case.get("commands", []):
         if not isinstance(command, dict):
-            receipt = call(command)
+            receipt = call(resolve_argv(command, live_state()))
         elif command.get("kind") == "route":
             receipt = route_refusal(command)
         else:
@@ -2335,6 +2370,52 @@ def _judge_audio_mute(case: dict) -> dict:
     }
 
 
+def _judge_audio_gain(case: dict) -> dict:
+    """The gain: the level reads back, the other clip does not move, and
+    the linked A/V group survives.
+
+    The AUDIBLE half is judged by the verb itself: it renders the
+    timeline before and after the write, and it fails the command when
+    the render does not measure the requested dB.  A scenario whose
+    command exited non-zero is a failed row, so the audible verification
+    cannot be skipped by passing here.
+    """
+    before = case["after_setup"]
+    after = case["after"]
+    gained = _audio_row(after, "qual_a.mp4")
+    other = _audio_row(after, "qual_b.mp4")
+    other_before = _audio_row(before, "qual_b.mp4")
+    linked_before = sorted(gained.get("linked_unique_ids") or []) if gained else []
+    linked_after = sorted(gained.get("linked_unique_ids") or []) if gained else []
+    return {
+        "level_read_back": bool(gained) and abs(float(
+            (gained.get("transform") or {}).get("AudioVolume", 0.0))
+            - (-6.0)) <= 0.01,
+        "other_clip_unchanged": _level_of(other) == _level_of(other_before),
+        "linked_av_preserved": linked_before == linked_after
+        and bool(linked_after),
+    }
+
+
+def _audio_row(state: dict, name: str) -> dict | None:
+    """The AUDIO row with this name (a linked A/V pair has two)."""
+    for row in state.get("items", []):
+        if row.get("name") == name and row.get("kind") == "audio":
+            return row
+    return None
+
+
+def _level_of(row: dict | None) -> float | None:
+    """An audio row's level, as it reads back."""
+    if not row:
+        return None
+    value = (row.get("transform") or {}).get("AudioVolume")
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _judge_routed_refusal(case: dict, operation: str) -> dict:
     """A primitive the production router refuses before any write."""
     before = case["after_setup"]
@@ -2445,8 +2526,7 @@ JUDGES = {
     "audio_mute": _judge_audio_mute,
     "caption_text_refused": lambda case: _judge_routed_refusal(
         case, "caption_fix"),
-    "audio_gain_refused": lambda case: _judge_routed_refusal(
-        case, "audio.gain"),
+    "audio_gain_committed": _judge_audio_gain,
     "audio_automation_refused": lambda case: _judge_routed_refusal(
         case, "audio.automation"),
     "retime_speed_change": _judge_retime,

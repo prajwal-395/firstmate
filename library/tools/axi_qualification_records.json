@@ -142,6 +142,299 @@
     "source_commit": "ae9b0d1065e630d735f826fce70a920dc16909e4"
   },
   "records": {
+    "audio.gain::resolve_axi": {
+      "evidence": "tests/live/reports/axi012b-audio-gain.json#gain",
+      "resolve_version": "21.1.0.14",
+      "environment": {
+        "resolve_version": "21.1.0.14",
+        "platform": "darwin"
+      },
+      "semantic_boundary": {
+        "applies_to": [
+          "audio.gain on resolve_axi in the measured state: one audio item on an audio row, linked to its picture, on a two-row timeline whose rows are populated, at 24 fps in 1920x1080"
+        ],
+        "does_not_apply_to": [
+          "a state outside coverage.dimensions",
+          "an operation/backend pair this evidence does not name",
+          "a timeline that is not a Ren-owned scratch copy",
+          "a pan, a mute, a fade or an automation curve: this evidence names the GAIN and nothing else"
+        ]
+      },
+      "coverage": {
+        "dimensions": {
+          "resolve_version": [
+            "21.1.0.14"
+          ],
+          "media_type": [
+            "audio"
+          ],
+          "clip_composition": [
+            "linked_audio_clip"
+          ],
+          "linked_audio_configuration": [
+            "no_linked_audio"
+          ],
+          "track_layout": [
+            "video+audio"
+          ],
+          "track_occupancy": [
+            "all_populated"
+          ],
+          "timeline_density": [
+            "light"
+          ],
+          "timeline_structure": [
+            "multi_item_timeline"
+          ],
+          "project_settings": [
+            "landscape_1920x1080"
+          ],
+          "frame_rate": [
+            "24"
+          ],
+          "existing_effects": [
+            "none"
+          ]
+        },
+        "configurations": [
+          "measured_qualification_timeline"
+        ],
+        "uncovered": {
+          "media_type": [
+            "video",
+            "still",
+            "mixed",
+            "none",
+            "unknown"
+          ],
+          "clip_composition": [
+            "single_video_clip",
+            "linked_video_clip",
+            "still_clip",
+            "audio_clip",
+            "unknown_item",
+            "none",
+            "mixed"
+          ],
+          "linked_audio_configuration": [
+            "linked_audio_present"
+          ],
+          "track_layout": [
+            "none",
+            "video",
+            "audio"
+          ],
+          "track_occupancy": [
+            "all_empty",
+            "mixed"
+          ],
+          "timeline_density": [
+            "empty",
+            "moderate",
+            "dense"
+          ],
+          "timeline_structure": [
+            "empty_timeline",
+            "single_item_timeline"
+          ],
+          "project_settings": [
+            "unknown",
+            "square_1920x1920",
+            "landscape_1280x720",
+            "landscape_2560x1440",
+            "landscape_3840x2160",
+            "portrait_1080x1920",
+            "portrait_2160x3840"
+          ],
+          "frame_rate": [
+            "other",
+            "23.976",
+            "25",
+            "29.97",
+            "30",
+            "48",
+            "50",
+            "59.94",
+            "60"
+          ],
+          "existing_effects": [
+            "fusion",
+            "grades",
+            "grades+fusion",
+            "grades+retiming",
+            "grades+retiming+fusion",
+            "retiming",
+            "retiming+fusion",
+            "transforms",
+            "transforms+fusion",
+            "transforms+grades",
+            "transforms+grades+fusion",
+            "transforms+grades+retiming",
+            "transforms+grades+retiming+fusion",
+            "transforms+retiming",
+            "transforms+retiming+fusion",
+            "transitions",
+            "transitions+fusion",
+            "transitions+grades",
+            "transitions+grades+fusion",
+            "transitions+grades+retiming",
+            "transitions+grades+retiming+fusion",
+            "transitions+retiming",
+            "transitions+retiming+fusion",
+            "transitions+transforms",
+            "transitions+transforms+fusion",
+            "transitions+transforms+grades",
+            "transitions+transforms+grades+fusion",
+            "transitions+transforms+grades+retiming",
+            "transitions+transforms+grades+retiming+fusion",
+            "transitions+transforms+retiming",
+            "transitions+transforms+retiming+fusion"
+          ],
+          "resolve_version": []
+        },
+        "source": "measured"
+      },
+      "media_types": [
+        "audio"
+      ],
+      "timeline_conditions": [
+        "Ren Qualification / AXI-012b audio probe",
+        "a Ren-owned scratch timeline only, created and deleted by the measurement",
+        "production entry: resolve-axi edit audio-gain"
+      ],
+      "qualification_predicates": [
+        {
+          "field": "resolve_version",
+          "operator": "equals",
+          "value": "21.1.0.14"
+        },
+        {
+          "field": "media_type",
+          "operator": "equals",
+          "value": "audio"
+        },
+        {
+          "field": "clip_composition",
+          "operator": "equals",
+          "value": "linked_audio_clip"
+        },
+        {
+          "field": "linked_audio_configuration",
+          "operator": "equals",
+          "value": "no_linked_audio"
+        },
+        {
+          "field": "track_layout",
+          "operator": "equals",
+          "value": "video+audio"
+        },
+        {
+          "field": "track_occupancy",
+          "operator": "equals",
+          "value": "all_populated"
+        },
+        {
+          "field": "timeline_density",
+          "operator": "equals",
+          "value": "light"
+        },
+        {
+          "field": "timeline_structure",
+          "operator": "equals",
+          "value": "multi_item_timeline"
+        },
+        {
+          "field": "project_settings",
+          "operator": "equals",
+          "value": "landscape_1920x1080"
+        },
+        {
+          "field": "frame_rate",
+          "operator": "equals",
+          "value": "24"
+        },
+        {
+          "field": "existing_effects",
+          "operator": "equals",
+          "value": "none"
+        }
+      ],
+      "expected_state": {
+        "level_read_back": true,
+        "rendered_level_matches_request": true,
+        "mix_preserved": true,
+        "other_clip_unchanged": true,
+        "linked_av_preserved": true,
+        "level_restored": true
+      },
+      "actual_state": {
+        "checks": {
+          "level_read_back": true,
+          "rendered_level_matches_request": true,
+          "mix_preserved": true,
+          "other_clip_unchanged": true,
+          "linked_av_preserved": true,
+          "level_restored": true
+        },
+        "measurement": {
+          "resolve_version": "21.1.0.14",
+          "media_type": "audio",
+          "clip_composition": "linked_audio_clip",
+          "linked_audio_configuration": "no_linked_audio",
+          "track_layout": "video+audio",
+          "track_occupancy": "all_populated",
+          "timeline_density": "light",
+          "timeline_structure": "multi_item_timeline",
+          "project_settings": "landscape_1920x1080",
+          "frame_rate": "24",
+          "existing_effects": "none"
+        },
+        "scenarios": [
+          "audio_gain_committed"
+        ]
+      },
+      "preservation_checks": [
+        {
+          "check": "level_read_back",
+          "result": "passed"
+        },
+        {
+          "check": "rendered_level_matches_request",
+          "result": "passed"
+        },
+        {
+          "check": "mix_preserved",
+          "result": "passed"
+        },
+        {
+          "check": "other_clip_unchanged",
+          "result": "passed"
+        },
+        {
+          "check": "linked_av_preserved",
+          "result": "passed"
+        },
+        {
+          "check": "level_restored",
+          "result": "passed"
+        }
+      ],
+      "preservation_limits": [
+        "one Ren-owned scratch timeline with two linked A/V clips; the checks are the ones the measurement names: level_read_back, level_restored, linked_av_preserved, mix_preserved, other_clip_unchanged, rendered_level_matches_request",
+        "the level is written IN PLACE, so the target timeline is the one that changes",
+        "the audible verification renders the whole timeline twice per request",
+        "the evidence is one live run; it does not qualify other frame rates, other geometries, a denser timeline or another Resolve version"
+      ],
+      "visual_verification": [
+        "not applicable: this operation writes no picture. The timeline's items are read back item by item before and after the write, and every unrelated item must read unchanged"
+      ],
+      "audio_verification": [
+        "the rendered audio, measured in the decoded samples: the target window's level against the requested dB, every other audio window's level (the mix), the peak (no clipping) and the digital-zero fraction (no unintended silence)",
+        "the linked A/V group is read before and after the write"
+      ],
+      "recovery": "passed",
+      "result": "passed"
+    },
     "broll.insert::resolve_axi": {
       "actual_state": {
         "checks": {

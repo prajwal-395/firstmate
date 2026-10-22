@@ -148,6 +148,7 @@ import io
 import json
 import os
 import sys
+import tempfile
 import time as _time
 import uuid
 from datetime import datetime, timezone
@@ -7700,6 +7701,324 @@ def cmd_edit_title(args) -> int:
             f"{TOOL} items --timeline \"{timeline.GetName()}\"")
 
 
+#: The property names Resolve 21.1 carries on an AUDIO item: the level
+#: in dB, and the switch that enables it.  The spelling Ren used to try,
+#: ``Volume``, is NOT among them - ``SetProperty("Volume")`` answers
+#: False, so a write naming it writes nothing at all.  The names and the
+#: item-level half of the write live in
+#: ``library/tools/audio_render_evidence.py``, so the shipped executor
+#: and the live run that qualifies it use ONE implementation.
+AUDIO_VOLUME_PROPERTY = "AudioVolume"
+AUDIO_VOLUME_ENABLED_PROPERTY = "AudioVolumeEnabled"
+
+#: Resolve 21.1's own bounds for the level, in dB.
+AUDIO_VOLUME_MIN_DB = -100.0
+AUDIO_VOLUME_MAX_DB = 30.0
+
+
+def _audio_window(record_in: int, record_out: int, fps: float,
+                  timeline_start: int) -> dict:
+    """The measurement window inside one audio item's record span.
+
+    The window sits INSIDE the clip, clear of its edges: a window that
+    straddles a cut mixes two clips' audio into one number, and a
+    window that reaches the very first frame of a clip catches the
+    boundary itself.  The render's time zero is the timeline's start
+    frame, so the window is measured in the render's own timebase.
+    """
+    start = (float(record_in) - float(timeline_start)) / fps
+    end = (float(record_out) - float(timeline_start)) / fps
+    span = end - start
+    if span <= 0:
+        return {"start": round(start, 3), "duration": 0.0}
+    margin = min(0.25, span / 4.0)
+    if span - 2 * margin < 0.2:
+        # A clip shorter than half a second has no quiet margin: the
+        # window is its middle half, which is still inside it.
+        margin = span / 4.0
+    return {"start": round(start + margin, 3),
+            "duration": round(span - 2 * margin, 3)}
+
+
+def cmd_edit_audio_gain(args) -> int:
+    """Set one audio clip's level in dB, verified in the RENDERED audio.
+
+    Resolve 21.1 writes a clip's level on the item itself:
+    ``SetProperty("AudioVolume", -6)`` returns True, reads back -6.0,
+    and the RENDER measures exactly -6.00 dB (measured 2026-10-21 on
+    21.1.0.14; ``tests/live/reports/axi012-audio-measurement.json``).
+    The spelling that answers False is ``Volume``, and it is not used
+    here.
+
+    The read-back says the value was STORED.  This verb renders the
+    timeline before and after the write and measures the decoded
+    samples, so the receipt can say what the clip actually PLAYS: the
+    measured change against the requested dB, and every other window's
+    level, which is how the mix is shown not to have moved.  The
+    linked A/V group is read before and after as well.
+
+    A write whose audible verification does not hold is ROLLED BACK:
+    the previous level is written back and read back, and the verb
+    fails.  A gain that cannot be heard is not a gain.
+
+    The evidence is written as JSON to ``--evidence <path>``; the
+    summary goes to stdout.
+    """
+    from library.tools import audio_render_evidence as _evidence
+
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    with _lease(exclusive=args.apply):
+        project = _project(resolve, args.project)
+        try:
+            timeline, is_current, note = _target_timeline(
+                project, args.timeline)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        try:
+            db = float(args.db)
+        except (TypeError, ValueError):
+            return fail(f"--db must be a number in dB, got {args.db!r}.",
+                        f"{TOOL} edit audio-gain --help")
+        if not _evidence.AUDIO_VOLUME_MIN_DB <= db <= _evidence.AUDIO_VOLUME_MAX_DB:
+            return fail(
+                f"{db} dB is outside Resolve's own range "
+                f"({_evidence.AUDIO_VOLUME_MIN_DB} to "
+                f"{_evidence.AUDIO_VOLUME_MAX_DB} dB).",
+                f"{TOOL} edit audio-gain --help")
+        matches = _evidence.audio_item_by_unique_id(timeline, args.item)
+        if not matches:
+            return fail(
+                f"no AUDIO item on {timeline.GetName()!r} carries the id "
+                f"{args.item!r}; a gain is written on an audio item.",
+                f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        if len(matches) > 1:
+            return fail(
+                f"the id {args.item!r} resolves to {len(matches)} audio "
+                f"items; exactly one is required.",
+                f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        track_index, item = matches[0]
+        span = _item_span(item)
+        try:
+            fps = float(timeline.GetSetting("timelineFrameRate") or 0)
+        except Exception:  # noqa: BLE001 - an unread rate is not a rate
+            fps = 0.0
+        if fps <= 0:
+            return fail(
+                f"{timeline.GetName()!r} does not report a timeline frame "
+                f"rate, so the rendered windows cannot be placed.",
+                f"{TOOL} timeline get \"{timeline.GetName()}\"")
+        timeline_start = int(timeline.GetStartFrame())
+        windows = {}
+        for _other_index, other in _evidence.audio_rows(timeline):
+            other_span = _item_span(other)
+            try:
+                uid = str(other_span.get("uid") or "")
+                other_in = int(other_span["record_in"])
+                other_out = int(other_span["record_out"])
+            except (TypeError, ValueError):
+                continue
+            windows[uid] = _audio_window(other_in, other_out, fps,
+                                         timeline_start)
+        target_window = windows.get(str(args.item)) or {}
+        previous = _evidence.read_level(item)
+        previous_level = previous["level_db"]
+        previous_enabled = previous["enabled"]
+        if args.apply:
+            try:
+                _assert_cursor_on(resolve, timeline.GetName())
+            except AxiError as exc:
+                return fail(str(exc), exc.fix)
+        else:
+            emit([kv_block("audio_gain_plan", {
+                      "timeline": timeline.GetName() +
+                      (" (current)" if is_current else ""),
+                      "item": span["name"],
+                      "item_id": args.item,
+                      "track": f"audio{track_index}",
+                      "current_db": previous_level,
+                      "requested_db": db,
+                      "window": f"{target_window.get('start', 0)}s + "
+                                f"{target_window.get('duration', 0)}s",
+                  }),
+                  note,
+                  "dry run - pass --apply to write and verify in the "
+                  "rendered audio under the Resolve lease",
+                  help_block([f"{TOOL} edit audio-gain --timeline "
+                              f"\"{timeline.GetName()}\" --item "
+                              f"{args.item} --db {db} --apply"])])
+            return 0
+
+        render_dir = os.path.abspath(args.render_dir or tempfile.mkdtemp(
+            prefix="ren-audio-gain-"))
+        try:
+            os.makedirs(render_dir, exist_ok=True)
+        except OSError as exc:
+            return fail(f"cannot create the render directory "
+                        f"{render_dir!r} ({exc}); nothing was written.",
+                        f"{TOOL} edit audio-gain --help")
+        before_path = os.path.join(render_dir, "audio-gain-before.mp4")
+        after_path = os.path.join(render_dir, "audio-gain-after.mp4")
+        evidence = {
+            "timeline": timeline.GetName(),
+            "item_id": str(args.item),
+            "item_name": span["name"],
+            "track": f"audio{track_index}",
+            "requested_db": db,
+            "previous_db": previous_level,
+            "previous_enabled": previous_enabled,
+            "windows": windows,
+            "render_dir": render_dir,
+        }
+        try:
+            before_levels = _evidence.audio_levels(timeline)
+            linked_before = _evidence.linked_ids(item)
+            with _journal_write(
+                    args, timeline=timeline, project=project,
+                    spec={"verb": "edit_audio_gain",
+                          "timeline": timeline.GetName(),
+                          "name": span["name"],
+                          "item_id": str(args.item),
+                          "previous_db": previous_level,
+                          "requested_db": db},
+                    gate_class="edit_audio_gain") as (journal, journal_state):
+                _evidence.render_timeline(project, timeline, before_path)
+                write = _evidence.write_level(item, db)
+                evidence["write"] = write
+                read_back = write.get("read_back")
+                if read_back is None or abs(float(read_back) - db) > 0.01:
+                    restored = _evidence.restore_level(
+                        item, previous_level, previous_enabled)
+                    evidence["write"]["restored"] = restored
+                    evidence["verified"] = False
+                    evidence["failure"] = (
+                        f"the level read back {read_back!r}, not the "
+                        f"requested {db} dB")
+                    _write_evidence(args, evidence)
+                    return fail(
+                        f"the level read back {read_back!r} after writing "
+                        f"{db} dB; the previous level was "
+                        f"{'restored' if restored else 'NOT restored'}.",
+                        f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+                _evidence.render_timeline(project, timeline, after_path)
+                verdict = _evidence.gain_evidence(
+                    before_path, after_path, windows, db,
+                    target=str(args.item))
+                after_levels = _evidence.audio_levels(timeline)
+                linked_after = _evidence.linked_ids(item)
+                moved_levels = sorted(
+                    uid for uid, row in before_levels.items()
+                    if uid != str(args.item)
+                    and after_levels.get(uid) != row)
+                evidence["audio_evidence"] = verdict
+                evidence["linked_before"] = linked_before
+                evidence["linked_after"] = linked_after
+                evidence["linked_preserved"] = linked_before == linked_after
+                evidence["other_levels_unchanged"] = not moved_levels
+                evidence["levels_moved"] = moved_levels
+                verified = bool(
+                    verdict["target_matches_request"]
+                    and verdict["mix_preserved"]
+                    and linked_before == linked_after
+                    and not moved_levels)
+                evidence["verified"] = verified
+                if not verified:
+                    restored = _evidence.restore_level(
+                        item, previous_level, previous_enabled)
+                    evidence["write"]["restored"] = restored
+                    evidence["failure"] = _audio_failure_reason(
+                        verdict, linked_before, linked_after, moved_levels)
+                    _write_evidence(args, evidence)
+                    return fail(
+                        f"the gain was written but the rendered audio did "
+                        f"not verify it: {evidence['failure']}; the "
+                        f"previous level was "
+                        f"{'restored' if restored else 'NOT restored'}.",
+                        f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+                journal_state["success"] = True
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        except Exception as exc:  # noqa: BLE001 - the write may have landed
+            # The failure may have come before the write or after it, so
+            # the level is put back where it was: a request that could
+            # not be verified must not leave a level behind.
+            restored = False
+            try:
+                restored = _evidence.restore_level(
+                    item, previous_level, previous_enabled)
+            except Exception:  # noqa: BLE001 - the report says it failed
+                restored = False
+            evidence["failure"] = f"{type(exc).__name__}: {exc}"
+            evidence["write"] = {**evidence.get("write", {}),
+                                 "restored": restored}
+            evidence["verified"] = False
+            _write_evidence(args, evidence)
+            outcome = ("restored" if restored else
+                       "NOT restored - the timeline may carry the level, "
+                       "inspect it before retrying")
+            return fail(
+                f"the gain write could not be verified in the rendered "
+                f"audio ({type(exc).__name__}: {exc}); the previous level "
+                f"was {outcome}.",
+                f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        _write_evidence(args, evidence)
+        emit([kv_block("audio_gained", {
+                  "timeline": timeline.GetName(),
+                  "item": span["name"],
+                  "item_id": args.item,
+                  "requested_db": db,
+                  "measured_db": verdict["measured_db"],
+                  "mix_preserved": "yes" if verdict["mix_preserved"] else "no",
+                  "linked_preserved": ("yes" if linked_before == linked_after
+                                       else "no"),
+                  "verified": "yes (the rendered audio measures the "
+                              "requested change)",
+              }),
+              note,
+              _journal_block(journal),
+              help_block([f"{TOOL} items --timeline "
+                          f"\"{timeline.GetName()}\""])])
+        return 0
+
+
+def _audio_failure_reason(verdict, linked_before, linked_after,
+                          moved_levels) -> str:
+    """Why the rendered audio did not verify the gain."""
+    reasons = []
+    if not verdict.get("target_matches_request"):
+        reasons.append(
+            "the render measured {} dB against a requested {} dB".format(
+                verdict.get("measured_db"), verdict.get("requested_db")))
+    if not verdict.get("mix_preserved"):
+        for row in verdict.get("windows_moved") or []:
+            reasons.append("{} moved {} dB".format(
+                row.get("window"), row.get("delta_db")))
+    if linked_before != linked_after:
+        reasons.append("the linked A/V group changed")
+    if moved_levels:
+        reasons.append("other audio items' levels changed: {}".format(
+            ", ".join(moved_levels)))
+    return "; ".join(reasons) or "the rendered audio did not verify the write"
+
+
+def _write_evidence(args, evidence: dict) -> None:
+    """Write the evidence JSON where the caller asked for it."""
+    import json
+
+    path = getattr(args, "evidence", "") or ""
+    if not path:
+        return
+    try:
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(evidence, handle, indent=1)
+    except OSError as exc:
+        emit([f"warning: the evidence could not be written to {path!r} "
+              f"({exc})"])
+
+
 def cmd_edit_speed(args) -> int:
     """Set one item's constant playback speed, verified by re-read.
 
@@ -11403,6 +11722,34 @@ def build_parser() -> Parser:
     q.add_argument("--text", default="",
                    help="the new title text (required)")
     q.set_defaults(func=cmd_edit_title)
+
+    q = esubs.add_parser("audio-gain", help="set one audio clip's level "
+                                             "in dB, verified in the "
+                                             "RENDERED audio; --apply "
+                                             "writes")
+    _add_scope(q, "audio-gain")
+    q.add_argument("--item", required=True,
+                   help="the audio item's unique id (exact)")
+    q.add_argument("--db", required=True,
+                   help="the level in dB (-100.0 to 30.0)")
+    q.add_argument("--render-dir", default="",
+                   help="where the before/after renders go (scratch; a "
+                        "temporary directory when unset)")
+    q.add_argument("--evidence", default="",
+                   help="write the measurement evidence as JSON to this "
+                        "path")
+    q.add_argument("--apply", action="store_true",
+                   help="write under the Resolve lease with the cursor "
+                        "asserted, and verify the change in the rendered "
+                        "audio (default is a dry-run plan)")
+    q.add_argument("--project-folder", default="",
+                   help="pipeline project folder: with --apply, journal "
+                        "the write through the undo journal so `ren undo` "
+                        "can reverse it")
+    q.add_argument("--require-recovery", action="store_true",
+                   help="refuse before writing unless the undo journal "
+                        "opens")
+    q.set_defaults(func=cmd_edit_audio_gain)
 
     q = esubs.add_parser("transition", help="native transitions at "
                                              "a V1 cut: carriers listed, "

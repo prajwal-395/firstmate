@@ -2297,12 +2297,14 @@ ALGEBRA: dict[str, AlgebraOp] = {
         key=lambda op: ("clip", op["unique_id"], "audio", "gain"),
         merge="replace",
         inverse=_self("the inverse carries the previous dB"),
-        note="Per-clip gain in dB through an isolated OTIO candidate; exact "
-             "source and record start, full timeline preservation and OTIO "
-             "level read-back are required. The route is a BUILD: the "
-             "import rebuilds the timeline (library/tools/"
-             "audio_operations.py). Resolve 21.1 also writes the level "
-             "natively, and that write is measured audible."),
+        note="Per-clip gain in dB, written NATIVELY on the timeline item "
+             "(Resolve 21.1's AudioVolume) and verified in the RENDERED "
+             "audio: the timeline is rendered before and after the write "
+             "and the decoded samples are measured, so the receipt says "
+             "what the clip plays and that the rest of the mix held its "
+             "level. The OTIO build route (a rebuild of the timeline) "
+             "remains the route for a keyframed curve; the route and its "
+             "evidence live in library/tools/audio_operations.py."),
     "audio.pan": AlgebraOp(
         id="audio.pan", domain="audio_mix",
         required=("unique_id", "pan"),
@@ -3463,10 +3465,10 @@ _ROUTE_EVALUATION = {
     },
     "audio.gain": {
         "inspected": ["Resolve 21.1 TimelineItemProperties (AudioVolume/AudioVolumeEnabled) and the 21.1 changelog line 'Get/Set Property includes native audio properties and enabled states'", "native scripting", "OTIO mix", "Blackmagic MCP delegated capabilities", "Resolve Workflow Integrations developer package and installed VEP plugin"],
-        "available": ["reel_touchup maps the exact audio item to a one-target OTIO round-trip; candidate promotion requires full timeline preservation and fresh OTIO level read-back", "the OTIO route is a BUILD: the import rebuilds the timeline, and placement, transform, markers and native transitions survive it", "Workflow Integration is a host over the same scripting API; the installed VEP plugin exposes read-only Resolve calls, not a new edit backend"],
-        "gaps": ["Resolve 21.1's item properties carry AudioVolume, not the `Volume` spelling Ren used to try: SetProperty('Volume') is a call that answers False", "a target must match one audio item by exact source path and record start", "full timeline snapshot must be unchanged, so candidates that lose Fusion/CDL/editor state are discarded", "no rendered audio acceptance evidence for this request path", "plugin-owned writes have no AXI request/receipt path and would bypass the shared broker, lease, qualification, and recovery contract"],
-        "not_yet_evaluated": ["a native AudioVolume write on the timeline item is MEASURED (SetProperty('AudioVolume', -6) reads back -6.0 and the render measures exactly -6.00 dB) but Ren has no executor for it", "Resolve Fairlight UI-independent controls"],
-        "next": "Run the deferred live qualification with rendered audio evidence, recovery and preservation checks before enabling normal routing.",
+        "available": ["the guarded `edit audio-gain` verb writes the level NATIVELY on the timeline item and reads it back, then renders the timeline before and after the write and measures the decoded samples: the measured change against the requested dB, and every other audio window's level", "the OTIO route remains the route for a keyframed curve (audio.automation): it is a BUILD, and the import rebuilds the timeline, so placement, transform, markers and native transitions survive it", "Workflow Integration is a host over the same scripting API; the installed VEP plugin exposes read-only Resolve calls, not a new edit backend"],
+        "gaps": ["Resolve 21.1's item properties carry AudioVolume, not the `Volume` spelling Ren used to try: SetProperty('Volume') is a call that answers False", "the level is written in place, so the target timeline is the one that changes: a reel's own build and proposal gate is not part of this operation", "the audible verification renders the whole timeline twice, so a long timeline costs two renders per request", "plugin-owned writes have no AXI request/receipt path and would bypass the shared broker, lease, qualification, and recovery contract"],
+        "not_yet_evaluated": ["Resolve Fairlight UI-independent controls"],
+        "next": "Qualify the native write through the semantic request path with rendered-audio evidence, then decide whether the reel touch-up path carries the same write on its staged copy.",
     },
     "audio.fade": {
         "inspected": ["Resolve 21.1 TimelineItem.SetFades/GetFades", "native scripting", "OTIO mix", "Blackmagic MCP delegated capabilities", "Resolve Workflow Integrations developer package and installed VEP plugin"],
@@ -3544,11 +3546,11 @@ _WORKFLOW_EVIDENCE = {
 }
 
 _IMPLEMENTATION_EVIDENCE = {
-    ("audio.gain", "reel_touchup"): (
+    ("audio.gain", "resolve_axi"): (
         "library/tools/edit_execution_adapters.py:_audio_gain",
-        "library/tools/execution/deliver_audio_mix.py:deliver_semantic_gain",
-        "library/tools/execution/deliver_audio_mix.py:deliver_mix",
-        "library/tools/otio_mix.py:audio_op_target",
+        "library/tools/resolve_axi_core_commands.py:cmd_edit_audio_gain",
+        "library/tools/audio_render_evidence.py:gain_evidence",
+        "library/tools/audio_operations.py",
     ),
     ("transition", "reel_touchup"): (
         "library/tools/edit_execution_adapters.py:_touchup",
@@ -3667,8 +3669,8 @@ _BACKEND_OPERATION_LIMITATIONS = {
         ("three contiguous normal-speed video items without links, Fusion comps, markers, flags, keyframes or color state; preserves total record duration and verifies all three source/record spans and collateral timeline on staging",),
     ("clip.roll", "reel_touchup"):
         ("two contiguous normal-speed video items without links, Fusion comps, markers, flags, keyframes or color state; preserves shared record duration and verifies both source/record spans and collateral timeline on staging",),
-    ("audio.gain", "reel_touchup"):
-        ("one audio-only request; requested dB must be in the OTIO range; exact source path and record start must identify one item; full candidate snapshot must match before and after; no independent rendered-audio evidence is recorded yet",),
+    ("audio.gain", "resolve_axi"):
+        ("one audio item on an audio track, addressed by its unique id; the level is written natively on the item (Resolve 21.1's AudioVolume) and read back; the timeline is rendered before and after the write and the decoded samples are measured, so the change is verified in the rendered audio and every other audio window is shown to have held its level; the linked A/V group is read before and after; a write that does not verify is rolled back to the previous level",),
     ("transition", "reel_touchup"):
         ("exact outgoing/incoming unique ids and cut frame are required; only granted native transition types, centered alignment and explicit frame durations are accepted; AddTransition must return a span covering the exact named cut; no independent rendered audio/video evidence is recorded yet",),
     ("audio.fade", "reel_touchup"):
@@ -3768,7 +3770,7 @@ def _executor_coverage() -> dict[str, set[str]]:
     touchup = {
         "clip.move", "overlay.swap_pixels", "overlay.replace", "overlay.add", "overlay.remove",
         "clip.set_enabled", "clip.ripple", "clip.slip", "retime", "clip.set_property",
-        "audio.fade", "audio.gain", "transition", "overlay.resize", "overlay.position", "clip.split", "clip.slide", "clip.roll", "track.add", "overlay.entry_motion", "hold.repair_window",
+        "audio.fade", "transition", "overlay.resize", "overlay.position", "clip.split", "clip.slide", "clip.roll", "track.add", "overlay.entry_motion", "hold.repair_window",
     }
     # `composed_edit.set_properties` is the measured in-place property
     # writer. Other touch-up operations compile through the workflow but
@@ -3797,6 +3799,13 @@ def _executor_coverage() -> dict[str, set[str]]:
             # live qualification records are added.
             "clip.trim", "caption_fix", "broll.insert", "multicam.select_angle",
             "caption.style",
+            # AXI-012: the native gain write.  Resolve 21.1 writes a
+            # clip's level on the item itself, and the guarded `edit
+            # audio-gain` verb renders the timeline before and after the
+            # write so the change is verified in the RENDERED audio.  It
+            # was on the touch-up backend, where it refused: the
+            # candidate carried no independent audio-render evidence.
+            "audio.gain",
             # AXI-11: the journaled `edit place` verb IS the guarded
             # placement path for a plain pool-item insert, so the router
             # can name the path that ran.  It stays UNQUALIFIED - the

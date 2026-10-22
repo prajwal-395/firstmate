@@ -486,6 +486,60 @@
     1
   ],
   [
+    "library/tools/audio_render_evidence.py",
+    "write_level",
+    "SetProperty",
+    1
+  ],
+  [
+    "library/tools/audio_render_evidence.py",
+    "write_level",
+    "SetProperty",
+    2
+  ],
+  [
+    "library/tools/audio_render_evidence.py",
+    "restore_level",
+    "SetProperty",
+    1
+  ],
+  [
+    "library/tools/audio_render_evidence.py",
+    "restore_level",
+    "SetProperty",
+    2
+  ],
+  [
+    "library/tools/audio_render_evidence.py",
+    "render_timeline",
+    "SetCurrentRenderFormatAndCodec",
+    1
+  ],
+  [
+    "library/tools/audio_render_evidence.py",
+    "render_timeline",
+    "SetRenderSettings",
+    1
+  ],
+  [
+    "library/tools/audio_render_evidence.py",
+    "render_timeline",
+    "AddRenderJob",
+    1
+  ],
+  [
+    "library/tools/audio_render_evidence.py",
+    "render_timeline",
+    "DeleteRenderJob",
+    1
+  ],
+  [
+    "library/tools/audio_render_evidence.py",
+    "render_timeline",
+    "SetCurrentRenderFormatAndCodec",
+    2
+  ],
+  [
     "library/tools/axi_qualification_configurations.py",
     "_delete_existing",
     "DeleteTimelines",

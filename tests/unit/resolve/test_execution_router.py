@@ -283,7 +283,6 @@ def test_protected_experimental_route_requires_all_guarantees():
 
 
 @pytest.mark.parametrize("operation", [
-    {"op": "audio.gain", "unique_id": "audio-1", "db": -3.0},
     {"op": "audio.fade", "unique_id": "audio-1",
      "fade_in": 0.2, "fade_out": 0.3},
 ])
@@ -303,6 +302,20 @@ def test_audio_touchup_route_is_protected_and_staged(operation):
     assert decision.qualification_gaps == ((operation["op"], (), ()),)
     assert decision.as_dict()["selection"]["qualification_policy"] == (
         "protected_experimental")
+
+
+def test_the_audio_gain_routes_to_the_measured_native_writer():
+    """The gain is written NATIVELY on the item and verified in the
+    rendered audio, so the router sends it to the AXI verb that does
+    that - not to the touch-up that refused it."""
+    operation = {"op": "audio.gain", "unique_id": "audio-1", "db": -3.0}
+    decision = route_compiled_edit([operation], context={
+        "qualification_policy": "protected_experimental",
+        "protected_staging": True,
+        "preserve_approved_state": True,
+        "verify_after_write": True,
+    })
+    assert decision.backend == "resolve_axi"
 
 
 def test_audio_compiled_request_keeps_router_policy_explicit():

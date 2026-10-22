@@ -20,11 +20,11 @@ Why it exists
 A capability declaration that names the wrong route is worse than no
 declaration: an agent reads "gain is implemented" and asks for a level,
 and the request dies inside an executor that has been refusing since it
-was written.  ``library/tools/edit_execution_adapters.py`` refuses for
-exactly that reason today - its audio executor raises before it writes,
-because the candidate receipt carries no independent audio-render
-evidence - and the operation map still says the operation is
-implemented.  The map and the executor must agree, and this module is
+was written.  ``library/tools/edit_execution_adapters.py`` refused for
+exactly that reason until 2026-10-21: its audio executor raised before
+it wrote, because the candidate receipt carried no independent
+audio-render evidence - and the operation map still said the operation
+was implemented.  The map and the executor must agree, and this module is
 what they agree through.
 
 What was measured, and where
@@ -32,9 +32,19 @@ What was measured, and where
 The routes, the spellings and their audible results were MEASURED on
 Resolve 21.1.0.14 (2026-10-21) on a Ren-owned scratch timeline: two
 synthetic clips (a 440 Hz tone and a 660 Hz tone, placed linked A/V),
-six states rendered by Resolve and measured in the decoded samples.  The
-report is in ``tests/live/reports/axi012-audio-measurement.json`` and
-the numbers are in ``MEASURED_EVIDENCE`` below.  The headline:
+states rendered by Resolve and measured in the decoded samples.  Two
+reports carry the numbers, and both are in the tree:
+
+* ``tests/live/reports/axi012-audio-measurement.json`` - the ROUTES:
+  the native level, the mute, the fade, the OTIO level and the OTIO
+  curve, each rendered and measured;
+* ``tests/live/reports/axi012b-audio-gain.json`` - the REQUEST-TIME
+  measurement the executor rests on: the native gain written and
+  rendered around it, the mix held, the linked A/V group held, and the
+  pan's SCALE measured - the pan's audible effect had never been
+  measured before this.
+
+The headline:
 
 * an AUDIO item's property dictionary DOES carry the native audio
   properties in 21.1 - ``AudioVolume``, ``AudioPan`` and their
@@ -46,7 +56,10 @@ the numbers are in ``MEASURED_EVIDENCE`` below.  The headline:
 * ``SetClipEnabled(False)`` mutes an audio item AUDIBLY - the muted
   clip's window is digital zero - and ``SetFades`` fades audibly;
 * the OTIO build carries a level and a keyframed curve, and the other
-  clip's level and the linked A/V pair survive the rebuild.
+  clip's level and the linked A/V pair survive the rebuild;
+* the pan's scale is ``-100..100``: ``-100`` moves the render's left
+  channel 12.0 dB up, ``0`` leaves the two channels identical, and
+  ``+/-50`` gives ``+/-9.5`` dB.
 
 The three routes
 ----------------
@@ -176,11 +189,13 @@ MEASURED_EVIDENCE = {
     "resolve_version": "21.1.0.14",
     "measured_on": "2026-10-21",
     "report": "tests/live/reports/axi012-audio-measurement.json",
+    "request_time_report": (
+        "tests/live/reports/axi012b-audio-gain.json"),
     "method": "one scratch timeline in the qualification project, two "
               "synthetic clips (a 440 Hz tone and a 660 Hz tone) placed "
-              "linked A/V, six states rendered by Resolve and measured in "
+              "linked A/V, states rendered by Resolve and measured in "
               "the decoded samples (window RMS, window peak, fraction of "
-              "digital-zero samples)",
+              "digital-zero samples, per-channel balance)",
     "readings": {
         "the audio item's property dictionary":
             "GetProperty() on an AUDIO item reports the 21.1 native audio "
@@ -213,6 +228,20 @@ MEASURED_EVIDENCE = {
             "-21.13 dBFS in EVERY state: the existing mix did not move, "
             "and the linked A/V pair's link groups survive the OTIO "
             "rebuild (link group ids 1 and 2 after the import)",
+        "the native gain, at REQUEST TIME (2026-10-21, "
+        "tests/live/reports/axi012b-audio-gain.json)":
+            "the native write reads back -6.0 and the render around it "
+            "measures EXACTLY -6.00 dB on the clip's window (-22.11 -> "
+            "-28.11 dBFS), the other clip holds at -21.09 dBFS in both "
+            "renders, the linked A/V group is the same before and after, "
+            "and the level was restored afterwards",
+        "the pan's scale (2026-10-21, "
+        "tests/live/reports/axi012b-audio-gain.json)":
+            "SetProperty('AudioPan', -100) reads back -100.0 and the "
+            "render's left channel sits 12.0 dB above the right; +100 "
+            "does the opposite; 0 leaves the two channels identical (the "
+            "difference signal is digital silence); +/-50 gives "
+            "+/-9.5 dB. The spelling that answers False is 'Pan'",
     },
 }
 
@@ -224,31 +253,38 @@ AUDIO_OPERATIONS: tuple[AudioOperation, ...] = (
         operation_id="audio.gain",
         audio_operation="gain",
         intent="Set one clip's level, in dB.",
-        route=ROUTE_OTIO,
-        resolve_call="",
-        read_back="the OTIO level read back off a fresh export of the "
-                  "imported timeline (otio_mix.read_levels)",
+        route=ROUTE_NATIVE,
+        resolve_call="TimelineItem.SetProperty('AudioVolume', db)",
+        read_back="TimelineItem.GetProperty('AudioVolume') on the item, "
+                  "and the level measured in the rendered audio",
         audible_verification="the rendered audio's measured level against "
-                             "the requested dB",
+                             "the requested dB, and every other audio "
+                             "window's level held where it was",
         applies_to="one audio clip",
-        preserves=("the clip's placement, transform, markers and native "
-                   "transitions", "every other clip's level (the mix)"),
-        rebuilds=True,
-        evidence=("MEASURED (2026-10-21, Resolve 21.1.0.14): the OTIO "
-                  "route's -6 dB reads back as -6.0 dB off a fresh export "
-                  "and the render measures 7.4 dB down, with the other "
-                  "clip unmoved at -21.13 dBFS",
-                  "MEASURED: Resolve 21.1 also writes the level NATIVELY - "
-                  "SetProperty('AudioVolume', -6) returns True, reads back "
-                  "-6.0 and the render measures EXACTLY -6.00 dB. Ren has "
-                  "no executor for that route yet, and the spelling it used "
-                  "to try, SetProperty('Volume'), returns False",
-                  "the OTIO import REBUILDS the timeline: Fusion comps and "
-                  "CDL grades do not survive it (AGENTS.md 5)",
-                  "the touch-up request path refuses before it writes: the "
-                  "candidate receipt carries no independent audio-render "
-                  "evidence (library/tools/edit_execution_adapters.py:"
-                  "_audio_gain)"),
+        preserves=("the clip's record span and source range",
+                   "the clip's link group (the linked A/V pair)",
+                   "every other audio item's level (the mix)"),
+        rebuilds=False,
+        evidence=("MEASURED (2026-10-21, Resolve 21.1.0.14, "
+                  "tests/live/reports/axi012b-audio-gain.json): the native "
+                  "write reads back -6.0 and the RENDER measures exactly "
+                  "-6.00 dB on the clip's window, while the other clip "
+                  "stays at -21.09 dBFS and the linked A/V group survives",
+                  "MEASURED (2026-10-21, Resolve 21.1.0.14, "
+                  "tests/live/reports/axi012-audio-measurement.json): the "
+                  "OTIO build carries a level too (-6 dB reads back and "
+                  "renders 7.4 dB down), but it is a BUILD: the import "
+                  "rebuilds the timeline, so it stays the route for the "
+                  "keyframed curve (audio.automation) and not for a "
+                  "single level",
+                  "the spelling Ren used to try, SetProperty('Volume'), "
+                  "returns False: the item's property dictionary carries "
+                  "AudioVolume (with AudioVolumeEnabled)",
+                  "the executor is `resolve-axi edit audio-gain`: it "
+                  "renders the timeline before and after the write, so "
+                  "the receipt carries the measurement and not only the "
+                  "read-back; a write that does not verify is rolled back "
+                  "to the previous level"),
     ),
     AudioOperation(
         operation_id="audio.fade",
@@ -333,17 +369,29 @@ AUDIO_OPERATIONS: tuple[AudioOperation, ...] = (
         resolve_call="",
         read_back="",
         audible_verification="",
+        applies_to="",
         preserves=(),
         rebuilds=False,
-        refusal=("audio.pan: Resolve's OTIO carries no measured audio-pan "
-                 "parameter - the audio surface Ren writes is volume only "
-                 "(docs/RULE_EVIDENCE.md)"),
-        evidence=("the OTIO route refuses by name",
-                  "MEASURED (2026-10-21, Resolve 21.1.0.14): "
-                  "SetProperty('AudioPan', 0) returns True and reads back "
-                  "0.0, so the ITEM can take a pan - but the audible "
-                  "effect of a pan was NOT measured, and Ren has no "
-                  "executor that writes one"),
+        refusal=("audio.pan: the native route is MEASURED - "
+                 "SetProperty('AudioPan', -100) writes a hard pan and the "
+                 "render's opposite channel drops 12.0 dB, on a scale of "
+                 "-100..100 - but Ren has no executor that writes a pan "
+                 "yet, so the operation refuses by name rather than "
+                 "declaring a route nothing takes "
+                 "(library/tools/audio_operations.py)"),
+        evidence=("MEASURED (2026-10-21, Resolve 21.1.0.14, "
+                  "tests/live/reports/axi012b-audio-gain.json): the pan "
+                  "SWEEP - the value reads back exactly, and the render "
+                  "follows it: -100 moves the left channel 12.0 dB up, "
+                  "+100 moves the right channel 12.0 dB up, 0 leaves the "
+                  "two channels identical (the difference signal is "
+                  "digital silence), and the scale is linear in dB "
+                  "(+/-50 gives +/-9.5 dB)",
+                  "MEASURED: SetProperty('Pan', ...) answers False, so the "
+                  "spelling that writes a pan is AudioPan",
+                  "the OTIO route refuses by name: Resolve's OTIO carries "
+                  "no measured audio-pan parameter (docs/RULE_EVIDENCE.md)",
+                  "no executor writes a pan, so the operation refuses"),
     ),
 )
 

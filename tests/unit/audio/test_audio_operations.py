@@ -82,11 +82,26 @@ def test_a_supported_operation_has_no_refusal():
 def test_a_rebuilding_route_says_it_rebuilds():
     """Defect: the OTIO route REBUILDS the timeline. A declaration that
     does not say so reads as a preservation it cannot keep - Fusion comps
-    and CDL grades do not survive an import."""
+    and CDL grades do not survive an import.
+
+    The gain is no longer the OTIO route: a single level is written
+    NATIVELY (Resolve 21.1's AudioVolume) and measured in the render,
+    and the OTIO build stays the route for the keyframed curve."""
+    automation = audio_operations.operation("audio.automation")
+    assert automation.route == audio_operations.ROUTE_OTIO
+    assert automation.rebuilds is True
+    assert any("BUILD" in item for item in automation.evidence)
+
+
+def test_the_native_gain_route_does_not_rebuild():
+    """Defect: a level that goes through the OTIO build rebuilds the
+    timeline - it is a rebuild wearing a gain's name, and it costs the
+    Fusion comps and CDL grades on the timeline."""
     gain = audio_operations.operation("audio.gain")
-    assert gain.route == audio_operations.ROUTE_OTIO
-    assert gain.rebuilds is True
-    assert any("REBUILD" in item for item in gain.evidence)
+    assert gain.route == audio_operations.ROUTE_NATIVE
+    assert gain.rebuilds is False
+    assert "AudioVolume" in gain.resolve_call
+    assert "Volume'" not in gain.resolve_call.replace("AudioVolume", "")
 
 
 def test_the_native_fade_route_does_not_rebuild():

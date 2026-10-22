@@ -1755,30 +1755,171 @@ def _caption_style(context) -> dict:
 
 
 def _audio_gain(context) -> dict:
-    """Refuse the gain BY NAME, with the route and the missing evidence.
+    """Write one clip's level natively, and prove it in the RENDERED audio.
 
-    The refusal used to name only the receipt's missing evidence, which
-    left a caller with no way to tell a gap in the EVIDENCE from a gap
-    in the ROUTE.  It is both: the level is written by the OTIO build
-    (a rebuild of the timeline), and the candidate that build produces
-    carries no independent audio-render evidence - nothing has measured
-    the rendered audio against the requested dB, so nothing can say the
-    clip plays at the level that was asked for.
+    The refusal this replaces named a gap in the EVIDENCE, and the
+    evidence gap was real: nothing rendered the audio at request time,
+    so nothing could say the clip plays at the level that was asked for
+    or that the rest of the mix stayed where it was.
+
+    Now the route is Resolve 21.1's OWN write on the timeline item -
+    ``SetProperty("AudioVolume", db)``, measured to read back and to
+    render at exactly the requested dB - and the proof is a render of
+    the timeline BEFORE and AFTER the write, measured in the decoded
+    samples.  The same measurement says the other windows held their
+    level, which is how the mix is shown not to have moved, and the
+    linked A/V group is read before and after.
+
+    A gain that does not verify is rolled back by the verb itself: the
+    previous level is written back and the verb fails.  The receipt
+    below reports the measurement, so the caller can see what was
+    heard rather than being told that it was fine.
 
     The route and its evidence live in one place
-    (`library/tools/audio_operations.py`), so this refusal and the
+    (`library/tools/audio_operations.py`), so this executor and the
     operation map's row cannot disagree.
     """
-    from library.tools import audio_operations
+    import json
+    import os
+    import tempfile
+
+    from library.tools import audio_operations, operation_acceptance
+    from library.tools import resolve_axi_core
 
     row = audio_operations.operation("audio.gain")
-    raise RuntimeError(
-        "audio.gain is refused before mutation: the route is the OTIO build "
-        f"({row.resolve_call or 'the volume parameter of the exported OTIO'}"
-        "), and the candidate receipt carries no independent audio-render "
-        "evidence for levels, clipping, and silence"
-        f" - the audible check the route needs is: {row.audible_verification}"
-        f" (library/tools/audio_operations.py)")
+    operation = context.operation
+    unique_id = str(operation.get("unique_id") or "")
+    if not unique_id:
+        raise ValueError("audio.gain needs a target unique_id")
+    try:
+        db = float(operation["db"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(
+            f"audio.gain needs a level in dB ({exc}) - nothing was "
+            f"written") from exc
+    request = context.request
+    scratch = tempfile.mkdtemp(prefix="ren-audio-gain-")
+    evidence_path = os.path.join(scratch, "audio-gain-evidence.json")
+    argv = [
+        "edit", "audio-gain",
+        "--project", str(request.project),
+        "--timeline", str(request.timeline),
+        "--item", unique_id,
+        "--db", repr(db),
+        "--render-dir", os.path.join(scratch, "renders"),
+        "--evidence", evidence_path,
+        "--apply",
+    ]
+    project_folder = _project_folder(context)
+    if project_folder:
+        argv += ["--project-folder", project_folder]
+    result = resolve_axi_core.execute(argv)
+    if not result.ok:
+        raise RuntimeError(
+            (result.stdout or result.stderr or "").strip()
+            or "audio.gain did not execute")
+    try:
+        with open(evidence_path, encoding="utf-8") as handle:
+            evidence = json.load(handle)
+    except (OSError, ValueError) as exc:
+        raise RuntimeError(
+            f"audio.gain wrote but left no measurement evidence "
+            f"({exc}); the level is unverified") from exc
+
+    after = resolve_axi_core.read_live_timeline(
+        request.project, request.timeline)
+    before_clips = [clip for track in context.snapshot["tracks"]
+                    for clip in track["clips"]
+                    if str(clip["unique_id"]) == unique_id]
+    after_clips = [clip for track in after["tracks"]
+                   for clip in track["clips"]
+                   if str(clip["unique_id"]) == unique_id]
+    before_clip = before_clips[0] if before_clips else None
+    after_clip = after_clips[0] if after_clips else None
+
+    measured = evidence.get("audio_evidence") or {}
+    readings = measured.get("readings") or {}
+    target_reading = readings.get(unique_id) or {}
+    after_window = target_reading.get("after") or {}
+    peak_db = after_window.get("peak_db")
+    zero_fraction = after_window.get("digital_zero_fraction")
+
+    acceptance_evidence = {
+        "target_identity": len(after_clips) == 1,
+        "requested_audio_span": (
+            after_clip is not None and before_clip is not None
+            and int(after_clip["record_in"]) == int(before_clip["record_in"])
+            and int(after_clip["record_out"]) == int(before_clip["record_out"])),
+        "audio_parameters_match_request": bool(
+            evidence.get("write", {}).get("read_back") is not None
+            and abs(float(evidence["write"]["read_back"]) - db) <= 0.01),
+        "unrelated_items_unchanged": (
+            not _unrelated_changes(context.snapshot, after, unique_id)
+            and bool(evidence.get("other_levels_unchanged"))
+            and bool(evidence.get("linked_preserved"))),
+        "audio_render_matches_request": bool(
+            measured.get("target_matches_request")),
+        "no_clipping": (peak_db is not None and float(peak_db) <= 0.0),
+        "no_unintended_silence": (
+            zero_fraction is not None and float(zero_fraction) < 1.0
+            and after_window.get("rms_db") is not None),
+    }
+    acceptance = operation_acceptance.evaluate(
+        {**operation, "op": "audio.gain"},
+        readback_passed=all(acceptance_evidence.values()),
+        evidence=acceptance_evidence)
+    if not acceptance["passed"]:
+        missing = ", ".join(acceptance["missing"]) or "none"
+        failed = ", ".join(acceptance["failed"]) or "none"
+        raise RuntimeError(
+            f"AXI read-back acceptance failed for audio.gain: missing "
+            f"evidence [{missing}], failed checks [{failed}]")
+    return {
+        "status": "committed",
+        "backend": "resolve_axi",
+        "mutated": True,
+        "operation_id": "audio.gain",
+        "request_id": request.id,
+        "operation_index": int(getattr(context, "operation_index", 0)),
+        "target_identity": {
+            "unique_id": unique_id,
+            "source_file": str((after_clip or {}).get("source_file") or ""),
+            "record_in": int((after_clip or {}).get("record_in") or 0),
+            "record_out": int((after_clip or {}).get("record_out") or 0),
+        },
+        "readback": {
+            "snapshot": after,
+            "audio_evidence": measured,
+            "previous_db": evidence.get("previous_db"),
+            "requested_db": db,
+            "measured_db": measured.get("measured_db"),
+        },
+        "acceptance_contracts": [acceptance],
+        "execution_contract": {
+            "verification": {
+                "status": "verified",
+                "checks": ({"operation": "audio.gain", "passed": True},),
+                "evidence": {
+                    "acceptance": acceptance,
+                    "snapshot_source": "fresh_live_timeline",
+                    "audio_source": row.audible_verification,
+                    "audio_evidence": measured,
+                },
+            },
+            "recovery": {
+                "status": "recorded",
+                "action": "write the previous level back on the item "
+                          "(the inverse of this gain)",
+                "reference": {
+                    "kind": "audio_level_inverse",
+                    "project_folder": project_folder,
+                    "item_id": unique_id,
+                    "previous_db": evidence.get("previous_db"),
+                    "requested_db": db,
+                },
+            },
+        },
+    }
 
 
 def _multicam_select_angle(context) -> dict:
@@ -2539,7 +2680,7 @@ def register_builtin_edit_executors() -> None:
         ("clip.slide", "reel_touchup"): _touchup,
         ("clip.roll", "reel_touchup"): _touchup,
         ("audio.fade", "reel_touchup"): _touchup,
-        ("audio.gain", "reel_touchup"): _audio_gain,
+        ("audio.gain", "resolve_axi"): _audio_gain,
         ("transition", "reel_touchup"): _touchup,
         ("overlay.resize", "reel_touchup"): _touchup,
         ("overlay.position", "reel_touchup"): _touchup,

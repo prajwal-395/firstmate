@@ -336,11 +336,122 @@ def test_ripple_adapter_refuses_retime_semantics(monkeypatch):
     assert not calls
 
 
-def test_audio_gain_refuses_without_independent_audio_render_evidence():
-    with pytest.raises(RuntimeError, match="independent audio-render evidence"):
-        adapters._audio_gain(_context({
-            "op": "audio.gain", "unique_id": "clip-17", "db": 3.0,
-        }))
+def test_audio_gain_executes_through_the_measured_native_route(monkeypatch):
+    """The gain used to refuse for want of an independent audio-render
+    measurement.  It executes now: the verb writes the level natively
+    and the receipt carries the measurement."""
+    import json
+
+    from library.tools import resolve_axi_core
+
+    context = _context({
+        "op": "audio.gain", "unique_id": "clip-17", "db": -6.0,
+    })
+    context.snapshot["tracks"][0]["clips"][0]["track_type"] = "audio"
+    after = {"reported_fps": 30.0, "tracks": [{
+        "type": "audio", "index": 1, "clips": [{
+            "unique_id": "clip-17", "record_in": 20, "record_out": 80,
+            "source_in_frame": 5, "source_out_frame": 64,
+            "duration": 60, "source_file": "/media/music.wav",
+            "transform": {"AudioVolume": -6.0},
+            "enabled": True, "clip_color": "", "flags": [],
+            "track_type": "audio", "track_index": 1,
+            "linked_unique_ids": ["video-17"],
+        }],
+    }]}
+    evidence = {
+        "timeline": "Reel 01 - opening",
+        "item_id": "clip-17",
+        "previous_db": 0.0,
+        "write": {"set_return": True, "enabled_set_return": True,
+                  "read_back": -6.0},
+        "linked_before": ["video-17"], "linked_after": ["video-17"],
+        "linked_preserved": True, "other_levels_unchanged": True,
+        "levels_moved": [],
+        "audio_evidence": {
+            "requested_db": -6.0, "measured_db": -6.0,
+            "target_matches_request": True, "mix_preserved": True,
+            "windows_moved": [],
+            "readings": {"clip-17": {"before": {"rms_db": -20.0},
+                                     "after": {"rms_db": -26.0,
+                                               "peak_db": -8.0,
+                                               "digital_zero_fraction": 0.0},
+                                     "delta_db": -6.0}},
+        },
+    }
+    calls = []
+
+    def _fake_execute(command):
+        calls.append(command)
+        path = command[command.index("--evidence") + 1]
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(evidence, handle)
+        return SimpleNamespace(ok=True, stdout="audio_gained", stderr="")
+
+    monkeypatch.setattr(resolve_axi_core, "execute", _fake_execute)
+    monkeypatch.setattr(resolve_axi_core, "read_live_timeline",
+                        lambda *_args: after)
+    monkeypatch.setattr(adapters, "_project_folder",
+                        lambda _context: "/tmp/project")
+
+    receipt = adapters._audio_gain(context)
+
+    assert receipt["status"] == "committed"
+    assert receipt["operation_id"] == "audio.gain"
+    assert receipt["readback"]["measured_db"] == -6.0
+    assert receipt["acceptance_contracts"][0]["passed"] is True
+    assert calls[0][:2] == ["edit", "audio-gain"]
+    assert "--item" in calls[0] and "clip-17" in calls[0]
+    assert "-6.0" in calls[0]
+
+
+def test_audio_gain_refuses_a_render_that_did_not_measure_the_request(
+        monkeypatch):
+    """A gain whose rendered audio did not measure the requested dB is
+    not a gain, and the executor refuses it rather than committing it."""
+    import json
+
+    from library.tools import resolve_axi_core
+
+    context = _context({
+        "op": "audio.gain", "unique_id": "clip-17", "db": -6.0,
+    })
+    after = {"reported_fps": 30.0, "tracks": context.snapshot["tracks"]}
+    evidence = {
+        "timeline": "Reel 01 - opening",
+        "item_id": "clip-17",
+        "previous_db": 0.0,
+        "write": {"set_return": True, "enabled_set_return": True,
+                  "read_back": -6.0},
+        "linked_before": [], "linked_after": [],
+        "linked_preserved": True, "other_levels_unchanged": True,
+        "levels_moved": [],
+        "audio_evidence": {
+            "requested_db": -6.0, "measured_db": -3.0,
+            "target_matches_request": False, "mix_preserved": True,
+            "windows_moved": [],
+            "readings": {"clip-17": {"before": {"rms_db": -20.0},
+                                     "after": {"rms_db": -23.0,
+                                               "peak_db": -8.0,
+                                               "digital_zero_fraction": 0.0},
+                                     "delta_db": -3.0}},
+        },
+    }
+
+    def _fake_execute(command):
+        path = command[command.index("--evidence") + 1]
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(evidence, handle)
+        return SimpleNamespace(ok=True, stdout="audio_gained", stderr="")
+
+    monkeypatch.setattr(resolve_axi_core, "execute", _fake_execute)
+    monkeypatch.setattr(resolve_axi_core, "read_live_timeline",
+                        lambda *_args: after)
+    monkeypatch.setattr(adapters, "_project_folder",
+                        lambda _context: "/tmp/project")
+
+    with pytest.raises(RuntimeError, match="audio_render_matches_request"):
+        adapters._audio_gain(context)
 
 
 def test_slip_adapter_routes_source_window_delta_to_staged_touchup(monkeypatch):
