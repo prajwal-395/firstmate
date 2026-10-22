@@ -4,11 +4,11 @@
 # Sourced by bin/fm-spawn.sh. Sourcing has no side effects beyond the rung
 # constants below.
 #
-# THE POLICY. The standing rule for opencode dispatch is the paid Go tier
-# (muse-spark-1.3-contributor, on Pi, at the configured workspace pin),
-# then Codex Plus
+# THE POLICY. The standing rule for opencode dispatch is Codex Plus
 # (gpt-6-luna at the configured Codex profile effort, falling back to
-# xhigh). Work runs on Go first; new spawns fall
+# xhigh) first, then the paid Go tier
+# (muse-spark-1.3-contributor, on Pi, at the configured workspace pin).
+# Work runs on Codex Plus first; new spawns fall
 # through only when the preceding rung is exhausted. Order is exhaustion,
 # not load balancing. The Go tier has one member per configured workspace:
 # the main workspace always, plus the second workspace named in
@@ -52,7 +52,7 @@
 #
 # RUNNING WORKERS ARE OWNED BY THE DESCENT, NOT LEFT IN PLACE. This file
 # routes the next spawn only. bin/fm-opencode-descent-lib.sh re-evaluates a
-# lane already running: a lane recorded on Go with a proven cap relaunches
+# lane already running: a lane recorded on a rung with a proven cap relaunches
 # onto the next uncapped rung through bin/fm-control.sh relaunch, keeping its
 # worktree, branch, commits, and brief and carrying a handoff note, while its
 # conversation ends with the parked session. There is still no verified
@@ -65,22 +65,22 @@
 # from the first rung and use the current cap records.
 #
 # FAILURE DIRECTION. Unknown or stale quota data never counts as exhaustion.
-# A Go cap may fall through despite an absent model binding; a destination
+# A Plus cap may fall through despite an absent model binding; a destination
 # rung with its own unexpired cap is skipped. If every rung is capped -
-# the whole Go tier (main capped plus second capped,
-# or main capped with no second workspace) and Codex Plus - return 3 marks proven
+# Codex Plus and the whole Go tier (main capped plus second capped,
+# or main capped with no second workspace) - return 3 marks proven
 # exhaustion so fm-spawn can try a declared default fallback; when
 # none exists, dispatch is refused with every rung and reset time named.
 # The exhausted-ladder fallback is reachable only there, never
 # while either Go workspace can still serve.
 #
 # THE OVERRIDE. FM_OPENCODE_LADDER_OVERRIDE, set to a non-empty reason, holds
-# a Go request on Go past a proven cap and prints that it did. It is an
+# a Plus request on Codex Plus past a proven cap and prints that it did. It is an
 # environment variable rather than a flag deliberately, matching the agy
 # ladder's override: dispatch profiles carry only harness, model, and effort,
-# so holding Go stays a deliberate act at the command line.
-# FM_OPENCODE_LADDER=off disables the whole gate: the requested model (or Go
-# when none was requested) passes through unchanged, with a notice naming the
+# so holding Plus stays a deliberate act at the command line.
+# FM_OPENCODE_LADDER=off disables the whole gate: the requested model (or Codex
+# Plus when none was requested) passes through unchanged, with a notice naming the
 # kill-switch so a bypass never looks like a decision.
 
 # The governed OpenCode model and Codex Plus model. The retired free rung
@@ -590,7 +590,7 @@ fm_opencode_ladder_free_capped() {  # <state-dir>
 
 # fm_opencode_ladder_model: the model id a launch with <requested> should run.
 # Prints exactly one line - the effective model id - on stdout. All governed
-# requests pass through the same ordered cap gate: Go first, then Codex Plus.
+# requests pass through the same ordered cap gate: Codex Plus first, then Go.
 # Returns 3 only when
 # every ladder rung is proven capped; callers may then consult the
 # separately declared exhausted-ladder fallback. Other refusals return 1.
@@ -598,12 +598,12 @@ fm_opencode_ladder_model() {  # <requested> <state-dir>
   local requested=${1:-} state_dir=${2:-} explicit=1
   local plus_capped=0 go_capped=0 second_ready=0
   if [ -z "$requested" ] || [ "$requested" = default ]; then
-    requested=$FM_OPENCODE_LADDER_GO
+    requested=$FM_OPENCODE_LADDER_PLUS_MODEL
     explicit=0
   fi
   if [ "${FM_OPENCODE_LADDER:-on}" = off ]; then
     printf '%s\n' "$requested"
-    printf 'notice: opencode ladder disabled by FM_OPENCODE_LADDER=off - launching on %s unchecked against the Go cap\n' \
+    printf 'notice: opencode ladder disabled by FM_OPENCODE_LADDER=off - launching on %s unchecked against the ladder caps\n' \
       "$requested" >&2
     return 0
   fi
@@ -612,7 +612,7 @@ fm_opencode_ladder_model() {  # <requested> <state-dir>
     *)
       printf '%s\n' "$requested"
       printf 'notice: opencode ladder not applied: model %s is outside the governed ladder (%s, %s)\n' \
-        "$requested" "$FM_OPENCODE_LADDER_GO" "$FM_OPENCODE_LADDER_PLUS_MODEL" >&2
+        "$requested" "$FM_OPENCODE_LADDER_PLUS_MODEL" "$FM_OPENCODE_LADDER_GO" >&2
       return 0 ;;
   esac
   fm_opencode_ladder_quota_caps "$state_dir"
@@ -656,13 +656,13 @@ fm_opencode_ladder_model() {  # <requested> <state-dir>
     [ "$(fm_opencode_ladder_pick_go_workspace "$state_dir" 2>/dev/null)" = "$FM_OPENCODE_WORKSPACE_SECOND" ] \
       && second_ready=1
   fi
-  [ "$go_capped" -eq 1 ] || { printf '%s\n' "$FM_OPENCODE_LADDER_GO"; return 0; }
-  if [ "$plus_capped" -eq 1 ] && [ "$second_ready" -eq 0 ] && [ -z "${FM_OPENCODE_LADDER_OVERRIDE:-}" ]; then
+  [ "$plus_capped" -eq 1 ] || { printf '%s\n' "$FM_OPENCODE_LADDER_PLUS_MODEL"; return 0; }
+  if [ "$go_capped" -eq 1 ] && [ "$second_ready" -eq 0 ] && [ -z "${FM_OPENCODE_LADDER_OVERRIDE:-}" ]; then
     local plus_until go_until
     plus_until=$("$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" "$FM_OPENCODE_LADDER_PLUS_RUNG" 2>/dev/null | sed -n 's/.*reset_at=//p')
     go_until=$("$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" "$FM_OPENCODE_LADDER_GO_RUNG" 2>/dev/null | sed -n 's/.*reset_at=//p')
-    printf 'error: opencode ladder exhausted: Go capped until %s; Codex Plus capped until %s' \
-      "${go_until:-unknown}" "${plus_until:-unknown}" >&2
+    printf 'error: opencode ladder exhausted: Codex Plus capped until %s; Go capped until %s' \
+      "${plus_until:-unknown}" "${go_until:-unknown}" >&2
     if fm_opencode_second_configured; then
       local go_second_until
       go_second_until=$("$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" "$FM_OPENCODE_LADDER_GO_SECOND_RUNG" 2>/dev/null | sed -n 's/.*reset_at=//p')
@@ -672,20 +672,18 @@ fm_opencode_ladder_model() {  # <requested> <state-dir>
     return 3
   fi
   if [ -n "${FM_OPENCODE_LADDER_OVERRIDE:-}" ]; then
-    printf '%s\n' "$FM_OPENCODE_LADDER_GO"
-    printf 'notice: opencode ladder OVERRIDDEN by FM_OPENCODE_LADDER_OVERRIDE=%s - holding Go past a proven cap\n' "$FM_OPENCODE_LADDER_OVERRIDE" >&2
+    printf '%s\n' "$FM_OPENCODE_LADDER_PLUS_MODEL"
+    printf 'notice: opencode ladder OVERRIDDEN by FM_OPENCODE_LADDER_OVERRIDE=%s - holding Codex Plus past a proven cap\n' "$FM_OPENCODE_LADDER_OVERRIDE" >&2
     return 0
   fi
-  if [ "$plus_capped" -eq 0 ]; then
-    printf '%s\n' "$FM_OPENCODE_LADDER_PLUS_MODEL"
-    local plus_effort
-    plus_effort=$(fm_opencode_ladder_plus_effort)
-    printf 'notice: opencode ladder: Go is capped; dispatching on Codex Plus (%s, %s effort)\n' "$FM_OPENCODE_LADDER_PLUS_MODEL" "$plus_effort" >&2
+  if [ "$go_capped" -eq 0 ]; then
+    printf '%s\n' "$FM_OPENCODE_LADDER_GO"
+    printf 'notice: opencode ladder: Codex Plus is capped; dispatching on Go %s\n' "$FM_OPENCODE_LADDER_GO" >&2
     return 0
   fi
   if [ "$second_ready" -eq 1 ]; then
     printf '%s\n' "$FM_OPENCODE_LADDER_GO"
-    printf 'notice: opencode ladder: Go and Codex Plus are capped; dispatching on Go %s on the second workspace\n' "$FM_OPENCODE_LADDER_GO" >&2
+    printf 'notice: opencode ladder: Codex Plus and Go are capped; dispatching on Go %s on the second workspace\n' "$FM_OPENCODE_LADDER_GO" >&2
     return 0
   fi
 }

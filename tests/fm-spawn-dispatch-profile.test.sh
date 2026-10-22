@@ -2791,6 +2791,7 @@ test_pi_opencode_go_switch_routes_configured_crew_harness() {
   read_case_record "$rec"
   printf '%s\n' on > "$HOME_DIR/config/pi-opencode-go"
   printf '%s\n' opencode > "$HOME_DIR/config/crew-harness"
+  record_rung_cap "$HOME_DIR" plus || fail "record refused Plus cap"
   datadir=$(make_dual_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") || fail "configured-harness fixture login could not be built"
   export FM_FAKE_OPENCODE_DATA="$datadir"
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
@@ -2986,6 +2987,7 @@ test_opencode_go_launch_builds_workspace_pins() {
   read_case_record "$rec"
   printf '%s' "$DUAL_SECOND_ORG_ID" > "$HOME_DIR/config/opencode-second-org"
   printf '%s' "$DUAL_MAIN_ORG_ID" > "$HOME_DIR/config/opencode-main-org"
+  record_rung_cap "$HOME_DIR" plus || fail "record refused Plus cap"
   datadir=$(make_dual_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") \
     || fail "the fixture login could not be built"
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # fm-opencode-descent-lib.sh - move capped workers along the
-# Go-then-Codex Plus ladder.
+# Codex Plus-then-Go ladder.
 # Usage: . bin/fm-opencode-descent-lib.sh
 # Sourced by bin/fm-watch.sh. Defining functions is all this file does; the
 # only things it pulls in on its own are the libraries below, and only when a
@@ -51,10 +51,9 @@
 # message that states its reset time. bin/fm-opencode-retry.sh owns rung-record
 # validation and bin/fm-busy-lib.sh owns the OpenCode session latch.
 #
-# WHAT MOVES, AND WHAT ONLY SURFACES. A capped Go lane moves to Codex Plus
-# unless Plus is capped, then to the Go tier's other workspace while that
-# plan is uncapped; a capped Plus lane moves to the Go tier's other
-# workspace while that plan is uncapped. The Go tier's workspace is the
+# WHAT MOVES, AND WHAT ONLY SURFACES. A capped Plus lane moves to the Go
+# tier; a capped Go lane moves to the Go tier's other workspace while that
+# plan is uncapped. The Go tier's workspace is the
 # dispatch pick (bin/fm-opencode-ladder-lib.sh
 # fm_opencode_ladder_pick_go_workspace), never a fixed order: the
 # monthly-soonest plan serves while uncapped, and a plan under a shorter cap
@@ -69,7 +68,7 @@
 #
 # THERE IS NO CLIMB-BACK FOR RUNNING WORKERS, BY DESIGN. A healthy lane on a
 # later rung is making progress; moving it back would risk its conversation
-# for zero gain. New spawns start at Go after earlier cap records expire.
+# for zero gain. New spawns start at Codex Plus after earlier cap records expire.
 #
 # THE FINDING OUTLIVES THE TASK. An OpenCode sidecar describes one session's
 # backoff and is cleared with it after a move - but the cap it proved is a
@@ -91,8 +90,8 @@
 # NO POINT-OF-SPEND GATE EXISTS FOR OPENCODE, AND NONE IS FAKED HERE. agy's
 # gate works because agy invokes it PostInvocation inside the worker's own
 # loop AND because quota evidence exists to decide on before the floor is
-# crossed. OpenCode free and Go have neither half: no hook ends their agent
-# loop (see the surface above), and OpenCode free has no quota-axi row. The
+# crossed. OpenCode Go has neither half: no hook ends its agent
+# loop (see the surface above), and the Go tier counts reactive vendor evidence beside quota-axi. The
 # retry
 # event fires after the refusal, when the vendor has already parked the
 # session - gating there would be polling pretending to be synchronous, which
@@ -217,10 +216,10 @@ fm_opencode_pin_mark() {  # <state-dir> <id>
 
 # fm_opencode_pin_task: pin <id> where firstmate deliberately put it, for
 # <reason>. bin/fm-spawn.sh records this when FM_OPENCODE_LADDER_OVERRIDE
-# holds a launch on Go past a proven cap; the tick reads it back instead of
+# holds a launch on the first rung past a proven cap; the tick reads it back instead of
 # a variable it cannot see. A pin is not drift, so the tick moves a pinned
 # worker nowhere. Per task, not per home: the hold names one lane the captain
-# placed, and a home-wide file would freeze every lane on Go past its cap,
+# placed, and a home-wide file would freeze every lane past its cap,
 # including lanes the captain never asked about.
 fm_opencode_pin_task() {  # <state-dir> <id> <reason>
   printf '%s' "$3" > "$(fm_opencode_pin_mark "$1" "$2")" 2>/dev/null
@@ -816,7 +815,7 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
       continue
     fi
     # THE MOVE IS NOT FINISHED UNTIL IT IS WRITTEN DOWN. Recovery relaunches
-    # from the durable record, so a record still naming free would bring the
+    # from the durable record, so a record still naming the capped tier would bring the
     # next relaunch straight back onto the capped tier. A move within the Go
     # tier keeps the same model id, so the workspace marker is verified too:
     # a record still pinned to the main workspace would bring the next

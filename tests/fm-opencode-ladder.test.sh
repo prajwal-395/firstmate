@@ -1,43 +1,45 @@
 #!/usr/bin/env bash
-# Behavior tests for bin/fm-opencode-ladder-lib.sh - the Go-then-Codex Plus ladder.
+# Behavior tests for bin/fm-opencode-ladder-lib.sh - the Codex Plus-then-Go ladder.
 #
-# The dispatch rule: spend the paid Go tier
-# (opencode-go/muse-spark-1.3-contributor, on Pi) first, then Codex Plus
-# (gpt-6-luna at the configured Codex profile effort, or xhigh by default).
-# New spawns climb back when the preceding tier becomes available again.
+# The dispatch rule: spend Codex Plus
+# (gpt-6-luna at the configured Codex profile effort, or xhigh by default)
+# first, then the paid Go tier
+# (opencode-go/muse-spark-1.3-contributor, on Pi). New spawns climb back when
+# the preceding tier becomes available again.
 #
 # The retired free rung (opencode-go/minimax-m3.1-flash-free, deprecated by
 # OpenCode on 2026-10-22) is governed no more and names no rung.
 #
-# Go and Codex Plus use fresh exhausted readings (runway exhausted_now, then a
+# Codex Plus and Go use fresh exhausted readings (runway exhausted_now, then a
 # known zero reading); Go also accepts reactive vendor-cap evidence.
 #
 # The load-bearing contracts:
-#   1. A fresh home dispatches Go by default, including a spawn that names
-#      no model at all.
-#   2. A Go request with no proven cap stays on Go, silently.
-#   3. A Go request with a proven quota-scale cap on the Go tier falls
-#      through to Codex Plus, and says so. The test converts the vendor's
-#      horizon into the structural `next` timestamp through the real record
-#      helper, so the state machine is exercised against a recorded refusal
-#      without spending quota.
+#   1. A fresh home dispatches Codex Plus by default, including a spawn that
+#      names no model at all.
+#   2. A Plus request with no proven cap stays on Plus, silently.
+#   3. A Plus request with a proven quota-scale cap on the Plus tier falls
+#      through to Go, and says so. The test converts the vendor's horizon
+#      into the structural `next` timestamp through the real record helper,
+#      so the state machine is exercised against a recorded refusal without
+#      spending quota.
 #   4. A seconds-long backoff (transient retry) never triggers the fall-through.
-#   5. An expired cap climbs back to Go on its own: the vendor's horizon is
-#      the timer, via the record helper's own expiry.
-#   6. A cap bound to the Codex Plus tier never moves a Go request: the tiers
-#      are separate quotas, so Plus being capped says nothing about Go.
-#   7. An explicit Go request always stands, even while Plus is capped.
+#   5. An expired cap climbs back to Codex Plus on its own: the vendor's
+#      horizon is the timer, via the record helper's own expiry.
+#   6. A cap bound to the Go tier never moves a Plus request: the tiers are
+#      separate quotas, so Go being capped says nothing about Plus.
+#   7. An explicit Go request always stands, even past a proven cap.
 #   8. A model outside the governed pair launches unchanged, but reported.
-#   9. FM_OPENCODE_LADDER_OVERRIDE holds a Go request on Go past a proven
-#      cap, and SAYS SO. A silent override would be worse than no ladder.
+#   9. FM_OPENCODE_LADDER_OVERRIDE holds a Plus request on Codex Plus past a
+#      proven cap, and SAYS SO. A silent override would be worse than no
+#      ladder.
 #  10. A quota-scale cap with NO model binding is unknown, never exhaustion:
-#      the gate dispatches Go, silently, rather than spending the captain's
-#      money on an unproven refusal.
+#      the gate dispatches Codex Plus, silently, instead of spending the
+#      captain's money on an unproven refusal.
 #  11. The gate sits on the ordinary dispatch path: a real bin/fm-spawn.sh
-#      launch with a proven Go cap carries the Codex Plus model id, and a real
-#      launch with no model at all carries the Go id - pinned to the tmux
-#      transport with the herdr binary refused, so no real backend is ever
-#      reached.
+#      launch with a proven Plus cap carries the Go model id, and a real
+#      launch with no model at all carries the Codex Plus id - pinned to the
+#      tmux transport with the herdr binary refused, so no real backend is
+#      ever reached.
 #  12. A fresh positive quota reading retires the corresponding persisted
 #      cap, while a stale reading leaves that cap in force.
 set -u
@@ -158,16 +160,16 @@ write_lane_meta() {  # <state-dir> <id> <model>
     "$3" "$2" > "$1/$2.meta"
 }
 
-# --- 1. Go is the default ------------------------------------------------------
+# --- 1. Codex Plus is the default --------------------------------------------------
 
-test_regression_fresh_uncapped_default_uses_go_model() {
+test_regression_fresh_uncapped_default_uses_plus_model() {
   local state out
   state=$(fresh_state fresh)
   out=$(run_gate "$state" '') || fail "gate must never refuse a fresh home"
   split_gate "$out"
-  [ "$GOT" = "$GO" ] || fail "fresh home with no model must dispatch Go, got '$GOT'"
-  [ -z "$NOTE" ] || fail "clean Go dispatch must stay silent, said: $NOTE"
-  pass "a fresh uncapped default dispatch uses the Go model"
+  [ "$GOT" = "$PLUS" ] || fail "fresh home with no model must dispatch Codex Plus, got '$GOT'"
+  [ -z "$NOTE" ] || fail "clean Plus dispatch must stay silent, said: $NOTE"
+  pass "a fresh uncapped default dispatch uses the Codex Plus model"
 }
 
 test_explicit_go_stays_go_when_healthy() {
@@ -182,34 +184,33 @@ test_explicit_go_stays_go_when_healthy() {
 
 # --- 2/3. the recorded refusal falls through ----------------------------------
 
-test_recorded_refusal_falls_through_to_codex() {
+test_recorded_plus_cap_falls_through_to_go() {
   local state out
   state=$(fresh_state refusal)
-  write_lane_meta "$state" lane1 "$GO"
-  # A 21h 54m vendor backoff (78840s) against the Go tier, converted into the
-  # structural `next` timestamp the detector owns, so the state machine is
-  # proven against a recorded refusal without spending quota.
-  record_cap "$state" lane1 78840 "$GO" || fail "record refused the refusal-shaped observation"
+  # A 21h 54m vendor horizon (78840s) preserved against the Plus rung,
+  # converted into the structural `next` timestamp the detector owns, so the
+  # state machine is proven against a recorded refusal without spending quota.
+  "$HELPER" record-cap "$state" plus "$(ms_from_now 78840)" || fail "record refused the refusal-shaped observation"
   out=$(run_gate "$state" '') || fail "gate must never refuse, even past the cap"
   split_gate "$out"
-  [ "$GOT" = gpt-6-luna ] || fail "proven Go cap must fall through to Codex Plus, got '$GOT'"
+  [ "$GOT" = "$GO" ] || fail "proven Plus cap must fall through to Go, got '$GOT'"
   case "$NOTE" in
-    *'Go is capped'*) : ;;
-    *) fail "fall-through must name the exhausted Go tier, said: ${NOTE:-<silent>}" ;;
+    *'Codex Plus is capped'*) : ;;
+    *) fail "fall-through must name the exhausted Plus tier, said: ${NOTE:-<silent>}" ;;
   esac
-  pass "the recorded Go refusal falls through to Codex Plus with the reason stated"
+  pass "the recorded Plus refusal falls through to Go with the reason stated"
 }
 
-test_go_exhaustion_routes_to_codex_plus() {
+test_go_cap_leaves_plus_dispatch_alone() {
   local state out
   state=$(fresh_state go-exhausted)
   write_lane_meta "$state" lane1 "$GO"
   record_cap "$state" lane1 78840 "$GO" || fail "record refused fixture"
-  out=$(run_gate "$state" '') || fail "gate must route to Plus after Go is capped"
+  out=$(run_gate "$state" '') || fail "gate must never refuse past a Go cap"
   split_gate "$out"
-  [ "$GOT" = gpt-6-luna ] || fail "a Go cap must route to gpt-6-luna, got '$GOT'"
-  case "$NOTE" in *'Codex Plus'*) : ;; *) fail "Plus route must be named, said: $NOTE" ;; esac
-  pass "a Go cap routes the next spawn to Codex Plus"
+  [ "$GOT" = gpt-6-luna ] || fail "a Go cap must leave dispatch on Codex Plus, got '$GOT'"
+  [ -z "$NOTE" ] || fail "an uncapped Plus dispatch must stay silent, said: $NOTE"
+  pass "a Go cap leaves dispatch on Codex Plus"
 }
 
 test_plus_cap_routes_to_go() {
@@ -226,38 +227,40 @@ test_all_rungs_exhausted_refuses() {
   local state note got
   state=$(fresh_state all-out)
   write_lane_meta "$state" lane1 "$GO"
-  record_cap "$state" lane1 78840 "$GO" || fail "record refused fixture"
+  record_cap "$state" lane1 78840 "$GO" || fail "record refused Go fixture"
   "$HELPER" record-cap "$state" plus "$(ms_from_now 78840)" || fail "record refused Plus fixture"
   note=$(mktemp "$TMP_ROOT/all-out.XXXXXX")
   if got=$(FM_TEST_GO_REMAINING=0 FM_TEST_CODEX_REMAINING=0 PATH="$QUOTA_BIN:$PATH" fm_opencode_ladder_model "" "$state" 2>"$note"); then
     fail "all exhausted tiers must refuse, got '$got'"
   fi
-  case "$(cat "$note")" in *'Go capped until'*'Codex Plus capped until'*) : ;; *) fail "refusal must name all reset times: $(cat "$note")" ;; esac
+  case "$(cat "$note")" in *'Codex Plus capped until'*'Go capped until'*) : ;; *) fail "refusal must name all reset times: $(cat "$note")" ;; esac
   got=$(FM_OPENCODE_LADDER_OVERRIDE=hold FM_TEST_GO_REMAINING=0 FM_TEST_CODEX_REMAINING=0 PATH="$QUOTA_BIN:$PATH" fm_opencode_ladder_model "" "$state" 2>"$note") \
-    || fail "the explicit ladder override should continue holding Go after all caps: $(cat "$note")"
-  [ "$got" = "$GO" ] || fail "the explicit override must hold Go, got '$got'"
+    || fail "the explicit ladder override should continue holding Codex Plus after all caps: $(cat "$note")"
+  [ "$got" = gpt-6-luna ] || fail "the explicit override must hold Codex Plus, got '$got'"
   assert_contains "$(cat "$note")" 'OVERRIDDEN by FM_OPENCODE_LADDER_OVERRIDE=hold' "all-cap override explains its bypass"
-  pass "both exhausted rungs refuse, and the explicit override still holds Go"
+  pass "both exhausted rungs refuse, and the explicit override still holds Codex Plus"
 }
 
-test_plugin_vocabulary_go_cap_falls_through_to_plus() {
-  local state out
+test_plugin_vocabulary_go_cap_with_plus_capped_routes_to_go() {
+  local state out cfg
   state=$(fresh_state barego)
+  cfg=$(second_config baresplit)
   write_lane_meta "$state" lane1 "$GO"
   # The plugin's own vocabulary, byte-shape as the 2026-09-19 production
   # sidecars: `model=muse-spark-1.3-contributor` with no provider prefix,
   # and the 19h17m horizon (69412s) from that specimen, recomputed relative to
   # run time through the real record helper. The verdict is asserted through
   # the public gate, never against implementation bytes.
+  "$HELPER" record-cap "$state" plus "$(ms_from_now 78840)" || fail "record refused Plus fixture"
   record_cap "$state" lane1 69412 "$GO_BARE" || fail "record refused the bare-model observation"
-  out=$(run_gate "$state" '') || fail "gate must never refuse, even past the cap"
+  out=$(FM_CONFIG_OVERRIDE="$cfg" run_gate "$state" '') || fail "gate must never refuse, even past the caps"
   split_gate "$out"
-  [ "$GOT" = gpt-6-luna ] || fail "a bare-model Go cap must fall through to Codex Plus, got '$GOT'"
+  [ "$GOT" = "$GO" ] || fail "a bare-model Go cap with Plus capped must route to Go, got '$GOT'"
   case "$NOTE" in
-    *'Go is capped'*) : ;;
-    *) fail "fall-through must name the exhausted Go tier, said: ${NOTE:-<silent>}" ;;
+    *'on the second workspace'*) : ;;
+    *) fail "fall-through must name the second workspace, said: ${NOTE:-<silent>}" ;;
   esac
-  pass "a Go cap in the plugin's bare-model vocabulary falls through to Codex Plus"
+  pass "a Go cap in the plugin's bare-model vocabulary routes to Go past a capped Plus rung"
 }
 
 test_bare_go_cap_leaves_explicit_plus_alone() {
@@ -272,19 +275,19 @@ test_bare_go_cap_leaves_explicit_plus_alone() {
   pass "a Go cap in the plugin's bare-model vocabulary leaves explicit Plus alone"
 }
 
-test_transient_retry_stays_go() {
+test_transient_retry_stays_plus() {
   local state out
   state=$(fresh_state transient)
   record_cap "$state" lane1 8 "$GO" || fail "record refused a transient observation"
   out=$(run_gate "$state" '') || fail "gate must never refuse"
   split_gate "$out"
-  [ "$GOT" = "$GO" ] || fail "a seconds-long backoff must never trigger the fall-through, got '$GOT'"
-  pass "a transient retry backoff stays on Go"
+  [ "$GOT" = gpt-6-luna ] || fail "a seconds-long backoff must never trigger the fall-through, got '$GOT'"
+  pass "a transient retry backoff stays on Codex Plus"
 }
 
 # --- 5. climb-back on the vendor's own horizon ---------------------------------
 
-test_expired_cap_climbs_back_to_go() {
+test_expired_cap_climbs_back_to_plus() {
   local state out
   state=$(fresh_state expired)
   # A 22-hour cap recorded 23 hours ago: the vendor's own scheduled retry time
@@ -293,22 +296,23 @@ test_expired_cap_climbs_back_to_go() {
   record_cap "$state" lane1 -82800 "$GO" || fail "record refused an old observation"
   out=$(run_gate "$state" '') || fail "gate must never refuse"
   split_gate "$out"
-  [ "$GOT" = "$GO" ] || fail "an expired cap must climb back to Go, got '$GOT'"
-  pass "an expired cap climbs back to Go on the vendor's own horizon"
+  [ "$GOT" = gpt-6-luna ] || fail "an expired cap must climb back to Codex Plus, got '$GOT'"
+  pass "an expired cap climbs back to Codex Plus on the vendor's own horizon"
 }
 
 # --- 6/7. the tiers are separate -----------------------------------------------
-# A Codex Plus cap says nothing about a Go request, and an explicit Go
-# request stands even while Plus is capped.
+# A Go cap says nothing about a Plus request, and an explicit Go request
+# stands even past its own proven cap.
 
-test_plus_cap_does_not_move_go() {
+test_explicit_go_stands_despite_go_cap() {
   local state out
   state=$(fresh_state gocap)
-  "$HELPER" record-cap "$state" plus "$(ms_from_now 78840)" || fail "record refused a Plus-bound cap"
-  out=$(run_gate "$state" '') || fail "gate must never refuse"
+  "$HELPER" record-cap "$state" go "$(ms_from_now 78840)" || fail "record refused a Go-bound cap"
+  out=$(run_gate "$state" "$GO") || fail "gate must never refuse an explicit Go request"
   split_gate "$out"
-  [ "$GOT" = "$GO" ] || fail "a Plus-tier cap must not move a Go request, got '$GOT'"
-  pass "a cap bound to the Plus tier leaves Go dispatch alone"
+  [ "$GOT" = "$GO" ] || fail "an explicit Go request must stand past its own cap, got '$GOT'"
+  [ -z "$NOTE" ] || fail "an explicit Go request must stand silently, said: $NOTE"
+  pass "an explicit Go request stands past its own proven cap"
 }
 
 test_explicit_go_stands_despite_plus_cap() {
@@ -334,35 +338,34 @@ test_off_ladder_model_allowed_with_notice() {
   pass "a model outside the governed pair launches unchanged but reported"
 }
 
-test_override_holds_go_past_cap() {
+test_override_holds_plus_past_cap() {
   local state out
   state=$(fresh_state override)
-  write_lane_meta "$state" lane1 "$GO"
-  record_cap "$state" lane1 78840 "$GO" || fail "record refused fixture"
-  out=$(FM_OPENCODE_LADDER_OVERRIDE='captain asked for Go' run_gate "$state" '') \
+  "$HELPER" record-cap "$state" plus "$(ms_from_now 78840)" || fail "record refused fixture"
+  out=$(FM_OPENCODE_LADDER_OVERRIDE='captain asked for Plus' run_gate "$state" '') \
     || fail "gate must never refuse"
   split_gate "$out"
-  [ "$GOT" = "$GO" ] || fail "the override must hold Go past the cap, got '$GOT'"
+  [ "$GOT" = gpt-6-luna ] || fail "the override must hold Codex Plus past the cap, got '$GOT'"
   case "$NOTE" in
     *'OVERRID'*|*' verrid'*) : ;;
     *) fail "an overridden fall-through must say so, said: ${NOTE:-<silent>}" ;;
   esac
-  pass "FM_OPENCODE_LADDER_OVERRIDE holds Go past a proven cap and says so"
+  pass "FM_OPENCODE_LADDER_OVERRIDE holds Codex Plus past a proven cap and says so"
 }
 
-test_unbound_cap_stays_go() {
+test_unbound_cap_dispatches_plus() {
   local state out
   state=$(fresh_state unbound)
   # Quota-scale, but the plugin recorded no model binding: no tier is proven
   # exhausted, so this is unknown rather than a cap - and unknown dispatches
-  # Go, silently, instead of spending the captain's money on an unproven
-  # refusal.
+  # Codex Plus, silently, instead of spending the captain's money on an
+  # unproven refusal.
   record_cap "$state" lane1 78840 || fail "record refused an unbound observation"
   out=$(run_gate "$state" '') || fail "gate must never refuse"
   split_gate "$out"
-  [ "$GOT" = "$GO" ] || fail "an unbound quota-scale cap must stay on Go, got '$GOT'"
+  [ "$GOT" = gpt-6-luna ] || fail "an unbound quota-scale cap must dispatch Codex Plus, got '$GOT'"
   [ -z "$NOTE" ] || fail "an unbound cap must stay silent, said: $NOTE"
-  pass "an unbound quota-scale cap stays on Go"
+  pass "an unbound quota-scale cap dispatches Codex Plus"
 }
 
 # --- 11. the dispatch path ------------------------------------------------------
@@ -513,14 +516,14 @@ spawn_opencode() {  # <dir> <id> [model] [harness] [dispatch-ladder] [configured
   if [ -n "$plus_effort" ] || [ -n "$fallback_mode" ]; then
     [ -n "$plus_effort" ] || plus_effort=xhigh
     if [ "$fallback_mode" = declared ]; then
-      printf '{"rules":[],"default":[{"harness":"opencode","model":"%s","provider":"opencode-go"},{"harness":"codex","model":"gpt-6-luna","effort":"%s","provider":"codex"}],"agy_ladder":["Gemini 3.1 Pro (High)"],"exhausted_ladder_fallback":{"include_agy_ladder":true,"use":{"harness":"opencode","model":"opencode-go/longcat-2.5-preview-free","provider":"opencode-go"}}}\n' \
-        "$GO" "$plus_effort" > "$home/config/crew-dispatch.json"
+      printf '{"rules":[],"default":[{"harness":"codex","model":"gpt-6-luna","effort":"%s","provider":"codex"},{"harness":"opencode","model":"%s","provider":"opencode-go"}],"agy_ladder":["Gemini 3.1 Pro (High)"],"exhausted_ladder_fallback":{"include_agy_ladder":true,"use":{"harness":"opencode","model":"opencode-go/longcat-2.5-preview-free","provider":"opencode-go"}}}\n' \
+        "$plus_effort" "$GO" > "$home/config/crew-dispatch.json"
     elif [ "$fallback_mode" = none ]; then
-      printf '{"rules":[],"default":[{"harness":"opencode","model":"%s","provider":"opencode-go"},{"harness":"codex","model":"gpt-6-luna","effort":"%s","provider":"codex"}]}\n' \
-        "$GO" "$plus_effort" > "$home/config/crew-dispatch.json"
+      printf '{"rules":[],"default":[{"harness":"codex","model":"gpt-6-luna","effort":"%s","provider":"codex"},{"harness":"opencode","model":"%s","provider":"opencode-go"}]}\n' \
+        "$plus_effort" "$GO" > "$home/config/crew-dispatch.json"
     else
-      printf '{"default":[{"harness":"opencode","model":"%s","provider":"opencode-go"},{"harness":"codex","model":"gpt-6-luna","effort":"%s","provider":"codex"}]}\n' \
-        "$GO" "$plus_effort" > "$home/config/crew-dispatch.json"
+      printf '{"default":[{"harness":"codex","model":"gpt-6-luna","effort":"%s","provider":"codex"},{"harness":"opencode","model":"%s","provider":"opencode-go"}]}\n' \
+        "$plus_effort" "$GO" > "$home/config/crew-dispatch.json"
     fi
   fi
   fakebin=$(spawn_fakebin "$dir/fake")
@@ -589,7 +592,7 @@ test_spawn_uses_configured_codex_plus_effort() {
   dir="$TMP_ROOT/spawn-plus-configured-effort"
   mkdir -p "$dir/home/state"
   "$HELPER" record-cap "$dir/home/state" go "$(ms_from_now 78840)" || fail "record refused Go cap"
-  log_home=$(spawn_opencode "$dir" task-plus-configured "" opencode '' high)
+  log_home=$(spawn_opencode "$dir" task-plus-configured "" codex '' high)
   log=${log_home%% *}
   [ -f "$log" ] || fail "configured-effort spawn wrote no launch command"
   launch=$(read_launch "$log")
@@ -605,7 +608,7 @@ test_codex_dispatch_branch_uses_configured_max_effort() {
   dir="$TMP_ROOT/spawn-codex-plus-configured-max"
   mkdir -p "$dir/home/state"
   "$HELPER" record-cap "$dir/home/state" go "$(ms_from_now 78840)" || fail "record refused Go cap"
-  log_home=$(spawn_opencode "$dir" task-codex-plus "" opencode '' max)
+  log_home=$(spawn_opencode "$dir" task-codex-plus "" codex '' max)
   log=${log_home%% *}
   [ -f "$log" ] || fail "configured-max spawn wrote no launch command"
   launch=$(read_launch "$log")
@@ -632,18 +635,18 @@ test_spawn_routes_to_go_when_plus_is_capped() {
   pass "a capped Codex Plus rung launches and records Go"
 }
 
-test_spawn_defaults_to_go() {
-  local dir="$TMP_ROOT/spawn-go-default" log herdr_calls home launch log_home
+test_spawn_defaults_to_plus() {
+  local dir="$TMP_ROOT/spawn-plus-default" log herdr_calls home launch log_home
   mkdir -p "$dir"
-  log_home=$(spawn_opencode "$dir" task-go-default)
+  log_home=$(spawn_opencode "$dir" task-plus-default)
   log=${log_home%% *}; log_home=${log_home#* }
   herdr_calls=${log_home%% *}; home=${log_home#* }
   assert_absent "$herdr_calls" "the spawn must never reach the herdr binary"
   [ -f "$log" ] || fail "spawn wrote no launch command"
   launch=$(read_launch "$log")
-  assert_contains "$launch" "$GO" "a modelless opencode spawn carries the Go id"
-  assert_contains "$(cat "$home/state/task-go-default.meta")" "model=$GO" "the durable record names the Go model"
-  pass "a modelless opencode spawn dispatches Go end to end"
+  assert_contains "$launch" "gpt-6-luna" "a modelless opencode spawn carries the Codex Plus id"
+  assert_contains "$(cat "$home/state/task-plus-default.meta")" "model=gpt-6-luna" "the durable record names the Codex Plus model"
+  pass "a modelless opencode spawn dispatches Codex Plus end to end"
 }
 
 test_spawn_uses_declared_fallback_when_default_ladder_is_exhausted() {
@@ -652,7 +655,7 @@ test_spawn_uses_declared_fallback_when_default_ladder_is_exhausted() {
   state="$dir/home/state"
   "$HELPER" record-cap "$state" plus "$(ms_from_now 78840)" || fail "record refused Plus fixture"
   "$HELPER" record-cap "$state" go "$(ms_from_now 78840)" || fail "record refused Go fixture"
-  log_home=$(spawn_opencode "$dir" task-fallback '' opencode '' xhigh declared)
+  log_home=$(spawn_opencode "$dir" task-fallback '' codex '' xhigh declared)
   log=${log_home%% *}; log_home=${log_home#* }
   herdr_calls=${log_home%% *}; home=${log_home#* }
   assert_absent "$herdr_calls" "fallback launch must never reach Herdr"
@@ -672,7 +675,7 @@ test_spawn_refuses_exhausted_default_ladder_without_fallback() {
   state="$dir/home/state"
   "$HELPER" record-cap "$state" plus "$(ms_from_now 78840)" || fail "record refused Plus fixture"
   "$HELPER" record-cap "$state" go "$(ms_from_now 78840)" || fail "record refused Go fixture"
-  log_home=$(spawn_opencode "$dir" task-no-fallback '' opencode '' xhigh none)
+  log_home=$(spawn_opencode "$dir" task-no-fallback '' codex '' xhigh none)
   log=${log_home%% *}; log_home=${log_home#* }
   herdr_calls=${log_home%% *}; home=${log_home#* }
   assert_absent "$herdr_calls" "refusal must never reach Herdr"
@@ -711,13 +714,13 @@ test_default_resolver_codex_profile_still_enters_ladder_gate() {
   herdr_calls=${log_home%% *}; home=${log_home#* }
   assert_absent "$herdr_calls" "the spawn must never reach the herdr binary"
   launch=$(read_launch "$log")
-  assert_contains "$launch" "opencode --model" "the resolver's Codex profile must pass through the shared gate"
-  assert_contains "$launch" "$GO" "the shared gate must route the default array to Go"
-  assert_contains "$(cat "$home/state/resolver-codex.meta")" "harness=opencode" "the routed task record must follow the Go rung"
+  assert_contains "$launch" "codex --model" "the resolver's Codex profile must pass through the shared gate"
+  assert_contains "$launch" "gpt-6-luna" "the shared gate must keep the default array on Codex Plus"
+  assert_contains "$(cat "$home/state/resolver-codex.meta")" "harness=codex" "the routed task record must follow the Plus rung"
   pass "a default-array Codex profile is gated through the OpenCode ladder"
 }
 
-test_idle_healthy_lane_stays_go() {
+test_idle_healthy_lane_stays_plus() {
   local state out
   state=$(fresh_state idlehealthy)
   write_lane_meta "$state" lane1 "$GO"
@@ -729,9 +732,9 @@ test_idle_healthy_lane_stays_go() {
     'opencode>' > "$FM_PANE_FIXTURES/pane-lane1.txt"
   out=$(run_gate "$state" '') || fail "gate must never refuse"
   split_gate "$out"
-  [ "$GOT" = "$GO" ] || fail "an idle lane with a clean pane must stay Go, got '$GOT'"
+  [ "$GOT" = gpt-6-luna ] || fail "an idle lane with a clean pane must stay Codex Plus, got '$GOT'"
   [ -z "$NOTE" ] || fail "a clean idle dispatch must stay silent, said: $NOTE"
-  pass "an idle lane with a clean pane stays on Go"
+  pass "an idle lane with a clean pane stays on Codex Plus"
 }
 
 # --- 12. the preserved rung cap routes dispatch past task cleanup --------------
@@ -740,30 +743,30 @@ test_idle_healthy_lane_stays_go() {
 # preserved must still fall a later Go request through - asserted here
 # through the public gate with no per-task evidence left at all.
 
-test_preserved_rung_cap_falls_through_to_plus() {
+test_preserved_plus_cap_falls_through_to_go() {
   local state out
   state=$(fresh_state rungcap)
-  "$HELPER" record-cap "$state" go "$(ms_from_now 78840)" \
+  "$HELPER" record-cap "$state" plus "$(ms_from_now 78840)" \
     || fail "record-cap refused a well-formed rung observation"
   out=$(run_gate "$state" '') || fail "gate must never refuse, even past the cap"
   split_gate "$out"
-  [ "$GOT" = gpt-6-luna ] || fail "a preserved rung cap must fall through to Codex Plus, got '$GOT'"
+  [ "$GOT" = "$GO" ] || fail "a preserved rung cap must fall through to Go, got '$GOT'"
   case "$NOTE" in
-    *'Go is capped'*) : ;;
-    *) fail "fall-through must name the exhausted Go tier, said: ${NOTE:-<silent>}" ;;
+    *'Codex Plus is capped'*) : ;;
+    *) fail "fall-through must name the exhausted Plus tier, said: ${NOTE:-<silent>}" ;;
   esac
-  pass "a preserved rung cap falls through to Codex Plus with no per-task evidence left"
+  pass "a preserved rung cap falls through to Go with no per-task evidence left"
 }
 
-test_expired_rung_cap_climbs_back_to_go() {
+test_expired_rung_cap_climbs_back_to_plus() {
   local state out
   state=$(fresh_state rungexpired)
-  "$HELPER" record-cap "$state" go "$(ms_from_now -3600)" \
+  "$HELPER" record-cap "$state" plus "$(ms_from_now -3600)" \
     || fail "record-cap refused an old observation"
   out=$(run_gate "$state" '') || fail "gate must never refuse"
   split_gate "$out"
-  [ "$GOT" = "$GO" ] || fail "an expired rung cap must climb back to Go, got '$GOT'"
-  pass "an expired rung cap climbs back to Go on the vendor's own horizon"
+  [ "$GOT" = gpt-6-luna ] || fail "an expired rung cap must climb back to Codex Plus, got '$GOT'"
+  pass "an expired rung cap climbs back to Codex Plus on the vendor's own horizon"
 }
 
 test_plus_cap_skips_to_go_and_returns_after_reset() {
@@ -777,7 +780,7 @@ test_plus_cap_skips_to_go_and_returns_after_reset() {
   "$HELPER" record-cap "$state" plus "$(ms_from_now -1)" || fail "record refused expired Codex cap"
   out=$(run_gate "$state" '') || fail "an expired Codex cap must be ignored"
   split_gate "$out"
-  [ "$GOT" = "$GO" ] || fail "an expired Codex cap must leave dispatch on Go, got '$GOT'"
+  [ "$GOT" = gpt-6-luna ] || fail "an expired Codex cap must leave dispatch on Codex Plus, got '$GOT'"
 
   fixture="$TMP_ROOT/codex-zero.json"
   cat > "$fixture" <<'JSON'
@@ -802,7 +805,7 @@ test_fresh_quota_snapshot_retires_caps_but_stale_snapshot_does_not() {
 JSON
   out=$(QUOTA_AXI_SNAPSHOT="$fresh" run_gate "$state" '') || fail "a fresh quota snapshot must leave dispatch eligible"
   split_gate "$out"
-  [ "$GOT" = "$GO" ] || fail "fresh 100% Go quota must retire its future cap and dispatch on Go, got '$GOT'"
+  [ "$GOT" = gpt-6-luna ] || fail "fresh 100% quota must retire its future caps and dispatch on Codex Plus, got '$GOT'"
   [ ! -e "$state/.opencode-cap-plus" ] || fail "fresh Codex availability must retire the Plus cap"
   [ ! -e "$state/.opencode-cap-go" ] || fail "fresh main Go availability must retire the Go cap"
 
@@ -813,7 +816,7 @@ JSON
 JSON
   out=$(QUOTA_AXI_SNAPSHOT="$stale" run_gate "$state" '') || fail "a stale reading must leave dispatch eligible on Go"
   split_gate "$out"
-  [ "$GOT" = "$GO" ] || fail "a stale Codex reading must leave the recorded Plus cap in force while Go serves, got '$GOT'"
+  [ "$GOT" = "$GO" ] || fail "a stale Codex reading must leave the recorded Plus cap in force and route Go, got '$GOT'"
   [ -f "$state/.opencode-cap-plus" ] || fail "stale Codex availability must leave the Plus cap intact"
   pass "fresh quota availability retires rung caps while stale evidence preserves them"
 }
@@ -987,10 +990,13 @@ test_secondary_lane_evidence_feeds_fourth_rung() {
   record_cap "$state" seclane 78840 "$GO_BARE" || fail "record refused the secondary lane observation"
   out=$(FM_CONFIG_OVERRIDE="$cfg" run_gate "$state" '') || fail "gate must run the reactive split"
   split_gate "$out"
-  [ "$GOT" = "$GO" ] || fail "the gate must still route Go, got '$GOT'"
+  [ "$GOT" = "$GO" ] || fail "Plus-capped dispatch must route Go, got '$GOT'"
   [ -f "$state/.opencode-cap-go-second" ] || fail "secondary-lane evidence must preserve a fourth-rung cap"
   [ ! -f "$state/.opencode-cap-go" ] || fail "secondary-lane evidence must not mark the main Go rung capped"
-  case "$NOTE" in *'second workspace'*) fail "with main Go uncapped the route stays on the main rung: $NOTE" ;; esac
+  case "$NOTE" in
+    *'Codex Plus is capped'*) : ;;
+    *) fail "a Plus-capped route must name the Plus cap: ${NOTE:-<silent>}" ;;
+  esac
   pass "reactive evidence on a secondary lane feeds the fourth rung only"
 }
 
@@ -1086,7 +1092,7 @@ test_unconfigured_exhaustion_ignores_second_record() {
   rc=$?
   [ "$rc" = 3 ] || fail "three-rung exhaustion must return 3, returned $rc (got '$got')"
   case "$(cat "$note")" in *'second workspace'*) fail "unconfigured refusal must not mention the fourth rung: $(cat "$note")" ;; esac
-  case "$(cat "$note")" in *'Go capped until'*'Codex Plus capped until'*) : ;; *) fail "refusal must name both reset times: $(cat "$note")" ;; esac
+  case "$(cat "$note")" in *'Codex Plus capped until'*'Go capped until'*) : ;; *) fail "refusal must name both reset times: $(cat "$note")" ;; esac
   pass "without a second workspace the ladder refuses exactly as before"
 }
 
@@ -1376,9 +1382,9 @@ JSON
   out=$(QUOTA_AXI_SNAPSHOT="$fixture" run_gate "$state" '') \
     || fail "a retired Go cap must dispatch, said: $out"
   split_gate "$out"
-  [ "$GOT" = "$GO" ] || fail "a positive opencode-go row must retire the Go cap and dispatch Go, got '$GOT'"
+  [ "$GOT" = gpt-6-luna ] || fail "a positive opencode-go row must retire the Go cap and dispatch Codex Plus, got '$GOT'"
   [ ! -e "$state/.opencode-cap-go" ] || fail "a positive opencode-go row must retire the Go rung cap"
-  pass "a positive opencode-go row retires the Go cap"
+  pass "a positive opencode-go row retires the Go cap and dispatches Codex Plus"
 }
 
 # --- relaunch without an explicit model takes the shared gate ------------------
@@ -1485,22 +1491,22 @@ META
   pass "a relaunch without an explicit model follows the ladder gate"
 }
 
-test_regression_fresh_uncapped_default_uses_go_model
+test_regression_fresh_uncapped_default_uses_plus_model
 test_explicit_go_stays_go_when_healthy
-test_recorded_refusal_falls_through_to_codex
-test_go_exhaustion_routes_to_codex_plus
+test_recorded_plus_cap_falls_through_to_go
+test_go_cap_leaves_plus_dispatch_alone
 test_plus_cap_routes_to_go
 test_all_rungs_exhausted_refuses
-test_plugin_vocabulary_go_cap_falls_through_to_plus
+test_plugin_vocabulary_go_cap_with_plus_capped_routes_to_go
 test_bare_go_cap_leaves_explicit_plus_alone
-test_transient_retry_stays_go
-test_expired_cap_climbs_back_to_go
-test_plus_cap_does_not_move_go
+test_transient_retry_stays_plus
+test_expired_cap_climbs_back_to_plus
+test_explicit_go_stands_despite_go_cap
 test_explicit_go_stands_despite_plus_cap
 test_off_ladder_model_allowed_with_notice
-test_override_holds_go_past_cap
-test_unbound_cap_stays_go
-test_idle_healthy_lane_stays_go
+test_override_holds_plus_past_cap
+test_unbound_cap_dispatches_plus
+test_idle_healthy_lane_stays_plus
 test_spawn_falls_through_on_proven_cap
 test_spawn_uses_configured_codex_plus_effort
 test_codex_dispatch_branch_uses_configured_max_effort
@@ -1508,10 +1514,10 @@ test_spawn_uses_declared_fallback_when_default_ladder_is_exhausted
 test_spawn_refuses_exhausted_default_ladder_without_fallback
 test_explicit_dispatch_override_keeps_its_profile
 test_spawn_routes_to_go_when_plus_is_capped
-test_spawn_defaults_to_go
+test_spawn_defaults_to_plus
 test_default_resolver_codex_profile_still_enters_ladder_gate
-test_preserved_rung_cap_falls_through_to_plus
-test_expired_rung_cap_climbs_back_to_go
+test_preserved_plus_cap_falls_through_to_go
+test_expired_rung_cap_climbs_back_to_plus
 test_plus_cap_skips_to_go_and_returns_after_reset
 test_fresh_quota_snapshot_retires_caps_but_stale_snapshot_does_not
 test_go_capped_routes_to_second_workspace
