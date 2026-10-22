@@ -378,7 +378,7 @@ def set_props(uid, props, label):
         idempotency_key="axc-gen-" + label + "-" + str(time.time_ns()))
     if receipt.get("status") != "committed":
         raise RuntimeError("set_property did not commit: "
-                           + json.dumps(receipt, default=str)[:400])
+                           + json.dumps(receipt, default=str)[:2000])
     return receipt
 
 def snapshot_key(rows):
@@ -707,7 +707,7 @@ for case in CASES:
         teardown()
     except Exception as exc:
         row["status"] = "fail"
-        row["error"] = type(exc).__name__ + ": " + str(exc)[:400]
+        row["error"] = type(exc).__name__ + ": " + str(exc)[:2000]
         try:
             teardown()
         except Exception:
@@ -801,7 +801,7 @@ def ambiguous_probe() -> dict:
                                for resolved in control.resolved]}
     except Exception as exc:  # noqa: BLE001 - probe failure is evidence
         row["status"] = "fail"
-        row["error"] = type(exc).__name__ + ": " + str(exc)[:400]
+        row["error"] = type(exc).__name__ + ": " + str(exc)[:2000]
         row["checks"] = {}
     row["elapsed_seconds"] = perf_counter() - started
     return row

@@ -152,6 +152,18 @@ PRIMITIVES = (
               "commit",
               ("video_target_absent", "linked_audio_preserved",
                "other_items_untouched", "retiming_only_state")),
+    Primitive("delete_transform_only", "AXI-011",
+              "Delete a clip carrying only a manual transform",
+              "clip.delete", "edit_patch",
+              "edit_patch.apply_live_patch", "commit",
+              ("target_absent", "transform_only_state",
+               "other_items_untouched")),
+    Primitive("delete_linked_audio_twin", "AXI-011",
+              "Delete the audio half of a linked A/V clip, preserving picture",
+              "clip.delete", "edit_patch",
+              "edit_patch.apply_live_patch", "commit",
+              ("audio_target_absent", "linked_video_preserved",
+               "other_items_untouched")),
 
     # ── AXI-011 on a REALISTIC timeline (the captain's AXI-005) ──
     #
@@ -540,6 +552,35 @@ def _cases() -> dict:
                   "unique_id": "$qual_a.mp4@video"}],
                 ["timeline_structure"], "delete-retimed-only")],
             "targets": [{"name": "qual_a.mp4", "kind": "video"}],
+        },
+        "delete_transform_only": {
+            "operation": "clip.delete",
+            "setup": [_place(OWNED_VIDEO_A.name, 1, 0, source_out=95),
+                      _patch(
+                          [{"op": "clip.set_property",
+                            "unique_id": "$" + OWNED_VIDEO_A.name,
+                            "key": "Pan", "value": 40.0}],
+                          ["picture_transform"],
+                          "delete-transform-only-target")],
+            "commands": [_patch(
+                [{"op": "clip.delete",
+                  "unique_id": "$" + OWNED_VIDEO_A.name}],
+                ["timeline_structure"], "delete-transform-only")],
+            "targets": [{"name": OWNED_VIDEO_A.name, "kind": "video"}],
+        },
+        "delete_linked_audio_twin": {
+            "operation": "clip.delete",
+            "setup": [_place(OWNED_VIDEO_A.name, 1, 0, source_out=71,
+                             media="both"),
+                      _place(OWNED_VIDEO_B.name, 1, 96, source_out=47),
+                      _place(OWNED_VIDEO_C.name, 2, 0, source_out=47),
+                      _place(OWNED_OVERLAY_A.name, 3, 120,
+                             source_out=47)],
+            "commands": [_patch(
+                [{"op": "clip.delete",
+                  "unique_id": "$" + OWNED_VIDEO_A.name + "@audio"}],
+                ["timeline_structure"], "delete-linked-audio-twin")],
+            "targets": [{"name": OWNED_VIDEO_A.name, "kind": "audio"}],
         },
         # ── AXI-011 on a REALISTIC timeline (the captain's AXI-005) ──
         #
@@ -1479,8 +1520,9 @@ for name, case in CASES.items():
     targets = []
     for target in case.get("targets", []):
         if isinstance(target, dict):
-            matches = [row for row in by_name(after_setup, target["name"])
-                       if row.get("kind") == target["kind"]]
+            matches = [row for row in after_setup.get("items", [])
+                       if row.get("name") == target["name"]
+                       and row.get("kind") == target["kind"]]
         else:
             matches = by_name(after_setup, target)
         if len(matches) == 1:
@@ -1721,6 +1763,44 @@ def _judge_delete_retimed_only(case: dict) -> dict:
     checks["retiming_only_state"] = (
         measured.get("existing_effects") == "retiming")
     return checks
+
+
+def _judge_delete_transform_only(case: dict) -> dict:
+    """Prove local delete on a transform-only target, with read-back."""
+    before = case["after_setup"]
+    after = case["after"]
+    target = _rows_named(before, OWNED_VIDEO_A.name, "video")
+    state = (case.get("qualification_state") or {}).get("state") or {}
+    return {
+        "target_absent": len(target) == 1
+        and not _rows_named(after, OWNED_VIDEO_A.name, "video"),
+        "transform_only_state": state.get("existing_effects") == "transforms",
+        "other_items_untouched": _other_rows_unchanged(
+            before, after, skip=(("video", OWNED_VIDEO_A.name, 1),)),
+    }
+
+
+def _judge_delete_linked_audio_twin(case: dict) -> dict:
+    """Prove an explicit audio-target delete leaves its linked picture."""
+    before = case["after_setup"]
+    after = case["after"]
+    target_name = OWNED_VIDEO_A.name
+    audio_before = _rows_named(before, target_name, "audio")
+    video_before = _rows_named(before, target_name, "video")
+    video_after = _rows_named(after, target_name, "video")
+    unrelated_before = [row for row in before.get("items", [])
+                        if row.get("name") != target_name]
+    unrelated_after = [row for row in after.get("items", [])
+                       if row.get("name") != target_name]
+    return {
+        "audio_target_absent": len(audio_before) == 1
+        and not _rows_named(after, target_name, "audio"),
+        "linked_video_preserved": len(video_before) == len(video_after) == 1
+        and _signature(video_before[0]) == _signature(video_after[0]),
+        "other_items_untouched": sorted(map(_signature, unrelated_before),
+                                         key=repr)
+        == sorted(map(_signature, unrelated_after), key=repr),
+    }
 
 
 # ── The delete and the ripple on a REALISTIC timeline ──────────────────
@@ -2278,6 +2358,8 @@ JUDGES = {
     "remove_leaves_gap": _judge_remove_leaves_gap,
     "delete_linked_effects": _judge_delete_linked_effects,
     "delete_retimed_only": _judge_delete_retimed_only,
+    "delete_transform_only": _judge_delete_transform_only,
+    "delete_linked_audio_twin": _judge_delete_linked_audio_twin,
     "delete_linked_av_moderate": _judge_delete_linked_av_moderate,
     "delete_retimed_moderate": lambda case: _judge_delete_target_only(
         case, OWNED_VIDEO_A.name, OWNED_VIDEO_B.name),

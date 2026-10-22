@@ -1,5 +1,119 @@
 {
   "compound_records": {},
+  "imported": [
+    {
+      "backend": "resolve_axi",
+      "operation_id": "broll.insert",
+      "resolve_version": "21.1.0.14",
+      "source_commit": "4abb1694feeed83f0a6781760e0a70fea20b0c40",
+      "source_report": "tests/live/reports/registry/broll.insert__resolve_axi.json"
+    },
+    {
+      "backend": "resolve_axi",
+      "operation_id": "caption.style",
+      "resolve_version": "21.1.0.14",
+      "source_commit": "e044751d26334d939a56ca94e5a869752c924cb5",
+      "source_report": "tests/live/reports/registry/caption.style__resolve_axi.json"
+    },
+    {
+      "backend": "edit_patch",
+      "operation_id": "clip.delete",
+      "resolve_version": "21.1.0.14",
+      "source_commit": "8b7189c883337ed78d384030e3ab5c4be812d9fe",
+      "source_report": "clip.delete__edit_patch__axi-primitive.json"
+    },
+    {
+      "backend": "resolve_axi",
+      "operation_id": "clip.delete",
+      "resolve_version": "21.1.0.14",
+      "source_commit": "00ebeb85e342c06045f2c60e408d92abe0cf1821",
+      "source_report": "tests/live/reports/registry/clip.delete__resolve_axi.json"
+    },
+    {
+      "backend": "resolve_axi",
+      "operation_id": "clip.insert",
+      "resolve_version": "21.1.0.14",
+      "source_commit": "4abb1694feeed83f0a6781760e0a70fea20b0c40",
+      "source_report": "tests/live/reports/registry/clip.insert__resolve_axi.json"
+    },
+    {
+      "backend": "resolve_axi",
+      "operation_id": "clip.remove",
+      "resolve_version": "21.1.0.14",
+      "source_commit": "e044751d26334d939a56ca94e5a869752c924cb5",
+      "source_report": "tests/live/reports/registry/clip.remove__resolve_axi.json"
+    },
+    {
+      "backend": "edit_patch",
+      "operation_id": "clip.replace",
+      "resolve_version": "21.1.0.14",
+      "source_commit": "c7bdf4f39ce00c877ab7ef7539dc9a77744e5439",
+      "source_report": "clip.replace__edit_patch.json"
+    },
+    {
+      "backend": "edit_patch",
+      "operation_id": "clip.set_property",
+      "resolve_version": "21.1.0.14",
+      "source_commit": "eb526c4f0ea491f6a0164d8bf6341dc08eb4cfe6",
+      "source_report": "tests/live/reports/registry/clip.set_property__edit_patch.json"
+    },
+    {
+      "backend": "edit_patch",
+      "operation_id": "marker.add",
+      "resolve_version": "not_recorded",
+      "source_commit": "83bb5c1c383f73e64d548485cd7aa56b75297b92",
+      "source_report": "tests/live/reports/registry/marker.add__edit_patch.json"
+    },
+    {
+      "backend": "edit_patch",
+      "operation_id": "mask.create",
+      "resolve_version": "21.1.0.14",
+      "source_commit": "00ebeb85e342c06045f2c60e408d92abe0cf1821",
+      "source_report": "tests/live/reports/registry/mask.create__edit_patch.json"
+    },
+    {
+      "backend": "reel_touchup",
+      "operation_id": "overlay.add",
+      "resolve_version": "21.1.0.14",
+      "source_commit": "not_recorded",
+      "source_report": "overlay.add__reel_touchup__axi-overlay.json"
+    },
+    {
+      "backend": "reel_touchup",
+      "operation_id": "overlay.position",
+      "resolve_version": "21.1.0.14",
+      "source_commit": "not_recorded",
+      "source_report": "overlay.position__reel_touchup__axi-overlay.json"
+    },
+    {
+      "backend": "reel_touchup",
+      "operation_id": "overlay.resize",
+      "resolve_version": "21.1.0.14",
+      "source_commit": "not_recorded",
+      "source_report": "overlay.resize__reel_touchup__axi-overlay.json"
+    },
+    {
+      "backend": "resolve_axi",
+      "operation_id": "reel.opening",
+      "resolve_version": "21.1.0.14",
+      "source_commit": "55bb7c519baba276e0f6f079171a52abbc84a153",
+      "source_report": "tests/live/reports/registry/reel.opening__resolve_axi.json"
+    },
+    {
+      "backend": "edit_patch",
+      "operation_id": "retime.segments",
+      "resolve_version": "21.1.0.14",
+      "source_commit": "00ebeb85e342c06045f2c60e408d92abe0cf1821",
+      "source_report": "tests/live/reports/registry/retime.segments__edit_patch.json"
+    },
+    {
+      "backend": "edit_patch",
+      "operation_id": "track.add",
+      "resolve_version": "21.1.0.14",
+      "source_commit": "e044751d26334d939a56ca94e5a869752c924cb5",
+      "source_report": "tests/live/reports/registry/track.add__edit_patch.json"
+    }
+  ],
   "provenance": {
     "environment": {
       "machine": "arm64",
@@ -10,15 +124,15 @@
     "evidence_kind": "live-qualification",
     "fixture": "one qualification fixture per row, named by the row",
     "producer": "library/tools/axi_qualification.py:import_result",
-    "resolve_version": "21.1.0.14",
-    "run_timestamp": "not_recorded",
+    "resolve_version": "not_recorded",
+    "run_timestamp": "2026-10-22T15:30:37Z",
     "scope": {
       "evaluation_level": 1,
       "fixture": "one qualification fixture per row, named by the row",
       "measurement": "axi_qualification_registry",
       "task_set": "one row per operation/backend pair"
     },
-    "source_commit": "8b7189c883337ed78d384030e3ab5c4be812d9fe"
+    "source_commit": "638975da65f85e2ce21fea95944ffe6a4dd590c7"
   },
   "records": {
     "broll.insert::resolve_axi": {
@@ -569,17 +683,16 @@
     "clip.delete::edit_patch": {
       "actual_state": {
         "checks": {
-          "adjacent_source_ranges_unchanged": true,
-          "fusion_comp_gone_with_target": true,
-          "gap_left": true,
           "linked_audio_preserved": true,
-          "other_rows_unchanged": true,
+          "other_items_untouched": true,
+          "retiming_only_state": true,
           "target_absent": true,
+          "transform_only_state": true,
           "video_target_absent": true
         },
         "measurement": {
           "clip_composition": "linked_video_clip",
-          "existing_effects": "none",
+          "existing_effects": "retiming",
           "frame_rate": "24",
           "linked_audio_configuration": "linked_audio_present",
           "media_type": "video",
@@ -588,13 +701,11 @@
           "timeline_density": "moderate",
           "timeline_structure": "multi_item_timeline",
           "track_layout": "video+audio",
-          "track_occupancy": "all_populated"
+          "track_occupancy": "mixed"
         },
         "scenarios": [
-          "delete_linked_av_moderate",
-          "delete_retimed_moderate",
-          "delete_still_card",
-          "delete_fusion_bearing"
+          "delete_retimed_only",
+          "delete_transform_only"
         ]
       },
       "audio_verification": [
@@ -606,15 +717,16 @@
         ],
         "dimensions": {
           "clip_composition": [
-            "single_video_clip",
             "linked_video_clip",
+            "single_video_clip",
             "still_clip"
           ],
           "existing_effects": [
+            "retiming",
+            "transforms",
             "none",
             "transforms+retiming+fusion",
             "transforms+retiming",
-            "retiming",
             "retiming+fusion"
           ],
           "frame_rate": [
@@ -622,8 +734,8 @@
             "23.976"
           ],
           "linked_audio_configuration": [
-            "no_linked_audio",
-            "linked_audio_present"
+            "linked_audio_present",
+            "no_linked_audio"
           ],
           "media_type": [
             "video",
@@ -637,17 +749,17 @@
             "21.1.0.14"
           ],
           "timeline_density": [
-            "light",
             "moderate",
+            "light",
             "dense"
           ],
           "timeline_structure": [
-            "single_item_timeline",
-            "multi_item_timeline"
+            "multi_item_timeline",
+            "single_item_timeline"
           ],
           "track_layout": [
-            "video",
-            "video+audio"
+            "video+audio",
+            "video"
           ],
           "track_occupancy": [
             "mixed",
@@ -661,14 +773,13 @@
         "platform": "darwin",
         "resolve_version": "21.1.0.14"
       },
-      "evidence": "tests/live/reports/axi-primitive-qualification.json#delete_linked_av_moderate,delete_retimed_moderate,delete_still_card,delete_fusion_bearing; the coverage this row already held: tests/live/reports/axi-primitive-qualification.json#delete_linked_av_moderate,delete_retimed_moderate,delete_still_card; the coverage this row already held: clip-delete-evidence.json#payload; direct EditPatch clip.delete committed; seeded qual_b.mp4 absent on re-read; no other items or tracks changed; tests/live/reports/predicate-widening-016.json#W1+W2+W3; direct EditPatch clip.delete committed on linked video, still, and multi-item cover; target absent, others unchanged; the coverage this row already held: tests/live/reports/product-format-qualification/product-format-evidence.json#delete_linked_target,delete_transformed_target; earlier evidence: tests/live/reports/product-format-qualification/product-format-evidence.json#delete_linked_target,delete_transformed_target; earlier evidence: clip-delete-evidence.json#payload; direct EditPatch clip.delete committed; seeded qual_b.mp4 absent on re-read; no other items or tracks changed; tests/live/reports/predicate-widening-016.json#W1+W2+W3; direct EditPatch clip.delete committed on linked video, still, and multi-item cover; target absent, others unchanged; tests/live/reports/axi-primitive-qualification.json#delete_linked_effects; tests/live/reports/registry/clip.delete__edit_patch__retiming-only-axi-primitive.json",
+      "evidence": "tests/live/reports/axi-primitive-qualification.json#delete_retimed_only,delete_transform_only; the coverage this row already held: tests/live/reports/axi-primitive-qualification.json#delete_linked_av_moderate,delete_retimed_moderate,delete_still_card,delete_fusion_bearing; the coverage this row already held: tests/live/reports/axi-primitive-qualification.json#delete_linked_av_moderate,delete_retimed_moderate,delete_still_card; the coverage this row already held: clip-delete-evidence.json#payload; direct EditPatch clip.delete committed; seeded qual_b.mp4 absent on re-read; no other items or tracks changed; tests/live/reports/predicate-widening-016.json#W1+W2+W3; direct EditPatch clip.delete committed on linked video, still, and multi-item cover; target absent, others unchanged; the coverage this row already held: tests/live/reports/product-format-qualification/product-format-evidence.json#delete_linked_target,delete_transformed_target; earlier evidence: tests/live/reports/product-format-qualification/product-format-evidence.json#delete_linked_target,delete_transformed_target; earlier evidence: clip-delete-evidence.json#payload; direct EditPatch clip.delete committed; seeded qual_b.mp4 absent on re-read; no other items or tracks changed; tests/live/reports/predicate-widening-016.json#W1+W2+W3; direct EditPatch clip.delete committed on linked video, still, and multi-item cover; target absent, others unchanged; tests/live/reports/axi-primitive-qualification.json#delete_linked_effects; tests/live/reports/registry/clip.delete__edit_patch__retiming-only-axi-primitive.json",
       "expected_state": {
-        "adjacent_source_ranges_unchanged": true,
-        "fusion_comp_gone_with_target": true,
-        "gap_left": true,
         "linked_audio_preserved": true,
-        "other_rows_unchanged": true,
+        "other_items_untouched": true,
+        "retiming_only_state": true,
         "target_absent": true,
+        "transform_only_state": true,
         "video_target_absent": true
       },
       "media_types": [
@@ -684,15 +795,11 @@
           "result": "passed"
         },
         {
-          "check": "gap_left",
+          "check": "other_items_untouched",
           "result": "passed"
         },
         {
-          "check": "adjacent_source_ranges_unchanged",
-          "result": "passed"
-        },
-        {
-          "check": "other_rows_unchanged",
+          "check": "retiming_only_state",
           "result": "passed"
         },
         {
@@ -700,12 +807,12 @@
           "result": "passed"
         },
         {
-          "check": "fusion_comp_gone_with_target",
+          "check": "transform_only_state",
           "result": "passed"
         }
       ],
       "preservation_limits": [
-        "one private scratch timeline; the checks are the ones the scenarios name: adjacent_source_ranges_unchanged, fusion_comp_gone_with_target, gap_left, linked_audio_preserved, other_rows_unchanged, target_absent, video_target_absent"
+        "one private scratch timeline; the checks are the ones the scenarios name: linked_audio_preserved, other_items_untouched, retiming_only_state, target_absent, transform_only_state, video_target_absent"
       ],
       "qualification_predicates": [
         {
@@ -725,8 +832,8 @@
           "field": "clip_composition",
           "operator": "one_of",
           "value": [
-            "single_video_clip",
             "linked_video_clip",
+            "single_video_clip",
             "still_clip"
           ]
         },
@@ -734,16 +841,16 @@
           "field": "linked_audio_configuration",
           "operator": "one_of",
           "value": [
-            "no_linked_audio",
-            "linked_audio_present"
+            "linked_audio_present",
+            "no_linked_audio"
           ]
         },
         {
           "field": "track_layout",
           "operator": "one_of",
           "value": [
-            "video",
-            "video+audio"
+            "video+audio",
+            "video"
           ]
         },
         {
@@ -758,8 +865,8 @@
           "field": "timeline_density",
           "operator": "one_of",
           "value": [
-            "light",
             "moderate",
+            "light",
             "dense"
           ]
         },
@@ -767,8 +874,8 @@
           "field": "timeline_structure",
           "operator": "one_of",
           "value": [
-            "single_item_timeline",
-            "multi_item_timeline"
+            "multi_item_timeline",
+            "single_item_timeline"
           ]
         },
         {
@@ -791,10 +898,11 @@
           "field": "existing_effects",
           "operator": "one_of",
           "value": [
+            "retiming",
+            "transforms",
             "none",
             "transforms+retiming+fusion",
             "transforms+retiming",
-            "retiming",
             "retiming+fusion"
           ]
         }
@@ -3655,11 +3763,10 @@
       ]
     }
   },
-  "schema": "ren-axi-qualification-registry/v1",
   "retained_historical_evidence": [
     {
-      "operation_backend": "clip.delete::resolve_axi",
       "disposition": "retained_as_historical_evidence_not_routing_qualification",
+      "operation_backend": "clip.delete::resolve_axi",
       "reason": "missing required qualification fields: environment, semantic_boundary, coverage; identity predicates are not qualification dimensions: project_name, timeline_name",
       "record": {
         "actual_state": {
@@ -3774,8 +3881,8 @@
       }
     },
     {
-      "operation_backend": "mask.create::edit_patch",
       "disposition": "retained_as_historical_evidence_not_routing_qualification",
+      "operation_backend": "mask.create::edit_patch",
       "reason": "missing required qualification fields: environment, semantic_boundary, coverage; identity predicates are not qualification dimensions: project_name, timeline_name; media_type='video + audio' is outside the dimension vocabulary",
       "record": {
         "actual_state": {
@@ -3871,8 +3978,8 @@
       }
     },
     {
-      "operation_backend": "retime.segments::edit_patch",
       "disposition": "retained_as_historical_evidence_not_routing_qualification",
+      "operation_backend": "retime.segments::edit_patch",
       "reason": "missing required qualification fields: environment, semantic_boundary, coverage; identity predicates are not qualification dimensions: project_name, timeline_name; media_type='video + audio' is outside the dimension vocabulary",
       "record": {
         "actual_state": {
@@ -3968,118 +4075,5 @@
       }
     }
   ],
-  "imported": [
-    {
-      "backend": "resolve_axi",
-      "operation_id": "broll.insert",
-      "resolve_version": "21.1.0.14",
-      "source_commit": "4abb1694feeed83f0a6781760e0a70fea20b0c40",
-      "source_report": "tests/live/reports/registry/broll.insert__resolve_axi.json"
-    },
-    {
-      "backend": "resolve_axi",
-      "operation_id": "caption.style",
-      "resolve_version": "21.1.0.14",
-      "source_commit": "e044751d26334d939a56ca94e5a869752c924cb5",
-      "source_report": "tests/live/reports/registry/caption.style__resolve_axi.json"
-    },
-    {
-      "backend": "edit_patch",
-      "operation_id": "clip.delete",
-      "resolve_version": "21.1.0.14",
-      "source_commit": "4abb1694feeed83f0a6781760e0a70fea20b0c40",
-      "source_report": "tests/live/reports/registry/clip.delete__edit_patch.json"
-    },
-    {
-      "backend": "resolve_axi",
-      "operation_id": "clip.delete",
-      "resolve_version": "21.1.0.14",
-      "source_commit": "00ebeb85e342c06045f2c60e408d92abe0cf1821",
-      "source_report": "tests/live/reports/registry/clip.delete__resolve_axi.json"
-    },
-    {
-      "backend": "resolve_axi",
-      "operation_id": "clip.insert",
-      "resolve_version": "21.1.0.14",
-      "source_commit": "4abb1694feeed83f0a6781760e0a70fea20b0c40",
-      "source_report": "tests/live/reports/registry/clip.insert__resolve_axi.json"
-    },
-    {
-      "backend": "resolve_axi",
-      "operation_id": "clip.remove",
-      "resolve_version": "21.1.0.14",
-      "source_commit": "e044751d26334d939a56ca94e5a869752c924cb5",
-      "source_report": "tests/live/reports/registry/clip.remove__resolve_axi.json"
-    },
-    {
-      "backend": "edit_patch",
-      "operation_id": "clip.replace",
-      "resolve_version": "21.1.0.14",
-      "source_commit": "c7bdf4f39ce00c877ab7ef7539dc9a77744e5439",
-      "source_report": "clip.replace__edit_patch.json"
-    },
-    {
-      "backend": "edit_patch",
-      "operation_id": "clip.set_property",
-      "resolve_version": "21.1.0.14",
-      "source_commit": "eb526c4f0ea491f6a0164d8bf6341dc08eb4cfe6",
-      "source_report": "tests/live/reports/registry/clip.set_property__edit_patch.json"
-    },
-    {
-      "backend": "edit_patch",
-      "operation_id": "marker.add",
-      "resolve_version": "not_recorded",
-      "source_commit": "83bb5c1c383f73e64d548485cd7aa56b75297b92",
-      "source_report": "tests/live/reports/registry/marker.add__edit_patch.json"
-    },
-    {
-      "backend": "edit_patch",
-      "operation_id": "mask.create",
-      "resolve_version": "21.1.0.14",
-      "source_commit": "00ebeb85e342c06045f2c60e408d92abe0cf1821",
-      "source_report": "tests/live/reports/registry/mask.create__edit_patch.json"
-    },
-    {
-      "backend": "reel_touchup",
-      "operation_id": "overlay.add",
-      "resolve_version": "21.1.0.14",
-      "source_commit": "not_recorded",
-      "source_report": "overlay.add__reel_touchup__axi-overlay.json"
-    },
-    {
-      "backend": "reel_touchup",
-      "operation_id": "overlay.position",
-      "resolve_version": "21.1.0.14",
-      "source_commit": "not_recorded",
-      "source_report": "overlay.position__reel_touchup__axi-overlay.json"
-    },
-    {
-      "backend": "reel_touchup",
-      "operation_id": "overlay.resize",
-      "resolve_version": "21.1.0.14",
-      "source_commit": "not_recorded",
-      "source_report": "overlay.resize__reel_touchup__axi-overlay.json"
-    },
-    {
-      "backend": "resolve_axi",
-      "operation_id": "reel.opening",
-      "resolve_version": "21.1.0.14",
-      "source_commit": "55bb7c519baba276e0f6f079171a52abbc84a153",
-      "source_report": "tests/live/reports/registry/reel.opening__resolve_axi.json"
-    },
-    {
-      "backend": "edit_patch",
-      "operation_id": "retime.segments",
-      "resolve_version": "21.1.0.14",
-      "source_commit": "00ebeb85e342c06045f2c60e408d92abe0cf1821",
-      "source_report": "tests/live/reports/registry/retime.segments__edit_patch.json"
-    },
-    {
-      "backend": "edit_patch",
-      "operation_id": "track.add",
-      "resolve_version": "21.1.0.14",
-      "source_commit": "e044751d26334d939a56ca94e5a869752c924cb5",
-      "source_report": "tests/live/reports/registry/track.add__edit_patch.json"
-    }
-  ]
+  "schema": "ren-axi-qualification-registry/v1"
 }

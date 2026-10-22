@@ -1,10 +1,10 @@
 {
   "schema": "ren-generalization-result/2",
   "evaluation_level": 1,
-  "matrix": "Users/prajwal/.treehouse/video-editing-pilot-9487f5/28/video-editing-pilot/tests/live/fixtures/generalization_matrix.json",
+  "matrix": "tests/live/fixtures/generalization_matrix.json",
   "case_count": 20,
-  "passed": 7,
-  "failed": 13,
+  "passed": 12,
+  "failed": 8,
   "invariants": [
     "same_semantic_target",
     "exact_source_and_record_intervals",
@@ -52,7 +52,7 @@
     "cleanup_inventory": "teardown validates known item names but does not inventory every disposable resource"
   },
   "timeline_recovered": false,
-  "elapsed_seconds": 965.5308229923248,
+  "elapsed_seconds": 44.51032291701995,
   "results": [
     {
       "case_id": "G01",
@@ -66,8 +66,8 @@
       },
       "fingerprint": "2065dc16a6670278",
       "status": "fail",
-      "error": "RuntimeError: move refused: error: move refused before writing because its source delete is not authorized (ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  what: no production-qualified executor is available for: clip.delete\n  why: no production-qualified executor is available for: clip.delete; production routing ",
-      "elapsed_seconds": 5.550855208988651,
+      "error": "RuntimeError: move refused: error: move refused before writing because its source delete is not authorized (ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  blocker: unsupported_operation - the engine has no proven way to do this\n  what: no production-qualified executor is available for: clip.delete\n  why: no production-qualified executor is available for: clip.delete; production routing fails closed (clip.delete: runtime state does not satisfy recorded qualification predicates: existing_effects is 'transforms', not one of ['none', 'transforms+retiming+fusion', 'transforms+retiming', 'retiming', 'retiming+fusion']; existing_effects is 'transforms', not 'none')\n  fix: Qualify the operation on a live Resolve timeline and import the evidence, or route it under the protected experimental policy with explicit staging, preservation and verification guarantees.\n  next action: use_a_supported_operation).\nhelp: resolve-axi items --timeline \"fm-scratch qualify\"\n",
+      "elapsed_seconds": 1.037753500015242,
       "evaluation_level": 1
     },
     {
@@ -90,7 +90,7 @@
         "output_pixel_geometry": true
       },
       "status": "pass",
-      "elapsed_seconds": 8.998701500007883,
+      "elapsed_seconds": 2.20514958401327,
       "evaluation_level": 1
     },
     {
@@ -105,8 +105,8 @@
       },
       "fingerprint": "7f77a4179adbe930",
       "status": "fail",
-      "error": "RuntimeError: trim refused: error: trim refused before writing because its source delete is not authorized (ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  what: no production-qualified executor is available for: clip.delete\n  why: no production-qualified executor is available for: clip.delete; production routing ",
-      "elapsed_seconds": 5.045754000006127,
+      "error": "RuntimeError: trim refused: error: trim refused before writing because its source delete is not authorized (ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  blocker: unsupported_operation - the engine has no proven way to do this\n  what: no production-qualified executor is available for: clip.delete\n  why: no production-qualified executor is available for: clip.delete; production routing fails closed (clip.delete: runtime state does not satisfy recorded qualification predicates: existing_effects is 'transforms', not one of ['none', 'transforms+retiming+fusion', 'transforms+retiming', 'retiming', 'retiming+fusion']; timeline_density is 'moderate', not 'light'; existing_effects is 'transforms', not 'none')\n  fix: Qualify the operation on a live Resolve timeline and import the evidence, or route it under the protected experimental policy with explicit staging, preservation and verification guarantees.\n  next action: use_a_supported_operation).\nhelp: resolve-axi items --timeline \"fm-scratch qualify\"\n",
+      "elapsed_seconds": 1.5392934999836143,
       "evaluation_level": 1
     },
     {
@@ -121,8 +121,8 @@
       },
       "fingerprint": "14786fdac2641d8f",
       "status": "fail",
-      "error": "RuntimeError: reorder step refused: error: move refused before writing because its source delete is not authorized (ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  what: no production-qualified executor is available for: clip.delete\n  why: no production-qualified executor is available for: clip.delete; production ",
-      "elapsed_seconds": 9.567181583988713,
+      "error": "RuntimeError: reorder step refused: error: move refused before writing because its source delete is not authorized (ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  blocker: unsupported_operation - the engine has no proven way to do this\n  what: no production-qualified executor is available for: clip.delete\n  why: no production-qualified executor is available for: clip.delete; production routing fails closed (clip.delete: runtime state does not satisfy recorded qualification predicates: existing_effects is 'transforms', not one of ['none', 'transforms+retiming+fusion', 'transforms+retiming', 'retiming', 'retiming+fusion']; timeline_density is 'moderate', not 'light'; existing_effects is 'transforms', not 'none')\n  fix: Qualify the operation on a live Resolve timeline and import the evidence, or route it under the protected experimental policy with explicit staging, preservation and verification guarantees.\n  next action: use_a_supported_operation).\nhelp: resolve-axi items --timeline \"fm-scratch qualify\"\n",
+      "elapsed_seconds": 1.710456750006415,
       "evaluation_level": 1
     },
     {
@@ -136,9 +136,21 @@
         "approved_edit_history": "none"
       },
       "fingerprint": "340dec687e862a2b",
-      "status": "fail",
-      "error": "RuntimeError: reorder step refused: error: move refused before writing because its source delete is not authorized (ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  what: no production-qualified executor is available for: clip.delete\n  why: no production-qualified executor is available for: clip.delete; production ",
-      "elapsed_seconds": 5.4677030830061994,
+      "checks": {
+        "stale_positional_guard_refused": true,
+        "no_wrong_clip_edit": true
+      },
+      "status": "pass",
+      "refusal_evidence": "error: unrecognized arguments: --expected-record-in-frame 0 --expected-record-out-frame 96\nhelp: resolve-axi --help lists the valid flags\n",
+      "observed": {
+        "stale_record": [
+          0,
+          96
+        ],
+        "reorder_end": 384,
+        "reidentified": true
+      },
+      "elapsed_seconds": 2.315693624987034,
       "evaluation_level": 1
     },
     {
@@ -166,7 +178,7 @@
         "reorder_end": 216,
         "reidentified": true
       },
-      "elapsed_seconds": 5.9048849170067115,
+      "elapsed_seconds": 1.0299317080061883,
       "evaluation_level": 1
     },
     {
@@ -180,9 +192,15 @@
         "approved_edit_history": "manual_transform"
       },
       "fingerprint": "e421f42a379370c4",
-      "status": "fail",
-      "error": "RuntimeError: delete refused: error: EditPatch refused or failed the delete (ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  what: no production-qualified executor is available for: clip.delete\n  why: no production-qualified executor is available for: clip.delete; production routing fails closed (clip.delete: runt",
-      "elapsed_seconds": 3.6119079580093967,
+      "checks": {
+        "same_semantic_target": true,
+        "exact_intervals": true,
+        "approved_edits_preserved": true,
+        "no_unrelated_changes": true,
+        "output_pixel_geometry": true
+      },
+      "status": "pass",
+      "elapsed_seconds": 0.9844058330054395,
       "evaluation_level": 1
     },
     {
@@ -196,9 +214,20 @@
         "approved_edit_history": "none"
       },
       "fingerprint": "78005aefef4f190d",
-      "status": "fail",
-      "error": "RuntimeError: move refused: error: move refused before writing because its source delete is not authorized (ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  what: no production-qualified executor is available for: clip.delete\n  why: no production-qualified executor is available for: clip.delete; production routing ",
-      "elapsed_seconds": 1.7603257080045296,
+      "checks": {
+        "same_semantic_target": true,
+        "exact_intervals": true,
+        "approved_edits_preserved": true,
+        "no_unrelated_changes": true,
+        "output_pixel_geometry": true
+      },
+      "observed": {
+        "moved_from_uid": "370cc36a-172a-41c5-94d4-2509c5085cf0",
+        "landed_uid": "5a718b58-7fdd-4d95-bc49-d460f98f0095",
+        "reidentified": true
+      },
+      "status": "pass",
+      "elapsed_seconds": 2.2664605420141015,
       "evaluation_level": 1
     },
     {
@@ -220,7 +249,7 @@
         "output_pixel_geometry": true
       },
       "status": "pass",
-      "elapsed_seconds": 2.656976124999346,
+      "elapsed_seconds": 1.8112229999969713,
       "evaluation_level": 1
     },
     {
@@ -234,9 +263,15 @@
         "approved_edit_history": "none"
       },
       "fingerprint": "1e9dbe629d167b9f",
-      "status": "fail",
-      "error": "RuntimeError: delete refused: error: EditPatch refused or failed the delete (ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  what: no production-qualified executor is available for: clip.delete\n  why: no production-qualified executor is available for: clip.delete; production routing fails closed (clip.delete: runt",
-      "elapsed_seconds": 2.726351416000398,
+      "checks": {
+        "same_semantic_target": true,
+        "exact_intervals": true,
+        "approved_edits_preserved": true,
+        "no_unrelated_changes": true,
+        "output_pixel_geometry": true
+      },
+      "status": "pass",
+      "elapsed_seconds": 1.4442605419899337,
       "evaluation_level": 1
     },
     {
@@ -251,8 +286,8 @@
       },
       "fingerprint": "bd7573c0390df851",
       "status": "fail",
-      "error": "RuntimeError: reorder step refused: error: move refused before writing because its source delete is not authorized (ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  what: no production-qualified executor is available for: clip.delete\n  why: no production-qualified executor is available for: clip.delete; production ",
-      "elapsed_seconds": 3.0600931660010247,
+      "error": "RuntimeError: reorder step refused: error: move refused before writing because its source delete is not authorized (ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  blocker: unsupported_operation - the engine has no proven way to do this\n  what: no production-qualified executor is available for: clip.delete\n  why: no production-qualified executor is available for: clip.delete; production routing fails closed (clip.delete: runtime state does not satisfy recorded qualification predicates: existing_effects is 'transforms', not one of ['none', 'transforms+retiming+fusion', 'transforms+retiming', 'retiming', 'retiming+fusion']; existing_effects is 'transforms', not 'none')\n  fix: Qualify the operation on a live Resolve timeline and import the evidence, or route it under the protected experimental policy with explicit staging, preservation and verification guarantees.\n  next action: use_a_supported_operation).\nhelp: resolve-axi items --timeline \"fm-scratch qualify\"\n",
+      "elapsed_seconds": 1.1714119169919286,
       "evaluation_level": 1
     },
     {
@@ -274,7 +309,7 @@
         "output_pixel_geometry": true
       },
       "status": "pass",
-      "elapsed_seconds": 3.9665502499992726,
+      "elapsed_seconds": 2.1811149579880293,
       "evaluation_level": 1
     },
     {
@@ -289,8 +324,8 @@
       },
       "fingerprint": "f518c9f6775add8d",
       "status": "fail",
-      "error": "RuntimeError: reorder step refused: error: move refused before writing because its source delete is not authorized (ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  what: no production-qualified executor is available for: clip.delete\n  why: no production-qualified executor is available for: clip.delete; production ",
-      "elapsed_seconds": 1.1816424999997253,
+      "error": "RuntimeError: reorder step refused: error: move refused before writing because its source delete is not authorized (ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  blocker: unsupported_operation - the engine has no proven way to do this\n  what: no production-qualified executor is available for: clip.delete\n  why: no production-qualified executor is available for: clip.delete; production routing fails closed (clip.delete: runtime state does not satisfy recorded qualification predicates: existing_effects is 'transforms', not one of ['none', 'transforms+retiming+fusion', 'transforms+retiming', 'retiming', 'retiming+fusion']; existing_effects is 'transforms', not 'none')\n  fix: Qualify the operation on a live Resolve timeline and import the evidence, or route it under the protected experimental policy with explicit staging, preservation and verification guarantees.\n  next action: use_a_supported_operation).\nhelp: resolve-axi items --timeline \"fm-scratch qualify\"\n",
+      "elapsed_seconds": 0.6469707500073127,
       "evaluation_level": 1
     },
     {
@@ -305,8 +340,8 @@
       },
       "fingerprint": "d02325be30a43c94",
       "status": "fail",
-      "error": "RuntimeError: reorder step refused: error: move refused before writing because its source delete is not authorized (ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  what: no production-qualified executor is available for: clip.delete\n  why: no production-qualified executor is available for: clip.delete; production ",
-      "elapsed_seconds": 2.4157114590052515,
+      "error": "RuntimeError: reorder step refused: error: move refused before writing because its source delete is not authorized (ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  blocker: unsupported_operation - the engine has no proven way to do this\n  what: no production-qualified executor is available for: clip.delete\n  why: no production-qualified executor is available for: clip.delete; production routing fails closed (clip.delete: runtime state does not satisfy recorded qualification predicates: existing_effects is 'transforms', not one of ['none', 'transforms+retiming+fusion', 'transforms+retiming', 'retiming', 'retiming+fusion']; timeline_density is 'moderate', not 'light'; existing_effects is 'transforms', not 'none')\n  fix: Qualify the operation on a live Resolve timeline and import the evidence, or route it under the protected experimental policy with explicit staging, preservation and verification guarantees.\n  next action: use_a_supported_operation).\nhelp: resolve-axi items --timeline \"fm-scratch qualify\"\n",
+      "elapsed_seconds": 1.6581436670094263,
       "evaluation_level": 1
     },
     {
@@ -321,8 +356,8 @@
       },
       "fingerprint": "cc165049462912f1",
       "status": "fail",
-      "error": "RuntimeError: reorder step refused: error: move refused before writing because its source delete is not authorized (ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  what: no production-qualified executor is available for: clip.delete\n  why: no production-qualified executor is available for: clip.delete; production ",
-      "elapsed_seconds": 2.179415874998085,
+      "error": "RuntimeError: reorder step refused: error: move refused before writing because its source delete is not authorized (ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  blocker: unsupported_operation - the engine has no proven way to do this\n  what: no production-qualified executor is available for: clip.delete\n  why: no production-qualified executor is available for: clip.delete; production routing fails closed (clip.delete: runtime state does not satisfy recorded qualification predicates: existing_effects is 'transforms', not one of ['none', 'transforms+retiming+fusion', 'transforms+retiming', 'retiming', 'retiming+fusion']; timeline_density is 'moderate', not 'light'; existing_effects is 'transforms', not 'none')\n  fix: Qualify the operation on a live Resolve timeline and import the evidence, or route it under the protected experimental policy with explicit staging, preservation and verification guarantees.\n  next action: use_a_supported_operation).\nhelp: resolve-axi items --timeline \"fm-scratch qualify\"\n",
+      "elapsed_seconds": 1.8581334589980543,
       "evaluation_level": 1
     },
     {
@@ -337,8 +372,8 @@
       },
       "fingerprint": "5a150e5392bdffd0",
       "status": "fail",
-      "error": "RuntimeError: reorder step refused: error: move refused before writing because its source delete is not authorized (ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  what: no production-qualified executor is available for: clip.delete\n  why: no production-qualified executor is available for: clip.delete; production ",
-      "elapsed_seconds": 1.058071834006114,
+      "error": "RuntimeError: reorder step refused: error: move refused before writing because its source delete is not authorized (ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  blocker: unsupported_operation - the engine has no proven way to do this\n  what: no production-qualified executor is available for: clip.delete\n  why: no production-qualified executor is available for: clip.delete; production routing fails closed (clip.delete: runtime state does not satisfy recorded qualification predicates: existing_effects is 'transforms', not one of ['none', 'transforms+retiming+fusion', 'transforms+retiming', 'retiming', 'retiming+fusion']; existing_effects is 'transforms', not 'none')\n  fix: Qualify the operation on a live Resolve timeline and import the evidence, or route it under the protected experimental policy with explicit staging, preservation and verification guarantees.\n  next action: use_a_supported_operation).\nhelp: resolve-axi items --timeline \"fm-scratch qualify\"\n",
+      "elapsed_seconds": 0.7280842079780996,
       "evaluation_level": 1
     },
     {
@@ -361,7 +396,7 @@
         "output_pixel_geometry": true
       },
       "status": "pass",
-      "elapsed_seconds": 2.2074935830023605,
+      "elapsed_seconds": 1.3503862090001348,
       "evaluation_level": 1
     },
     {
@@ -375,9 +410,22 @@
         "approved_edit_history": "none"
       },
       "fingerprint": "f25a51d1aa0db76c",
-      "status": "fail",
-      "error": "RuntimeError: trim refused: error: trim refused before writing because its source delete is not authorized (ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  what: no production-qualified executor is available for: clip.delete\n  why: no production-qualified executor is available for: clip.delete; production routing ",
-      "elapsed_seconds": 2.595922334003262,
+      "observed": {
+        "reidentified": true,
+        "landed_pan": 0.0,
+        "held_pan": 0.0,
+        "history_uid": null
+      },
+      "checks": {
+        "same_semantic_target": true,
+        "exact_intervals": true,
+        "trim_narrowed": true,
+        "approved_edits_preserved": true,
+        "no_unrelated_changes": true,
+        "output_pixel_geometry": true
+      },
+      "status": "pass",
+      "elapsed_seconds": 3.293605499988189,
       "evaluation_level": 1
     },
     {
@@ -406,7 +454,7 @@
         "output_pixel_geometry": true
       },
       "status": "pass",
-      "elapsed_seconds": 2.969080666996888,
+      "elapsed_seconds": 1.870835999987321,
       "evaluation_level": 1
     },
     {
@@ -434,10 +482,8 @@
           "assumed"
         ]
       },
-      "elapsed_seconds": 0.05544891700264998,
+      "elapsed_seconds": 0.02646820800146088,
       "evaluation_level": 1
     }
-  ],
-  "session_id": "6e84ba22e7b51a65",
-  "execution_mode": "single_exclusive_qualification_session"
+  ]
 }

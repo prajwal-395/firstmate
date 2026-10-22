@@ -4,6 +4,8 @@
       "linked_audio_preserved": true,
       "other_items_untouched": true,
       "retiming_only_state": true,
+      "target_absent": true,
+      "transform_only_state": true,
       "video_target_absent": true
     },
     "measurement": {
@@ -20,7 +22,8 @@
       "track_occupancy": "mixed"
     },
     "scenarios": [
-      "delete_retimed_only"
+      "delete_retimed_only",
+      "delete_transform_only"
     ]
   },
   "audio_verification": [
@@ -33,51 +36,69 @@
     ],
     "dimensions": {
       "clip_composition": [
-        "linked_video_clip"
+        "linked_video_clip",
+        "single_video_clip",
+        "still_clip"
       ],
       "existing_effects": [
-        "retiming"
+        "retiming",
+        "transforms",
+        "none",
+        "transforms+retiming+fusion",
+        "transforms+retiming",
+        "retiming+fusion"
       ],
       "frame_rate": [
-        "24"
+        "24",
+        "23.976"
       ],
       "linked_audio_configuration": [
-        "linked_audio_present"
+        "linked_audio_present",
+        "no_linked_audio"
       ],
       "media_type": [
-        "video"
+        "video",
+        "still"
       ],
       "project_settings": [
-        "landscape_1920x1080"
+        "landscape_1920x1080",
+        "portrait_1080x1920"
       ],
       "resolve_version": [
         "21.1.0.14"
       ],
       "timeline_density": [
-        "moderate"
+        "moderate",
+        "light",
+        "dense"
       ],
       "timeline_structure": [
-        "multi_item_timeline"
+        "multi_item_timeline",
+        "single_item_timeline"
       ],
       "track_layout": [
-        "video+audio"
+        "video+audio",
+        "video"
       ],
       "track_occupancy": [
-        "mixed"
+        "mixed",
+        "all_populated"
       ]
     },
-    "source": "measured",
+    "source": "derived_from_v1_evidence",
     "uncovered": {}
   },
   "environment": {
     "platform": "darwin",
     "resolve_version": "21.1.0.14"
   },
-  "evidence": "tests/live/reports/axi-primitive-qualification.json#delete_retimed_only",
+  "evidence": "tests/live/reports/axi-primitive-qualification.json#delete_retimed_only,delete_transform_only; the coverage this row already held: tests/live/reports/axi-primitive-qualification.json#delete_retimed_only,delete_transform_only; the coverage this row already held: tests/live/reports/axi-primitive-qualification.json#delete_linked_av_moderate,delete_retimed_moderate,delete_still_card,delete_fusion_bearing; the coverage this row already held: tests/live/reports/axi-primitive-qualification.json#delete_linked_av_moderate,delete_retimed_moderate,delete_still_card; the coverage this row already held: clip-delete-evidence.json#payload; direct EditPatch clip.delete committed; seeded qual_b.mp4 absent on re-read; no other items or tracks changed; tests/live/reports/predicate-widening-016.json#W1+W2+W3; direct EditPatch clip.delete committed on linked video, still, and multi-item cover; target absent, others unchanged; the coverage this row already held: tests/live/reports/product-format-qualification/product-format-evidence.json#delete_linked_target,delete_transformed_target; earlier evidence: tests/live/reports/product-format-qualification/product-format-evidence.json#delete_linked_target,delete_transformed_target; earlier evidence: clip-delete-evidence.json#payload; direct EditPatch clip.delete committed; seeded qual_b.mp4 absent on re-read; no other items or tracks changed; tests/live/reports/predicate-widening-016.json#W1+W2+W3; direct EditPatch clip.delete committed on linked video, still, and multi-item cover; target absent, others unchanged; tests/live/reports/axi-primitive-qualification.json#delete_linked_effects; tests/live/reports/registry/clip.delete__edit_patch__retiming-only-axi-primitive.json",
   "expected_state": {
     "linked_audio_preserved": true,
     "other_items_untouched": true,
     "retiming_only_state": true,
+    "target_absent": true,
+    "transform_only_state": true,
     "video_target_absent": true
   },
   "operation_id": "clip.delete",
@@ -97,22 +118,25 @@
     {
       "check": "retiming_only_state",
       "result": "passed"
+    },
+    {
+      "check": "target_absent",
+      "result": "passed"
+    },
+    {
+      "check": "transform_only_state",
+      "result": "passed"
     }
   ],
   "preservation_limits": [
-    "one private scratch timeline; the checks are the ones the scenarios name: linked_audio_preserved, other_items_untouched, retiming_only_state, video_target_absent"
+    "one private scratch timeline; the checks are the ones the scenarios name: linked_audio_preserved, other_items_untouched, retiming_only_state, target_absent, transform_only_state, video_target_absent"
   ],
   "project_conditions": [
-    "Ren Qualification / fm-axi-qual-delete-retimed-only-20261021T0610Z",
+    "Ren Qualification / fm-scratch qualify",
     "private target timeline only",
     "production entry: edit_patch.apply_live_patch"
   ],
   "qualification_predicates": [
-    {
-      "field": "linked_audio_configuration",
-      "operator": "equals",
-      "value": "linked_audio_present"
-    },
     {
       "field": "resolve_version",
       "operator": "equals",
@@ -120,48 +144,89 @@
     },
     {
       "field": "media_type",
-      "operator": "equals",
-      "value": "video"
-    },
-    {
-      "field": "frame_rate",
-      "operator": "equals",
-      "value": "24"
-    },
-    {
-      "field": "track_layout",
-      "operator": "equals",
-      "value": "video+audio"
-    },
-    {
-      "field": "project_settings",
-      "operator": "equals",
-      "value": "landscape_1920x1080"
-    },
-    {
-      "field": "timeline_density",
-      "operator": "equals",
-      "value": "moderate"
+      "operator": "one_of",
+      "value": [
+        "video",
+        "still"
+      ]
     },
     {
       "field": "clip_composition",
-      "operator": "equals",
-      "value": "linked_video_clip"
+      "operator": "one_of",
+      "value": [
+        "linked_video_clip",
+        "single_video_clip",
+        "still_clip"
+      ]
     },
     {
-      "field": "existing_effects",
-      "operator": "equals",
-      "value": "retiming"
+      "field": "linked_audio_configuration",
+      "operator": "one_of",
+      "value": [
+        "linked_audio_present",
+        "no_linked_audio"
+      ]
+    },
+    {
+      "field": "track_layout",
+      "operator": "one_of",
+      "value": [
+        "video+audio",
+        "video"
+      ]
     },
     {
       "field": "track_occupancy",
-      "operator": "equals",
-      "value": "mixed"
+      "operator": "one_of",
+      "value": [
+        "mixed",
+        "all_populated"
+      ]
+    },
+    {
+      "field": "timeline_density",
+      "operator": "one_of",
+      "value": [
+        "moderate",
+        "light",
+        "dense"
+      ]
     },
     {
       "field": "timeline_structure",
-      "operator": "equals",
-      "value": "multi_item_timeline"
+      "operator": "one_of",
+      "value": [
+        "multi_item_timeline",
+        "single_item_timeline"
+      ]
+    },
+    {
+      "field": "project_settings",
+      "operator": "one_of",
+      "value": [
+        "landscape_1920x1080",
+        "portrait_1080x1920"
+      ]
+    },
+    {
+      "field": "frame_rate",
+      "operator": "one_of",
+      "value": [
+        "24",
+        "23.976"
+      ]
+    },
+    {
+      "field": "existing_effects",
+      "operator": "one_of",
+      "value": [
+        "retiming",
+        "transforms",
+        "none",
+        "transforms+retiming+fusion",
+        "transforms+retiming",
+        "retiming+fusion"
+      ]
     }
   ],
   "recovery_status": "not_required",
