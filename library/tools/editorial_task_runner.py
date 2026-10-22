@@ -362,6 +362,10 @@ def run(graph: EditorialTaskGraph, *,
         started = time.monotonic()
         try:
             context = _prepare_context(graph, results, satisfied)
+            # The Ren project folder that owns the journal. An executor
+            # that journals its write needs it, and the runner is the
+            # one that knows it.
+            context["project_folder"] = project_folder
             if lease is not None:
                 with lease():
                     outcome = write_fn(task, context)

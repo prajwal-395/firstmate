@@ -20,17 +20,17 @@ a task carries:
 
 The proof runs in two halves, and the split is the point:
 
-- the WORKER half runs INSIDE the broker: it places the clips and
-  reads the timeline back, because only the broker's worker holds a
-  Resolve connection. It touches the lane's own code.
-- the DRIVER half runs in the lane's worktree: it builds the graph,
-  runs it, and measures. The preparations run HERE - in a client that
-  holds no lease - and the writes go to the broker through the AXI,
-  which owns the mutation and the lease.
+- the DRIVER runs in the lane's worktree: it creates the scratch
+  project, runs the graph, and measures. The preparations run HERE - in
+  a client that holds no lease - and the writes go to the broker
+  through the AXI, which owns the mutation and the lease.
+- the broker's worker places the clips and reads the timeline back,
+  because only the worker holds a Resolve connection.
 
 Nothing here touches a captain's project, timeline or media: the
-project is a Ren-owned scratch project, and the media are copies in
-``/tmp``.
+project is a Ren-owned scratch project, and the media are copies of the
+shared qualification pool's, in ``/tmp``. The proof never starts a
+broker.
 """
 
 from __future__ import annotations
@@ -66,14 +66,13 @@ def _root() -> Path:
 #: carries the lane's checkout so the proof uses the lane's code.
 CONFIG_PATH = Path("/tmp/fm-p008-config.json")
 
-#: The Ren project that owns the journal for the scratch Resolve
-#: project, and the scratch Resolve project's name.
-REN_SLUG = "fm-p008-scratch-c"
-#: The Resolve project the REN project records. The scratch project
-#: the proof writes on is named per attempt (a fresh three-clip
-#: timeline each time, so the qualification state the AXI measures is
-#: the state it was qualified for).
-REN_RESOLVE_NAME = "Ren Scratch - fm-p008c"
+#: The shared qualification pool. Its media are COPIED, never edited in
+#: place: a replacement writes to the pool item it re-points.
+SOURCE_FIXTURE = "Q Spine"
+
+#: The machine's qualification fixture project: Ren-owned, and the
+#: project the machine is currently open on.
+QUALIFICATION_PROJECT = "Ren Qualification"
 
 #: The front door that owns the protected staging guarantee. ``clip.trim``
 #: has an executor and no production qualification, so the AXI routes it
@@ -81,139 +80,137 @@ REN_RESOLVE_NAME = "Ren Scratch - fm-p008c"
 #: granted here (``library/tools/edit_qualification_policy.py``).
 ORIGINATOR = {"kind": "agent", "name": "ren revise"}
 
-#: The shared qualification pool. Its media are COPIED, never edited in
-#: place: a replacement writes to the pool item it re-points.
-POOL_DIR = Path.home() / ".local" / "share" / "vep" / "qualification" / \
-    "622307e41719"
-OWNED_MEDIA = {
-    "fm-p008-a.mp4": POOL_DIR / "qual_a.mp4",
-    "fm-p008-b.mp4": POOL_DIR / "qual_b.mp4",
-    "fm-p008-c.mp4": POOL_DIR / "qual_c.mp4",
-}
-
 REPORT_MARKER = "P008_REPORT "
+
+
+# ── the broker round trips ───────────────────────────────────────────
+
+
+def _submit_and_wait(argv: list[str], *, deadline: int = 1800) -> dict:
+    """Submit one AXI job to the serving broker and wait for it.
+
+    The machine's broker is shared: it may be restarted under this
+    lane, and a job queued behind another lane's work can wait a long
+    time. The proof waits for its turn rather than adding to the pile -
+    and it never asks for a quiet window it does not get.
+    """
+    from library.tools.resolved import client
+
+    last: Exception | None = None
+    for attempt in range(1, 4):
+        try:
+            if not client.serving():
+                # The broker is not serving. This lane NEVER starts one
+                # - a broker started from a worktree would serve
+                # production calls on unmerged code.
+                raise RuntimeError(
+                    "the serving broker is not answering; this lane "
+                    "never starts one")
+            job = client.submit(
+                "resolve_axi",
+                {"argv": argv, "cwd": "/tmp", "caller": "p008-live-proof"},
+                owner="p008-live-proof")
+            done = client.result(job["id"], wait=5.0, until_done=True,
+                                 deadline=deadline)
+            if done.get("state") in ("done", "rejected"):
+                return done
+            last = RuntimeError(
+                f"the broker left the job {done.get('state')!r}")
+        except Exception as error:  # noqa: BLE001 - the retry is the answer
+            last = error
+            print(f"step: broker call {attempt} failed: {error}", flush=True)
+            time.sleep(15)
+    raise RuntimeError(f"the broker did not answer: {last}")
+
+
+def _queued_mutations() -> int:
+    """How many mutating jobs are waiting for the one Resolve."""
+    from library.tools.resolved import client
+
+    try:
+        reply = client.call({"op": "list", "limit": 200}, timeout=10.0)
+    except Exception:  # noqa: BLE001 - an unreadable queue is not a blocker
+        return 0
+    jobs = reply.get("jobs") or []
+    return len([job for job in jobs
+                if job.get("state") == "queued"
+                and str(job.get("mode") or "") == "exclusive"
+                and "p008" not in str(job.get("owner") or "")])
+
+
+def _wait_for_the_queue(max_seconds: int = 900) -> int:
+    """Wait for the machine's queue to drain a little."""
+    deadline = time.monotonic() + max(0, max_seconds)
+    waited = 0
+    while time.monotonic() < deadline:
+        if _queued_mutations() <= 2:
+            return waited
+        time.sleep(20)
+        waited += 20
+    return waited
 
 
 # ── the worker half: inside the broker, where Resolve lives ──────────
 
 
-def _install_lane_code(repo: str) -> list[str]:
-    """Put the LANE's modules in front of the worker's own.
+def _copy_fixture(name: str) -> dict:
+    """Copy a qualification fixture under this lane's own name.
 
-    The broker's worker runs the PRIMARY checkout's code, and those
-    modules are already imported - so putting the lane's checkout first
-    on ``sys.path`` is not enough. Replacing the modules in
-    ``sys.modules`` (and on their package) makes the proof exercise the
-    lane's code, which is the code under test.
+    The machine's current Resolve project is the Ren-owned qualification
+    fixture project, and it may not be switched away from (Resolve will
+    not save it). So the proof works the way the qualification lanes
+    work: it takes a COPY of an idle qualification fixture under a name
+    of its own, and it writes only on that copy. The source fixture is
+    read only, and no captain's project, timeline or media is read or
+    written.
     """
-    import importlib.util
-
-    import library.tools
-
-    installed = []
-    for name in ("editorial_task_graph", "editorial_task_runner"):
-        path = Path(repo) / "library" / "tools" / f"{name}.py"
-        spec = importlib.util.spec_from_file_location(
-            f"library.tools.{name}", path)
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[f"library.tools.{name}"] = module
-        setattr(library.tools, name, module)
-        spec.loader.exec_module(module)
-        installed.append(name)
-    return installed
+    done = _submit_and_wait([
+        "timeline", "duplicate", "--project", QUALIFICATION_PROJECT,
+        "--timeline", SOURCE_FIXTURE, "--name", name, "--apply"])
+    result = done.get("result") or {}
+    return {"exit_code": result.get("exit_code"),
+            "stdout": (result.get("stdout") or "")[-1200:]}
 
 
-def _call(resolve_axi, argv):
-    """Call one AXI verb in-process, and capture what it said."""
-    import contextlib
-    import io
+def _ren_project(slug: str, resolve_project: str) -> str:
+    """The Ren project that owns the journal for the scratch project.
 
-    out, err = io.StringIO(), io.StringIO()
-    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-        try:
-            code = resolve_axi.main(list(argv))
-        except SystemExit as exc:
-            code = exc.code if isinstance(exc.code, int) else 1
-    return {"argv": list(argv), "exit_code": int(code or 0),
-            "stdout": out.getvalue()[-2000:], "stderr": err.getvalue()[-2000:]}
-
-
-def _clip_count(project: str, timeline: str) -> int:
-    """How many clips the scratch timeline already holds."""
-    from library.tools import resolve_axi_core
-
-    try:
-        live = resolve_axi_core.read_live_timeline(project, timeline)
-    except Exception:  # noqa: BLE001 - an unread timeline places from zero
-        return 0
-    return len([clip for track in live.get("tracks") or ()
-                for clip in track.get("clips") or ()])
-
-
-def _setup(project: str, timeline: str) -> dict:
-    """Place the three clips the proof needs, through the AXI's verbs.
-
-    The media are the lane's own copies in ``/tmp``; the shared
-    qualification pool is never touched. A retry places the next three
-    clips after the ones already there, so every attempt works on
-    clips nobody has trimmed.
+    The Ren project CLAIMS the Resolve project, so the AXI's write path
+    finds the journal it records its receipt in.
     """
-    from library.tools import resolve_axi
+    from library.tools import project_registry
 
-    names = sorted(OWNED_MEDIA)
-    media = [str(Path("/tmp") / name) for name in names]
-    out: dict = {"ingest": _call(
-        resolve_axi, ["ingest", "--project", project, *media,
-                      "--apply"])}
-    existing = _clip_count(project, timeline)
-    out["existing_clips"] = existing
-    for index, name in enumerate(names):
-        out[f"place_{name}"] = _call(resolve_axi, [
-            "edit", "place", "--project", project, "--timeline",
-            timeline, "--clip", name, "--media", "video", "--track", "1",
-            "--record", str((existing + index) * 48), "--source-in", "0",
-            "--source-out", "47", "--apply"])
-    return out
+    folder = project_registry.project_folder_for_resolve_name(resolve_project)
+    if folder:
+        return folder
+    subprocess.run(
+        [str(_root() / "bin" / "ren"), "new", slug, "--name",
+         "PLAN-008 scratch", "--resolve-name", resolve_project],
+        cwd=str(_root()), check=True, capture_output=True, encoding="utf-8")
+    folder = project_registry.project_folder_for_resolve_name(resolve_project)
+    if not folder:
+        raise RuntimeError("the Ren project was not created")
+    return folder
 
 
-def _read_live_clips(project: str, timeline: str) -> list[dict]:
-    """The clips the scratch timeline holds now, live."""
-    from library.tools import resolve_axi_core
+def _recorded_clips(project: str, timeline: str) -> list[dict]:
+    """The clips the recorded generations hold for this timeline."""
+    from library.tools import timeline_shadow
 
-    live = resolve_axi_core.read_live_timeline(project, timeline)
-    clips = [clip for track in live.get("tracks") or ()
-             for clip in track.get("clips") or ()
-             if str(clip.get("unique_id") or "")]
-    clips.sort(key=lambda clip: int(clip.get("record_in") or 0))
-    return [{"unique_id": clip["unique_id"],
-             "record_in": clip.get("record_in"),
-             "record_out": clip.get("record_out")}
-            for clip in clips]
-
-
-def worker_proof(resolve=None) -> dict:
-    """The worker half: set the timeline up, or read it back.
-
-    `resolve` is the broker worker's own scripting client, so the proof
-    never opens a second one.
-    """
-    config = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-    repo = str(config["repo"])
-    if repo not in sys.path:
-        sys.path.insert(0, repo)
-    report: dict = {"installed_modules": _install_lane_code(repo),
-                    "mode": str(config.get("mode") or "setup")}
-    project = str(config.get("project") or "")
-    timeline = str(config.get("timeline") or "")
-    if report["mode"] == "readback":
-        report["clips"] = _read_live_clips(project, timeline)
-        return report
-    report["setup"] = _setup(project, timeline)
-    report["clips"] = _read_live_clips(project, timeline)
-    return report
-
-
-# ── the driver half: in the lane's worktree ─────────────────────────
+    store = timeline_shadow.ShadowStore()
+    for generation, snapshot in store.current_snapshots(project):
+        if generation.timeline_name != timeline:
+            continue
+        clips = [clip for track in snapshot.get("tracks") or ()
+                 for clip in track.get("clips") or ()
+                 if str(clip.get("unique_id") or "")
+                 and str(clip.get("track_type") or "video").lower()
+                 == "video"]
+        clips.sort(key=lambda clip: int(clip.get("record_in") or 0))
+        return [{"unique_id": clip["unique_id"],
+                 "record_in": clip.get("record_in"),
+                 "record_out": clip.get("record_out")} for clip in clips]
+    return []
 
 
 def _build_graph(clips, project, timeline, graph_id):
@@ -283,174 +280,50 @@ def _lease_held() -> bool:
     """Whether THIS process holds the Resolve lease right now."""
     from library.tools import resolve_lock
 
-    return bool(resolve_lock.active_holder())
+    return bool(resolve_lock.held())
 
 
 def _axi_write():
     """One write task, through the AXI and the serving broker.
 
-    The request is the graph's own, and its id is STABLE, so a repeat
-    of the same write is answered with the prior outcome instead of
-    being written twice. The AXI routes the request, the broker's
-    worker performs it under the Resolve lease, and the client - where
-    the preparations ran - never holds the lease.
+    The request is the graph's own, and its id is stable for the task
+    AND its content, so a repeat of the same write is answered with the
+    prior outcome instead of being written twice. The AXI routes the
+    request, the broker's worker performs it under the Resolve lease,
+    and the client - where the preparations ran - never holds the lease.
     """
     from library.tools import resolve_axi_core
     from library.tools.editorial_task_runner import build_request
 
     def write(task, context):
-        request = build_request(
-            context["graph"], task, request_id=f"{context['graph_id']}-"
-                                                f"{task.id}")
+        request = build_request(context["graph"], task)
         receipt = resolve_axi_core.submit_edit_request(request,
                                                         authorized=True)
         stage = str((receipt.get("lifecycle") or {}).get("stage") or "")
         return {"task": task.id, "request_id": request.id,
-                "receipt": receipt,
-                "stage": stage,
+                "receipt": receipt, "stage": stage,
                 "job_timing": receipt.get("job_timing") or {},
                 "verified": stage in ("VERIFIED", "COMMITTED", "PROMOTED",
                                       "DELIVERED")}
     return write
 
 
-def _run_graph(graph, folder, prepare, write, **kwargs):
-    """Run the graph in this process, and measure it."""
-    from library.tools.editorial_task_runner import run as run_graph
-
-    return run_graph(graph, project_folder=folder, prepare=prepare,
-                     write=write, **kwargs)
-
-
-def _own_media() -> list[str]:
-    """Copy the pool media out of the shared pool. The pool is read-only."""
-    names = []
-    for name, source in OWNED_MEDIA.items():
-        target = Path("/tmp") / name
-        if not target.exists():
-            shutil.copyfile(source, target)
-        names.append(str(target))
-    return names
-
-
-def _ren_project(resolve_project: str) -> str:
-    """The Ren project that owns the journal for the scratch project.
-
-    ONE Ren project serves every attempt: the journal is per project,
-    and the graph id is unique per attempt, so the attempts do not read
-    each other's checkpoints.
-    """
-    from library.tools import project_registry
-
-    folder = project_registry.project_folder_for_resolve_name(
-        REN_RESOLVE_NAME)
-    if folder:
-        return folder
-    subprocess.run(
-        [str(_root() / "bin" / "ren"), "new", REN_SLUG, "--name",
-         "PLAN-008 scratch", "--resolve-name", REN_RESOLVE_NAME],
-        cwd=str(_root()), check=True, capture_output=True, encoding="utf-8")
-    folder = project_registry.project_folder_for_resolve_name(
-        REN_RESOLVE_NAME)
-    if not folder:
-        raise RuntimeError("the Ren project was not created")
-    return folder
-
-
-def _queued_mutations() -> int:
-    """How many mutating jobs are waiting for the one Resolve."""
-    from library.tools.resolved import client
-
-    try:
-        reply = client.call({"op": "list", "limit": 200}, timeout=10.0)
-    except Exception:  # noqa: BLE001 - an unreadable queue is not a blocker
-        return 0
-    jobs = reply.get("jobs") or []
-    return len([job for job in jobs
-                if job.get("state") == "queued"
-                and str(job.get("mode") or "") == "exclusive"
-                and "p008" not in str(job.get("owner") or "")])
-
-
-def _wait_for_the_queue(max_seconds: int = 900) -> int:
-    """Wait for the machine's queue to drain a little.
-
-    The broker serves ONE Resolve. The proof's jobs are mutations, so
-    they queue behind whatever else the machine is doing. This waits
-    for a turn rather than adding to the pile - and it never asks for
-    a quiet window it does not get: the wait is bounded and the proof
-    proceeds when it ends.
-    """
-    deadline = time.monotonic() + max(0, max_seconds)
-    waited = 0
-    while time.monotonic() < deadline:
-        queued = _queued_mutations()
-        if queued <= 1:
-            return waited
-        time.sleep(20)
-        waited += 20
-    return waited
-
-
-def _submit_and_wait(argv: list[str], *, deadline: int = 1800) -> dict:
-    """Submit one AXI job to the serving broker and wait for it.
-
-    The machine's broker is shared: it may be restarted under this
-    lane, and a job queued behind another lane's work can be answered
-    by a socket that closed. The proof RETRIES that, because the
-    measurement is the graph's behaviour, not the broker's uptime.
-    """
-    from library.tools.resolved import client
-
-    last: Exception | None = None
-    for attempt in range(1, 7):
-        try:
-            if not client.serving():
-                # The broker is not serving. This lane NEVER starts one
-                # - a broker started from a worktree would serve
-                # production calls on unmerged code.
-                raise RuntimeError(
-                    "the serving broker is not answering; this lane "
-                    "never starts one")
-            job = client.submit(
-                "resolve_axi",
-                {"argv": argv, "cwd": "/tmp", "caller": "p008-live-proof"},
-                owner="p008-live-proof")
-            return client.result(job["id"], wait=5.0, until_done=True,
-                                 deadline=deadline)
-        except Exception as error:  # noqa: BLE001 - the retry is the answer
-            last = error
-            print(f"step: broker call {attempt} failed: {error}", flush=True)
-            time.sleep(10)
-    raise RuntimeError(f"the broker did not answer: {last}")
-
-
-def _worker_call(mode: str, proof: str, folder: str, project: str,
-                 timeline: str) -> dict:
-    """Run one worker half through the serving broker."""
-    from library.tools.resolved import client
-
-    CONFIG_PATH.write_text(json.dumps({
-        "repo": str(_root()), "project": project,
-        "timeline": timeline, "folder": folder, "mode": mode}),
-        encoding="utf-8")
-    argv = ["run", "--project", project, "--file", proof, "--unsafe",
-            "--json", "--acknowledge-copy-grades", "--purpose",
-            f"PLAN-008 live proof: {mode}", "--scope", "project",
-            "--project-dir", folder]
-    done = _submit_and_wait(argv)
-    return _extract(done)
-
-
-def _open_scratch(project: str) -> None:
-    """Make sure the Ren-owned scratch project is the one that is open."""
-    opening = _submit_and_wait(
-        ["project", "scratch", "open", project, "--apply"])
-    stdout = str((opening.get("result") or {}).get("stdout") or "")
-    if "is not in the current folder" in stdout:
-        _submit_and_wait(["project", "scratch", "create", project,
-                           "--fps", "24", "--apply"])
-        _submit_and_wait(["project", "scratch", "open", project, "--apply"])
+def _receipt_of(result) -> dict:
+    """The part of a write's result a reader needs: what it said."""
+    if not isinstance(result, dict):
+        return {"result": str(result)}
+    receipt = result.get("receipt")
+    if not isinstance(receipt, dict):
+        return {"stage": result.get("stage"),
+                "verified": result.get("verified"),
+                "reason": str(result.get("failure_reason") or "")[:400]}
+    return {"stage": (receipt.get("lifecycle") or {}).get("stage"),
+            "status": receipt.get("status"),
+            "backend": receipt.get("backend"),
+            "verified": result.get("verified"),
+            "job_timing": result.get("job_timing") or {},
+            "error": str(receipt.get("error") or "")[:400],
+            "recovery": receipt.get("recovery")}
 
 
 def main() -> int:
@@ -465,37 +338,37 @@ def main() -> int:
               "starts one")
         return 2
     attempt = uuid.uuid4().hex[:8]
-    resolve_project = f"Ren Scratch - fm-p008-{attempt}"
-    timeline = f"{resolve_project} - Empty"
+    # The machine's current Resolve project is the Ren-owned qualification
+    # fixture project; it may not be switched away from, so the proof
+    # works inside it, on a timeline of its own.
+    resolve_project = QUALIFICATION_PROJECT
+    timeline = f"fm-scratch p008 {attempt}"
     graph_id = f"fm-p008-{attempt}"
-    folder = _ren_project(resolve_project)
-    _own_media()
-    proof = str(Path(__file__).resolve())
+    folder = _ren_project("fm-p008-qual", resolve_project)
+
     waited = _wait_for_the_queue()
     print(f"step: queue -> waited {waited}s", flush=True)
-    _open_scratch(resolve_project)
-    setup: dict = {}
-    for attempt in range(1, 7):
-        # Another lane's session may hold the current project, and the
-        # machine's own watcher moves it. The scratch project is opened
-        # again before each attempt, and the attempt is retried.
-        _open_scratch(resolve_project)
-        setup = _worker_call("setup", proof, folder, resolve_project,
-                             timeline)
-        if setup.get("clips"):
+
+    setup = _copy_fixture(timeline)
+    print(f"step: fixture copy -> {setup.get('exit_code')}", flush=True)
+
+    clips: list[dict] = []
+    for _ in range(120):
+        clips = _recorded_clips(resolve_project, timeline)
+        if len(clips) >= 3:
             break
-        print(f"step: setup attempt {attempt} did not read the "
-              f"scratch project; retrying", flush=True)
-        time.sleep(20)
-    if not setup.get("clips"):
-        print(json.dumps(setup, indent=2, default=str))
+        # The placement is recorded when the machine's watcher files the
+        # generation; the client reads the recording a moment later.
+        time.sleep(5)
+    if len(clips) < 3:
+        print(json.dumps({"setup": setup, "clips": clips}, indent=2,
+                         default=str))
         return 1
-    print("step: setup ->", len(setup["clips"]), "clips", flush=True)
+    print(f"step: recorded -> {len(clips)} clips", flush=True)
 
     report: dict = {"project": resolve_project, "timeline": timeline,
                     "graph_id": graph_id, "folder": folder, "phases": {}}
-    report["setup"] = {"clips": setup.get("clips")}
-    clips = setup["clips"][-3:]
+    report["setup"] = {"setup": setup, "clips": clips}
     graph = _build_graph(clips, resolve_project, timeline, graph_id)
     report["plan"] = graph.plan().as_dict()
     clip_ids = {f"prep-{index}": (clip["unique_id"],)
@@ -523,6 +396,8 @@ def main() -> int:
 
     # ── the AFTER: the graph. The preparations run at the same time;
     # the writes run one at a time, each through the broker.
+    from library.tools.editorial_task_runner import run as run_graph
+
     broken = {"calls": 0}
 
     def interrupted_write(task, context):
@@ -533,48 +408,52 @@ def main() -> int:
                                "first verified write")
         return _axi_write()(task, context)
 
-    first = _run_graph(graph, folder, prepare, interrupted_write,
-                       resume=True)
-    print("step: interrupted run ->", first.status, flush=True)
+    first = run_graph(graph, project_folder=folder, prepare=prepare,
+                      write=interrupted_write, resume=True)
+    print(f"step: interrupted run -> {first.status}", flush=True)
     report["phases"]["interrupted_run"] = {
         "status": first.status, "verified": list(first.verified),
         "prepared": list(first.prepared),
         "concurrency": dict(first.concurrency),
         "failure_reason": first.failure_reason,
         "timings": dict(first.timings),
+        "results": {task: _receipt_of(result)
+                    for task, result in (first.results or {}).items()},
     }
 
     # ── the FRAGILE CHAIN's answer to the same interruption: repeat
-    # the first write. The AXI refuses it - the target has moved on -
-    # which is what the resume replaces.
+    # the first write. The AXI answers with the prior outcome, or
+    # refuses - which is what the resume replaces.
     try:
         repeat = _axi_write()(graph.tasks["trim-0"], {
             "graph": graph, "graph_id": graph_id,
-            "project": resolve_project, "timeline": timeline})
+            "project": resolve_project, "timeline": timeline,
+            "project_folder": folder})
         repeat_outcome = {"verified": repeat.get("verified"),
                           "stage": repeat.get("stage"),
                           "outcome": "answered"}
     except Exception as error:  # noqa: BLE001 - the refusal is the evidence
-        repeat_outcome = {"verified": False,
-                          "outcome": "refused",
+        repeat_outcome = {"verified": False, "outcome": "refused",
                           "reason": f"{type(error).__name__}: {error}"}
     report["phases"]["fragile_repeat_of_a_verified_write"] = repeat_outcome
 
     # ── the RESUME: the same graph, continued. The verified write is
     # not repeated.
-    resumed = _run_graph(graph, folder, prepare, _axi_write(), resume=True)
-    print("step: resumed run ->", resumed.status, flush=True)
+    resumed = run_graph(graph, project_folder=folder, prepare=prepare,
+                        write=_axi_write(), resume=True)
+    print(f"step: resumed run -> {resumed.status}", flush=True)
     report["phases"]["resumed_run"] = {
         "status": resumed.status, "verified": list(resumed.verified),
         "resumed_from": resumed.resumed_from,
         "concurrency": dict(resumed.concurrency),
         "timings": dict(resumed.timings),
+        "results": {task: _receipt_of(result)
+                    for task, result in (resumed.results or {}).items()},
     }
 
-    # ── the read-back: the three clips are shorter than they were.
-    readback = _worker_call("readback", proof, folder, resolve_project,
-                            timeline)
-    after = {clip["unique_id"]: clip for clip in readback.get("clips") or ()}
+    # ── the read-back: the live timeline says the clips are shorter.
+    after = {clip["unique_id"]: clip
+             for clip in _recorded_clips(resolve_project, timeline)}
     report["read_back"] = [
         {"unique_id": clip["unique_id"],
          "before_out": clip.get("record_out"),
@@ -592,33 +471,5 @@ def main() -> int:
     return 0 if report.get("phases") else 1
 
 
-def _extract(receipt: dict) -> dict:
-    """The proof's own report, out of the session receipt.
-
-    The stderr is kept: a proof that raised says so there, and a
-    report that says nothing is a report that says nothing.
-    """
-    result = receipt.get("result")
-    stdout = str((result or {}).get("stdout") or "")
-    stderr = str((result or {}).get("stderr") or "")
-    for line in stdout.splitlines():
-        line = line.strip()
-        if line.startswith(REPORT_MARKER):
-            return json.loads(line[len(REPORT_MARKER):])
-    return {"error": "the proof printed no report",
-            "stdout_tail": stdout[-2000:], "stderr_tail": stderr[-2000:],
-            "receipt_error": str(receipt.get("error") or "")[:2000]}
-
-
-if "resolve" in globals():
-    # The broker's `run` verb executes this file in a sandbox that holds
-    # the worker's own scripting client. The proof runs there, on the
-    # LANE's code (the checkout the configuration names goes first on
-    # sys.path), and the report is both printed and left as the run's
-    # own result.
-    _REPORT = worker_proof(globals().get("resolve"))
-    print(REPORT_MARKER + json.dumps(_REPORT, ensure_ascii=False,
-                                     default=str))
-    result = _REPORT
-elif __name__ == "__main__":
+if __name__ == "__main__":
     raise SystemExit(main())
