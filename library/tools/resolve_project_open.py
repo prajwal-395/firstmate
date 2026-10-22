@@ -90,8 +90,10 @@ def ren_owned(name: str) -> bool:
     text = str(name or "").strip()
     if not text:
         return False
-    return text in {"Ren Qualification", "Resolve Qualification"} \
-        or text.startswith("Ren Scratch - ")
+    scratch_prefix = "Ren Scratch - "
+    return (text in {"Ren Qualification", "Resolve Qualification"}
+            or (text.startswith(scratch_prefix)
+                and bool(text[len(scratch_prefix):].strip())))
 
 
 def save_outcome(manager) -> tuple[str, str]:

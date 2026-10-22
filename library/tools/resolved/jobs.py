@@ -191,13 +191,14 @@ _BROKER_ALLOWLIST = frozenset({
     "cmd_run",
 })
 
-# These commands are safe on Ren-owned fixture projects only. Keep them
-# outside the general allowlist: both commands accept a caller-selected
+# These commands are scoped to Ren-owned projects or fixture projects.
+# Keep them outside the general allowlist: each accepts a caller-selected
 # project, and a missing project would otherwise silently address whichever
 # project Resolve currently has open.
 _SCOPED_RESOLVE_AXI_COMMANDS = frozenset({
     "cmd_markers_snapshot",
     "cmd_timeline_duplicate",
+    "cmd_timeline_current",
 })
 
 
@@ -218,6 +219,13 @@ def _ren_owned_fixture_target(project: str, timeline: str) -> bool:
         return timeline.startswith(("Q", "fm-scratch"))
     prefix = "Ren Scratch - "
     return project.startswith(prefix) and bool(project[len(prefix):].strip())
+
+
+def _ren_owned_project_target(project: str, timeline: str) -> bool:
+    """Whether a cursor selection names an explicit Ren-owned target."""
+    from library.tools.resolve_project_open import ren_owned
+
+    return bool(str(timeline or "").strip()) and ren_owned(project)
 
 
 class JobRefused(ValueError):
@@ -367,7 +375,14 @@ def _resolve_axi_shape(params: dict) -> dict:
     if name in _SCOPED_RESOLVE_AXI_COMMANDS:
         project = getattr(args, "project", "") or ""
         timeline = getattr(args, "timeline", "") or ""
-        if not _ren_owned_fixture_target(project, timeline):
+        if (name == "cmd_timeline_current"
+                and not _ren_owned_project_target(project, timeline)):
+            raise JobRefused(
+                "resolve-axi timeline current is permitted through the "
+                "broker only for an explicit Ren-owned project and named "
+                "timeline")
+        if (name != "cmd_timeline_current"
+                and not _ren_owned_fixture_target(project, timeline)):
             raise JobRefused(
                 f"resolve-axi {argv[0]!r} is permitted through the broker "
                 "only for an explicit Ren-owned fixture project and "

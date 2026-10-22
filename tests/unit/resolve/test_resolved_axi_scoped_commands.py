@@ -40,6 +40,35 @@ def test_scoped_timeline_duplicate_is_exclusive_on_a_ren_fixture():
     assert shape["mode"] == EXCLUSIVE
 
 
+def test_live_timeline_refresh_can_select_named_ren_master_through_broker():
+    shape = jobs._resolve_axi_shape({
+        "argv": ["timeline", "current", "--project",
+                 "Ren Scratch - breaktest", "--timeline",
+                 "GEO Podcast - Synced", "--apply"],
+    })
+
+    assert shape["project"] == "Ren Scratch - breaktest"
+    assert shape["timeline"] == "GEO Podcast - Synced"
+    assert shape["mode"] == "exclusive"
+
+
+def test_live_timeline_selection_refuses_captain_project_before_queueing():
+    with pytest.raises(JobRefused, match="only for an explicit Ren-owned"):
+        jobs._resolve_axi_shape({
+            "argv": ["timeline", "current", "--project",
+                     "Lucie Content/Social Media/Podcast", "--timeline",
+                     "GEO Podcast - Synced", "--apply"],
+        })
+
+
+def test_live_timeline_selection_refuses_empty_ren_scratch_namespace():
+    with pytest.raises(JobRefused, match="only for an explicit Ren-owned"):
+        jobs._resolve_axi_shape({
+            "argv": ["timeline", "current", "--project", "Ren Scratch - ",
+                     "--timeline", "GEO Podcast - Synced", "--apply"],
+        })
+
+
 @pytest.mark.parametrize("project,timeline", [
     ("Podcast (field test)", "Reel 13"),
     ("Ren Qualification", "Reel 13"),

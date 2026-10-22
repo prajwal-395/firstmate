@@ -40,6 +40,8 @@ re-read), `render queue|start|stop`,
 `project export-timeline` (one named timeline copied out of ANY project
 into a Ren-owned scratch project; the source is read only, never saved,
 and the origin project, timeline and page are restored and read back),
+`timeline current` (make one named timeline current in an explicitly
+Ren-owned project, with the exact target and cursor read back),
 `timeline duplicate` (versioning), `timeline delete` (exact owned-resource
 retirement), and
 `sense transcribe|cuts|classify|intellisearch|reframe|mask|switch`
@@ -56,7 +58,7 @@ Safety shape, stated once:
   `relink`,
   `render queue|start|stop`, `project set`,
   `project scratch create|import|open|restore|delete`, `project export-timeline`,
-  `timeline duplicate`,
+  `timeline current`, `timeline duplicate`,
   `timeline delete`,
   `sense *`)
   and `run --unsafe`.
@@ -66,8 +68,9 @@ Safety shape, stated once:
   `project scratch create`. `timeline list/get` use recorded
   generations; `timeline get --refresh-live` requires the exact target
   to be current. Other timeline reads use `GetTimelineByIndex`, never
-  `SetCurrentTimeline`. Opening something is a write to the captain's
-  session.
+  `SetCurrentTimeline`. The explicit `timeline current` cursor write is
+  broker-scoped to exact Ren-owned projects and timelines; no read moves
+  the cursor to satisfy a query.
 - Reads hold the Resolve lease SHARED (`exclusive=False`); any call
   with `--apply` or `--unsafe` holds it EXCLUSIVE. `restore --apply` and `reply --apply`
   refuse unless the cursor already sits on the reel; `run --unsafe`
@@ -1570,6 +1573,86 @@ def cmd_timeline_get(args) -> int:
                 ["color", "notes"]) if colours else "marker_colors: 0 colors",
           help_block([f"{TOOL} markers --timeline \"{timeline_name}\"",
                       f"{TOOL} frames --timeline \"{timeline_name}\""])])
+    return 0
+
+
+def cmd_timeline_current(args) -> int:
+    """Select one timeline in an explicitly Ren-owned project.
+
+    This changes Resolve's current-timeline cursor only. The broker scopes
+    the route to Ren-owned project names, and this command repeats that
+    refusal before touching the Resolve connection.
+    """
+    from library.tools import resolve_project_open
+
+    project_name = str(getattr(args, "project", "") or "").strip()
+    timeline_name = str(getattr(args, "timeline", "") or "").strip()
+    if not resolve_project_open.ren_owned(project_name):
+        return fail(
+            f"timeline current may only target an explicit Ren-owned project; "
+            f"refusing {project_name or '(unspecified)'!r}.",
+            f"{TOOL} project scratch open \"Ren Scratch - <name>\"")
+    if not timeline_name:
+        return fail("timeline current needs an exact --timeline name.",
+                    f"{TOOL} timeline list --project \"{project_name}\"")
+    if not args.apply:
+        return fail("timeline current is a cursor change; pass --apply to "
+                    "select the named timeline.",
+                    f"{TOOL} timeline current --project \"{project_name}\" "
+                    f"--timeline \"{timeline_name}\" --apply")
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
+    with _lease(exclusive=True):
+        try:
+            project = _project(resolve, project_name)
+            target, _is_current, note = _target_timeline(
+                project, timeline_name)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
+        if target.GetName() != timeline_name:
+            return fail(
+                f"timeline current requires the exact timeline name; "
+                f"{timeline_name!r} resolved to {target.GetName()!r}.",
+                f"{TOOL} timeline list --project \"{project_name}\"")
+        from library.tools.marker_feedback import current_timeline
+        before, _ = current_timeline(resolve)
+        before_name = before.GetName()
+        before_uid = str(before.GetUniqueId() or "")
+        target_uid = str(target.GetUniqueId() or "")
+        if not target_uid:
+            return fail(f"timeline {target.GetName()!r} has no stable Resolve "
+                        "unique id; refusing to change the cursor.",
+                        f"{TOOL} timeline list --project \"{project_name}\"")
+        if before_uid != target_uid:
+            try:
+                selected = project.SetCurrentTimeline(target)
+            except Exception as exc:  # noqa: BLE001 - native API boundary
+                return fail(f"selecting timeline raised ({exc}); read the "
+                            "cursor before retrying.", f"{TOOL} cursor")
+            if selected is False:
+                return fail("Resolve refused to select the named timeline; "
+                            "cursor was not verified.", f"{TOOL} cursor")
+        after, after_project = current_timeline(resolve)
+        after_uid = str(after.GetUniqueId() or "")
+        verified = (after_project.GetName() == project_name
+                    and after_uid == target_uid)
+        if not verified:
+            return fail(
+                f"timeline current read-back mismatch: requested "
+                f"{project_name!r}/{target.GetName()!r}, got "
+                f"{after_project.GetName()!r}/{after.GetName()!r}.",
+                f"{TOOL} cursor")
+        emit([kv_block("timeline_current", {
+                  "project": project_name,
+                  "timeline": target.GetName(),
+                  "timeline_id": target_uid,
+                  "cursor_before": before_name,
+                  "cursor_after": after.GetName(),
+                  "changed": "yes" if before_uid != target_uid else "no",
+                  "verified": "yes",
+              }), note])
     return 0
 
 
@@ -10768,6 +10851,7 @@ def build_parser() -> Parser:
   {TOOL} --submit pool "Footage/Day 1"
   {TOOL} timeline get "Reel 13 - moment"
   {TOOL} timeline get "Reel 13 - moment" --refresh-live
+  {TOOL} timeline current --project "Ren Scratch - fixture" --timeline "Master" --apply
   {TOOL} markers "Reel 29"
   {TOOL} markers --timeline "Reel 13 - moment"
   {TOOL} markers snapshot --timeline "Reel 13 - moment" --out /tmp/m.json
@@ -10887,6 +10971,19 @@ def build_parser() -> Parser:
                          "already be current")
     _add_reel_scope(pg)
     pg.set_defaults(func=cmd_timeline_get)
+    pcurr = tsubs.add_parser(
+        "current",
+        help="make a named timeline current in an explicitly Ren-owned "
+        "project; --apply writes the cursor",
+    )
+    pcurr.add_argument("--project", required=True,
+                       help="exact Ren-owned project that must be open")
+    pcurr.add_argument("--timeline", required=True,
+                       help="exact timeline name to make current")
+    pcurr.add_argument("--apply", action="store_true",
+                       help="change the current timeline under the exclusive "
+                       "Resolve lease")
+    pcurr.set_defaults(func=cmd_timeline_current)
     pr = tsubs.add_parser("delete", help="delete one completed, recorded qualification timeline by exact Resolve id")
     pr.add_argument("--artifact-id", required=True, action="append",
                     help="lifecycle artifact id recorded by the owning job")
