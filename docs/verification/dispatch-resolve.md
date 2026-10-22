@@ -78,7 +78,7 @@ Shipped 2026-09-21: project name plus Task section, with whole-brief fallback wh
 ## Offline behavior
 
 `tests/fm-dispatch-resolve.test.sh` drives the deterministic interface with a fake `quota-axi` and a fake `curl` that fails any call, proving resolution never touches the network.
-It proves an exact registered-project trigger resolves before the declaration trigger, the declaration trigger routes unshaped work without judgment, and a rules-less policy resolves the deterministic default with the Codex Plus rung first.
+It proves an exact registered-project trigger resolves before the declaration trigger, an existing declaration rule never fires without an explicit `--declare <rule-id>`, a named declaration routes unshaped work without judgment, and a rules-less policy resolves the deterministic default with the Codex Plus rung first.
 It proves a retired model id in the selected route is refused before spawn with its recorded replacement named, and a policy declaring the retired exhausted-ladder fallback is rejected as malformed.
 `tests/fm-bootstrap.test.sh` proves bootstrap validates the deterministic policy shape, id and trigger selectors, and verified harness/effort pairs without any key.
 

@@ -577,6 +577,37 @@ test_matching_explicit_profile_needs_no_override() {
   pass "an explicit profile matching the selected route needs no override"
 }
 
+test_declared_unshaped_work_routes_to_its_rule() {
+  local rec id out status
+  id=profile-declare-z13d
+  rec=$(make_spawn_case profile-declare claude "$id")
+  read_case_record "$rec"
+  printf '%s\n' '{"version":1,"rules":[{"id":"unshaped","when":"genuinely unshaped work","trigger":{"kind":"declaration"},"use":{"harness":"claude","model":"claude-opus-5-5","effort":"medium"}}],"default":[{"harness":"codex","model":"gpt-6-luna","effort":"medium","provider":"codex"},{"harness":"opencode","model":"opencode-go/muse-spark-1.3-contributor","provider":"opencode-go"}],"default_ladder":[{"id":"plus","harness":"codex","model":"gpt-6-luna","effort":"medium","provider":"codex"},{"id":"go","harness":"opencode","model":"opencode-go/muse-spark-1.3-contributor","provider":"opencode-go"}]}' \
+    > "$HOME_DIR/config/dispatch-policy.json"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
+    "$id" "$PROJ_DIR")
+  status=$?
+  expect_code 0 "$status" "an undeclared task should take the default ladder: $out"
+  assert_contains "$out" "spawned $id harness=codex" "an undeclared task left the default ladder"
+  assert_meta_profile "$HOME_DIR/state/$id.meta" codex gpt-6-luna medium
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
+    "$id" "$PROJ_DIR" --declare unshaped)
+  status=$?
+  expect_code 0 "$status" "a declared task should reach its rule: $out"
+  assert_contains "$out" "spawned $id harness=claude" "a declared task did not reach its rule"
+  assert_meta_profile "$HOME_DIR/state/$id.meta" claude claude-opus-5-5 medium
+  assert_grep 'dispatch_source=rule:1' "$HOME_DIR/state/$id.meta" "meta did not record the declaration rule"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
+    "$id" "$PROJ_DIR" --declare bogus)
+  status=$?
+  expect_code 1 "$status" "an unknown declaration must refuse"
+  assert_contains "$out" "names no rule" "refusal did not name the declaration failure"
+  pass "only an explicit declaration reaches the declaration rule; anything else takes the default ladder"
+}
+
 test_off_rule_profile_override_is_recorded() {
   local rec id out status
   id=profile-override-z13c
@@ -3204,6 +3235,7 @@ test_active_dispatch_profile_resolves_default_for_scout
 test_symlinked_project_routes_by_registered_name
 test_off_rule_profile_requires_captain_override_reason
 test_matching_explicit_profile_needs_no_override
+test_declared_unshaped_work_routes_to_its_rule
 test_off_rule_profile_override_is_recorded
 test_active_dispatch_profile_allows_positional_harness
 test_active_dispatch_profile_allows_raw_launch_command

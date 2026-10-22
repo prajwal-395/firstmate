@@ -1079,7 +1079,8 @@ Regression coverage is in [`tests/fm-git-stash-guard.test.sh`](../tests/fm-git-s
 ## Crew dispatch policy (config/dispatch-policy.json)
 
 `config/dispatch-policy.json` is an optional local, gitignored policy for fresh crewmate and scout spawns.
-The policy is deterministic: exact registered project names match first, one declared `declaration` trigger may match next, and the default route applies otherwise.
+The policy is deterministic: exact registered project names match first, one declared `declaration` trigger may match next only when the spawn names it with `--declare <rule-id>`, and the default route applies otherwise.
+A declaration rule never fires by itself, so a rationed profile such as the unshaped-work rule stays off unless the task explicitly declares it; an unknown id, or any id when the policy declares no declaration trigger, is an actionable configuration error.
 A rule has a stable `id`, an explanatory `when`, a `trigger`, and an ordered `use` profile or profile array.
 A project trigger uses `{"kind":"projects","names":["registered-project-name"]}`.
 The unshaped-work rule uses `{"kind":"declaration"}` and no Jev or other model judgment.
@@ -1113,7 +1114,7 @@ See [`docs/examples/dispatch-policy.json`](examples/dispatch-policy.json) and [`
 
 ## Typed dispatch resolution
 
-`bin/fm-dispatch-resolve.sh` resolves one concrete profile from the written brief and exact registered project name.
+`bin/fm-dispatch-resolve.sh` resolves one concrete profile from the written brief, the exact registered project name, and an optional `--declare <rule-id>` naming the policy's declaration trigger.
 It uses no network model judgment.
 Quota eligibility and the first eligible profile in declared order are evaluated from one `quota-axi --json` snapshot.
 A retired model in the selected route is rejected before `fm-spawn.sh` launches a worker.
@@ -1126,6 +1127,7 @@ A malformed or unreadable policy remains an actionable configuration error.
 Bootstrap validates the policy and reports malformed configuration before dispatch.
 
 Operators migrating a private home must move `config/crew-dispatch.json` to `config/dispatch-policy.json`, add `version: 1`, give each rule an `id` and explicit `trigger`, move the OpenCode rung models into `default_ladder`, remove Jev and exhausted-fallback fields, and create `config/model-catalog.json` with `bin/fm-model-catalog-refresh.sh`.
+`FM_HOME=<home> bin/fm-migrate-dispatch-policy.sh` performs that move mechanically: it writes both files from the legacy policy without deleting it, refuses rather than clobbering a hand edit unless `--force` is given, and merges the catalog without un-retiring a model.
 No script edits a home's live configuration during this migration.
 
 ## Mail plane (.env)

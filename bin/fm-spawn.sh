@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Spawn a direct report: a crewmate in a treehouse or Orca worktree, or a
 # secondmate in its isolated firstmate home.
-# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--branch-prefix <prefix>] [--base-branch <branch>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--captain-route <harness>[/<model>[/<effort>]] --captain-said <verbatim captain words>] [--backend <name>] [--herdr-resume-lock-wait]
-#        fm-spawn.sh <task-id> <project-dir> --scout [--base-branch <branch>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--captain-route <harness>[/<model>[/<effort>]] --captain-said <verbatim captain words>] [--backend <name>] [--herdr-resume-lock-wait]
+# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--branch-prefix <prefix>] [--base-branch <branch>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--declare <rule-id>] [--captain-route <harness>[/<model>[/<effort>]] --captain-said <verbatim captain words>] [--backend <name>] [--herdr-resume-lock-wait]
+#        fm-spawn.sh <task-id> <project-dir> --scout [--base-branch <branch>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--declare <rule-id>] [--captain-route <harness>[/<model>[/<effort>]] --captain-said <verbatim captain words>] [--backend <name>] [--herdr-resume-lock-wait]
 #        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] --secondmate
 #   --mode and --yolo are this task's delivery contract, REQUIRED for every ship
 #   spawn and refused on --scout and --secondmate spawns. Firstmate resolves both
@@ -786,6 +786,8 @@ CAPTAIN_ROUTE=
 CAPTAIN_ROUTE_SET=0
 CAPTAIN_SAID=
 CAPTAIN_SAID_SET=0
+DECLARE=
+DECLARE_SET=0
 DISPATCH_PROFILE_ACTIVE=0
 DISPATCH_OVERRIDE_APPLIED=0
 DISPATCH_LADDER_RESOLVED=0
@@ -826,6 +828,7 @@ for a in "$@"; do
       effort) EFFORT=$a; EFFORT_SET=1 ;;
       captain-route) CAPTAIN_ROUTE=$a; CAPTAIN_ROUTE_SET=1 ;;
       captain-said) CAPTAIN_SAID=$a; CAPTAIN_SAID_SET=1 ;;
+      declare) DECLARE=$a; DECLARE_SET=1 ;;
       backend) BACKEND_ARG=$a; BACKEND_SET=1 ;;
       mode) MODE=$a; MODE_SET=1 ;;
       yolo) YOLO=$a; YOLO_SET=1 ;;
@@ -852,6 +855,8 @@ for a in "$@"; do
     --captain-route=*) CAPTAIN_ROUTE=${a#--captain-route=}; CAPTAIN_ROUTE_SET=1 ;;
     --captain-said) want_value=captain-said ;;
     --captain-said=*) CAPTAIN_SAID=${a#--captain-said=}; CAPTAIN_SAID_SET=1 ;;
+    --declare) want_value=declare ;;
+    --declare=*) DECLARE=${a#--declare=}; DECLARE_SET=1 ;;
     --effort=*) EFFORT=${a#--effort=}; EFFORT_SET=1 ;;
     --backend) want_value=backend ;;
     --backend=*) BACKEND_ARG=${a#--backend=}; BACKEND_SET=1 ;;
@@ -878,6 +883,8 @@ done
 [ "$CAPTAIN_ROUTE_SET" -eq 0 ] || [ -n "$CAPTAIN_ROUTE" ] || { echo 'error: --captain-route requires a non-empty route' >&2; exit 1; }
 [ "$CAPTAIN_SAID_SET" -eq 0 ] || [ -n "$CAPTAIN_SAID" ] || { echo 'error: --captain-said requires the captain'"'"'s verbatim words' >&2; exit 1; }
 [ "$CAPTAIN_SAID_SET" -eq 0 ] || ! printf '%s' "$CAPTAIN_SAID" | LC_ALL=C grep -q '[[:cntrl:]]' || { echo 'error: --captain-said must be one printable line' >&2; exit 1; }
+[ "$DECLARE_SET" -eq 0 ] || [ -n "$DECLARE" ] || { echo 'error: --declare requires a non-empty rule id' >&2; exit 1; }
+[ "$DECLARE_SET" -eq 0 ] || ! printf '%s' "$DECLARE" | LC_ALL=C grep -q '[[:cntrl:]]' || { echo 'error: --declare must be one printable line' >&2; exit 1; }
 [ "$BACKEND_SET" -eq 0 ] || [ -n "$BACKEND_ARG" ] || { echo "error: --backend requires a non-empty value" >&2; exit 1; }
 [ "$MODE_SET" -eq 0 ] || [ -n "$MODE" ] || { echo "error: --mode requires a non-empty value" >&2; exit 1; }
 [ "$YOLO_SET" -eq 0 ] || [ -n "$YOLO" ] || { echo "error: --yolo requires a non-empty value" >&2; exit 1; }
@@ -1580,6 +1587,7 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
   [ -z "$MODEL" ] || shared_args+=(--model "$MODEL")
   [ -z "$EFFORT" ] || shared_args+=(--effort "$EFFORT")
   [ "$CAPTAIN_ROUTE_SET" -eq 0 ] || shared_args+=(--captain-route "$CAPTAIN_ROUTE" --captain-said "$CAPTAIN_SAID")
+  [ "$DECLARE_SET" -eq 0 ] || shared_args+=(--declare "$DECLARE")
   [ -z "$BACKEND_ARG" ] || shared_args+=(--backend "$BACKEND_ARG")
   # One delivery contract applies to every pair in a batch, exactly like the shared
   # harness. Each pair still re-validates it against its own brief, so a batch
@@ -1616,7 +1624,7 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
 fi
 ID=${POS[0]:-}
 [ -n "$ID" ] || {
-  echo "error: missing <task-id> positional; usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--branch-prefix <prefix>] [--base-branch <branch>] [--harness <name>] [--model <name>] [--effort <level>] [--captain-route <route> --captain-said <words>] [--backend <name>] (ship), fm-spawn.sh <task-id> <project-dir> --scout [...] (scout), fm-spawn.sh <task-id> [<firstmate-home>] [...] --secondmate" >&2
+  echo "error: missing <task-id> positional; usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--branch-prefix <prefix>] [--base-branch <branch>] [--harness <name>] [--model <name>] [--effort <level>] [--declare <rule-id>] [--captain-route <route> --captain-said <words>] [--backend <name>] (ship), fm-spawn.sh <task-id> <project-dir> --scout [...] (scout), fm-spawn.sh <task-id> [<firstmate-home>] [...] --secondmate" >&2
   exit 1
 }
 fm_task_id_creation_valid "$ID" || { echo "error: invalid task id" >&2; exit 2; }
@@ -2153,9 +2161,14 @@ dispatch_adopt_captain_route() {
 dispatch_apply_profile() {
   local dispatch_rules="$CONFIG/dispatch-policy.json" brief_file project_name note_file route_json route_status
   local requested_harness requested_raw mismatch=0 expected_profile
+  local declare_args=()
   if [ "$KIND" = secondmate ] || [ "$RELAUNCH" -eq 1 ]; then
     if [ "$CAPTAIN_ROUTE_SET" -eq 1 ]; then
       echo "error: --captain-route applies only to a fresh crewmate or scout dispatch" >&2
+      return 1
+    fi
+    if [ "$DECLARE_SET" -eq 1 ]; then
+      echo "error: --declare applies only to a fresh crewmate or scout dispatch" >&2
       return 1
     fi
     return 0
@@ -2184,7 +2197,8 @@ dispatch_apply_profile() {
     echo "error: could not prepare dispatch resolver diagnostics" >&2
     return 1
   }
-  if route_json=$(FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-dispatch-resolve.sh" --json "$brief_file" --project "$project_name" 2>"$note_file"); then
+  [ "$DECLARE_SET" -eq 0 ] || declare_args=(--declare "$DECLARE")
+  if route_json=$(FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-dispatch-resolve.sh" --json "$brief_file" --project "$project_name" "${declare_args[@]}" 2>"$note_file"); then
     :
   else
     route_status=$?

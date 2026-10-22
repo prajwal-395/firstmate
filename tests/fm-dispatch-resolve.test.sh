@@ -64,11 +64,27 @@ assert_contains "$(jq -c .explanation.candidates <<<"$out")" 'grok-4' "candidate
 pass "exact registered project trigger resolves before the declaration trigger"
 
 out=$(run_resolver)
-assert_equals clear "$(jq -r .status <<<"$out")" "declaration trigger resolves"
-assert_equals rule:2 "$(jq -r .source <<<"$out")" "declaration trigger is selected"
-assert_equals claude "$(jq -r .profile.harness <<<"$out")" "unshaped work uses its declared profile"
+assert_equals default "$(jq -r .status <<<"$out")" "an undeclared task takes the default"
+assert_equals default "$(jq -r .source <<<"$out")" "an existing declaration rule never fires by itself"
+assert_equals codex "$(jq -r .profile.harness <<<"$out")" "the default ladder starts at the Codex Plus rung"
 [ ! -e "$LOG" ] || fail "deterministic resolution called curl"
-pass "declaration trigger routes unshaped work without network judgment"
+pass "an existing declaration rule never fires without an explicit declaration"
+
+out=$(run_resolver --declare unshaped)
+assert_equals clear "$(jq -r .status <<<"$out")" "a declared task selects its rule"
+assert_equals rule:2 "$(jq -r .source <<<"$out")" "the named declaration trigger is selected"
+assert_equals claude "$(jq -r .profile.harness <<<"$out")" "declared unshaped work uses its declared profile"
+pass "an explicit declaration routes unshaped work without network judgment"
+
+out=$(run_resolver --project starling-site --declare unshaped)
+assert_equals rule:1 "$(jq -r .source <<<"$out")" "an exact project match wins over a declaration"
+assert_equals grok "$(jq -r .profile.harness <<<"$out")" "the project profile is selected"
+pass "an exact project match wins over an explicit declaration"
+
+out=$(run_resolver --declare bogus 2>&1)
+assert_equals 2 "$?" "an unknown declaration id is rejected"
+assert_contains "$out" 'unshaped' "the refusal names the actual declaration trigger"
+pass "an unknown declaration id fails closed with the actual trigger named"
 
 jq 'del(.rules)' "$HOME_DIR/config/dispatch-policy.json" > "$TMP_ROOT/default.json"
 cp "$TMP_ROOT/default.json" "$HOME_DIR/config/dispatch-policy.json"
@@ -77,6 +93,11 @@ assert_equals default "$(jq -r .source <<<"$out")" "default route resolves"
 assert_equals codex "$(jq -r .profile.harness <<<"$out")" "the Codex Plus rung is first"
 assert_equals opencode "$(jq -r .profile.dispatch_ladder <<<"$out")" "the internal ladder gate is present"
 pass "default ladder derives its route from the declared policy"
+
+out=$(run_resolver --declare unshaped 2>&1)
+assert_equals 2 "$?" "a declaration with no declaration trigger is rejected"
+assert_contains "$out" 'declares no declaration trigger' "the refusal states the policy has none"
+pass "declaring against a policy with no declaration trigger fails closed"
 
 cat > "$HOME_DIR/config/model-catalog.json" <<'JSON'
 {"models":[{"id":"opencode-go/muse-spark-1.3-contributor","status":"active"},{"id":"gpt-6-luna","status":"active"},{"id":"retired-model","status":"retired","replaced_by":"replacement-model"}]}

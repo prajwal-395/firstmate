@@ -3,11 +3,13 @@
 # profile from a task brief with exact registered project triggers.
 #
 # Usage:
-#   fm-dispatch-resolve.sh <brief-file> [--project <name>] [--json]
+#   fm-dispatch-resolve.sh <brief-file> [--project <name>] [--declare <rule-id>] [--json]
 #
 # What it does: project rules are matched by exact registered project name in
-#   code, with no network model judgment. One optional rule with a
-#   `trigger.kind` of `declaration` covers unshaped work; otherwise the
+#   code, with no network model judgment. A rule with a `trigger.kind` of
+#   `declaration` fires only when the caller names it with --declare: an
+#   existing declaration rule never applies by itself, so rationed profiles
+#   stay off unless the task explicitly declares them. Otherwise the
 #   deterministic default applies. Everything after that is jq: the rule's
 #   declared `approval` and `floor`, each profile's declared `provider` and
 #   `floor`, and the quota rows from ONE quota-axi --json snapshot. Quota
@@ -26,7 +28,7 @@
 #     reason: <why the status is not clear>
 #     candidate: <harness>:<model> provider=.. scope=.. remaining=..% spendPriority=.. runway=.. -> eligible | eligible, unranked: <reason> | not eligible: <reason>
 #     profile: --harness <h> [--model <m>] [--effort <e>]     (clear/default only)
-#   clear/default -> deterministic profile selected from the project rule, the declaration trigger, or default
+#   clear/default -> deterministic profile selected from the project rule, an explicit declaration, or default
 #   escalate  -> the rule requires captain approval or no candidate is eligible
 #   error     -> quota-axi failure, an unusable model catalog, or a retired model in the selected route
 #   --json emits one machine-readable route object for fm-spawn.sh.
@@ -71,12 +73,13 @@ usage() {
   ' "$0"
 }
 
-BRIEF='' PROJECT='' RULES_PATH="$CONFIG/dispatch-policy.json" RULES=''
+BRIEF='' PROJECT='' DECLARE='' RULES_PATH="$CONFIG/dispatch-policy.json" RULES=''
 STATIC_HARNESS_DEFAULT=0
 JSON_MODE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --project) [ $# -ge 2 ] || die "--project needs a value"; PROJECT=$2; shift 2 ;;
+    --declare) [ $# -ge 2 ] || die "--declare needs a rule id"; DECLARE=$2; shift 2 ;;
     --json) JSON_MODE=1; shift ;;
     -h|--help) usage; exit 0 ;;
     -*) die "unknown flag $1" ;;
@@ -242,17 +245,22 @@ PROJECT_RULE_INDEX=$(jq -r --arg project "$PROJECT" '
   [((.rules // []) | to_entries[]) | select(.value.trigger.kind == "projects" and (.value.trigger.names // [] | index($project))) | (.key + 1)] | .[0] // empty
 ' "$RULES")
 DECLARATION_RULE_INDEX=$(jq -r '[((.rules // []) | to_entries[]) | select(.value.trigger.kind == "declaration") | (.key + 1)] | .[0] // empty' "$RULES")
+DECLARATION_RULE_ID=$(jq -r '[.rules[]? | select(.trigger.kind == "declaration") | .id] | .[0] // empty' "$RULES")
+if [ -n "$DECLARE" ]; then
+  [ -n "$DECLARATION_RULE_ID" ] || die "--declare $DECLARE names no rule: the policy declares no declaration trigger"
+  [ "$DECLARE" = "$DECLARATION_RULE_ID" ] || die "--declare $DECLARE names no rule: the declaration trigger is '$DECLARATION_RULE_ID'"
+fi
 if [ -n "$PROJECT_RULE_INDEX" ]; then
   RESOLUTION_CHOICE="rule_$PROJECT_RULE_INDEX"
   DEFAULT_REASON="project '$PROJECT' matched rule_$PROJECT_RULE_INDEX"
-elif [ -n "$DECLARATION_RULE_INDEX" ]; then
+elif [ -n "$DECLARE" ]; then
   RESOLUTION_CHOICE="rule_$DECLARATION_RULE_INDEX"
-  DEFAULT_REASON="declaration trigger selected rule_$DECLARATION_RULE_INDEX"
+  DEFAULT_REASON="declared '$DECLARE' selected rule_$DECLARATION_RULE_INDEX"
 else
   DEFAULT_REASON='no declared trigger applies; deterministic default selected'
 fi
 make_response "$RESOLUTION_CHOICE"
-[ -z "$DEFAULT_REASON" ] || [ -n "$PROJECT_RULE_INDEX" ] || [ -n "$DECLARATION_RULE_INDEX" ] || echo "dispatch-resolve: $DEFAULT_REASON" >&2
+[ -z "$DEFAULT_REASON" ] || [ -n "$PROJECT_RULE_INDEX" ] || [ -n "$DECLARE" ] || echo "dispatch-resolve: $DEFAULT_REASON" >&2
 
 # ---- quota evidence: one quota-axi --json snapshot -----------------------------
 command -v quota-axi >/dev/null 2>&1 || emit_error "quota-axi not installed"
