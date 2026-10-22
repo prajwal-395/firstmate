@@ -1468,8 +1468,8 @@ if TASK in ("all", "right_speaker_camera"):
 
 if TASK in ("all", "improve_opening"):
     # improve_opening: tighten the opening to the attached brief by
-    # removing the marked trailing pause. The decided cut is a verified
-    # trim of the opening clip plus its linked audio; the brief travels
+    # removing the marked trailing pause. One picture-target trim preserves
+    # the proven linked audio pair; the brief travels
     # in the evidence, not as an invented plan.
     seed_base(media="both")
     place_marks()
@@ -1495,27 +1495,6 @@ if TASK in ("all", "improve_opening"):
                       "--expected-record-out-frame", "96",
                       "--apply", "--project", PROJECT, "--timeline",
                       TIMELINE, "--project-folder", PROJECT_DIR])
-    if not tightened["exit_code"]:
-        voice = next(item for item in
-                     timeline.GetItemListInTrack("audio", 1) or ()
-                     if str(item.GetName()) == "qual_a.mp4")
-        audio_tightened = call(
-            ["edit", "trim", "--track", "audio1", "--index", "0",
-             "--source-in", "0", "--source-out", "71",
-             "--target-unique-id", str(voice.GetUniqueId()),
-             "--expected-source-file", first_path,
-             "--expected-source-in-frame",
-             str(int(voice.GetSourceStartFrame())),
-             "--expected-source-out-frame",
-             str(int(voice.GetSourceEndFrame())),
-             "--expected-record-in-frame", "0",
-             "--expected-record-out-frame", "96",
-             "--apply", "--project", PROJECT, "--timeline", TIMELINE,
-             "--project-folder", PROJECT_DIR])
-        if audio_tightened["exit_code"]:
-            raise RuntimeError("opening audio trim refused: "
-                               + audio_tightened["stdout"]
-                               + audio_tightened["stderr"])
     if tightened["exit_code"]:
         raise RuntimeError("opening tighten refused: "
                            + tightened["stdout"] + tightened["stderr"])

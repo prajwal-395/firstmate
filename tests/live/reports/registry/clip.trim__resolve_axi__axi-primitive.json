@@ -1,0 +1,185 @@
+{
+  "actual_state": {
+    "checks": {
+      "duration_matches_source_range": true,
+      "other_clip_untouched": true,
+      "record_start_shifted": true,
+      "source_range_narrowed": true
+    },
+    "measurement": {
+      "clip_composition": "single_video_clip",
+      "existing_effects": "none",
+      "frame_rate": "24",
+      "linked_audio_configuration": "no_linked_audio",
+      "media_type": "video",
+      "project_settings": "landscape_1920x1080",
+      "resolve_version": "21.1.0.14",
+      "timeline_density": "light",
+      "timeline_structure": "multi_item_timeline",
+      "track_layout": "video+audio",
+      "track_occupancy": "mixed"
+    },
+    "scenarios": [
+      "trim_narrows_source_range"
+    ]
+  },
+  "audio_verification": [
+    "not applicable: this operation writes no audio level; the audio rows are read back unchanged by the same per-item reading"
+  ],
+  "backend": "resolve_axi",
+  "coverage": {
+    "configurations": [
+      "measured_qualification_timeline"
+    ],
+    "dimensions": {
+      "clip_composition": [
+        "single_video_clip"
+      ],
+      "existing_effects": [
+        "none"
+      ],
+      "frame_rate": [
+        "24"
+      ],
+      "linked_audio_configuration": [
+        "no_linked_audio"
+      ],
+      "media_type": [
+        "video"
+      ],
+      "project_settings": [
+        "landscape_1920x1080"
+      ],
+      "resolve_version": [
+        "21.1.0.14"
+      ],
+      "timeline_density": [
+        "light"
+      ],
+      "timeline_structure": [
+        "multi_item_timeline"
+      ],
+      "track_layout": [
+        "video+audio"
+      ],
+      "track_occupancy": [
+        "mixed"
+      ]
+    },
+    "source": "measured",
+    "uncovered": {}
+  },
+  "environment": {
+    "platform": "darwin",
+    "resolve_version": "21.1.0.14"
+  },
+  "evidence": "tests/live/reports/axi-primitive-qualification.json#trim_narrows_source_range",
+  "expected_state": {
+    "duration_matches_source_range": true,
+    "other_clip_untouched": true,
+    "record_start_shifted": true,
+    "source_range_narrowed": true
+  },
+  "operation_id": "clip.trim",
+  "preservation_checks": [
+    {
+      "check": "source_range_narrowed",
+      "result": "passed"
+    },
+    {
+      "check": "duration_matches_source_range",
+      "result": "passed"
+    },
+    {
+      "check": "record_start_shifted",
+      "result": "passed"
+    },
+    {
+      "check": "other_clip_untouched",
+      "result": "passed"
+    }
+  ],
+  "preservation_limits": [
+    "one private scratch timeline; the checks are the ones the scenarios name: duration_matches_source_range, other_clip_untouched, record_start_shifted, source_range_narrowed"
+  ],
+  "project_conditions": [
+    "Ren Qualification / fm-scratch qualify",
+    "private target timeline only",
+    "production entry: resolve-axi edit trim"
+  ],
+  "qualification_predicates": [
+    {
+      "field": "resolve_version",
+      "operator": "equals",
+      "value": "21.1.0.14"
+    },
+    {
+      "field": "media_type",
+      "operator": "equals",
+      "value": "video"
+    },
+    {
+      "field": "clip_composition",
+      "operator": "equals",
+      "value": "single_video_clip"
+    },
+    {
+      "field": "linked_audio_configuration",
+      "operator": "equals",
+      "value": "no_linked_audio"
+    },
+    {
+      "field": "track_layout",
+      "operator": "equals",
+      "value": "video+audio"
+    },
+    {
+      "field": "track_occupancy",
+      "operator": "equals",
+      "value": "mixed"
+    },
+    {
+      "field": "timeline_density",
+      "operator": "equals",
+      "value": "light"
+    },
+    {
+      "field": "timeline_structure",
+      "operator": "equals",
+      "value": "multi_item_timeline"
+    },
+    {
+      "field": "project_settings",
+      "operator": "equals",
+      "value": "landscape_1920x1080"
+    },
+    {
+      "field": "frame_rate",
+      "operator": "equals",
+      "value": "24"
+    },
+    {
+      "field": "existing_effects",
+      "operator": "equals",
+      "value": "none"
+    }
+  ],
+  "recovery_status": "not_required",
+  "resolve_version": "21.1.0.14",
+  "result": "passed",
+  "schema": "ren-axi-qualification-result/v2",
+  "semantic_boundary": {
+    "applies_to": [
+      "clip.trim on resolve_axi in the measured qualification state"
+    ],
+    "does_not_apply_to": [
+      "states or operation/backend pairs not named by this evidence"
+    ]
+  },
+  "supported_media_types": [
+    "video"
+  ],
+  "visual_verification": [
+    "the live read-back of every clip on every row, item by item (source path, source range, record span, transform, enabled state, Fusion comps) plus `resolve-axi items`"
+  ]
+}

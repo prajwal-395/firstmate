@@ -219,11 +219,17 @@ PRIMITIVES = (
 
     # ── AXI-012: trimming, in/out preservation and source-range validation
     Primitive("trim_narrows_source_range", "AXI-012",
-              "Narrow a clip's source range and keep its duration",
+              "Narrow a clip's source range and move its record start",
               "clip.trim", "resolve_axi", "resolve-axi edit trim",
               "commit",
-              ("source_range_narrowed", "duration_preserved",
+              ("source_range_narrowed", "duration_matches_source_range",
                "record_start_shifted", "other_clip_untouched")),
+    Primitive("trim_linked_av_stays_synchronized", "AXI-012",
+              "Trim a linked A/V picture clip and keep its audio synchronized",
+              "clip.trim", "resolve_axi", "resolve-axi edit trim",
+              "commit",
+              ("video_source_range_narrowed", "audio_source_range_narrowed",
+               "audio_picture_record_spans_match", "other_items_untouched")),
     Primitive("trim_past_handles_refused", "AXI-012",
               "Refuse a trim that reaches past the clip's handles",
               "clip.trim", "resolve_axi", "resolve-axi edit trim",
@@ -700,19 +706,35 @@ def _cases() -> dict:
         # ── AXI-012 ──
         "trim_narrows_source_range": {
             "operation": "clip.trim",
-            "setup": [_place("qual_a.mp4", 1, 0, source_out=95)],
+            "setup": [_place(OWNED_VIDEO_A.name, 1, 0, source_out=95),
+                      _place(OWNED_VIDEO_B.name, 2, 144, source_out=47)],
             "commands": [_edit("trim", "--track", "video1", "--index", "0",
                                "--source-in", "10", "--source-out", "59",
-                               "--apply")],
-            "targets": ["qual_a.mp4"],
+                               "--project-folder", "@FM_QUAL_PROJECT_DIR@",
+                               "--require-recovery", "--apply")],
+            "targets": [OWNED_VIDEO_A.name],
+        },
+        "trim_linked_av_stays_synchronized": {
+            "operation": "clip.trim",
+            "setup": [_place(OWNED_VIDEO_A.name, 1, 0, source_out=71,
+                             media="both"),
+                      _place(OWNED_VIDEO_B.name, 2, 96, source_out=47),
+                      _place(OWNED_VIDEO_C.name, 3, 120, source_out=47)],
+            "commands": [_edit("trim", "--track", "video1", "--index", "0",
+                               "--source-in", "0", "--source-out", "47",
+                               "--project-folder", "@FM_QUAL_PROJECT_DIR@",
+                               "--require-recovery", "--apply")],
+            "targets": [{"name": OWNED_VIDEO_A.name, "kind": "video"}],
         },
         "trim_past_handles_refused": {
             "operation": "clip.trim",
-            "setup": [_place("qual_a.mp4", 1, 0, source_out=95)],
+            "setup": [_place(OWNED_VIDEO_A.name, 1, 0, source_out=95),
+                      _place(OWNED_VIDEO_B.name, 2, 144, source_out=47)],
             "commands": [_edit("trim", "--track", "video1", "--index", "0",
                                "--source-in", "10", "--source-out", "900",
-                               "--apply")],
-            "targets": ["qual_a.mp4"],
+                               "--project-folder", "@FM_QUAL_PROJECT_DIR@",
+                               "--require-recovery", "--apply")],
+            "targets": [OWNED_VIDEO_A.name],
         },
         # ── AXI-013 ──
         "move_keeps_unrelated_state": {
@@ -2076,15 +2098,42 @@ def _judge_ripple_remove_light(case: dict) -> dict:
 def _judge_trim(case: dict) -> dict:
     before = case["after_setup"]
     after = case["after"]
-    old = _one(before, "qual_a.mp4")
-    new = _one(after, "qual_a.mp4")
-    old_duration = len(range(*_record_span(old))) if old else 0
+    new = _one(after, OWNED_VIDEO_A.name)
     new_duration = len(range(*_record_span(new))) if new else 0
     return {
         "source_range_narrowed": _source_bounds(new) == (10, 59),
-        "duration_preserved": bool(new) and new_duration == old_duration,
+        "duration_matches_source_range": bool(new) and new_duration == 50,
         "record_start_shifted": bool(new) and int(new["record_in"]) == 10,
-        "other_clip_untouched": not _items(after, "qual_b.mp4"),
+        "other_clip_untouched": _unchanged(before, after,
+                                            OWNED_VIDEO_B.name),
+    }
+
+
+def _judge_trim_linked_av(case: dict) -> dict:
+    """Read both halves after one trim; neither half may drift."""
+    before = case["after_setup"]
+    after = case["after"]
+    video_before = _rows_named(before, OWNED_VIDEO_A.name, "video")
+    video_after = _rows_named(after, OWNED_VIDEO_A.name, "video")
+    audio_before = _rows_named(before, OWNED_VIDEO_A.name, "audio")
+    audio_after = _rows_named(after, OWNED_VIDEO_A.name, "audio")
+    others_unchanged = _other_rows_unchanged(
+        before, after,
+        skip=(("video", OWNED_VIDEO_A.name, 1),
+              ("audio", OWNED_VIDEO_A.name, 1)))
+    return {
+        "video_source_range_narrowed": len(video_after) == 1
+        and _source_bounds(video_after[0]) == (0, 47),
+        "audio_source_range_narrowed": len(audio_after) == 1
+        and _source_bounds(audio_after[0]) == (0, 47),
+        "audio_picture_record_spans_match": (
+            len(video_before) == len(video_after) == 1
+            and len(audio_before) == len(audio_after) == 1
+            and _record_span(video_after[0]) == _record_span(audio_after[0])
+            and _source_bounds(video_after[0]) == _source_bounds(audio_after[0])
+            and _record_span(video_after[0]) != _record_span(video_before[0])
+            and _record_span(audio_after[0]) != _record_span(audio_before[0])),
+        "other_items_untouched": others_unchanged,
     }
 
 
@@ -2094,7 +2143,7 @@ def _judge_trim_refused(case: dict) -> dict:
     refused = any(row["exit_code"] for row in case["commands"])
     return {
         "refused": refused,
-        "timeline_unchanged": _unchanged(before, after, "qual_a.mp4"),
+        "timeline_unchanged": _other_rows_unchanged(before, after),
     }
 
 
@@ -2368,6 +2417,7 @@ JUDGES = {
     "ripple_remove_multi_track": _judge_ripple_remove_multi_track,
     "ripple_remove_light": _judge_ripple_remove_light,
     "trim_narrows_source_range": _judge_trim,
+    "trim_linked_av_stays_synchronized": _judge_trim_linked_av,
     "trim_past_handles_refused": _judge_trim_refused,
     "move_keeps_unrelated_state": _judge_move,
     "replace_source_keeps_transform": _judge_replace_source,

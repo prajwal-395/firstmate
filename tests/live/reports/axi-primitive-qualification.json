@@ -17,9 +17,9 @@
     "AXI-022",
     "AXI-023"
   ],
-  "scenarios": 36,
-  "passed": 14,
-  "failed": 22,
+  "scenarios": 37,
+  "passed": 16,
+  "failed": 21,
   "results": [
     {
       "id": "insert_at_frame_on_track",
@@ -1151,64 +1151,48 @@
     {
       "id": "trim_narrows_source_range",
       "axi_item": "AXI-012",
-      "intent": "Narrow a clip's source range and keep its duration",
+      "intent": "Narrow a clip's source range and move its record start",
       "operation": "clip.trim",
       "backend": "resolve_axi",
       "production_entry": "resolve-axi edit trim",
       "expectation": "commit",
       "checks": {
-        "source_range_narrowed": false,
-        "duration_preserved": false,
-        "record_start_shifted": false,
+        "source_range_narrowed": true,
+        "duration_matches_source_range": true,
+        "record_start_shifted": true,
         "other_clip_untouched": true
       },
-      "status": "fail",
+      "status": "pass",
       "first_attempt": true,
       "collateral_changes": [],
       "receipt": {
-        "status": "refused",
-        "refusals": [
-          [
-            "edit",
-            "trim",
-            "--track",
-            "video1",
-            "--index",
-            "0",
-            "--source-in",
-            "10",
-            "--source-out",
-            "59",
-            "--apply",
-            "--project",
-            "Ren Qualification",
-            "--timeline",
-            "fm-scratch qualify"
-          ]
-        ]
+        "status": "committed",
+        "refusals": []
       },
       "observed": {
-        "items_readback": "items:\n  timeline: fm-scratch qualify\n  clips: 0\n  placed_frames: 0\n  project: Ren Qualification\n  timeline_id: d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\n  generation: 2\n  verified_at: 2026-10-20T21:02:39+00:00\n  source: live refresh\n  freshness: captured during this read\nclips: 0 rows\nsource_out is inclusive (GetSourceEndFrame); record_out is exclusive - the mix-up that cost a frame is visible here\nhelp[1]:\n  Run `resolve-axi frames --timeline \"fm-scratch qualify\"`\n",
+        "items_readback": "items:\n  timeline: fm-scratch qualify\n  clips: 2\n  placed_frames: 98\n  project: Ren Qualification\n  timeline_id: d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\n  generation: 349\n  verified_at: 2026-10-22T15:45:46+00:00\n  source: live refresh\n  freshness: captured during this read\nclips[2]{track,name,record_in,record_out,duration,source_in,source_out,source_file,pan,tilt,zoomx,zoomy,opacity}:\n  video1,fm-qual-owned-a.mp4,10,60,50,10,60,/tmp/fm-qual-owned-a.mp4,0.0,0.0,1.0,1.0,100.0\n  video2,fm-qual-owned-b.mp4,144,192,48,0,48,/tmp/fm-qual-owned-b.mp4,0.0,0.0,1.0,1.0,100.0\nsource_out is inclusive (GetSourceEndFrame); record_out is exclusive - the mix-up that cost a frame is visible here\nhelp[1]:\n  Run `resolve-axi frames --timeline \"fm-scratch qualify\"`\n",
         "qualification_state": {
           "inspected": true,
           "state": {
             "resolve_version": "21.1.0.14",
-            "media_type": "none",
-            "clip_composition": "none",
+            "media_type": "video",
+            "clip_composition": "single_video_clip",
             "linked_audio_configuration": "no_linked_audio",
             "track_layout": "video+audio",
-            "track_occupancy": "all_empty",
-            "timeline_density": "empty",
-            "timeline_structure": "empty_timeline",
+            "track_occupancy": "mixed",
+            "timeline_density": "light",
+            "timeline_structure": "multi_item_timeline",
             "project_settings": "landscape_1920x1080",
             "frame_rate": "24",
             "existing_effects": "none"
           },
-          "targets": [],
+          "targets": [
+            "f4842ebc-b4cb-4742-98c6-89f2d3cc553a"
+          ],
           "missing_targets": []
         }
       },
-      "elapsed_seconds": 0.2765274999983376,
+      "elapsed_seconds": 2.698590125015471,
       "case": {
         "id": "trim_narrows_source_range",
         "setup_receipts": [
@@ -1217,7 +1201,7 @@
               "edit",
               "place",
               "--clip",
-              "qual_a.mp4",
+              "fm-qual-owned-a.mp4",
               "--media",
               "video",
               "--track",
@@ -1234,8 +1218,34 @@
               "--timeline",
               "fm-scratch qualify"
             ],
-            "exit_code": 1,
-            "stdout": "error: no clip named 'qual_a.mp4' under the pool root.\nhelp: resolve-axi pool\n",
+            "exit_code": 0,
+            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: fm-qual-owned-a.mp4\n  items_delta: 1\n  placed_media_id: d1ade3e3-db3f-41ed-9358-24aa0377c0a5\n  verified: yes (the placed item carries the requested media, at the requested place; no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  fm-qual-owned-a.mp4,0,96,0,95,f4842ebc-b4cb-4742-98c6-89f2d3cc553a\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+            "stderr": ""
+          },
+          {
+            "argv": [
+              "edit",
+              "place",
+              "--clip",
+              "fm-qual-owned-b.mp4",
+              "--media",
+              "video",
+              "--track",
+              "2",
+              "--record",
+              "144",
+              "--source-in",
+              "0",
+              "--source-out",
+              "47",
+              "--apply",
+              "--project",
+              "Ren Qualification",
+              "--timeline",
+              "fm-scratch qualify"
+            ],
+            "exit_code": 0,
+            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: fm-qual-owned-b.mp4\n  items_delta: 1\n  placed_media_id: d7ff2e32-dc26-4ff4-a293-0af0a0073c2c\n  verified: yes (the placed item carries the requested media, at the requested place; no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  fm-qual-owned-b.mp4,144,192,0,48,51feb834-fdce-4f95-9e60-9c5acc8cae70\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
             "stderr": ""
           }
         ],
@@ -1252,14 +1262,17 @@
               "10",
               "--source-out",
               "59",
+              "--project-folder",
+              "/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-small-edit-run-record-layg_dyh",
+              "--require-recovery",
               "--apply",
               "--project",
               "Ren Qualification",
               "--timeline",
               "fm-scratch qualify"
             ],
-            "exit_code": 1,
-            "stdout": "error: video1 holds 0 item(s) - index 0 names nothing.\nhelp: resolve-axi items --timeline \"fm-scratch qualify\"\n",
+            "exit_code": 0,
+            "stdout": "trimmed:\n  timeline: fm-scratch qualify\n  name: fm-qual-owned-a.mp4\n  source_in: 10\n  source_out: 60\n  record_in: 10\n  verified: yes (re-place present, original absent)\njournal:\n  entry: 20261022T154545Z-fm-scratch-qualify-20a262\n  status: applied\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
             "stderr": ""
           }
         ],
@@ -1281,7 +1294,7 @@
         },
         "after_setup": {
           "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
-          "end_frame": 0,
+          "end_frame": 192,
           "track_names": {
             "video": [
               "Video 1",
@@ -1293,60 +1306,145 @@
             ],
             "subtitle": []
           },
-          "items": [],
+          "items": [
+            {
+              "unique_id": "f4842ebc-b4cb-4742-98c6-89f2d3cc553a",
+              "kind": "video",
+              "track": 1,
+              "track_name": "Video 1",
+              "name": "fm-qual-owned-a.mp4",
+              "source_path": "/tmp/fm-qual-owned-a.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 95,
+              "record_in": 0,
+              "record_out": 96,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 100.0
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "51feb834-fdce-4f95-9e60-9c5acc8cae70",
+              "kind": "video",
+              "track": 2,
+              "track_name": "V2",
+              "name": "fm-qual-owned-b.mp4",
+              "source_path": "/tmp/fm-qual-owned-b.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 48,
+              "record_in": 144,
+              "record_out": 192,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 100.0
+              },
+              "cdl": null
+            }
+          ],
           "carried_cleanup": {
             "clean": true,
             "collateral_changes": []
           },
-          "setup_refusals": [
-            {
-              "argv": [
-                "edit",
-                "place",
-                "--clip",
-                "qual_a.mp4",
-                "--media",
-                "video",
-                "--track",
-                "1",
-                "--record",
-                "0",
-                "--source-in",
-                "0",
-                "--source-out",
-                "95",
-                "--apply",
-                "--project",
-                "Ren Qualification",
-                "--timeline",
-                "fm-scratch qualify"
-              ],
-              "stdout": "error: no clip named 'qual_a.mp4' under the pool root.\nhelp: resolve-axi pool\n",
-              "stderr": ""
-            }
-          ]
+          "setup_refusals": []
         },
         "qualification_state": {
           "inspected": true,
           "state": {
             "resolve_version": "21.1.0.14",
-            "media_type": "none",
-            "clip_composition": "none",
+            "media_type": "video",
+            "clip_composition": "single_video_clip",
             "linked_audio_configuration": "no_linked_audio",
             "track_layout": "video+audio",
-            "track_occupancy": "all_empty",
-            "timeline_density": "empty",
-            "timeline_structure": "empty_timeline",
+            "track_occupancy": "mixed",
+            "timeline_density": "light",
+            "timeline_structure": "multi_item_timeline",
             "project_settings": "landscape_1920x1080",
             "frame_rate": "24",
             "existing_effects": "none"
           },
-          "targets": [],
+          "targets": [
+            "f4842ebc-b4cb-4742-98c6-89f2d3cc553a"
+          ],
           "missing_targets": []
         },
         "after": {
           "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
-          "end_frame": 0,
+          "end_frame": 192,
           "track_names": {
             "video": [
               "Video 1",
@@ -1358,7 +1456,116 @@
             ],
             "subtitle": []
           },
-          "items": []
+          "items": [
+            {
+              "unique_id": "e7ba60d9-bde0-485f-8174-a73c9bd7200e",
+              "kind": "video",
+              "track": 1,
+              "track_name": "Video 1",
+              "name": "fm-qual-owned-a.mp4",
+              "source_path": "/tmp/fm-qual-owned-a.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 10,
+              "source_out": 60,
+              "record_in": 10,
+              "record_out": 60,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 100.0
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "51feb834-fdce-4f95-9e60-9c5acc8cae70",
+              "kind": "video",
+              "track": 2,
+              "track_name": "V2",
+              "name": "fm-qual-owned-b.mp4",
+              "source_path": "/tmp/fm-qual-owned-b.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 48,
+              "record_in": 144,
+              "record_out": 192,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 100.0
+              },
+              "cdl": null
+            }
+          ]
         },
         "items_readback": {
           "argv": [
@@ -1371,7 +1578,7 @@
             "--transforms"
           ],
           "exit_code": 0,
-          "stdout": "items:\n  timeline: fm-scratch qualify\n  clips: 0\n  placed_frames: 0\n  project: Ren Qualification\n  timeline_id: d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\n  generation: 2\n  verified_at: 2026-10-20T21:02:39+00:00\n  source: live refresh\n  freshness: captured during this read\nclips: 0 rows\nsource_out is inclusive (GetSourceEndFrame); record_out is exclusive - the mix-up that cost a frame is visible here\nhelp[1]:\n  Run `resolve-axi frames --timeline \"fm-scratch qualify\"`\n",
+          "stdout": "items:\n  timeline: fm-scratch qualify\n  clips: 2\n  placed_frames: 98\n  project: Ren Qualification\n  timeline_id: d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\n  generation: 349\n  verified_at: 2026-10-22T15:45:46+00:00\n  source: live refresh\n  freshness: captured during this read\nclips[2]{track,name,record_in,record_out,duration,source_in,source_out,source_file,pan,tilt,zoomx,zoomy,opacity}:\n  video1,fm-qual-owned-a.mp4,10,60,50,10,60,/tmp/fm-qual-owned-a.mp4,0.0,0.0,1.0,1.0,100.0\n  video2,fm-qual-owned-b.mp4,144,192,48,0,48,/tmp/fm-qual-owned-b.mp4,0.0,0.0,1.0,1.0,100.0\nsource_out is inclusive (GetSourceEndFrame); record_out is exclusive - the mix-up that cost a frame is visible here\nhelp[1]:\n  Run `resolve-axi frames --timeline \"fm-scratch qualify\"`\n",
           "stderr": ""
         },
         "cleanup": {
@@ -1380,10 +1587,11 @@
         },
         "removed_tracks": [],
         "removed_media": [
-          "fm-qual-owned-overlay-a.png",
           "fm-qual-owned-overlay-b.png",
-          "fm-qual-owned-b.mp4",
-          "fm-qual-owned-a.mp4"
+          "fm-qual-owned-overlay-a.png",
+          "fm-qual-owned-c.mp4",
+          "fm-qual-owned-a.mp4",
+          "fm-qual-owned-b.mp4"
         ],
         "after_cleanup": {
           "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
@@ -1402,7 +1610,7 @@
           "items": []
         },
         "collateral_changes": [],
-        "elapsed_seconds": 0.2765274999983376
+        "elapsed_seconds": 2.698590125015471
       }
     },
     {
@@ -1415,9 +1623,9 @@
       "expectation": "refuse",
       "checks": {
         "refused": true,
-        "timeline_unchanged": false
+        "timeline_unchanged": true
       },
-      "status": "fail",
+      "status": "pass",
       "first_attempt": true,
       "collateral_changes": [],
       "receipt": {
@@ -1434,6 +1642,9 @@
             "10",
             "--source-out",
             "900",
+            "--project-folder",
+            "/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-small-edit-run-record-3rgn3un4",
+            "--require-recovery",
             "--apply",
             "--project",
             "Ren Qualification",
@@ -1443,27 +1654,29 @@
         ]
       },
       "observed": {
-        "items_readback": "items:\n  timeline: fm-scratch qualify\n  clips: 0\n  placed_frames: 0\n  project: Ren Qualification\n  timeline_id: d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\n  generation: 2\n  verified_at: 2026-10-20T21:02:39+00:00\n  source: live refresh\n  freshness: captured during this read\nclips: 0 rows\nsource_out is inclusive (GetSourceEndFrame); record_out is exclusive - the mix-up that cost a frame is visible here\nhelp[1]:\n  Run `resolve-axi frames --timeline \"fm-scratch qualify\"`\n",
+        "items_readback": "items:\n  timeline: fm-scratch qualify\n  clips: 2\n  placed_frames: 144\n  project: Ren Qualification\n  timeline_id: d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\n  generation: 355\n  verified_at: 2026-10-22T16:44:31+00:00\n  source: live refresh\n  freshness: captured during this read\nclips[2]{track,name,record_in,record_out,duration,source_in,source_out,source_file,pan,tilt,zoomx,zoomy,opacity}:\n  video1,fm-qual-owned-a.mp4,0,96,96,0,95,/tmp/fm-qual-owned-a.mp4,0.0,0.0,1.0,1.0,100.0\n  video2,fm-qual-owned-b.mp4,144,192,48,0,48,/tmp/fm-qual-owned-b.mp4,0.0,0.0,1.0,1.0,100.0\nsource_out is inclusive (GetSourceEndFrame); record_out is exclusive - the mix-up that cost a frame is visible here\nhelp[1]:\n  Run `resolve-axi frames --timeline \"fm-scratch qualify\"`\n",
         "qualification_state": {
           "inspected": true,
           "state": {
             "resolve_version": "21.1.0.14",
-            "media_type": "none",
-            "clip_composition": "none",
+            "media_type": "video",
+            "clip_composition": "single_video_clip",
             "linked_audio_configuration": "no_linked_audio",
             "track_layout": "video+audio",
-            "track_occupancy": "all_empty",
-            "timeline_density": "empty",
-            "timeline_structure": "empty_timeline",
+            "track_occupancy": "mixed",
+            "timeline_density": "light",
+            "timeline_structure": "multi_item_timeline",
             "project_settings": "landscape_1920x1080",
             "frame_rate": "24",
             "existing_effects": "none"
           },
-          "targets": [],
+          "targets": [
+            "8a107b66-3464-4e9e-bb82-5ef0ffb81a5a"
+          ],
           "missing_targets": []
         }
       },
-      "elapsed_seconds": 0.18037045799428597,
+      "elapsed_seconds": 5.0124755410070065,
       "case": {
         "id": "trim_past_handles_refused",
         "setup_receipts": [
@@ -1472,7 +1685,7 @@
               "edit",
               "place",
               "--clip",
-              "qual_a.mp4",
+              "fm-qual-owned-a.mp4",
               "--media",
               "video",
               "--track",
@@ -1489,8 +1702,34 @@
               "--timeline",
               "fm-scratch qualify"
             ],
-            "exit_code": 1,
-            "stdout": "error: no clip named 'qual_a.mp4' under the pool root.\nhelp: resolve-axi pool\n",
+            "exit_code": 0,
+            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: fm-qual-owned-a.mp4\n  items_delta: 1\n  placed_media_id: fc168c7e-49b0-4fcd-af62-6b9bc225e1fb\n  verified: yes (the placed item carries the requested media, at the requested place; no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  fm-qual-owned-a.mp4,0,96,0,95,8a107b66-3464-4e9e-bb82-5ef0ffb81a5a\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+            "stderr": ""
+          },
+          {
+            "argv": [
+              "edit",
+              "place",
+              "--clip",
+              "fm-qual-owned-b.mp4",
+              "--media",
+              "video",
+              "--track",
+              "2",
+              "--record",
+              "144",
+              "--source-in",
+              "0",
+              "--source-out",
+              "47",
+              "--apply",
+              "--project",
+              "Ren Qualification",
+              "--timeline",
+              "fm-scratch qualify"
+            ],
+            "exit_code": 0,
+            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: fm-qual-owned-b.mp4\n  items_delta: 1\n  placed_media_id: adc5ecf6-0a8d-48f9-a259-8842cbcc293a\n  verified: yes (the placed item carries the requested media, at the requested place; no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  fm-qual-owned-b.mp4,144,192,0,48,65960598-8be2-41ce-a3bc-9a51ac935804\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
             "stderr": ""
           }
         ],
@@ -1507,6 +1746,9 @@
               "10",
               "--source-out",
               "900",
+              "--project-folder",
+              "/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-small-edit-run-record-3rgn3un4",
+              "--require-recovery",
               "--apply",
               "--project",
               "Ren Qualification",
@@ -1514,7 +1756,7 @@
               "fm-scratch qualify"
             ],
             "exit_code": 1,
-            "stdout": "error: video1 holds 0 item(s) - index 0 names nothing.\nhelp: resolve-axi items --timeline \"fm-scratch qualify\"\n",
+            "stdout": "error: [10, 900] reaches past the handles [0, 95] - trim only narrows.\nhelp: resolve-axi items --timeline \"fm-scratch qualify\"\n",
             "stderr": ""
           }
         ],
@@ -1536,7 +1778,7 @@
         },
         "after_setup": {
           "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
-          "end_frame": 0,
+          "end_frame": 192,
           "track_names": {
             "video": [
               "Video 1",
@@ -1548,60 +1790,145 @@
             ],
             "subtitle": []
           },
-          "items": [],
+          "items": [
+            {
+              "unique_id": "8a107b66-3464-4e9e-bb82-5ef0ffb81a5a",
+              "kind": "video",
+              "track": 1,
+              "track_name": "Video 1",
+              "name": "fm-qual-owned-a.mp4",
+              "source_path": "/tmp/fm-qual-owned-a.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 95,
+              "record_in": 0,
+              "record_out": 96,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 100.0
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "65960598-8be2-41ce-a3bc-9a51ac935804",
+              "kind": "video",
+              "track": 2,
+              "track_name": "V2",
+              "name": "fm-qual-owned-b.mp4",
+              "source_path": "/tmp/fm-qual-owned-b.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 48,
+              "record_in": 144,
+              "record_out": 192,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 100.0
+              },
+              "cdl": null
+            }
+          ],
           "carried_cleanup": {
             "clean": true,
             "collateral_changes": []
           },
-          "setup_refusals": [
-            {
-              "argv": [
-                "edit",
-                "place",
-                "--clip",
-                "qual_a.mp4",
-                "--media",
-                "video",
-                "--track",
-                "1",
-                "--record",
-                "0",
-                "--source-in",
-                "0",
-                "--source-out",
-                "95",
-                "--apply",
-                "--project",
-                "Ren Qualification",
-                "--timeline",
-                "fm-scratch qualify"
-              ],
-              "stdout": "error: no clip named 'qual_a.mp4' under the pool root.\nhelp: resolve-axi pool\n",
-              "stderr": ""
-            }
-          ]
+          "setup_refusals": []
         },
         "qualification_state": {
           "inspected": true,
           "state": {
             "resolve_version": "21.1.0.14",
-            "media_type": "none",
-            "clip_composition": "none",
+            "media_type": "video",
+            "clip_composition": "single_video_clip",
             "linked_audio_configuration": "no_linked_audio",
             "track_layout": "video+audio",
-            "track_occupancy": "all_empty",
-            "timeline_density": "empty",
-            "timeline_structure": "empty_timeline",
+            "track_occupancy": "mixed",
+            "timeline_density": "light",
+            "timeline_structure": "multi_item_timeline",
             "project_settings": "landscape_1920x1080",
             "frame_rate": "24",
             "existing_effects": "none"
           },
-          "targets": [],
+          "targets": [
+            "8a107b66-3464-4e9e-bb82-5ef0ffb81a5a"
+          ],
           "missing_targets": []
         },
         "after": {
           "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
-          "end_frame": 0,
+          "end_frame": 192,
           "track_names": {
             "video": [
               "Video 1",
@@ -1613,7 +1940,116 @@
             ],
             "subtitle": []
           },
-          "items": []
+          "items": [
+            {
+              "unique_id": "8a107b66-3464-4e9e-bb82-5ef0ffb81a5a",
+              "kind": "video",
+              "track": 1,
+              "track_name": "Video 1",
+              "name": "fm-qual-owned-a.mp4",
+              "source_path": "/tmp/fm-qual-owned-a.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 95,
+              "record_in": 0,
+              "record_out": 96,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 100.0
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "65960598-8be2-41ce-a3bc-9a51ac935804",
+              "kind": "video",
+              "track": 2,
+              "track_name": "V2",
+              "name": "fm-qual-owned-b.mp4",
+              "source_path": "/tmp/fm-qual-owned-b.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 48,
+              "record_in": 144,
+              "record_out": 192,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 100.0
+              },
+              "cdl": null
+            }
+          ]
         },
         "items_readback": {
           "argv": [
@@ -1626,7 +2062,7 @@
             "--transforms"
           ],
           "exit_code": 0,
-          "stdout": "items:\n  timeline: fm-scratch qualify\n  clips: 0\n  placed_frames: 0\n  project: Ren Qualification\n  timeline_id: d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\n  generation: 2\n  verified_at: 2026-10-20T21:02:39+00:00\n  source: live refresh\n  freshness: captured during this read\nclips: 0 rows\nsource_out is inclusive (GetSourceEndFrame); record_out is exclusive - the mix-up that cost a frame is visible here\nhelp[1]:\n  Run `resolve-axi frames --timeline \"fm-scratch qualify\"`\n",
+          "stdout": "items:\n  timeline: fm-scratch qualify\n  clips: 2\n  placed_frames: 144\n  project: Ren Qualification\n  timeline_id: d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\n  generation: 355\n  verified_at: 2026-10-22T16:44:31+00:00\n  source: live refresh\n  freshness: captured during this read\nclips[2]{track,name,record_in,record_out,duration,source_in,source_out,source_file,pan,tilt,zoomx,zoomy,opacity}:\n  video1,fm-qual-owned-a.mp4,0,96,96,0,95,/tmp/fm-qual-owned-a.mp4,0.0,0.0,1.0,1.0,100.0\n  video2,fm-qual-owned-b.mp4,144,192,48,0,48,/tmp/fm-qual-owned-b.mp4,0.0,0.0,1.0,1.0,100.0\nsource_out is inclusive (GetSourceEndFrame); record_out is exclusive - the mix-up that cost a frame is visible here\nhelp[1]:\n  Run `resolve-axi frames --timeline \"fm-scratch qualify\"`\n",
           "stderr": ""
         },
         "cleanup": {
@@ -1635,8 +2071,9 @@
         },
         "removed_tracks": [],
         "removed_media": [
-          "fm-qual-owned-overlay-b.png",
           "fm-qual-owned-overlay-a.png",
+          "fm-qual-owned-overlay-b.png",
+          "fm-qual-owned-c.mp4",
           "fm-qual-owned-b.mp4",
           "fm-qual-owned-a.mp4"
         ],
@@ -1657,7 +2094,7 @@
           "items": []
         },
         "collateral_changes": [],
-        "elapsed_seconds": 0.18037045799428597
+        "elapsed_seconds": 5.0124755410070065
       }
     },
     {
@@ -14325,13 +14762,698 @@
         "collateral_changes": [],
         "elapsed_seconds": 4.937133542000083
       }
+    },
+    {
+      "id": "trim_linked_av_stays_synchronized",
+      "axi_item": "AXI-012",
+      "intent": "Trim a linked A/V picture clip and keep its audio synchronized",
+      "operation": "clip.trim",
+      "backend": "resolve_axi",
+      "production_entry": "resolve-axi edit trim",
+      "expectation": "commit",
+      "checks": {
+        "video_source_range_narrowed": true,
+        "audio_source_range_narrowed": false,
+        "audio_picture_record_spans_match": false,
+        "other_items_untouched": true
+      },
+      "status": "fail",
+      "first_attempt": true,
+      "collateral_changes": [],
+      "receipt": {
+        "status": "committed",
+        "refusals": []
+      },
+      "observed": {
+        "items_readback": "items:\n  timeline: fm-scratch qualify\n  clips: 4\n  placed_frames: 216\n  project: Ren Qualification\n  timeline_id: d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\n  generation: 353\n  verified_at: 2026-10-22T16:24:15+00:00\n  source: live refresh\n  freshness: captured during this read\nclips[4]{track,name,record_in,record_out,duration,source_in,source_out,source_file,pan,tilt,zoomx,zoomy,opacity}:\n  video1,fm-qual-owned-a.mp4,0,48,48,0,48,/tmp/fm-qual-owned-a.mp4,0.0,0.0,1.0,1.0,100.0\n  video2,fm-qual-owned-b.mp4,96,144,48,0,48,/tmp/fm-qual-owned-b.mp4,0.0,0.0,1.0,1.0,100.0\n  video3,fm-qual-owned-c.mp4,120,168,48,0,47,/tmp/fm-qual-owned-c.mp4,0.0,0.0,1.0,1.0,100.0\n  audio1,fm-qual-owned-a.mp4,0,72,72,0,72,/tmp/fm-qual-owned-a.mp4,,,,,\nsource_out is inclusive (GetSourceEndFrame); record_out is exclusive - the mix-up that cost a frame is visible here\nhelp[1]:\n  Run `resolve-axi frames --timeline \"fm-scratch qualify\"`\n",
+        "qualification_state": {
+          "inspected": true,
+          "state": {
+            "resolve_version": "21.1.0.14",
+            "media_type": "video",
+            "clip_composition": "linked_video_clip",
+            "linked_audio_configuration": "linked_audio_present",
+            "track_layout": "video+audio",
+            "track_occupancy": "all_populated",
+            "timeline_density": "light",
+            "timeline_structure": "multi_item_timeline",
+            "project_settings": "landscape_1920x1080",
+            "frame_rate": "24",
+            "existing_effects": "retiming"
+          },
+          "targets": [
+            "b3a23a41-f1cc-44ca-805a-13530e93b242"
+          ],
+          "missing_targets": []
+        }
+      },
+      "elapsed_seconds": 12.434629875002429,
+      "case": {
+        "id": "trim_linked_av_stays_synchronized",
+        "setup_receipts": [
+          {
+            "argv": [
+              "edit",
+              "place",
+              "--clip",
+              "fm-qual-owned-a.mp4",
+              "--media",
+              "both",
+              "--track",
+              "1",
+              "--record",
+              "0",
+              "--source-in",
+              "0",
+              "--source-out",
+              "71",
+              "--apply",
+              "--project",
+              "Ren Qualification",
+              "--timeline",
+              "fm-scratch qualify"
+            ],
+            "exit_code": 0,
+            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: fm-qual-owned-a.mp4\n  items_delta: 2\n  placed_media_id: 4ffe8d3e-4cab-4197-aafd-fabb34f499e7\n  verified: yes (the placed item carries the requested media, at the requested place; no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  fm-qual-owned-a.mp4,0,72,0,72,b3a23a41-f1cc-44ca-805a-13530e93b242\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+            "stderr": ""
+          },
+          {
+            "argv": [
+              "edit",
+              "place",
+              "--clip",
+              "fm-qual-owned-b.mp4",
+              "--media",
+              "video",
+              "--track",
+              "2",
+              "--record",
+              "96",
+              "--source-in",
+              "0",
+              "--source-out",
+              "47",
+              "--apply",
+              "--project",
+              "Ren Qualification",
+              "--timeline",
+              "fm-scratch qualify"
+            ],
+            "exit_code": 0,
+            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: fm-qual-owned-b.mp4\n  items_delta: 1\n  placed_media_id: bf30331a-59cc-41db-81e8-eb4aa42026b7\n  verified: yes (the placed item carries the requested media, at the requested place; no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  fm-qual-owned-b.mp4,96,144,0,48,4fc5b35d-bcdf-4d59-87cb-29143039acd8\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+            "stderr": ""
+          },
+          {
+            "argv": [
+              "edit",
+              "place",
+              "--clip",
+              "fm-qual-owned-c.mp4",
+              "--media",
+              "video",
+              "--track",
+              "3",
+              "--record",
+              "120",
+              "--source-in",
+              "0",
+              "--source-out",
+              "47",
+              "--apply",
+              "--project",
+              "Ren Qualification",
+              "--timeline",
+              "fm-scratch qualify"
+            ],
+            "exit_code": 0,
+            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: fm-qual-owned-c.mp4\n  items_delta: 1\n  placed_media_id: b04c6882-ecfa-477c-8930-14b4bf9a7ab0\n  verified: yes (the placed item carries the requested media, at the requested place; no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  fm-qual-owned-c.mp4,120,168,0,47,bd40b0d3-ad10-4e65-aa84-56ada13dde50\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+            "stderr": ""
+          }
+        ],
+        "commands": [
+          {
+            "argv": [
+              "edit",
+              "trim",
+              "--track",
+              "video1",
+              "--index",
+              "0",
+              "--source-in",
+              "0",
+              "--source-out",
+              "47",
+              "--project-folder",
+              "/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-small-edit-run-record-ljry68as",
+              "--require-recovery",
+              "--apply",
+              "--project",
+              "Ren Qualification",
+              "--timeline",
+              "fm-scratch qualify"
+            ],
+            "exit_code": 0,
+            "stdout": "trimmed:\n  timeline: fm-scratch qualify\n  name: fm-qual-owned-a.mp4\n  source_in: 0\n  source_out: 48\n  record_in: 0\n  verified: yes (re-place present, original absent)\njournal:\n  entry: 20261022T162412Z-fm-scratch-qualify-7070da\n  status: applied\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+            "stderr": ""
+          }
+        ],
+        "before": {
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
+          "end_frame": 0,
+          "track_names": {
+            "video": [
+              "Video 1",
+              "V2",
+              "V3"
+            ],
+            "audio": [
+              "Audio 1"
+            ],
+            "subtitle": []
+          },
+          "items": []
+        },
+        "after_setup": {
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
+          "end_frame": 168,
+          "track_names": {
+            "video": [
+              "Video 1",
+              "V2",
+              "V3"
+            ],
+            "audio": [
+              "Audio 1"
+            ],
+            "subtitle": []
+          },
+          "items": [
+            {
+              "unique_id": "b3a23a41-f1cc-44ca-805a-13530e93b242",
+              "kind": "video",
+              "track": 1,
+              "track_name": "Video 1",
+              "name": "fm-qual-owned-a.mp4",
+              "source_path": "/tmp/fm-qual-owned-a.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 72,
+              "record_in": 0,
+              "record_out": 72,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [
+                "1d9ccfa0-11bb-4c2e-b285-db49166d33f3"
+              ],
+              "speed": {
+                "Percentage": 100.0,
+                "PitchCorrection": true
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "4fc5b35d-bcdf-4d59-87cb-29143039acd8",
+              "kind": "video",
+              "track": 2,
+              "track_name": "V2",
+              "name": "fm-qual-owned-b.mp4",
+              "source_path": "/tmp/fm-qual-owned-b.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 48,
+              "record_in": 96,
+              "record_out": 144,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 100.0
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "bd40b0d3-ad10-4e65-aa84-56ada13dde50",
+              "kind": "video",
+              "track": 3,
+              "track_name": "V3",
+              "name": "fm-qual-owned-c.mp4",
+              "source_path": "/tmp/fm-qual-owned-c.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 47,
+              "record_in": 120,
+              "record_out": 168,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 100.0
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "1d9ccfa0-11bb-4c2e-b285-db49166d33f3",
+              "kind": "audio",
+              "track": 1,
+              "track_name": "Audio 1",
+              "name": "fm-qual-owned-a.mp4",
+              "source_path": "/tmp/fm-qual-owned-a.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 72,
+              "record_in": 0,
+              "record_out": 72,
+              "transform": {
+                "AudioVolumeEnabled": true,
+                "AudioVolume": 0.0,
+                "AudioPanEnabled": true,
+                "AudioPan": 0.0,
+                "AudioPitchEnabled": true,
+                "AudioPitchSemiTones": 0,
+                "AudioPitchCents": 0,
+                "AudioVoiceIsolationEnabled": false,
+                "AudioVoiceIsolationAmount": 0,
+                "AudioDialogueLevelerEnabled": false,
+                "AudioDialogueLevelerMode": 0,
+                "AudioDialogueLevelerReduceLoudDialogue": false,
+                "AudioDialogueLevelerLiftSoftDialogue": false,
+                "AudioDialogueLevelerBackgroundReduction": false,
+                "AudioDialogueLevelerOutputGain": 0.0
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [
+                "b3a23a41-f1cc-44ca-805a-13530e93b242"
+              ],
+              "speed": {
+                "Percentage": 100.0,
+                "PitchCorrection": true
+              },
+              "cdl": null
+            }
+          ],
+          "carried_cleanup": {
+            "clean": true,
+            "collateral_changes": []
+          },
+          "setup_refusals": []
+        },
+        "qualification_state": {
+          "inspected": true,
+          "state": {
+            "resolve_version": "21.1.0.14",
+            "media_type": "video",
+            "clip_composition": "linked_video_clip",
+            "linked_audio_configuration": "linked_audio_present",
+            "track_layout": "video+audio",
+            "track_occupancy": "all_populated",
+            "timeline_density": "light",
+            "timeline_structure": "multi_item_timeline",
+            "project_settings": "landscape_1920x1080",
+            "frame_rate": "24",
+            "existing_effects": "retiming"
+          },
+          "targets": [
+            "b3a23a41-f1cc-44ca-805a-13530e93b242"
+          ],
+          "missing_targets": []
+        },
+        "after": {
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
+          "end_frame": 168,
+          "track_names": {
+            "video": [
+              "Video 1",
+              "V2",
+              "V3"
+            ],
+            "audio": [
+              "Audio 1"
+            ],
+            "subtitle": []
+          },
+          "items": [
+            {
+              "unique_id": "3fc90471-3184-41ba-ae6d-a2335dcf5e4e",
+              "kind": "video",
+              "track": 1,
+              "track_name": "Video 1",
+              "name": "fm-qual-owned-a.mp4",
+              "source_path": "/tmp/fm-qual-owned-a.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 48,
+              "record_in": 0,
+              "record_out": 48,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [
+                "1d9ccfa0-11bb-4c2e-b285-db49166d33f3"
+              ],
+              "speed": {
+                "Percentage": 100.0,
+                "PitchCorrection": true
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "4fc5b35d-bcdf-4d59-87cb-29143039acd8",
+              "kind": "video",
+              "track": 2,
+              "track_name": "V2",
+              "name": "fm-qual-owned-b.mp4",
+              "source_path": "/tmp/fm-qual-owned-b.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 48,
+              "record_in": 96,
+              "record_out": 144,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 100.0
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "bd40b0d3-ad10-4e65-aa84-56ada13dde50",
+              "kind": "video",
+              "track": 3,
+              "track_name": "V3",
+              "name": "fm-qual-owned-c.mp4",
+              "source_path": "/tmp/fm-qual-owned-c.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 47,
+              "record_in": 120,
+              "record_out": 168,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 100.0
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "1d9ccfa0-11bb-4c2e-b285-db49166d33f3",
+              "kind": "audio",
+              "track": 1,
+              "track_name": "Audio 1",
+              "name": "fm-qual-owned-a.mp4",
+              "source_path": "/tmp/fm-qual-owned-a.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 72,
+              "record_in": 0,
+              "record_out": 72,
+              "transform": {
+                "AudioVolumeEnabled": true,
+                "AudioVolume": 0.0,
+                "AudioPanEnabled": true,
+                "AudioPan": 0.0,
+                "AudioPitchEnabled": true,
+                "AudioPitchSemiTones": 0,
+                "AudioPitchCents": 0,
+                "AudioVoiceIsolationEnabled": false,
+                "AudioVoiceIsolationAmount": 0,
+                "AudioDialogueLevelerEnabled": false,
+                "AudioDialogueLevelerMode": 0,
+                "AudioDialogueLevelerReduceLoudDialogue": false,
+                "AudioDialogueLevelerLiftSoftDialogue": false,
+                "AudioDialogueLevelerBackgroundReduction": false,
+                "AudioDialogueLevelerOutputGain": 0.0
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [
+                "3fc90471-3184-41ba-ae6d-a2335dcf5e4e"
+              ],
+              "speed": {
+                "Percentage": 100.0,
+                "PitchCorrection": true
+              },
+              "cdl": null
+            }
+          ]
+        },
+        "items_readback": {
+          "argv": [
+            "items",
+            "--project",
+            "Ren Qualification",
+            "--timeline",
+            "fm-scratch qualify",
+            "--refresh-live",
+            "--transforms"
+          ],
+          "exit_code": 0,
+          "stdout": "items:\n  timeline: fm-scratch qualify\n  clips: 4\n  placed_frames: 216\n  project: Ren Qualification\n  timeline_id: d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\n  generation: 353\n  verified_at: 2026-10-22T16:24:15+00:00\n  source: live refresh\n  freshness: captured during this read\nclips[4]{track,name,record_in,record_out,duration,source_in,source_out,source_file,pan,tilt,zoomx,zoomy,opacity}:\n  video1,fm-qual-owned-a.mp4,0,48,48,0,48,/tmp/fm-qual-owned-a.mp4,0.0,0.0,1.0,1.0,100.0\n  video2,fm-qual-owned-b.mp4,96,144,48,0,48,/tmp/fm-qual-owned-b.mp4,0.0,0.0,1.0,1.0,100.0\n  video3,fm-qual-owned-c.mp4,120,168,48,0,47,/tmp/fm-qual-owned-c.mp4,0.0,0.0,1.0,1.0,100.0\n  audio1,fm-qual-owned-a.mp4,0,72,72,0,72,/tmp/fm-qual-owned-a.mp4,,,,,\nsource_out is inclusive (GetSourceEndFrame); record_out is exclusive - the mix-up that cost a frame is visible here\nhelp[1]:\n  Run `resolve-axi frames --timeline \"fm-scratch qualify\"`\n",
+          "stderr": ""
+        },
+        "cleanup": {
+          "clean": true,
+          "collateral_changes": []
+        },
+        "removed_tracks": [],
+        "removed_media": [
+          "fm-qual-owned-overlay-a.png",
+          "fm-qual-owned-overlay-b.png",
+          "fm-qual-owned-b.mp4",
+          "fm-qual-owned-c.mp4",
+          "fm-qual-owned-a.mp4"
+        ],
+        "after_cleanup": {
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
+          "end_frame": 0,
+          "track_names": {
+            "video": [
+              "Video 1",
+              "V2",
+              "V3"
+            ],
+            "audio": [
+              "Audio 1"
+            ],
+            "subtitle": []
+          },
+          "items": []
+        },
+        "collateral_changes": [],
+        "elapsed_seconds": 12.434629875002429
+      }
     }
   ],
   "registry_results": [
     {
-      "path": "tests/live/reports/registry/clip.delete__edit_patch__axi-primitive.json",
-      "operation_id": "clip.delete",
-      "backend": "edit_patch",
+      "path": "tests/live/reports/registry/clip.trim__resolve_axi__axi-primitive.json",
+      "operation_id": "clip.trim",
+      "backend": "resolve_axi",
       "existing_row_left_in_place": true,
       "replaced_legacy_report": false
     }

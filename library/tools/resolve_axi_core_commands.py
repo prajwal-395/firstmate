@@ -5952,6 +5952,17 @@ def _timeline_trim_snapshot(timeline):
                     raise AxiError(
                         f"timeline snapshot cannot preserve {span['name']!r}: "
                         f"{exc}", fix="re-run against a timeline whose items can be read back") from exc
+                try:
+                    linked_uids = sorted({
+                        str(linked.GetUniqueId())
+                        for linked in (item.GetLinkedItems() or [])
+                        if str(linked.GetUniqueId()) != str(span["uid"])
+                    })
+                except Exception as exc:
+                    raise AxiError(
+                        f"timeline snapshot could not read links for "
+                        f"{span['name']!r}: {exc}",
+                        fix="re-run once Resolve answers the linked-item read; nothing was written") from exc
                 rows.append({
                     "track_type": track_type,
                     "track_index": track_index,
@@ -5963,6 +5974,7 @@ def _timeline_trim_snapshot(timeline):
                     "source_out": source_out,
                     "source_end_exclusive": source_start + duration,
                     "pool_uid": pool_uid,
+                    "linked_uids": linked_uids,
                     "pool_item": pool_item,
                     "preservation_state": item_state,
                 })
@@ -5972,7 +5984,8 @@ def _timeline_trim_snapshot(timeline):
 def _trim_row_signature(row):
     return tuple(row[key] for key in (
         "track_type", "track_index", "name", "record_in", "record_out",
-        "source_in", "source_out", "source_end_exclusive", "pool_uid"))
+        "source_in", "source_out", "source_end_exclusive", "pool_uid",
+        "linked_uids"))
 
 
 def _trim_row_semantic_signature(row):
@@ -5980,6 +5993,21 @@ def _trim_row_semantic_signature(row):
     return tuple(row[key] for key in (
         "track_type", "track_index", "name", "record_in", "record_out",
         "source_in", "source_end_exclusive", "pool_uid"))
+
+
+def _trim_inventory_signature(rows):
+    """Compare a trim inventory including links without depending on UIDs."""
+    by_uid = {row["uid"]: row for row in rows if row.get("uid")}
+    signatures = []
+    for row in rows:
+        linked = []
+        for uid in row.get("linked_uids") or ():
+            member = by_uid.get(uid)
+            if member is not None:
+                linked.append(_trim_row_semantic_signature(member))
+        signatures.append((_trim_row_semantic_signature(row),
+                           tuple(sorted(linked, key=repr))))
+    return sorted(signatures, key=repr)
 
 
 def _restore_trim_snapshot(timeline, pool, before, target_uid,
@@ -6026,6 +6054,7 @@ def _restore_trim_snapshot(timeline, pool, before, target_uid,
 
         missing = [row for row in before
                    if row["uid"] not in unchanged]
+        restored_by_uid = {}
         for row in missing:
             source_pool = row["pool_item"]
             if source_pool is None:
@@ -6043,10 +6072,50 @@ def _restore_trim_snapshot(timeline, pool, before, target_uid,
             if error:
                 return None, (f"could not restore {row['name']!r} from the "
                               f"captured snapshot: {error}")
+            restored_by_uid[row["uid"]] = restored
         after = _timeline_trim_snapshot(timeline)
-        expected = [_trim_row_semantic_signature(row) for row in before]
-        observed = [_trim_row_semantic_signature(row) for row in after]
-        if sorted(expected, key=repr) != sorted(observed, key=repr):
+        current_items = {}
+        for kind in ("video", "audio"):
+            for index in range(1, int(timeline.GetTrackCount(kind) or 0) + 1):
+                for item in timeline.GetItemListInTrack(kind, index) or []:
+                    current_items[str(item.GetUniqueId())] = item
+        restored_groups = set()
+        for row in before:
+            group_uids = frozenset((row["uid"], *(row.get("linked_uids") or ())))
+            if len(group_uids) < 2 or group_uids in restored_groups:
+                continue
+            restored_groups.add(group_uids)
+            members = [restored_by_uid.get(original_uid)
+                       or current_items.get(original_uid)
+                       for original_uid in group_uids]
+            if any(member is None for member in members):
+                return None, "a linked group could not be fully restored"
+            current_group_uids = {str(member.GetUniqueId())
+                                  for member in members}
+            for member in members:
+                try:
+                    linked_ids = {str(linked.GetUniqueId())
+                                  for linked in (member.GetLinkedItems() or [])}
+                except Exception as exc:
+                    return None, f"a restored link could not be read ({exc})"
+                wanted_ids = current_group_uids - {
+                    str(member.GetUniqueId())}
+                if linked_ids != wanted_ids:
+                    if not timeline.SetClipsLinked(members, True):
+                        return None, "Resolve refused to restore the captured link group"
+                    break
+            for member in members:
+                try:
+                    linked_ids = {str(linked.GetUniqueId())
+                                  for linked in (member.GetLinkedItems() or [])}
+                    wanted_ids = current_group_uids - {
+                        str(member.GetUniqueId())}
+                except Exception as exc:
+                    return None, f"restored link read-back failed ({exc})"
+                if linked_ids != wanted_ids:
+                    return None, "the captured link group did not read back"
+        after = _timeline_trim_snapshot(timeline)
+        if _trim_inventory_signature(before) != _trim_inventory_signature(after):
             return None, "full timeline inventory differs from the captured snapshot"
         restored_target = next(
             (row for row in after
@@ -6140,6 +6209,84 @@ def _linked_items(item):
             raise AxiError("a linked item has no stable Resolve identity", fix="supply the linked item's stable Resolve identity (unique id), then re-run")
         by_uid[uid] = member
     return list(by_uid.values())
+
+
+def _timeline_item_location(timeline, wanted_uid):
+    """Find one linked item by stable identity on a readable timeline row."""
+    wanted_uid = str(wanted_uid or "")
+    for track_type in ("video", "audio"):
+        for track_index in range(
+                1, int(timeline.GetTrackCount(track_type) or 0) + 1):
+            for item in timeline.GetItemListInTrack(
+                    track_type, track_index) or []:
+                if str(item.GetUniqueId() or "") == wanted_uid:
+                    return item, track_type, track_index
+    return None
+
+
+def _linked_audio_trim_target(timeline, item, track_type):
+    """Return a proven A/V twin for a picture trim, or refuse ambiguity."""
+    members = _linked_items(item)
+    if len(members) == 1:
+        return None
+    if track_type != "video":
+        raise AxiError(
+            "a linked audio trim must target its linked picture item so the "
+            "AXI can preserve the pair",
+            fix="state the linked picture clip as the trim target")
+    if len(members) != 2:
+        raise AxiError(
+            "the trim target has a linked group larger than one picture and "
+            "one audio item",
+            fix="trim only a uniquely linked picture/audio pair")
+    target_uid = str(item.GetUniqueId() or "")
+    twins = [member for member in members
+             if str(member.GetUniqueId() or "") != target_uid]
+    if len(twins) != 1:
+        raise AxiError("the trim target's linked audio identity is ambiguous",
+                       fix="re-read the linked pair and name its picture item")
+    location = _timeline_item_location(
+        timeline, twins[0].GetUniqueId())
+    if location is None or location[1] != "audio":
+        raise AxiError(
+            "the linked audio item is not present on a readable audio row",
+            fix="re-run after the linked pair is present on the timeline")
+    audio_item, _audio_type, _audio_index = location
+    video_span = _item_span(item)
+    audio_span = _item_span(audio_item)
+    try:
+        video_record_in = int(video_span["record_in"])
+        video_record_out = int(video_span["record_out"])
+        audio_record_in = int(audio_span["record_in"])
+        audio_record_out = int(audio_span["record_out"])
+        video_source_in = int(video_span["source_in"])
+        video_source_out = _inclusive_source_end(
+            video_source_in, int(video_span["source_out"]),
+            video_record_out - video_record_in)
+        audio_source_in = int(audio_span["source_in"])
+        audio_source_out = _inclusive_source_end(
+            audio_source_in, int(audio_span["source_out"]),
+            audio_record_out - audio_record_in)
+        video_pool = item.GetMediaPoolItem()
+        audio_pool = audio_item.GetMediaPoolItem()
+        same_source = (video_pool is not None and audio_pool is not None
+                       and str(video_pool.GetUniqueId())
+                       == str(audio_pool.GetUniqueId()))
+    except Exception as exc:
+        raise AxiError(
+            f"the linked trim spans or source could not be read ({exc})",
+            fix="re-read the linked picture/audio pair; nothing was written") from exc
+    if (video_source_out is None or audio_source_out is None
+            or (video_record_in, video_record_out)
+            != (audio_record_in, audio_record_out)
+            or (video_source_in, video_source_out)
+            != (audio_source_in, audio_source_out)
+            or not same_source):
+        raise AxiError(
+            "the linked picture and audio do not share a proven source and "
+            "frame span",
+            fix="trim only a linked pair whose source and record ranges read back in sync")
+    return audio_item, location[2]
 
 
 def _ripple_member_snapshot(item, track_type, track_index):
@@ -6795,6 +6942,18 @@ def cmd_edit_trim(args) -> int:
                 f"[{orig_in}, {orig_out_inclusive}] - trim only narrows.",
                 f"{TOOL} items --timeline \"{timeline.GetName()}\"")
         new_rec = orig_rec + (new_in - orig_in)
+        try:
+            linked_audio = _linked_audio_trim_target(
+                timeline, item, track_type)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
+        if linked_audio is None:
+            audio_item = None
+            audio_track_index = None
+            audio_uid = None
+        else:
+            audio_item, audio_track_index = linked_audio
+            audio_uid = str(audio_item.GetUniqueId() or "")
         # THE COMPOSITION the clip carries, if it carries one.  A
         # re-place gives the item a new identity and a composition is
         # keyed to the item it was written for, so the composition is
@@ -6849,7 +7008,8 @@ def cmd_edit_trim(args) -> int:
                 args, timeline=timeline, project=project,
                 spec={"verb": "edit_trim", "timeline": timeline.GetName(),
                       "name": span["name"], "source_in": new_in,
-                      "source_out": new_out, "record_in": new_rec},
+                      "source_out": new_out, "record_in": new_rec,
+                      "linked_audio_uid": audio_uid},
                 gate_class="edit_trim") as (journal, journal_state):
             pool = project.GetMediaPool()
             media_type = 1 if track_type == "video" else 2
@@ -6871,10 +7031,53 @@ def cmd_edit_trim(args) -> int:
                 return fail(
                     f"trim refused before writing: {exc}",
                     f"{TOOL} items --timeline \"{timeline.GetName()}\"")
-            drop_error = _drop_original(resolve, project, timeline, uid)
-            if drop_error:
-                return fail(drop_error, f"{TOOL} items --timeline "
-                                   f"\"{timeline.GetName()}\"")
+            audio_snapshot = next(
+                (row for row in before_snapshot if row["uid"] == audio_uid),
+                None) if audio_uid else None
+            if audio_uid and audio_snapshot is None:
+                return fail(
+                    "trim refused before writing: the linked audio item is "
+                    "missing from the recovery snapshot",
+                    f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+
+            def restore_trim_failure(reason):
+                restored, restore_error = _restore_trim_snapshot(
+                    timeline, pool, before_snapshot, uid,
+                    write_context={
+                        "project": project.GetName(),
+                        "project_folder": args.project_folder or None,
+                        "timeline_id": timeline.GetUniqueId(),
+                        "timeline_name": timeline.GetName(),
+                    })
+                if restore_error:
+                    return fail(
+                        f"trim failed ({reason}); full timeline restoration "
+                        f"could not be proven ({restore_error})",
+                        f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+                return fail(
+                    f"trim failed ({reason}); the original full timeline "
+                    "snapshot was restored and verified",
+                    f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+
+            if audio_item is not None:
+                try:
+                    timeline.DeleteClips([item, audio_item], False)
+                    originals_remain = [target_uid for target_uid in
+                                        (uid, audio_uid)
+                                        if _presence(timeline, target_uid)]
+                except Exception as exc:
+                    originals_remain = [uid, audio_uid]
+                    delete_error = f"linked pair delete raised ({exc})"
+                else:
+                    delete_error = "Resolve did not remove both linked originals"
+                if originals_remain:
+                    return restore_trim_failure(
+                        delete_error + ": " + ", ".join(originals_remain))
+            else:
+                drop_error = _drop_original(resolve, project, timeline, uid)
+                if drop_error:
+                    return fail(drop_error, f"{TOOL} items --timeline "
+                                             f"\"{timeline.GetName()}\"")
             new_item, error = _replace_item(
                 timeline, pool, item, new_in, new_out,
                 new_rec, track_index, media_type, pool_item=pool_item,
@@ -6889,23 +7092,86 @@ def cmd_edit_trim(args) -> int:
                     "timeline_name": timeline.GetName(),
                 })
             if error:
-                restored, restore_error = _restore_trim_snapshot(
-                    timeline, pool, before_snapshot, uid,
+                return restore_trim_failure(error)
+            new_audio_item = None
+            if audio_item is not None:
+                audio_pool_item = audio_item.GetMediaPoolItem()
+                if audio_pool_item is None:
+                    return restore_trim_failure(
+                        "the linked audio item lost its media-pool source")
+                new_audio_item, error = _replace_item(
+                    timeline, pool, audio_item, new_in, new_out, new_rec,
+                    audio_track_index, 2, pool_item=audio_pool_item,
+                    preservation_state=audio_snapshot["preservation_state"],
                     write_context={
                         "project": project.GetName(),
                         "project_folder": args.project_folder or None,
                         "timeline_id": timeline.GetUniqueId(),
                         "timeline_name": timeline.GetName(),
                     })
-                if restore_error:
-                    return fail(
-                        f"trim failed ({error}); full timeline restoration "
-                        f"could not be proven ({restore_error})",
-                        f"{TOOL} items --timeline \"{timeline.GetName()}\"")
-                return fail(f"trim failed ({error}); the original full "
-                            f"timeline snapshot was restored and verified",
-                            f"{TOOL} items --timeline "
-                            f"\"{timeline.GetName()}\"")
+                if error:
+                    return restore_trim_failure(
+                        "linked audio re-place failed: " + error)
+                try:
+                    timeline.SetClipsLinked([new_item, new_audio_item], True)
+                except Exception as exc:
+                    return restore_trim_failure(
+                        f"Resolve could not relink the trimmed pair ({exc})")
+
+                def linked_pair_verified():
+                    try:
+                        video_span = _item_span(new_item)
+                        audio_span = _item_span(new_audio_item)
+                        video_duration = (int(video_span["record_out"])
+                                          - int(video_span["record_in"]))
+                        audio_duration = (int(audio_span["record_out"])
+                                          - int(audio_span["record_in"]))
+                        video_source_end = _inclusive_source_end(
+                            int(video_span["source_in"]),
+                            int(video_span["source_out"]), video_duration)
+                        audio_source_end = _inclusive_source_end(
+                            int(audio_span["source_in"]),
+                            int(audio_span["source_out"]), audio_duration)
+                        video_uid = str(video_span["uid"])
+                        audio_uid_after = str(audio_span["uid"])
+                        video_links = {str(linked.GetUniqueId()) for linked in
+                                       (new_item.GetLinkedItems() or [])}
+                        audio_links = {str(linked.GetUniqueId()) for linked in
+                                       (new_audio_item.GetLinkedItems() or [])}
+                        after_snapshot = _timeline_trim_snapshot(timeline)
+                        new_uids = {video_uid, audio_uid_after}
+                        before_other = [
+                            _trim_row_semantic_signature(row)
+                            for row in before_snapshot
+                            if row["uid"] not in {uid, audio_uid}]
+                        after_other = [
+                            _trim_row_semantic_signature(row)
+                            for row in after_snapshot
+                            if row["uid"] not in new_uids]
+                        return (
+                            int(video_span["record_in"]) == new_rec
+                            and int(audio_span["record_in"]) == new_rec
+                            and video_duration == audio_duration
+                            and int(audio_span["record_out"])
+                            == int(video_span["record_out"])
+                            and int(video_span["source_in"]) == new_in
+                            and int(audio_span["source_in"]) == new_in
+                            and video_source_end == new_out
+                            and audio_source_end == new_out
+                            and audio_uid_after in video_links
+                            and video_uid in audio_links
+                            and sorted(before_other, key=repr)
+                            == sorted(after_other, key=repr))
+                    except Exception:
+                        return False
+
+                from library.tools import resolve_write_settle
+                pair_verified, _waited = resolve_write_settle.wait_for(
+                    linked_pair_verified)
+                if not pair_verified:
+                    return restore_trim_failure(
+                        "linked audio/picture source ranges, record spans, "
+                        "links or unrelated items did not read back in sync")
             # THE COMPOSITION, re-derived onto the re-placed clip.  The
             # clip is written; the treatment it carried is not, and a
             # clip whose composition was dropped renders the picture the
@@ -6928,47 +7194,18 @@ def cmd_edit_trim(args) -> int:
                         new_item, int(placed_span["record_out"])
                         - int(placed_span["record_in"]))
                 except Exception as exc:  # noqa: BLE001 - the write is undone
-                    restored, restore_error = _restore_trim_snapshot(
-                        timeline, pool, before_snapshot, uid,
-                        write_context={
-                            "project": project.GetName(),
-                            "project_folder": args.project_folder or None,
-                            "timeline_id": timeline.GetUniqueId(),
-                            "timeline_name": timeline.GetName(),
-                        })
-                    if restore_error:
-                        return fail(
-                            f"trim failed ({exc}); full timeline restoration "
-                            f"could not be proven ({restore_error})",
-                            f"{TOOL} items --timeline "
-                            f"\"{timeline.GetName()}\"")
-                    return fail(
-                        f"trim failed ({exc}); the original full timeline "
-                        "snapshot was restored and verified",
-                        f"{TOOL} items --timeline "
-                        f"\"{timeline.GetName()}\"")
+                    return restore_trim_failure(exc)
                 if not carry_receipt.get("carried"):
-                    restored, restore_error = _restore_trim_snapshot(
-                        timeline, pool, before_snapshot, uid,
-                        write_context={
-                            "project": project.GetName(),
-                            "project_folder": args.project_folder or None,
-                            "timeline_id": timeline.GetUniqueId(),
-                            "timeline_name": timeline.GetName(),
-                        })
-                    if restore_error:
-                        return fail(
-                            f"the composition did not read back "
-                            f"({carry_receipt}); full timeline restoration "
-                            f"could not be proven ({restore_error})",
-                            f"{TOOL} items --timeline "
-                            f"\"{timeline.GetName()}\"")
-                    return fail(
-                        f"the composition did not read back "
-                        f"({carry_receipt}); the original full timeline "
-                        "snapshot was restored and verified",
-                        f"{TOOL} items --timeline "
-                        f"\"{timeline.GetName()}\"")
+                    return restore_trim_failure(
+                        f"the composition did not read back ({carry_receipt})")
+            if new_audio_item is not None:
+                from library.tools import resolve_write_settle
+                pair_verified, _waited = resolve_write_settle.wait_for(
+                    linked_pair_verified)
+                if not pair_verified:
+                    return restore_trim_failure(
+                        "the linked A/V pair no longer reads in sync after "
+                        "composition preservation")
             journal_state["success"] = True
         new_span = _item_span(new_item)
         emit([kv_block("trimmed", {
@@ -6979,6 +7216,9 @@ def cmd_edit_trim(args) -> int:
                   "record_in": new_span["record_in"],
                   "verified": "yes (re-place present, original "
                   "absent)",
+                  "linked_audio": (
+                      "yes (trimmed, relinked and read back in sync)"
+                      if new_audio_item is not None else "not linked"),
               }),
               note,
               _journal_block(journal),
