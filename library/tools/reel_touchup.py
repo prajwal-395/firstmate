@@ -4073,9 +4073,19 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
     # and every one of those is still refused BY NAME here.  A request
     # the router cannot prove direct stages, exactly as before.
     if not staged_only:
+        direct_proof = _prove_direct(project_folder, spec, final,
+                                     resolve_name, source, project,
+                                     qualification, receipt, tracks,
+                                     resolve_app)
+    else:
+        direct_proof = None
+    selection = _select_execution_route(project_folder, receipt,
+                                        direct_proof, final)
+    if selection.strategy == "direct_patch" and direct_proof is not None:
         direct = _apply_direct(project_folder, spec, final, resolve_name,
                                source, project, qualification, receipt,
-                               started, tracks, resolve_app)
+                               started, tracks, resolve_app,
+                               proof=direct_proof)
         if direct is not None:
             return direct
 
@@ -4229,6 +4239,13 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
             _journal.fail_entry(project_folder, journal, repr(failed))
         _provenance.finish_timeline_inventory(
             review_dir, inventory_operation, _guard.timeline_inventory(project))
+        # AXI-016: a request that did not land is a MEASURED request
+        # too - the strategy it ran and the outcome it reached are what
+        # the cost comparison is made of.
+        _record_execution_request(
+            receipt, "staged_incremental", final,
+            verification=("refused" if isinstance(failed, TouchupRefused)
+                          else "failed"))
         raise
     receipt["seconds"] = round(time.time() - started, 3)
     # A touch and a planned incremental build expose the same transaction
@@ -4254,25 +4271,32 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
     }
     receipt["receipt_path"] = _write_receipt(
         project_folder, final, receipt, journal["id"])
+    # AXI-016: the request's own row - the strategy that ran, the wall
+    # clock it took and the verification it produced - so the three
+    # strategies are measured in the same unit.
+    _record_execution_request(
+        receipt, "staged_incremental", final,
+        verification=("verified" if receipt.get("promoted") else "failed"))
     return receipt
 
 
-def _apply_direct(project_folder: str, spec: Mapping, final: str,
+def _prove_direct(project_folder: str, spec: Mapping, final: str,
                   resolve_name: str, source: Any, project: Any,
                   qualification: Qualification, receipt: dict,
-                  started: float, tracks: Sequence[Mapping],
+                  tracks: Sequence[Mapping],
                   resolve_app: Any = None) -> dict | None:
-    """The direct route for a qualified small touch-up, or None to stage.
+    """The direct route's PROOF, or None when this is not a direct request.
 
-    None means "this request is not a direct request": the caller
-    stages it, exactly as it always did.  A dict is a finished touch:
-    the write landed, it was read back, the journal holds the state
-    before and after it, and the version it produced is undoable.
+    AXI-016: the proof is what makes the direct write SAFE, and safety
+    is a precondition of the cost-aware selection - not a preference.
+    Nothing is written here.  The proof is the plan (a property write on
+    an item the request names), the router's decision on it against the
+    MEASURED runtime, and the editor-change guard (the approved
+    timeline carries no unattributed hand edit, so a direct write
+    destroys nobody's accepted edit).
 
-    The four requirements are the module's (`touchup_direct`): the plan
-    is nothing but a property write, the router proves the direct mode
-    against the measured runtime, the approved timeline carries no
-    unattributed editor change, and the write is an EditPatch.
+    None means the direct route is not available for this request, and
+    the reason is on the receipt.
     """
     from library.tools import touchup_direct as _direct
 
@@ -4314,7 +4338,146 @@ def _apply_direct(project_folder: str, spec: Mapping, final: str,
                 f"direct write has no candidate to carry them on")
             touchup_phases.note("direct", receipt["direct_route"])
             return None
+    finally:
+        touchup_phases.close_phase("direct")
+    return {"plan": plan, "decision": decision, "guard": guard}
 
+
+def _select_execution_route(project_folder: str, receipt: dict,
+                            direct_proof: dict | None,
+                            final: str):
+    """The route this touch runs, chosen from the SAFE ones by cost.
+
+    AXI-016: the direct route and the staged route are both offered
+    when the direct route is PROVEN, and the selection takes the
+    cheapest one this project has MEASURED.  Where the cost has not
+    been measured here, the route that disturbs the least is taken and
+    the record says the cost was unmeasured - an unmeasured strategy is
+    never reported as a cheap one.
+
+    The comparison rides the receipt, so a reader can see what each
+    route costs HERE and why this one was taken.
+    """
+    from library.tools import execution_cost as _cost
+    from library.tools import execution_router as _router
+
+    candidates = []
+    if direct_proof is not None:
+        candidates.append(_cost.Candidate(
+            "direct_patch", True,
+            "the router proved the direct mode against the measured "
+            "runtime, and the approved timeline carries no unattributed "
+            "editor change",
+            _cost.profile("direct_patch").verification))
+    else:
+        # The direct route was asked and DECLINED.  The comparison
+        # carries the decline and its reason, so a reader can see that
+        # the smaller mutation was not taken BECAUSE it was not
+        # verified here - not because nobody asked.
+        declined = str(receipt.get("direct_route") or "")
+        if declined.startswith("staged: "):
+            candidates.append(_cost.Candidate(
+                "direct_patch", False, declined[len("staged: "):],
+                _cost.profile("direct_patch").verification))
+    candidates.append(_cost.Candidate(
+        "staged_incremental", True,
+        "the staging protects against a partial write, a lost row, a "
+        "wrong target and an editor's hand edit",
+        _cost.profile("staged_incremental").verification))
+    # The ROUTER chooses: this path asks, it does not decide, so the
+    # engine keeps ONE place where a route is chosen.
+    selection = _router.select_route(
+        candidates, costs=_measured_execution_costs(project_folder))
+    receipt["execution_cost"] = selection.as_dict()
+    if direct_proof is not None and selection.strategy != "direct_patch":
+        # The direct route was PROVEN and was not taken: the record says
+        # so, because a reader who finds the proof on the receipt and
+        # no write must be able to say why.
+        receipt["direct_route"] = (
+            "direct: proven and not taken - " + selection.reason)
+    return selection
+
+
+def _measured_execution_costs(project_folder: str) -> dict:
+    """What THIS project has measured for each execution strategy.
+
+    Read from the project's own performance ledger, never from a table
+    of another project's numbers.  A project with no ledger has measured
+    nothing, and the answer says so rather than reporting a zero.
+    """
+    from library.tools import execution_cost as _cost
+    from library.tools import perf_ledger as _perf
+
+    if not project_folder:
+        return {}
+    try:
+        rows = _perf.read_rows(project_folder)
+    except OSError:
+        return {}
+    return _cost.measured_costs(rows)
+
+
+def _record_execution_request(receipt: dict, strategy: str, final: str,
+                              *, verification: str = "verified") -> None:
+    """Record this request's strategy, wall clock and verification.
+
+    AXI-016: the three strategies are only comparable if they are
+    measured the same way, so every touch writes the same row: the
+    strategy that ran, the seconds it took and the outcome it reached.
+    A touch with no ledger attached records nothing, exactly as every
+    other measurement in the engine does.
+    """
+    from library.tools import execution_cost as _cost
+
+    wall = receipt.get("seconds")
+    if not isinstance(wall, (int, float)):
+        return
+    try:
+        _cost.record_request(
+            strategy=strategy, wall_s=float(wall),
+            verification=str(verification),
+            request_id=str(receipt.get("journal") or ""),
+            target=str(final or ""))
+    except ValueError:
+        # A strategy nobody declared is a defect in the CALLER, not a
+        # reason to lose the touch's own record.
+        return
+
+
+def _apply_direct(project_folder: str, spec: Mapping, final: str,
+                  resolve_name: str, source: Any, project: Any,
+                  qualification: Qualification, receipt: dict,
+                  started: float, tracks: Sequence[Mapping],
+                  resolve_app: Any = None,
+                  proof: Mapping | None = None) -> dict | None:
+    """The direct route for a qualified small touch-up, or None to stage.
+
+    None means "this request is not a direct request": the caller
+    stages it, exactly as it always did.  A dict is a finished touch:
+    the write landed, it was read back, the journal holds the state
+    before and after it, and the version it produced is undoable.
+
+    The four requirements are the module's (`touchup_direct`): the plan
+    is nothing but a property write, the router proves the direct mode
+    against the measured runtime, the approved timeline carries no
+    unattributed editor change, and the write is an EditPatch.  The
+    first three are the PROOF (`_prove_direct`), which the cost-aware
+    selection asked for before it chose this route.
+    """
+    from library.tools import touchup_direct as _direct
+
+    if proof is None:
+        proof = _prove_direct(project_folder, spec, final, resolve_name,
+                               source, project, qualification, receipt,
+                               tracks, resolve_app)
+    if proof is None:
+        return None
+    plan = proof["plan"]
+    decision = proof["decision"]
+    guard = proof["guard"]
+
+    touchup_phases.open_phase("direct")
+    try:
         # THE UNDO JOURNAL, before anything changes: the same record the
         # staged route files, with the reads this route already made
         # handed over instead of paid for twice.
@@ -4398,6 +4561,10 @@ def _apply_direct(project_folder: str, spec: Mapping, final: str,
     receipt["seconds"] = round(time.time() - started, 3)
     receipt["receipt_path"] = _write_receipt(
         project_folder, final, receipt, journal["id"])
+    # AXI-016: the same row the staged route writes, so the two are
+    # measured in the same unit on the same ledger.
+    _record_execution_request(receipt, "direct_patch", final,
+                               verification="verified")
     print(f"touch-reel {final}: direct ({decision['backend']}) - "
           f"written in place, no staging, no promotion", flush=True)
     print(f"  {receipt['direct_route']}", flush=True)

@@ -10980,7 +10980,6 @@ twenty minutes, which another lane held, and the second was refused with
 `ResourceLeaseBusy` after a 900 s wait on the project lease, held by another
 lane's pipeline run. Live runs were not forced past that contention, so the
 numbers above are the deterministic ones.
->>>>>>> 8b2177f46 (Record the scoped-change evidence in docs/RULE_EVIDENCE.md)
 
 ## the-request-two-doors-read-two-ways
 

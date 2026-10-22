@@ -187,11 +187,12 @@ STAGE_LAYERS = {
     "touchup_duplicate": "axi",
     "touchup_conform_compose_verify": "axi",
     "touchup_promote": "axi",
-    # The DIRECT route's own phase (PR 3077).  It is the same AXI
-    # stage as the staged phases it replaces: without it the direct
-    # route's seconds claimed NO stage and read as unattributed time,
-    # which is how the whole-reel bookkeeping the direct route avoids
-    # became invisible in the stage table.
+    # The DIRECT route's own phase (PR 3077, and the same gap AXI-016
+    # found while measuring the three execution strategies).  It is the
+    # same AXI stage as the staged phases it replaces: without it the
+    # direct route's seconds claimed NO stage and read as unattributed
+    # time, which is how the whole-reel bookkeeping the direct route
+    # avoids became invisible in the stage table.
     "touchup_direct": "axi",
     "version_store": "axi",
     "archive_export": "axi",
@@ -218,7 +219,9 @@ STAGE_LAYERS = {
 #: Layers that SUMMARY other rows rather than measure a stage of their
 #: own. `reel_edit` is the reel build's own accounting of its cost, so
 #: counting it as a stage would charge the same seconds twice.
-SUMMARY_LAYERS = {"reel_edit"}
+#: `execution_strategy` is the same shape: one row per execution
+#: request, accounting for seconds the phase rows already carry (AXI-016).
+SUMMARY_LAYERS = {"reel_edit", "execution_strategy"}
 
 #: The layers a MODEL call is recorded under. A profile's model cost is
 #: the tokens these layers carry - `host_model` for a host model that

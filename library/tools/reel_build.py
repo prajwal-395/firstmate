@@ -10043,7 +10043,16 @@ def strategy_after_incremental_refusal(refused, *, project_folder: str = "") -> 
         # it is what the caller sees; the router's refusal is the reason
         # it was not rebuilt over.
         raise refused from router_refused
-    return decision.as_dict()
+    decision_record = decision.as_dict()
+    # AXI-016: the rebuild that follows a refusal is DOCUMENTED here -
+    # it is named as an escalation, with the category it followed.  The
+    # guard refuses a rebuild nobody authorized, so a rebuild can never
+    # be the quiet way around a refusal the router would have answered.
+    from library.tools import execution_cost as _cost
+    decision_record["escalation"] = _cost.assert_documented_escalation(
+        decision_record, refusal_category=refused.category,
+        authorized=True)
+    return decision_record
 
 
 def measured_strategy_costs(project_folder: str):
@@ -10052,14 +10061,55 @@ def measured_strategy_costs(project_folder: str):
     Read from the project's own performance ledger. Where nothing was
     measured, the answer is `None` and the routing record says
     "unmeasured" - never a number from anywhere else.
+
+    AXI-016: the two families sit beside each other on the same
+    ledger, and the three STRATEGIES - the direct patch, the staged
+    incremental and the full rebuild - are read out of the rows the
+    engine writes for them, so the routing record can compare the
+    routes it is choosing between.
     """
     if not project_folder:
         return None
     from library.tools import perf_ledger as _perf
-    return _perf.measured_strategy_costs(
-        _perf.read_rows(
-            project_folder,
-            ledger_override=os.environ.get(_perf.LEDGER_ENV)))
+    rows = _perf.read_rows(
+        project_folder,
+        ledger_override=os.environ.get(_perf.LEDGER_ENV))
+    costs = _perf.measured_strategy_costs(rows)
+    from library.tools import execution_cost as _cost
+    strategies = _cost.measured_costs(rows)
+    if costs is None and not strategies:
+        return None
+    measured = dict(costs or {})
+    for name, entry in strategies.items():
+        measured[name] = entry
+    return measured
+
+
+def _record_execution_strategy(final: str, performance: Mapping,
+                                project_folder: str) -> None:
+    """Record the route that built one reel, its wall clock and its outcome.
+
+    AXI-016: a build is one of the three strategies, and it is measured
+    the way a touch is measured - the same row, the same unit - so the
+    three are comparable in one place.  The row is written only for a
+    reel that was VERIFIED and promoted, so the outcome it carries is
+    the verified one.
+    """
+    from library.tools import execution_cost as _cost
+
+    started = performance.get("started_at")
+    total = max(0.0, time.time() - float(started or time.time())
+                - float(performance.get("project_switch_s") or 0.0))
+    strategy = ("full_rebuild"
+                if int(performance.get("full_rebuilds") or 0) > 0
+                else "staged_incremental")
+    try:
+        _cost.record_request(
+            strategy=strategy, wall_s=total, verification="verified",
+            request_id=str(final or ""), target=str(final or ""),
+            reel=str(final or ""))
+    except ValueError:
+        return
 
 
 def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None, semantic_segments=None, look=None, motion=None, master_timeline=None, program_channels=None, extra_cuts: Sequence[tuple] = (), j_cut: dict = None, cutaway: dict = None, grade_cdl=None, power_grade=None, overlay_intent: dict = None, ranges=None, ending=None, lower_third_segments=None, card_row_role=None, do_not_draw: list = None,
@@ -18480,6 +18530,11 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     # denominator of the cost per verified decision.
                     "verified": True,
                 })
+            # AXI-016: the build's own strategy row, so a build and a
+            # touch are measured the same way and the three strategies
+            # are comparable in ONE place.
+            _record_execution_strategy(
+                _final, _performance, project_folder)
             _file_reel_summary(
                 project_folder,
                 number=_facts.get(

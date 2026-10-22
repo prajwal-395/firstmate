@@ -438,3 +438,110 @@ def test_the_staged_phases_still_exist_for_a_staged_touch(
     rows = _phase_rows(_rows(ledger_path), "reel")
     assert phase in rows, (
         f"the {phase} phase is still measured: {sorted(rows)}")
+
+
+# ── 5. The cost-aware selection and the row it writes ───────────────
+#
+# AXI-016: the route is CHOSEN, not merely tried.  The direct route is
+# PROVEN first (the plan, the router's decision against the measured
+# runtime and the editor-change guard), and the selection then takes
+# the safe route this project has MEASURED cheapest.  The comparison
+# rides the receipt, and the request's own row - the strategy, the wall
+# clock and the verification outcome - rides the ledger, so the three
+# strategies are measured the same way.
+
+
+def test_the_receipt_carries_the_cost_comparison_and_the_reason(
+        tmp_path, monkeypatch):
+    """Defect: the route was taken by falling through a sequence of
+    tries, so the receipt could not say what the other route would
+    have cost, or why this one ran."""
+    project, folder = _project(tmp_path, monkeypatch)
+    _mock_resolve_app(monkeypatch, project)
+    _mock_qualification(monkeypatch)
+
+    with _sole_writer():
+        receipt = _touch(folder, project, _property_spec())
+
+    selection = receipt["execution_cost"]
+    assert selection["strategy"] == "direct_patch", selection
+    compared = {entry["strategy"]: entry for entry in selection["comparison"]}
+    assert set(compared) == {"direct_patch", "staged_incremental"}
+    assert compared["direct_patch"]["chosen"] is True
+    assert compared["staged_incremental"]["chosen"] is False
+    assert selection["reason"]
+
+
+def test_the_touch_records_the_strategy_it_ran_and_its_outcome(
+        tmp_path, monkeypatch):
+    """Defect: nothing recorded which route a touch took, so the direct
+    route and the staged route were never comparable - and a strategy
+    nobody measured read as a strategy nobody ran."""
+    project, folder = _project(tmp_path, monkeypatch)
+    _mock_resolve_app(monkeypatch, project)
+    _mock_qualification(monkeypatch)
+    ledger_path = tmp_path / "perf_ledger.jsonl"
+
+    with (perf_ledger.recording(str(ledger_path), "run-cost",
+                                 "reel.touchup", required=True),
+          _sole_writer()):
+        receipt = _touch(folder, project, _property_spec())
+
+    from library.tools import execution_cost
+
+    rows = [row for row in _rows(ledger_path)
+            if row.get("layer") == execution_cost.STRATEGY_LAYER]
+    assert len(rows) == 1, rows
+    assert rows[0]["strategy"] == "direct_patch"
+    assert rows[0]["verification"] == "verified"
+    assert rows[0]["wall_s"] > 0
+    assert rows[0]["target"] == REEL
+    assert receipt["execution_cost"]["strategy"] == "direct_patch"
+
+
+def test_a_staged_touch_records_the_staged_strategy(
+        tmp_path, monkeypatch):
+    """Defect: only the direct route was measured, so the comparison
+    had one side of it and the staged route's cost was never in the
+    same unit as the direct route's."""
+    project, folder = _project(tmp_path, monkeypatch)
+    _mock_resolve_app(monkeypatch, project)
+    _mock_qualification(monkeypatch, state={
+        "inspected": False, "reason": "not inspected"})
+    ledger_path = tmp_path / "perf_ledger.jsonl"
+
+    with (perf_ledger.recording(str(ledger_path), "run-cost-staged",
+                                 "reel.touchup", required=True),
+          _sole_writer()):
+        receipt = _touch(folder, project, _property_spec())
+
+    from library.tools import execution_cost
+
+    rows = [row for row in _rows(ledger_path)
+            if row.get("layer") == execution_cost.STRATEGY_LAYER]
+    assert len(rows) == 1, rows
+    assert rows[0]["strategy"] == "staged_incremental"
+    assert rows[0]["verification"] == "verified"
+    assert receipt["execution_cost"]["strategy"] == "staged_incremental"
+
+
+def test_a_declined_direct_route_is_on_the_comparison_with_its_reason(
+        tmp_path, monkeypatch):
+    """Defect: the smaller mutation was not taken and the record said
+    nothing about it, so a reader could not tell whether the engine had
+    asked and been refused or had never asked."""
+    project, folder = _project(tmp_path, monkeypatch)
+    _mock_resolve_app(monkeypatch, project)
+    _mock_qualification(monkeypatch, state={
+        "inspected": False, "reason": "the runtime was not inspected"})
+
+    with _sole_writer():
+        receipt = _touch(folder, project, _property_spec())
+
+    selection = receipt["execution_cost"]
+    assert selection["strategy"] == "staged_incremental"
+    compared = {entry["strategy"]: entry for entry in selection["comparison"]}
+    assert set(compared) == {"direct_patch", "staged_incremental"}
+    assert compared["direct_patch"]["chosen"] is False
+    assert "not proven safe" in compared["direct_patch"]["excluded"]
+    assert "runtime was not inspected" in compared["direct_patch"]["excluded"]

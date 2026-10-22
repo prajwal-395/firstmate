@@ -200,6 +200,9 @@ FAMILY_BLOCKERS = {
     "library.tools.edit_input_digest.DigestError": "insufficient_evidence",
     "library.tools.edit_patch.PatchRefused": "unsafe_state",
     "library.tools.execution_router.RoutingRefused": "unsupported_operation",
+    "library.tools.execution_cost.NoStrategyAvailable":
+        "unsupported_operation",
+    "library.tools.execution_cost.RebuildEscapeRefused": "unsafe_state",
     "library.tools.execution.deliver_loaders.LoaderDeliveryRefused":
         "missing_media",
     "library.tools.external_inputs.ExternalStateError": "insufficient_evidence",

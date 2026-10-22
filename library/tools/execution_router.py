@@ -1250,6 +1250,33 @@ def decision_for_prepared_request(prepared, *, operations: Sequence[dict] | None
     return None
 
 
+def select_route(candidates, *, costs: Mapping | None = None,
+                 required_verification: Sequence[str] = ()):
+    """Choose among the strategies some other evidence proved SAFE.
+
+    AXI-016: the ONE place a route is chosen from what it COSTS.  The
+    candidates are strategies a caller has already proven safe for
+    this request - the router's own proof for a direct write, the
+    staging copy's protection for a staged one - and this picks the
+    cheapest one this project has MEASURED, falling back to the route
+    that disturbs the least when the cost has not been measured here.
+
+    A caller ASKS this; it does not decide for itself, so the engine
+    keeps ONE place where a route is chosen (`backend_selection`
+    names it as the selector).  The comparison and the reason ride
+    the caller's receipt.
+
+    `library/tools/execution_cost.py` holds the strategies, their
+    preservation guarantees and the reading of the measured costs; this
+    is the router's door onto them.
+    """
+    from library.tools import execution_cost
+
+    return execution_cost.select(
+        list(candidates), costs=costs,
+        required_verification=required_verification)
+
+
 def route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> ExecutionDecision:
     """Choose a backend for an already compiled edit and explain every choice.
 
