@@ -1,418 +1,609 @@
 {
+  "evaluation": {
+    "agent_receives_asset_selection": true,
+    "agent_receives_editorial_decision": true,
+    "agent_receives_expected_operation": true,
+    "agent_receives_expected_target": true,
+    "compound_request_count": 0,
+    "level": 2,
+    "limitations": [
+      "The production host adapter is given typed operation and fixture keys; this is not an autonomy result.",
+      "Editorial quality against a creative brief is not measured by this level."
+    ],
+    "name": "semantic_execution"
+  },
+  "evaluation_levels": [
+    {
+      "evidence_status": "live_backend_qualification_suites",
+      "level": 1,
+      "name": "primitive_qualification",
+      "question": "Can the backend perform a specified operation?"
+    },
+    {
+      "evidence_status": "evaluator_directed_semantic_acceptance",
+      "level": 2,
+      "name": "semantic_execution",
+      "question": "Can AXI safely execute a typed request?"
+    },
+    {
+      "evidence_status": "blind_runner_implemented_live_agent_run_pending",
+      "level": 3,
+      "name": "autonomous_orchestration",
+      "question": "Can Ren infer operations and targets from an instruction?"
+    },
+    {
+      "evidence_status": "scorer_implemented_judgment_run_pending",
+      "level": 4,
+      "name": "editorial_acceptance",
+      "question": "Does the completed video satisfy the creative brief?"
+    }
+  ],
+  "failed": 3,
+  "failure_categories": {},
+  "first_attempt_passes": 7,
+  "passed": 7,
   "provenance": {
     "environment": {
-      "machine": "not_recorded",
-      "platform": "not_recorded",
-      "python_version": "not_recorded"
+      "machine": "arm64",
+      "platform": "macOS-26.3-arm64-arm-64bit",
+      "python_version": "3.12.13"
     },
-    "environment_note": "the machine that produced this report is not recorded in it",
     "evaluation_schema": "ren-editorial-acceptance/2",
     "evidence_kind": "live-qualification",
     "fixture": "Ren Qualification / fm-scratch qualify (seeded)",
     "producer": "tests/live/editorial_acceptance.py:run_tasks (driver: tests/live/editorial_live_adapter.py)",
-    "reconciliation": {
-      "denominator": "10 typed requests",
-      "how_to_read_the_two": "both are live-qualification runs of the same ten requests in different environments; the newer one does not silently replace the older one",
-      "result": "4 of 10 passed",
-      "the_older_measurement_of_the_same_measurement": "tests/live/reports/editorial-request-acceptance-2026-10-20.json (1 of 10, the qualification fixture could not be seeded)",
-      "what_this_file_measures": "the ten ordinary typed requests at evaluation level 2, run on 2026-10-21 with the qualification fixture seeded",
-      "why_the_failures_are_not_capability_failures": "the 6 failing rows are missing_evidence: the fixture batch could not seed qual_a.mp4 for those cases (the append reported nothing but the item count did not move), so they measure the fixture, not the backend"
-    },
     "resolve_version": "not_recorded",
-    "run_timestamp": "not_recorded",
-    "run_timestamp_note": "the run's own timestamp is not recorded in this file; the revision that recorded it is dated 2026-10-21T19:56:57-04:00",
+    "run_timestamp": "2026-10-22T03:52:27Z",
     "scope": {
       "evaluation_level": 2,
       "fixture": "Ren Qualification / fm-scratch qualify (seeded)",
       "measurement": "ordinary_request_acceptance",
       "task_set": "move_lower_third,resize_logo,add_logo_five_seconds,trim_pause,replace_graphic,restyle_captions,remove_broll,insert_relevant_broll,right_speaker_camera,improve_opening"
     },
-    "source_commit": "8b7189c883337ed78d384030e3ab5c4be812d9fe",
-    "source_commit_note": "the revision that recorded this file; the measurement predates provenance headers, so the revision it ran at is not recorded in it"
+    "source_commit": "f6e8d6cb49df602d1bfd361af2fa92f8f61096ae",
+    "supersedes": [
+      {
+        "evaluation_schema": "ren-editorial-acceptance/2",
+        "run_timestamp": "not_recorded",
+        "source_commit": "53a22521f31cc25c30231ff2460be06857f37e33"
+      }
+    ]
   },
-  "schema": "ren-editorial-acceptance/2",
-  "evaluation_levels": [
-    {
-      "level": 1,
-      "name": "primitive_qualification",
-      "question": "Can the backend perform a specified operation?",
-      "evidence_status": "live_backend_qualification_suites"
+  "reliability_metrics": {
+    "latency_seconds": {
+      "fixture_setup_mean": null,
+      "fixture_setup_measured_tasks": 0,
+      "mean_instruction_to_verified": 106.91213041657466,
+      "measured_tasks": 7,
+      "median_instruction_to_verified": 105.70771137499833,
+      "per_request_instruction_to_verified": {
+        "add_logo_five_seconds": 110.48198845901061,
+        "improve_opening": null,
+        "insert_relevant_broll": 120.32247991600889,
+        "move_lower_third": 311.83628562500235,
+        "remove_broll": 37.093670083006145,
+        "replace_graphic": 31.448071457998594,
+        "resize_logo": 105.70771137499833,
+        "restyle_captions": 31.494705999997677,
+        "right_speaker_camera": null,
+        "trim_pause": null
+      },
+      "status": "measured"
     },
-    {
-      "level": 2,
-      "name": "semantic_execution",
-      "question": "Can AXI safely execute a typed request?",
-      "evidence_status": "evaluator_directed_semantic_acceptance"
+    "outcomes": {
+      "missing_evidence": 3,
+      "reasoning_failure": 0,
+      "safe_refusal": 0,
+      "success": 7,
+      "unsafe_failure": 0
     },
-    {
-      "level": 3,
-      "name": "autonomous_orchestration",
-      "question": "Can Ren infer operations and targets from an instruction?",
-      "evidence_status": "blind_runner_implemented_live_agent_run_pending"
+    "rates": {
+      "backend_selection_correctness": {
+        "measured": 7,
+        "not_measured": 3,
+        "status": "measured",
+        "total": 10,
+        "value": 1.0
+      },
+      "capability_discovery": {
+        "measured": 7,
+        "not_measured": 3,
+        "status": "measured",
+        "total": 10,
+        "value": 1.0
+      },
+      "collateral_change_rate": {
+        "measured": 10,
+        "not_measured": 0,
+        "status": "measured",
+        "total": 10,
+        "value": 0.0
+      },
+      "delivery": {
+        "measured": 7,
+        "not_measured": 3,
+        "status": "measured",
+        "total": 10,
+        "value": 0.0
+      },
+      "first_attempt_execution": {
+        "measured": 7,
+        "not_measured": 3,
+        "status": "measured",
+        "total": 10,
+        "value": 1.0
+      },
+      "intent_interpretation": {
+        "measured": 7,
+        "not_measured": 3,
+        "status": "measured",
+        "total": 10,
+        "value": 1.0
+      },
+      "preservation": {
+        "measured": 0,
+        "not_measured": 10,
+        "status": "not_measured",
+        "total": 10,
+        "value": null
+      },
+      "recovery": {
+        "measured": 0,
+        "not_measured": 10,
+        "status": "not_measured",
+        "total": 10,
+        "value": null
+      },
+      "target_resolution": {
+        "measured": 0,
+        "not_measured": 10,
+        "status": "not_measured",
+        "total": 10,
+        "value": null
+      },
+      "verification": {
+        "measured": 7,
+        "not_measured": 3,
+        "status": "measured",
+        "total": 10,
+        "value": 1.0
+      }
     },
-    {
-      "level": 4,
-      "name": "editorial_acceptance",
-      "question": "Does the completed video satisfy the creative brief?",
-      "evidence_status": "scorer_implemented_judgment_run_pending"
-    }
-  ],
-  "task_count": 10,
-  "passed": 4,
-  "failed": 6,
-  "first_attempt_passes": 4,
+    "schema": "ren-editorial-reliability-metrics/2",
+    "task_count": 10
+  },
   "results": [
     {
+      "backend_selection": {
+        "basis": "task overlay.position executes through the production clip.set_property path; the router selects edit_patch.property under production and the read-back above verifies the 40 px move",
+        "executed_entry": "edit_patch.apply_live_patch",
+        "router_routes": {
+          "production": {
+            "refusal": "RoutingRefused: ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  blocker: unsupported_operation - the engine has no proven way to do this\n  what: no production-qualified executor is available for: clip.set_property\n  why: no production-qualified executor is available for: clip.set_property; production routing fails closed (clip.set_property: runtime qualification state was not inspected)\n  fix: Qualify the operation on a live Resolve timeline and import the evidence, or route it under the protected experimental policy with explicit staging, preservation and verification guarantees.\n  next action: use_a_supported_operation",
+            "selected": ""
+          },
+          "protected_experimental": {
+            "selected": "edit_patch.property"
+          },
+          "selected": "edit_patch.property"
+        },
+        "selected": "edit_patch.property",
+        "selection_correct": true
+      },
+      "benchmark": {
+        "attempts": 1
+      },
+      "checks": {
+        "moved_up_40px": true,
+        "other_items_unchanged": true,
+        "size_unchanged": true,
+        "timing_unchanged": true
+      },
+      "collateral_changes": [],
+      "discovery": {
+        "algebra_present": true,
+        "discovered_from_request": true,
+        "operation": "overlay.position",
+        "phases": {
+          "discovery_s": 0.004343665990745649,
+          "live_execution_s": 311.8329728330136,
+          "routing_s": 0.005270624998956919
+        },
+        "request_id": "edit_req_5b20898a7e6749ad"
+      },
+      "elapsed_seconds": 311.83628483398934,
+      "evaluation_level": 2,
+      "execution_mode": "request",
+      "fixture_setup_seconds": null,
       "id": "move_lower_third",
       "instruction": "Move the selected lower third up by 40 output pixels, keeping its timing, size, safe-area placement, and every other item unchanged.",
+      "instruction_to_verified_seconds": 311.83628562500235,
+      "observed": {
+        "before": [
+          {
+            "kind": "video",
+            "name": "qual_a.mp4",
+            "pan": 0.0,
+            "record": [
+              0,
+              96
+            ],
+            "scaling": 0,
+            "source": [
+              0,
+              95
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4",
+            "tilt": 0.0,
+            "track": 1,
+            "track_name": "Video 1",
+            "unique_id": "daeb2df0-043f-499c-b380-74a76c477970",
+            "zoomx": 1.0,
+            "zoomy": 1.0
+          },
+          {
+            "kind": "video",
+            "name": "qual_b.mp4",
+            "pan": 0.0,
+            "record": [
+              96,
+              168
+            ],
+            "scaling": 0,
+            "source": [
+              0,
+              71
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4",
+            "tilt": 0.0,
+            "track": 1,
+            "track_name": "Video 1",
+            "unique_id": "e3a5d86b-caed-4792-85e1-c54d0a5daff1",
+            "zoomx": 1.0,
+            "zoomy": 1.0
+          },
+          {
+            "kind": "video",
+            "name": "qual_c.mp4",
+            "pan": 0.0,
+            "record": [
+              168,
+              216
+            ],
+            "scaling": 0,
+            "source": [
+              0,
+              47
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4",
+            "tilt": 0.0,
+            "track": 1,
+            "track_name": "Video 1",
+            "unique_id": "ef4571fa-e3da-4710-8f52-552d3803b62e",
+            "zoomx": 1.0,
+            "zoomy": 1.0
+          },
+          {
+            "kind": "video",
+            "name": "fm-qual-tight-caption-480x120.png",
+            "pan": 0.0,
+            "record": [
+              96,
+              216
+            ],
+            "scaling": 0,
+            "source": [
+              120,
+              120
+            ],
+            "source_path": "/tmp/fm-qual-tight-caption-480x120.png",
+            "tilt": 0.0,
+            "track": 3,
+            "track_name": "V3",
+            "unique_id": "44c10839-b1f6-4f91-b27d-ecc68b4cbda5",
+            "zoomx": 1.0,
+            "zoomy": 1.0
+          }
+        ],
+        "items": [
+          {
+            "kind": "video",
+            "name": "qual_a.mp4",
+            "pan": 0.0,
+            "record": [
+              0,
+              96
+            ],
+            "scaling": 0,
+            "source": [
+              0,
+              95
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4",
+            "tilt": 0.0,
+            "track": 1,
+            "track_name": "Video 1",
+            "unique_id": "daeb2df0-043f-499c-b380-74a76c477970",
+            "zoomx": 1.0,
+            "zoomy": 1.0
+          },
+          {
+            "kind": "video",
+            "name": "qual_b.mp4",
+            "pan": 0.0,
+            "record": [
+              96,
+              168
+            ],
+            "scaling": 0,
+            "source": [
+              0,
+              71
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4",
+            "tilt": 0.0,
+            "track": 1,
+            "track_name": "Video 1",
+            "unique_id": "e3a5d86b-caed-4792-85e1-c54d0a5daff1",
+            "zoomx": 1.0,
+            "zoomy": 1.0
+          },
+          {
+            "kind": "video",
+            "name": "qual_c.mp4",
+            "pan": 0.0,
+            "record": [
+              168,
+              216
+            ],
+            "scaling": 0,
+            "source": [
+              0,
+              47
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4",
+            "tilt": 0.0,
+            "track": 1,
+            "track_name": "Video 1",
+            "unique_id": "ef4571fa-e3da-4710-8f52-552d3803b62e",
+            "zoomx": 1.0,
+            "zoomy": 1.0
+          },
+          {
+            "kind": "video",
+            "name": "fm-qual-tight-caption-480x120.png",
+            "pan": 0.0,
+            "record": [
+              96,
+              216
+            ],
+            "scaling": 0,
+            "source": [
+              120,
+              120
+            ],
+            "source_path": "/tmp/fm-qual-tight-caption-480x120.png",
+            "tilt": -40.0,
+            "track": 3,
+            "track_name": "V3",
+            "unique_id": "44c10839-b1f6-4f91-b27d-ecc68b4cbda5",
+            "zoomx": 1.0,
+            "zoomy": 1.0
+          }
+        ]
+      },
       "operation": "overlay.position",
-      "production_entry": "ren revise / Resolve AXI transaction",
-      "evaluation_level": 2,
-      "status": "pass",
       "outcome": "success",
+      "production_entry": "ren revise / Resolve AXI transaction",
       "receipt": {
-        "status": "committed",
         "move": {
-          "patch_id": "ren-bfe7cf4552bf5104968be3e27aabc7991740813bc634889a17bbc42eb0fbdcdc",
-          "status": "committed",
-          "resolve_write_status": "committed",
+          "acceptance_contracts": [
+            {
+              "checks": [
+                "operation_readback_matches_request",
+                "unrelated_items_unchanged"
+              ],
+              "failed": [],
+              "id": "acceptance:clip.set_property",
+              "missing": [],
+              "operation": "clip.set_property",
+              "passed": true,
+              "results": [
+                {
+                  "check": "operation_readback_matches_request",
+                  "evidence": null,
+                  "passed": true,
+                  "status": "passed"
+                },
+                {
+                  "check": "unrelated_items_unchanged",
+                  "evidence": true,
+                  "passed": true,
+                  "status": "passed"
+                }
+              ],
+              "status": "passed",
+              "structural_source": "timeline_readback"
+            },
+            {
+              "checks": [
+                "operation_readback_matches_request",
+                "unrelated_items_unchanged"
+              ],
+              "failed": [],
+              "id": "acceptance:clip.set_property",
+              "missing": [],
+              "operation": "clip.set_property",
+              "passed": true,
+              "results": [
+                {
+                  "check": "operation_readback_matches_request",
+                  "evidence": null,
+                  "passed": true,
+                  "status": "passed"
+                },
+                {
+                  "check": "unrelated_items_unchanged",
+                  "evidence": true,
+                  "passed": true,
+                  "status": "passed"
+                }
+              ],
+              "status": "passed",
+              "structural_source": "timeline_readback"
+            }
+          ],
+          "applied": {
+            "complete": true,
+            "operations": 2,
+            "requested": 2,
+            "status": "applied"
+          },
+          "backend": "edit_patch",
           "base_generation": 1,
-          "project": "Ren Qualification",
-          "timeline": "fm-scratch qualify 20261021T114831Z-8e3b44",
-          "requested_operation_count": 2,
+          "committed": {
+            "generation": 2,
+            "project_model": {
+              "revision": null,
+              "status": "not_required"
+            },
+            "status": "committed"
+          },
+          "delivered": {
+            "status": "not_requested"
+          },
+          "exclusive_hold_seconds": 0.2013,
+          "executing": {
+            "status": "completed",
+            "stopped": null
+          },
+          "execution_contract": {
+            "backend": "edit_patch",
+            "limitations": [],
+            "receipt": {
+              "idempotency_key": "ren-b30e7697a95a815ed0181b3f947951bcb1c7dafd09ecb4f28660ae104b4dddb6",
+              "transaction_id": "ren-b30e7697a95a815ed0181b3f947951bcb1c7dafd09ecb4f28660ae104b4dddb6"
+            },
+            "recovery": {
+              "action": "none",
+              "evidence": {
+                "recovery_record_present": true
+              },
+              "reason": "transaction verified",
+              "status": "not_attempted"
+            },
+            "status": "committed",
+            "verification": {
+              "checks": [
+                {
+                  "failures": [],
+                  "operation": "clip.set_property",
+                  "passed": true,
+                  "status": "passed"
+                },
+                {
+                  "failures": [],
+                  "operation": "clip.set_property",
+                  "passed": true,
+                  "status": "passed"
+                }
+              ],
+              "evidence": {
+                "acceptance_check_count": 2,
+                "acceptance_outcome": "accepted",
+                "readback_present": true
+              },
+              "layers": {
+                "rendered_audio": {
+                  "evidence": {},
+                  "status": "not_measured"
+                },
+                "rendered_pixels": {
+                  "evidence": {},
+                  "status": "not_measured"
+                },
+                "stored_state": {
+                  "checks": 2,
+                  "status": "verified"
+                }
+              },
+              "missing": [],
+              "status": "verified"
+            }
+          },
           "expected_state": {
             "operations": [
               {
-                "op": "clip.set_property",
-                "unique_id": "90f1139f-8e43-44a9-9874-c05c9b86974d",
                 "key": "Pan",
+                "op": "clip.set_property",
+                "unique_id": "44c10839-b1f6-4f91-b27d-ecc68b4cbda5",
                 "value": 0.0
               },
               {
-                "op": "clip.set_property",
-                "unique_id": "90f1139f-8e43-44a9-9874-c05c9b86974d",
                 "key": "Tilt",
+                "op": "clip.set_property",
+                "unique_id": "44c10839-b1f6-4f91-b27d-ecc68b4cbda5",
                 "value": -40.0
               }
             ],
             "postconditions": []
           },
-          "readback": {
-            "project": "Ren Qualification",
-            "timeline": "fm-scratch qualify 20261021T114831Z-8e3b44",
-            "timeline_id": "dbdcacbe-ad19-4284-a088-6ffa12fb210e",
-            "generation": 2,
-            "hash": "c6b70654771a863294d86252d31d073a37d707c883adc499858525f83078b720",
-            "source": "patch",
-            "patch_id": "ren-bfe7cf4552bf5104968be3e27aabc7991740813bc634889a17bbc42eb0fbdcdc",
-            "recorded_at": 1792583831.2084548,
-            "verified_at": 1792583831.2084548,
-            "model_revision": null,
-            "nle_binding_ids": []
-          },
-          "backend": "edit_patch",
-          "idempotency_key": "ren-bfe7cf4552bf5104968be3e27aabc7991740813bc634889a17bbc42eb0fbdcdc",
-          "operations": [
-            {
-              "index": 0,
-              "op": "clip.set_property",
-              "returned": true,
-              "failure": null
-            },
-            {
-              "index": 1,
-              "op": "clip.set_property",
-              "returned": true,
-              "failure": null
-            }
-          ],
-          "unrelated_changes": [],
-          "acceptance_contracts": [
-            {
-              "id": "acceptance:clip.set_property",
-              "operation": "clip.set_property",
-              "checks": [
-                "operation_readback_matches_request",
-                "unrelated_items_unchanged"
-              ],
-              "structural_source": "timeline_readback",
-              "passed": true,
-              "results": [
-                {
-                  "check": "operation_readback_matches_request",
-                  "passed": true,
-                  "status": "passed",
-                  "evidence": null
-                },
-                {
-                  "check": "unrelated_items_unchanged",
-                  "passed": true,
-                  "status": "passed",
-                  "evidence": true
-                }
-              ],
-              "missing": [],
-              "failed": []
-            },
-            {
-              "id": "acceptance:clip.set_property",
-              "operation": "clip.set_property",
-              "checks": [
-                "operation_readback_matches_request",
-                "unrelated_items_unchanged"
-              ],
-              "structural_source": "timeline_readback",
-              "passed": true,
-              "results": [
-                {
-                  "check": "operation_readback_matches_request",
-                  "passed": true,
-                  "status": "passed",
-                  "evidence": null
-                },
-                {
-                  "check": "unrelated_items_unchanged",
-                  "passed": true,
-                  "status": "passed",
-                  "evidence": true
-                }
-              ],
-              "missing": [],
-              "failed": []
-            }
-          ],
-          "preservation": {
-            "status": "preserved",
-            "changes": [
-              {
-                "target": "clip:90f1139f-8e43-44a9-9874-c05c9b86974d",
-                "field": "transform.Tilt",
-                "domain": "picture_transform",
-                "before": 0.0,
-                "after": -40.0,
-                "authorized": true
-              }
-            ],
-            "expected": [
-              {
-                "target": "clip:90f1139f-8e43-44a9-9874-c05c9b86974d",
-                "domain": "picture_transform",
-                "operation": "clip.set_property",
-                "fields": [
-                  "transform.Pan"
-                ]
-              },
-              {
-                "target": "clip:90f1139f-8e43-44a9-9874-c05c9b86974d",
-                "domain": "picture_transform",
-                "operation": "clip.set_property",
-                "fields": [
-                  "transform.Tilt"
-                ]
-              }
-            ],
-            "expected_not_observed": [],
-            "unrelated_changes": [],
-            "unobservable_domains": [],
-            "unprovable_reason": ""
-          },
-          "preservation_requirements": [],
-          "stopped": null,
-          "recovery_result": {
-            "status": "not_attempted",
-            "reason": "transaction verified"
-          },
-          "journal": {
-            "intent_persisted": true,
-            "errors": []
-          },
-          "postcondition_failures": [],
-          "exclusive_hold_seconds": 0.5447,
-          "project_model_commit": {
-            "status": "not_required",
-            "revision": null
-          },
-          "project_model_reconcile": {
-            "status": "not_required",
-            "revision": null
-          },
+          "fingerprint": "12cde50381196e70802f535a67d6dec80dc26d9d2964cfa9e2728574c7a1d744",
           "generation": 2,
-          "fingerprint": "c6b70654771a863294d86252d31d073a37d707c883adc499858525f83078b720",
-          "recovery": null,
-          "planned": {
-            "status": "planned",
-            "patch_id": "ren-bfe7cf4552bf5104968be3e27aabc7991740813bc634889a17bbc42eb0fbdcdc"
-          },
-          "validated": {
-            "status": "validated",
-            "base_generation": 1
-          },
-          "prepared": {
-            "status": "prepared",
-            "journal": {
-              "intent_persisted": true,
-              "errors": []
-            }
-          },
-          "executing": {
-            "status": "completed",
-            "stopped": null
-          },
-          "applied": {
-            "status": "applied",
-            "operations": 2,
-            "requested": 2,
-            "complete": true
-          },
-          "verified": {
-            "status": "verified",
-            "acceptance_contracts_passed": true
-          },
-          "committed": {
-            "status": "committed",
-            "generation": 2,
-            "project_model": {
-              "status": "not_required",
-              "revision": null
-            }
-          },
-          "promoted": {
-            "status": "not_requested"
-          },
-          "delivered": {
-            "status": "not_requested"
+          "idempotency_key": "ren-b30e7697a95a815ed0181b3f947951bcb1c7dafd09ecb4f28660ae104b4dddb6",
+          "journal": {
+            "errors": [],
+            "intent_persisted": true
           },
           "lifecycle": {
-            "stage": "COMMITTED",
-            "ids": {
-              "transaction_id": "ren-bfe7cf4552bf5104968be3e27aabc7991740813bc634889a17bbc42eb0fbdcdc",
-              "idempotency_key": "ren-bfe7cf4552bf5104968be3e27aabc7991740813bc634889a17bbc42eb0fbdcdc",
+            "actual_state": {
+              "generation": 2,
+              "generation_id": "gen-ea053dcaa1cdce3ff960666d",
+              "hash": "12cde50381196e70802f535a67d6dec80dc26d9d2964cfa9e2728574c7a1d744",
+              "model_revision": null,
+              "nle_binding_ids": [],
+              "patch_id": "ren-b30e7697a95a815ed0181b3f947951bcb1c7dafd09ecb4f28660ae104b4dddb6",
               "project": "Ren Qualification",
-              "timeline": "fm-scratch qualify 20261021T114831Z-8e3b44"
+              "recorded_at": 1792640395.280459,
+              "source": "patch",
+              "timeline": "fm-scratch qualify 20261022T033448Z-1f75ab",
+              "timeline_id": "0d9e922f-0fad-41f3-b4f5-46ae7a625c2b",
+              "verified_at": 1792640395.280459
+            },
+            "affected_changes": [
+              {
+                "failure": null,
+                "index": 0,
+                "op": "clip.set_property",
+                "returned": true
+              },
+              {
+                "failure": null,
+                "index": 1,
+                "op": "clip.set_property",
+                "returned": true
+              }
+            ],
+            "backend": "edit_patch",
+            "delivery": {
+              "status": "not_requested"
             },
             "expected_state": {
               "operations": [
                 {
-                  "op": "clip.set_property",
-                  "unique_id": "90f1139f-8e43-44a9-9874-c05c9b86974d",
                   "key": "Pan",
+                  "op": "clip.set_property",
+                  "unique_id": "44c10839-b1f6-4f91-b27d-ecc68b4cbda5",
                   "value": 0.0
                 },
                 {
-                  "op": "clip.set_property",
-                  "unique_id": "90f1139f-8e43-44a9-9874-c05c9b86974d",
                   "key": "Tilt",
+                  "op": "clip.set_property",
+                  "unique_id": "44c10839-b1f6-4f91-b27d-ecc68b4cbda5",
                   "value": -40.0
                 }
               ],
               "postconditions": []
-            },
-            "actual_state": {
-              "project": "Ren Qualification",
-              "timeline": "fm-scratch qualify 20261021T114831Z-8e3b44",
-              "timeline_id": "dbdcacbe-ad19-4284-a088-6ffa12fb210e",
-              "generation": 2,
-              "hash": "c6b70654771a863294d86252d31d073a37d707c883adc499858525f83078b720",
-              "source": "patch",
-              "patch_id": "ren-bfe7cf4552bf5104968be3e27aabc7991740813bc634889a17bbc42eb0fbdcdc",
-              "recorded_at": 1792583831.2084548,
-              "verified_at": 1792583831.2084548,
-              "model_revision": null,
-              "nle_binding_ids": []
-            },
-            "affected_changes": [
-              {
-                "index": 0,
-                "op": "clip.set_property",
-                "returned": true,
-                "failure": null
-              },
-              {
-                "index": 1,
-                "op": "clip.set_property",
-                "returned": true,
-                "failure": null
-              }
-            ],
-            "unrelated_changes": [],
-            "backend": "edit_patch",
-            "route_selection": null,
-            "verification": {
-              "outcome": {
-                "status": "verified",
-                "acceptance_contracts_passed": true
-              },
-              "acceptance_contracts": [
-                {
-                  "id": "acceptance:clip.set_property",
-                  "operation": "clip.set_property",
-                  "checks": [
-                    "operation_readback_matches_request",
-                    "unrelated_items_unchanged"
-                  ],
-                  "structural_source": "timeline_readback",
-                  "passed": true,
-                  "results": [
-                    {
-                      "check": "operation_readback_matches_request",
-                      "passed": true,
-                      "status": "passed",
-                      "evidence": null
-                    },
-                    {
-                      "check": "unrelated_items_unchanged",
-                      "passed": true,
-                      "status": "passed",
-                      "evidence": true
-                    }
-                  ],
-                  "missing": [],
-                  "failed": []
-                },
-                {
-                  "id": "acceptance:clip.set_property",
-                  "operation": "clip.set_property",
-                  "checks": [
-                    "operation_readback_matches_request",
-                    "unrelated_items_unchanged"
-                  ],
-                  "structural_source": "timeline_readback",
-                  "passed": true,
-                  "results": [
-                    {
-                      "check": "operation_readback_matches_request",
-                      "passed": true,
-                      "status": "passed",
-                      "evidence": null
-                    },
-                    {
-                      "check": "unrelated_items_unchanged",
-                      "passed": true,
-                      "status": "passed",
-                      "evidence": true
-                    }
-                  ],
-                  "missing": [],
-                  "failed": []
-                }
-              ]
-            },
-            "recovery": null,
-            "recovery_result": {
-              "status": "not_attempted",
-              "reason": "transaction verified"
-            },
-            "persistence": {
-              "status": "committed",
-              "generation": 2,
-              "project_model": {
-                "status": "not_required",
-                "revision": null
-              }
-            },
-            "promotion": null,
-            "delivery": {
-              "status": "not_requested"
             },
             "history": [
               "PLANNED",
@@ -422,344 +613,1614 @@
               "APPLIED",
               "VERIFIED",
               "COMMITTED"
-            ]
-          },
-          "execution_contract": {
-            "status": "committed",
-            "backend": "edit_patch",
+            ],
+            "ids": {
+              "idempotency_key": "ren-b30e7697a95a815ed0181b3f947951bcb1c7dafd09ecb4f28660ae104b4dddb6",
+              "project": "Ren Qualification",
+              "timeline": "fm-scratch qualify 20261022T033448Z-1f75ab",
+              "transaction_id": "ren-b30e7697a95a815ed0181b3f947951bcb1c7dafd09ecb4f28660ae104b4dddb6"
+            },
+            "persistence": {
+              "generation": 2,
+              "project_model": {
+                "revision": null,
+                "status": "not_required"
+              },
+              "status": "committed"
+            },
+            "promotion": null,
+            "recovery": null,
+            "recovery_result": {
+              "reason": "transaction verified",
+              "status": "not_attempted"
+            },
+            "route_selection": null,
+            "stage": "COMMITTED",
+            "unrelated_changes": [],
             "verification": {
-              "status": "verified",
-              "checks": [
+              "acceptance_contracts": [
                 {
-                  "passed": true,
+                  "checks": [
+                    "operation_readback_matches_request",
+                    "unrelated_items_unchanged"
+                  ],
+                  "failed": [],
+                  "id": "acceptance:clip.set_property",
+                  "missing": [],
                   "operation": "clip.set_property",
-                  "failures": []
+                  "passed": true,
+                  "results": [
+                    {
+                      "check": "operation_readback_matches_request",
+                      "evidence": null,
+                      "passed": true,
+                      "status": "passed"
+                    },
+                    {
+                      "check": "unrelated_items_unchanged",
+                      "evidence": true,
+                      "passed": true,
+                      "status": "passed"
+                    }
+                  ],
+                  "status": "passed",
+                  "structural_source": "timeline_readback"
                 },
                 {
-                  "passed": true,
+                  "checks": [
+                    "operation_readback_matches_request",
+                    "unrelated_items_unchanged"
+                  ],
+                  "failed": [],
+                  "id": "acceptance:clip.set_property",
+                  "missing": [],
                   "operation": "clip.set_property",
-                  "failures": []
+                  "passed": true,
+                  "results": [
+                    {
+                      "check": "operation_readback_matches_request",
+                      "evidence": null,
+                      "passed": true,
+                      "status": "passed"
+                    },
+                    {
+                      "check": "unrelated_items_unchanged",
+                      "evidence": true,
+                      "passed": true,
+                      "status": "passed"
+                    }
+                  ],
+                  "status": "passed",
+                  "structural_source": "timeline_readback"
                 }
               ],
-              "missing": [],
-              "evidence": {
-                "acceptance_check_count": 2,
-                "readback_present": true
-              },
-              "layers": {
-                "stored_state": {
-                  "status": "verified",
-                  "checks": 2
-                },
-                "rendered_pixels": {
-                  "status": "not_measured",
-                  "evidence": {}
-                },
-                "rendered_audio": {
-                  "status": "not_measured",
-                  "evidence": {}
-                }
+              "outcome": {
+                "acceptance_contracts_passed": true,
+                "acceptance_status": "passed",
+                "failed": [],
+                "missing": [],
+                "reason": "the acceptance was measured and passed",
+                "status": "verified"
               }
-            },
-            "recovery": {
-              "status": "not_attempted",
-              "action": "none",
-              "reason": "transaction verified",
-              "evidence": {
-                "recovery_record_present": true
-              }
-            },
-            "limitations": [],
-            "receipt": {
-              "transaction_id": "ren-bfe7cf4552bf5104968be3e27aabc7991740813bc634889a17bbc42eb0fbdcdc",
-              "idempotency_key": "ren-bfe7cf4552bf5104968be3e27aabc7991740813bc634889a17bbc42eb0fbdcdc"
             }
+          },
+          "operations": [
+            {
+              "failure": null,
+              "index": 0,
+              "op": "clip.set_property",
+              "returned": true
+            },
+            {
+              "failure": null,
+              "index": 1,
+              "op": "clip.set_property",
+              "returned": true
+            }
+          ],
+          "patch_id": "ren-b30e7697a95a815ed0181b3f947951bcb1c7dafd09ecb4f28660ae104b4dddb6",
+          "planned": {
+            "patch_id": "ren-b30e7697a95a815ed0181b3f947951bcb1c7dafd09ecb4f28660ae104b4dddb6",
+            "status": "planned"
+          },
+          "postcondition_failures": [],
+          "prepared": {
+            "journal": {
+              "errors": [],
+              "intent_persisted": true
+            },
+            "status": "prepared"
+          },
+          "preservation": {
+            "changes": [
+              {
+                "after": -40.0,
+                "authorized": true,
+                "before": 0.0,
+                "domain": "picture_transform",
+                "field": "transform.Tilt",
+                "target": "clip:44c10839-b1f6-4f91-b27d-ecc68b4cbda5"
+              }
+            ],
+            "expected": [
+              {
+                "domain": "picture_transform",
+                "fields": [
+                  "transform.Pan"
+                ],
+                "operation": "clip.set_property",
+                "target": "clip:44c10839-b1f6-4f91-b27d-ecc68b4cbda5"
+              },
+              {
+                "domain": "picture_transform",
+                "fields": [
+                  "transform.Tilt"
+                ],
+                "operation": "clip.set_property",
+                "target": "clip:44c10839-b1f6-4f91-b27d-ecc68b4cbda5"
+              }
+            ],
+            "expected_not_observed": [],
+            "status": "preserved",
+            "unobservable_domains": [],
+            "unprovable_reason": "",
+            "unrelated_changes": []
+          },
+          "preservation_requirements": [],
+          "project": "Ren Qualification",
+          "project_model_commit": {
+            "revision": null,
+            "status": "not_required"
+          },
+          "project_model_reconcile": {
+            "revision": null,
+            "status": "not_required"
+          },
+          "promoted": {
+            "status": "not_requested"
+          },
+          "readback": {
+            "generation": 2,
+            "generation_id": "gen-ea053dcaa1cdce3ff960666d",
+            "hash": "12cde50381196e70802f535a67d6dec80dc26d9d2964cfa9e2728574c7a1d744",
+            "model_revision": null,
+            "nle_binding_ids": [],
+            "patch_id": "ren-b30e7697a95a815ed0181b3f947951bcb1c7dafd09ecb4f28660ae104b4dddb6",
+            "project": "Ren Qualification",
+            "recorded_at": 1792640395.280459,
+            "source": "patch",
+            "timeline": "fm-scratch qualify 20261022T033448Z-1f75ab",
+            "timeline_id": "0d9e922f-0fad-41f3-b4f5-46ae7a625c2b",
+            "verified_at": 1792640395.280459
+          },
+          "recovery": null,
+          "recovery_result": {
+            "reason": "transaction verified",
+            "status": "not_attempted"
+          },
+          "requested_operation_count": 2,
+          "resolve_write_status": "committed",
+          "status": "committed",
+          "stopped": null,
+          "timeline": "fm-scratch qualify 20261022T033448Z-1f75ab",
+          "unrelated_changes": [],
+          "validated": {
+            "base_generation": 1,
+            "status": "validated"
+          },
+          "verified": {
+            "acceptance_contracts_passed": true,
+            "acceptance_status": "passed",
+            "failed": [],
+            "missing": [],
+            "reason": "the acceptance was measured and passed",
+            "status": "verified"
           }
-        }
+        },
+        "status": "committed"
       },
-      "checks": {
-        "moved_up_40px": true,
-        "size_unchanged": true,
-        "timing_unchanged": true,
-        "other_items_unchanged": true
-      },
-      "collateral_changes": [],
-      "benchmark": {
-        "attempts": 1
-      },
-      "discovery": {
-        "operation": "overlay.position",
-        "discovered_from_request": true,
-        "algebra_present": true,
-        "request_id": "edit_req_7ba955c10c9f4173",
-        "phases": {
-          "discovery_s": 0.002361249993555248,
-          "routing_s": 0.004796374996658415,
-          "live_execution_s": 667.7286064999935
-        }
-      },
+      "status": "pass"
+    },
+    {
       "backend_selection": {
-        "selected": "edit_patch.property",
-        "selection_correct": true,
+        "basis": "task overlay.resize executes through the production clip.set_property path; the router selects edit_patch.property under production and the live receipt above is that backend's commit",
+        "executed_entry": "edit_patch.apply_live_patch",
         "router_routes": {
           "production": {
-            "selected": "",
-            "refusal": "RoutingRefused: ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  what: no production-qualified executor is available for: clip.set_property\n  why: no production-qualified executor is available for: clip.set_property; production routing fails closed (clip.set_property: runtime qualification state was not inspected)\n  fix: Qualify the operation on a live Resolve timeline and import the evidence, or route it under the protected experimental policy with explicit staging, preservation and verification guarantees."
+            "refusal": "RoutingRefused: ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  blocker: unsupported_operation - the engine has no proven way to do this\n  what: no production-qualified executor is available for: clip.set_property, clip.set_property, clip.set_property\n  why: no production-qualified executor is available for: clip.set_property, clip.set_property, clip.set_property; production routing fails closed (clip.set_property: runtime qualification state was not inspected; clip.set_property: runtime qualification state was not inspected; clip.set_property: runtime qualification state was not inspected)\n  fix: Qualify the operation on a live Resolve timeline and import the evidence, or route it under the protected experimental policy with explicit staging, preservation and verification guarantees.\n  next action: use_a_supported_operation",
+            "selected": ""
           },
           "protected_experimental": {
             "selected": "edit_patch.property"
           },
           "selected": "edit_patch.property"
         },
-        "executed_entry": "edit_patch.apply_live_patch",
-        "basis": "task overlay.position executes through the production clip.set_property path; the router selects edit_patch.property under production and the read-back above verifies the 40 px move"
+        "selected": "edit_patch.property",
+        "selection_correct": true
       },
-      "elapsed_seconds": 667.7393448340008,
-      "instruction_to_verified_seconds": 667.7393453340046,
-      "fixture_setup_seconds": null,
+      "benchmark": {
+        "attempts": 1
+      },
+      "checks": {
+        "anchor_unchanged": true,
+        "base_clips_untouched": true,
+        "single_logo_placed": true,
+        "timing_unchanged": true,
+        "width_180px": true
+      },
+      "collateral_changes": [],
+      "discovery": {
+        "algebra_present": true,
+        "discovered_from_request": true,
+        "operation": "overlay.resize",
+        "phases": {
+          "discovery_s": 7.258402183651924e-05,
+          "live_execution_s": 105.69947466699523,
+          "routing_s": 0.00018883400480262935
+        },
+        "request_id": "edit_req_1c59919cf98242fc"
+      },
+      "elapsed_seconds": 105.70770824997453,
+      "evaluation_level": 2,
       "execution_mode": "request",
+      "fixture_setup_seconds": null,
+      "id": "resize_logo",
+      "instruction": "Set the selected logo to 180 output pixels wide, keep its anchor and timing, and leave all other items unchanged.",
+      "instruction_to_verified_seconds": 105.70771137499833,
       "observed": {
-        "before": [
-          {
-            "kind": "video",
-            "track": 1,
-            "track_name": "Video 1",
-            "name": "qual_a.mp4",
-            "unique_id": "d78387d2-617a-45cb-b211-90fd963fa119",
-            "record": [
-              0,
-              96
-            ],
-            "source": [
-              0,
-              95
-            ],
-            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4",
-            "pan": 0.0,
-            "tilt": 0.0,
-            "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 0
-          },
-          {
-            "kind": "video",
-            "track": 1,
-            "track_name": "Video 1",
-            "name": "qual_b.mp4",
-            "unique_id": "23f44e91-bdfb-4567-b2d7-8ad1ae0efb69",
-            "record": [
-              96,
-              168
-            ],
-            "source": [
-              0,
-              71
-            ],
-            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4",
-            "pan": 0.0,
-            "tilt": 0.0,
-            "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 0
-          },
-          {
-            "kind": "video",
-            "track": 1,
-            "track_name": "Video 1",
-            "name": "qual_c.mp4",
-            "unique_id": "e82c7546-d007-4cac-9e3a-d8ca960901e1",
-            "record": [
-              168,
-              216
-            ],
-            "source": [
-              0,
-              47
-            ],
-            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4",
-            "pan": 0.0,
-            "tilt": 0.0,
-            "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 0
-          },
-          {
-            "kind": "video",
-            "track": 3,
-            "track_name": "V3",
-            "name": "fm-qual-tight-caption-480x120.png",
-            "unique_id": "90f1139f-8e43-44a9-9874-c05c9b86974d",
-            "record": [
-              96,
-              216
-            ],
-            "source": [
-              120,
-              120
-            ],
-            "source_path": "/tmp/fm-qual-tight-caption-480x120.png",
-            "pan": 0.0,
-            "tilt": 0.0,
-            "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 0
-          }
-        ],
         "items": [
           {
             "kind": "video",
-            "track": 1,
-            "track_name": "Video 1",
             "name": "qual_a.mp4",
-            "unique_id": "d78387d2-617a-45cb-b211-90fd963fa119",
+            "pan": 0.0,
             "record": [
               0,
               96
             ],
+            "scaling": 0,
             "source": [
               0,
               95
             ],
             "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4",
-            "pan": 0.0,
             "tilt": 0.0,
+            "track": 1,
+            "track_name": "Video 1",
+            "unique_id": "94d11b5f-b6f2-4bd7-84cf-c603372009d1",
             "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 0
+            "zoomy": 1.0
           },
           {
             "kind": "video",
-            "track": 1,
-            "track_name": "Video 1",
             "name": "qual_b.mp4",
-            "unique_id": "23f44e91-bdfb-4567-b2d7-8ad1ae0efb69",
+            "pan": 0.0,
             "record": [
               96,
               168
             ],
+            "scaling": 0,
             "source": [
               0,
               71
             ],
             "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4",
-            "pan": 0.0,
             "tilt": 0.0,
+            "track": 1,
+            "track_name": "Video 1",
+            "unique_id": "84e89d07-ae15-425f-bf9c-b1f8bc1971f9",
             "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 0
+            "zoomy": 1.0
           },
           {
             "kind": "video",
-            "track": 1,
-            "track_name": "Video 1",
             "name": "qual_c.mp4",
-            "unique_id": "e82c7546-d007-4cac-9e3a-d8ca960901e1",
+            "pan": 0.0,
             "record": [
               168,
               216
             ],
+            "scaling": 0,
             "source": [
               0,
               47
             ],
             "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4",
-            "pan": 0.0,
             "tilt": 0.0,
+            "track": 1,
+            "track_name": "Video 1",
+            "unique_id": "aef49f66-e66c-45f4-a31c-bf2aa5e0e130",
             "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 0
+            "zoomy": 1.0
           },
           {
             "kind": "video",
-            "track": 3,
-            "track_name": "V3",
-            "name": "fm-qual-tight-caption-480x120.png",
-            "unique_id": "90f1139f-8e43-44a9-9874-c05c9b86974d",
+            "name": "fm-qual-logo-180x64.png",
+            "pan": 0.0,
             "record": [
               96,
               216
             ],
+            "scaling": 1,
             "source": [
-              120,
-              120
+              64,
+              64
             ],
-            "source_path": "/tmp/fm-qual-tight-caption-480x120.png",
-            "pan": 0.0,
-            "tilt": -40.0,
+            "source_path": "/tmp/fm-qual-logo-180x64.png",
+            "tilt": 0.0,
+            "track": 3,
+            "track_name": "V3",
+            "unique_id": "cf8c502c-bba4-4067-9c66-76203acd6c35",
             "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 0
+            "zoomy": 1.0
           }
         ]
-      }
-    },
-    {
-      "id": "resize_logo",
-      "instruction": "Set the selected logo to 180 output pixels wide, keep its anchor and timing, and leave all other items unchanged.",
+      },
       "operation": "overlay.resize",
+      "outcome": "success",
       "production_entry": "ren revise / Resolve AXI transaction",
-      "evaluation_level": 2,
-      "status": "fail",
-      "outcome": "missing_evidence",
-      "error": "RuntimeError: {\n  \"category\": \"fixture_batch_failed\",\n  \"reason\": \"case_failed\",\n  \"detail\": \"RuntimeError: could not seed qual_a.mp4: error: append reported nothing but the item count did not move (0 -> 0) - nothing landed.\\nhelp: resolve-axi items --timeline \\\"fm-scratch qualify 20261021T223944Z-ac6c5c\\\"\\n\",\n  \"task\": \"resize_logo\"\n}",
-      "collateral_changes": [],
-      "checks": {},
-      "elapsed_seconds": 87.94415166700492,
-      "instruction_to_verified_seconds": null,
-      "previous_attempt": {
-        "status": "fail",
-        "outcome": "missing_evidence",
-        "error": "RuntimeError: ren resolved: ren-resolved closed the connection"
-      }
+      "receipt": {
+        "patch": {
+          "acceptance_contracts": [
+            {
+              "checks": [
+                "operation_readback_matches_request",
+                "unrelated_items_unchanged"
+              ],
+              "failed": [],
+              "id": "acceptance:clip.set_property",
+              "missing": [],
+              "operation": "clip.set_property",
+              "passed": true,
+              "results": [
+                {
+                  "check": "operation_readback_matches_request",
+                  "evidence": null,
+                  "passed": true,
+                  "status": "passed"
+                },
+                {
+                  "check": "unrelated_items_unchanged",
+                  "evidence": true,
+                  "passed": true,
+                  "status": "passed"
+                }
+              ],
+              "status": "passed",
+              "structural_source": "timeline_readback"
+            },
+            {
+              "checks": [
+                "operation_readback_matches_request",
+                "unrelated_items_unchanged"
+              ],
+              "failed": [],
+              "id": "acceptance:clip.set_property",
+              "missing": [],
+              "operation": "clip.set_property",
+              "passed": true,
+              "results": [
+                {
+                  "check": "operation_readback_matches_request",
+                  "evidence": null,
+                  "passed": true,
+                  "status": "passed"
+                },
+                {
+                  "check": "unrelated_items_unchanged",
+                  "evidence": true,
+                  "passed": true,
+                  "status": "passed"
+                }
+              ],
+              "status": "passed",
+              "structural_source": "timeline_readback"
+            },
+            {
+              "checks": [
+                "operation_readback_matches_request",
+                "unrelated_items_unchanged"
+              ],
+              "failed": [],
+              "id": "acceptance:clip.set_property",
+              "missing": [],
+              "operation": "clip.set_property",
+              "passed": true,
+              "results": [
+                {
+                  "check": "operation_readback_matches_request",
+                  "evidence": null,
+                  "passed": true,
+                  "status": "passed"
+                },
+                {
+                  "check": "unrelated_items_unchanged",
+                  "evidence": true,
+                  "passed": true,
+                  "status": "passed"
+                }
+              ],
+              "status": "passed",
+              "structural_source": "timeline_readback"
+            }
+          ],
+          "applied": {
+            "complete": true,
+            "operations": 3,
+            "requested": 3,
+            "status": "applied"
+          },
+          "backend": "edit_patch",
+          "base_generation": 3,
+          "committed": {
+            "generation": 4,
+            "project_model": {
+              "revision": null,
+              "status": "not_required"
+            },
+            "status": "committed"
+          },
+          "delivered": {
+            "status": "not_requested"
+          },
+          "exclusive_hold_seconds": 0.0992,
+          "executing": {
+            "status": "completed",
+            "stopped": null
+          },
+          "execution_contract": {
+            "backend": "edit_patch",
+            "limitations": [],
+            "receipt": {
+              "idempotency_key": "ren-0be97788f27d783c970dc227bfd4da45ed47c3100aa366e5797ce1811d286015",
+              "transaction_id": "ren-0be97788f27d783c970dc227bfd4da45ed47c3100aa366e5797ce1811d286015"
+            },
+            "recovery": {
+              "action": "none",
+              "evidence": {
+                "recovery_record_present": true
+              },
+              "reason": "transaction verified",
+              "status": "not_attempted"
+            },
+            "status": "committed",
+            "verification": {
+              "checks": [
+                {
+                  "failures": [],
+                  "operation": "clip.set_property",
+                  "passed": true,
+                  "status": "passed"
+                },
+                {
+                  "failures": [],
+                  "operation": "clip.set_property",
+                  "passed": true,
+                  "status": "passed"
+                },
+                {
+                  "failures": [],
+                  "operation": "clip.set_property",
+                  "passed": true,
+                  "status": "passed"
+                }
+              ],
+              "evidence": {
+                "acceptance_check_count": 3,
+                "acceptance_outcome": "accepted",
+                "readback_present": true
+              },
+              "layers": {
+                "rendered_audio": {
+                  "evidence": {},
+                  "status": "not_measured"
+                },
+                "rendered_pixels": {
+                  "evidence": {},
+                  "status": "not_measured"
+                },
+                "stored_state": {
+                  "checks": 3,
+                  "status": "verified"
+                }
+              },
+              "missing": [],
+              "status": "verified"
+            }
+          },
+          "expected_state": {
+            "operations": [
+              {
+                "key": "Scaling",
+                "op": "clip.set_property",
+                "unique_id": "cf8c502c-bba4-4067-9c66-76203acd6c35",
+                "value": 1
+              },
+              {
+                "key": "ZoomX",
+                "op": "clip.set_property",
+                "unique_id": "cf8c502c-bba4-4067-9c66-76203acd6c35",
+                "value": 1.0
+              },
+              {
+                "key": "ZoomY",
+                "op": "clip.set_property",
+                "unique_id": "cf8c502c-bba4-4067-9c66-76203acd6c35",
+                "value": 1.0
+              }
+            ],
+            "postconditions": []
+          },
+          "fingerprint": "61dcbdb699e28df8c88598d9d79241cd09907b5aaffaa553c2d9f2c933b967b2",
+          "generation": 4,
+          "idempotency_key": "ren-0be97788f27d783c970dc227bfd4da45ed47c3100aa366e5797ce1811d286015",
+          "journal": {
+            "errors": [],
+            "intent_persisted": true
+          },
+          "lifecycle": {
+            "actual_state": {
+              "generation": 4,
+              "generation_id": "gen-4095b3872065257437ec64c5",
+              "hash": "61dcbdb699e28df8c88598d9d79241cd09907b5aaffaa553c2d9f2c933b967b2",
+              "model_revision": null,
+              "nle_binding_ids": [],
+              "patch_id": "ren-0be97788f27d783c970dc227bfd4da45ed47c3100aa366e5797ce1811d286015",
+              "project": "Ren Qualification",
+              "recorded_at": 1792640501.195884,
+              "source": "patch",
+              "timeline": "fm-scratch qualify 20261022T033448Z-1f75ab",
+              "timeline_id": "0d9e922f-0fad-41f3-b4f5-46ae7a625c2b",
+              "verified_at": 1792640501.195884
+            },
+            "affected_changes": [
+              {
+                "failure": null,
+                "index": 0,
+                "op": "clip.set_property",
+                "returned": true
+              },
+              {
+                "failure": null,
+                "index": 1,
+                "op": "clip.set_property",
+                "returned": true
+              },
+              {
+                "failure": null,
+                "index": 2,
+                "op": "clip.set_property",
+                "returned": true
+              }
+            ],
+            "backend": "edit_patch",
+            "delivery": {
+              "status": "not_requested"
+            },
+            "expected_state": {
+              "operations": [
+                {
+                  "key": "Scaling",
+                  "op": "clip.set_property",
+                  "unique_id": "cf8c502c-bba4-4067-9c66-76203acd6c35",
+                  "value": 1
+                },
+                {
+                  "key": "ZoomX",
+                  "op": "clip.set_property",
+                  "unique_id": "cf8c502c-bba4-4067-9c66-76203acd6c35",
+                  "value": 1.0
+                },
+                {
+                  "key": "ZoomY",
+                  "op": "clip.set_property",
+                  "unique_id": "cf8c502c-bba4-4067-9c66-76203acd6c35",
+                  "value": 1.0
+                }
+              ],
+              "postconditions": []
+            },
+            "history": [
+              "PLANNED",
+              "VALIDATED",
+              "PREPARED",
+              "EXECUTING",
+              "APPLIED",
+              "VERIFIED",
+              "COMMITTED"
+            ],
+            "ids": {
+              "idempotency_key": "ren-0be97788f27d783c970dc227bfd4da45ed47c3100aa366e5797ce1811d286015",
+              "project": "Ren Qualification",
+              "timeline": "fm-scratch qualify 20261022T033448Z-1f75ab",
+              "transaction_id": "ren-0be97788f27d783c970dc227bfd4da45ed47c3100aa366e5797ce1811d286015"
+            },
+            "persistence": {
+              "generation": 4,
+              "project_model": {
+                "revision": null,
+                "status": "not_required"
+              },
+              "status": "committed"
+            },
+            "promotion": null,
+            "recovery": null,
+            "recovery_result": {
+              "reason": "transaction verified",
+              "status": "not_attempted"
+            },
+            "route_selection": null,
+            "stage": "COMMITTED",
+            "unrelated_changes": [],
+            "verification": {
+              "acceptance_contracts": [
+                {
+                  "checks": [
+                    "operation_readback_matches_request",
+                    "unrelated_items_unchanged"
+                  ],
+                  "failed": [],
+                  "id": "acceptance:clip.set_property",
+                  "missing": [],
+                  "operation": "clip.set_property",
+                  "passed": true,
+                  "results": [
+                    {
+                      "check": "operation_readback_matches_request",
+                      "evidence": null,
+                      "passed": true,
+                      "status": "passed"
+                    },
+                    {
+                      "check": "unrelated_items_unchanged",
+                      "evidence": true,
+                      "passed": true,
+                      "status": "passed"
+                    }
+                  ],
+                  "status": "passed",
+                  "structural_source": "timeline_readback"
+                },
+                {
+                  "checks": [
+                    "operation_readback_matches_request",
+                    "unrelated_items_unchanged"
+                  ],
+                  "failed": [],
+                  "id": "acceptance:clip.set_property",
+                  "missing": [],
+                  "operation": "clip.set_property",
+                  "passed": true,
+                  "results": [
+                    {
+                      "check": "operation_readback_matches_request",
+                      "evidence": null,
+                      "passed": true,
+                      "status": "passed"
+                    },
+                    {
+                      "check": "unrelated_items_unchanged",
+                      "evidence": true,
+                      "passed": true,
+                      "status": "passed"
+                    }
+                  ],
+                  "status": "passed",
+                  "structural_source": "timeline_readback"
+                },
+                {
+                  "checks": [
+                    "operation_readback_matches_request",
+                    "unrelated_items_unchanged"
+                  ],
+                  "failed": [],
+                  "id": "acceptance:clip.set_property",
+                  "missing": [],
+                  "operation": "clip.set_property",
+                  "passed": true,
+                  "results": [
+                    {
+                      "check": "operation_readback_matches_request",
+                      "evidence": null,
+                      "passed": true,
+                      "status": "passed"
+                    },
+                    {
+                      "check": "unrelated_items_unchanged",
+                      "evidence": true,
+                      "passed": true,
+                      "status": "passed"
+                    }
+                  ],
+                  "status": "passed",
+                  "structural_source": "timeline_readback"
+                }
+              ],
+              "outcome": {
+                "acceptance_contracts_passed": true,
+                "acceptance_status": "passed",
+                "failed": [],
+                "missing": [],
+                "reason": "the acceptance was measured and passed",
+                "status": "verified"
+              }
+            }
+          },
+          "operations": [
+            {
+              "failure": null,
+              "index": 0,
+              "op": "clip.set_property",
+              "returned": true
+            },
+            {
+              "failure": null,
+              "index": 1,
+              "op": "clip.set_property",
+              "returned": true
+            },
+            {
+              "failure": null,
+              "index": 2,
+              "op": "clip.set_property",
+              "returned": true
+            }
+          ],
+          "patch_id": "ren-0be97788f27d783c970dc227bfd4da45ed47c3100aa366e5797ce1811d286015",
+          "planned": {
+            "patch_id": "ren-0be97788f27d783c970dc227bfd4da45ed47c3100aa366e5797ce1811d286015",
+            "status": "planned"
+          },
+          "postcondition_failures": [],
+          "prepared": {
+            "journal": {
+              "errors": [],
+              "intent_persisted": true
+            },
+            "status": "prepared"
+          },
+          "preservation": {
+            "changes": [
+              {
+                "after": 1,
+                "authorized": true,
+                "before": 0,
+                "domain": "picture_transform",
+                "field": "transform.Scaling",
+                "target": "clip:cf8c502c-bba4-4067-9c66-76203acd6c35"
+              }
+            ],
+            "expected": [
+              {
+                "domain": "picture_transform",
+                "fields": [
+                  "transform.Scaling"
+                ],
+                "operation": "clip.set_property",
+                "target": "clip:cf8c502c-bba4-4067-9c66-76203acd6c35"
+              },
+              {
+                "domain": "picture_transform",
+                "fields": [
+                  "transform.ZoomX"
+                ],
+                "operation": "clip.set_property",
+                "target": "clip:cf8c502c-bba4-4067-9c66-76203acd6c35"
+              },
+              {
+                "domain": "picture_transform",
+                "fields": [
+                  "transform.ZoomY"
+                ],
+                "operation": "clip.set_property",
+                "target": "clip:cf8c502c-bba4-4067-9c66-76203acd6c35"
+              }
+            ],
+            "expected_not_observed": [],
+            "status": "preserved",
+            "unobservable_domains": [],
+            "unprovable_reason": "",
+            "unrelated_changes": []
+          },
+          "preservation_requirements": [],
+          "project": "Ren Qualification",
+          "project_model_commit": {
+            "revision": null,
+            "status": "not_required"
+          },
+          "project_model_reconcile": {
+            "revision": null,
+            "status": "not_required"
+          },
+          "promoted": {
+            "status": "not_requested"
+          },
+          "readback": {
+            "generation": 4,
+            "generation_id": "gen-4095b3872065257437ec64c5",
+            "hash": "61dcbdb699e28df8c88598d9d79241cd09907b5aaffaa553c2d9f2c933b967b2",
+            "model_revision": null,
+            "nle_binding_ids": [],
+            "patch_id": "ren-0be97788f27d783c970dc227bfd4da45ed47c3100aa366e5797ce1811d286015",
+            "project": "Ren Qualification",
+            "recorded_at": 1792640501.195884,
+            "source": "patch",
+            "timeline": "fm-scratch qualify 20261022T033448Z-1f75ab",
+            "timeline_id": "0d9e922f-0fad-41f3-b4f5-46ae7a625c2b",
+            "verified_at": 1792640501.195884
+          },
+          "recovery": null,
+          "recovery_result": {
+            "reason": "transaction verified",
+            "status": "not_attempted"
+          },
+          "requested_operation_count": 3,
+          "resolve_write_status": "committed",
+          "status": "committed",
+          "stopped": null,
+          "timeline": "fm-scratch qualify 20261022T033448Z-1f75ab",
+          "unrelated_changes": [],
+          "validated": {
+            "base_generation": 3,
+            "status": "validated"
+          },
+          "verified": {
+            "acceptance_contracts_passed": true,
+            "acceptance_status": "passed",
+            "failed": [],
+            "missing": [],
+            "reason": "the acceptance was measured and passed",
+            "status": "verified"
+          }
+        },
+        "status": "committed"
+      },
+      "status": "pass"
     },
     {
+      "backend_selection": {
+        "basis": "the router refuses clip.insert under production (the operation has no production qualification; the live evidence is the qualification lane's to land) and selects the AXI place verb under the qualification-run policy; that verb is the path that executed the placement, and the read-back above verifies it",
+        "executed_entry": "resolve-axi edit place",
+        "router_routes": {
+          "production": {
+            "refusal": "RoutingRefused: ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  blocker: unsupported_operation - the engine has no proven way to do this\n  what: no production-qualified executor is available for: clip.insert\n  why: no production-qualified executor is available for: clip.insert; production routing fails closed (clip.insert: runtime state does not satisfy recorded qualification predicates: frame_rate is '24', not '23.976'; media_type is 'none', not 'video'; timeline_density is 'light', not 'dense'; project_settings is 'landscape_1920x1080', not 'portrait_1080x1920'; track_occupancy is 'mixed', not 'all_populated')\n  fix: Qualify the operation on a live Resolve timeline and import the evidence, or route it under the protected experimental policy with explicit staging, preservation and verification guarantees.\n  next action: use_a_supported_operation",
+            "selected": ""
+          },
+          "protected_experimental": {
+            "selected": "resolve_axi"
+          },
+          "selected": "resolve_axi"
+        },
+        "selected": "resolve_axi",
+        "selection_correct": true
+      },
+      "benchmark": {
+        "attempts": 1
+      },
+      "checks": {
+        "logo_over_final_five_seconds": true,
+        "other_items_unchanged": true
+      },
+      "collateral_changes": [],
+      "discovery": {
+        "algebra_present": true,
+        "discovered_from_request": true,
+        "operation": "overlay.add",
+        "phases": {
+          "discovery_s": 4.22910088673234e-05,
+          "live_execution_s": 110.48020983400056,
+          "routing_s": 8.320898632518947e-05
+        },
+        "request_id": "edit_req_922d411c8a754ca3"
+      },
+      "elapsed_seconds": 110.48198783400585,
+      "evaluation_level": 2,
+      "execution_mode": "request",
+      "fixture_setup_seconds": null,
       "id": "add_logo_five_seconds",
       "instruction": "Add the supplied logo over the final five seconds, inside the safe area, without moving or changing any other timeline item.",
+      "instruction_to_verified_seconds": 110.48198845901061,
+      "observed": {
+        "items": [
+          {
+            "kind": "video",
+            "name": "qual_a.mp4",
+            "pan": 0.0,
+            "record": [
+              0,
+              96
+            ],
+            "scaling": 0,
+            "source": [
+              0,
+              95
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4",
+            "tilt": 0.0,
+            "track": 1,
+            "track_name": "Video 1",
+            "unique_id": "d5e39994-d913-4162-9595-4c6af8ca018c",
+            "zoomx": 1.0,
+            "zoomy": 1.0
+          },
+          {
+            "kind": "video",
+            "name": "qual_b.mp4",
+            "pan": 0.0,
+            "record": [
+              96,
+              168
+            ],
+            "scaling": 0,
+            "source": [
+              0,
+              71
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4",
+            "tilt": 0.0,
+            "track": 1,
+            "track_name": "Video 1",
+            "unique_id": "77e9d7cb-098f-49c4-a551-30a3968b16cd",
+            "zoomx": 1.0,
+            "zoomy": 1.0
+          },
+          {
+            "kind": "video",
+            "name": "qual_c.mp4",
+            "pan": 0.0,
+            "record": [
+              168,
+              216
+            ],
+            "scaling": 0,
+            "source": [
+              0,
+              47
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4",
+            "tilt": 0.0,
+            "track": 1,
+            "track_name": "Video 1",
+            "unique_id": "74a154be-8798-4f3a-bb75-a4ffd21a4d48",
+            "zoomx": 1.0,
+            "zoomy": 1.0
+          },
+          {
+            "kind": "video",
+            "name": "fm-qual-logo-180x64.png",
+            "pan": 0.0,
+            "record": [
+              96,
+              216
+            ],
+            "scaling": 0,
+            "source": [
+              64,
+              64
+            ],
+            "source_path": "/tmp/fm-qual-logo-180x64.png",
+            "tilt": 0.0,
+            "track": 3,
+            "track_name": "V3",
+            "unique_id": "0f373489-5bf7-4ada-bcb5-a80ac3ae61de",
+            "zoomx": 1.0,
+            "zoomy": 1.0
+          }
+        ]
+      },
       "operation": "overlay.add",
+      "outcome": "success",
       "production_entry": "ren revise / Resolve AXI transaction",
-      "evaluation_level": 2,
-      "status": "fail",
-      "outcome": "missing_evidence",
-      "error": "RuntimeError: {\n  \"category\": \"fixture_batch_failed\",\n  \"reason\": \"case_failed\",\n  \"detail\": \"RuntimeError: could not seed qual_a.mp4: error: append reported nothing but the item count did not move (0 -> 0) - nothing landed.\\nhelp: resolve-axi items --timeline \\\"fm-scratch qualify 20261021T223944Z-ac6c5c\\\"\\n\",\n  \"task\": \"add_logo_five_seconds\"\n}",
-      "collateral_changes": [],
-      "checks": {},
-      "elapsed_seconds": 82.50664712500293,
-      "instruction_to_verified_seconds": null,
-      "previous_attempt": {
-        "status": "fail",
-        "outcome": "missing_evidence",
-        "error": "RuntimeError: qualification batch failed: TypeError: 'NoneType' object is not callable"
-      }
+      "receipt": {
+        "place": {
+          "argv": [
+            "edit",
+            "place",
+            "--clip",
+            "fm-qual-logo-180x64.png",
+            "--media",
+            "video",
+            "--track",
+            "3",
+            "--record",
+            "96",
+            "--source-in",
+            "0",
+            "--source-out",
+            "119",
+            "--apply",
+            "--project",
+            "Ren Qualification",
+            "--timeline",
+            "fm-scratch qualify 20261022T033448Z-1f75ab"
+          ],
+          "exit_code": 0,
+          "stderr": "",
+          "stdout": "placed:\n  timeline: fm-scratch qualify 20261022T033448Z-1f75ab\n  clip: fm-qual-logo-180x64.png\n  items_delta: 1\n  placed_media_id: 786bb07d-87d9-4c4b-8332-98e36ae9f40c\n  verified: yes (the placed item carries the requested media, at the requested place; no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  fm-qual-logo-180x64.png,96,216,64,64,0f373489-5bf7-4ada-bcb5-a80ac3ae61de\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify 20261022T033448Z-1f75ab\"`\n"
+        },
+        "status": "committed"
+      },
+      "status": "pass"
     },
     {
+      "checks": {},
+      "collateral_changes": [],
+      "elapsed_seconds": 40.20780895801727,
+      "error": "RuntimeError: {\n  \"category\": \"fixture_batch_failed\",\n  \"reason\": \"case_failed\",\n  \"detail\": \"RuntimeError: pause audio trim refused: error: trim refused before writing because its source delete is not authorized (ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\\n  blocker: unsupported_operation - the engine has no proven way to do this\\n  what: no production-qualified executor is available for: clip.delete\\n  why: no production-qualified executor is available for: clip.delete; production routing fails closed (clip.delete: runtime state does not satisfy recorded qualification predicates: clip_composition is 'linked_audio_clip', not one of ['single_video_clip', 'linked_video_clip', 'still_clip']; clip_composition is 'linked_audio_clip', not 'single_video_clip'; timeline_density is 'moderate', not 'light'; track_occupancy is 'all_populated', not 'mixed')\\n  fix: Qualify the operation on a live Resolve timeline and import the evidence, or route it under the protected experimental policy with explicit staging, preservation and verification guarantees.\\n  next action: use_a_supported_operation).\\nhelp: resolve-axi items --timeline \\\"fm-scratch qualify 20261022T033448Z-1f75ab\\\"\\n\",\n  \"task\": \"trim_pause\"\n}",
+      "evaluation_level": 2,
       "id": "trim_pause",
       "instruction": "Remove the marked pause while keeping the surrounding speech in order and the linked audio and video in sync.",
-      "operation": "clip.trim",
-      "production_entry": "ren revise / Resolve AXI transaction",
-      "evaluation_level": 2,
-      "status": "fail",
-      "outcome": "missing_evidence",
-      "error": "RuntimeError: {\n  \"category\": \"fixture_batch_failed\",\n  \"reason\": \"case_failed\",\n  \"detail\": \"RuntimeError: could not seed qual_a.mp4: error: append reported nothing but the item count did not move (0 -> 0) - nothing landed.\\nhelp: resolve-axi items --timeline \\\"fm-scratch qualify 20261021T223944Z-ac6c5c\\\"\\n\",\n  \"task\": \"trim_pause\"\n}",
-      "collateral_changes": [],
-      "checks": {},
-      "elapsed_seconds": 52.471831958013354,
       "instruction_to_verified_seconds": null,
-      "previous_attempt": {
-        "status": "fail",
-        "outcome": "missing_evidence",
-        "error": "RuntimeError: qualification batch failed: ResolveUnavailable: Resolve is not running, or has not finished loading. Open it with the project you want to read, then try again."
-      }
+      "operation": "clip.trim",
+      "outcome": "missing_evidence",
+      "production_entry": "ren revise / Resolve AXI transaction",
+      "status": "fail"
     },
     {
+      "backend_selection": {
+        "basis": "router refuses overlay.replace under production and selects edit_patch for delete-plus-insert under the qualification-run policy; the small-edit-qualified journaled verb pair executed it and the read-back above verifies span, position carry and preservation | capability gap: reel.touchup declares clip.delete but not clip.insert, so the router-selected edit_patch pair cannot execute as one patch",
+        "executed_entry": "resolve-axi edit delete + edit place (journaled)",
+        "router_routes": {
+          "production": {
+            "refusal": "RoutingRefused: ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  blocker: unsupported_operation - the engine has no proven way to do this\n  what: no production-qualified executor is available for: clip.delete, clip.insert\n  why: no production-qualified executor is available for: clip.delete, clip.insert; production routing fails closed (clip.delete: runtime qualification state was not inspected; clip.insert: runtime qualification state was not inspected)\n  fix: Qualify the operation on a live Resolve timeline and import the evidence, or route it under the protected experimental policy with explicit staging, preservation and verification guarantees.\n  next action: use_a_supported_operation",
+            "selected": ""
+          },
+          "protected_experimental": {
+            "selected": "edit_patch"
+          },
+          "selected": "edit_patch"
+        },
+        "selected": "edit_patch",
+        "selection_correct": true
+      },
+      "benchmark": {
+        "attempts": 1
+      },
+      "checks": {
+        "old_graphic_gone": true,
+        "other_items_unchanged": true,
+        "position_carried": true,
+        "replacement_at_span": true
+      },
+      "collateral_changes": [],
+      "discovery": {
+        "algebra_present": true,
+        "discovered_from_request": true,
+        "operation": "overlay.replace",
+        "phases": {
+          "discovery_s": 0.0006361660198308527,
+          "live_execution_s": 31.446226250001928,
+          "routing_s": 0.0005927909805905074
+        },
+        "request_id": "edit_req_9924ae5f0665471a"
+      },
+      "elapsed_seconds": 31.448070874990663,
+      "evaluation_level": 2,
+      "execution_mode": "request",
+      "fixture_setup_seconds": null,
       "id": "replace_graphic",
       "instruction": "Replace the selected lower third with the supplied approved version and preserve its position, timing, and all other approved edits.",
+      "instruction_to_verified_seconds": 31.448071457998594,
+      "observed": {
+        "items": [
+          {
+            "kind": "video",
+            "name": "qual_a.mp4",
+            "pan": 0.0,
+            "record": [
+              0,
+              96
+            ],
+            "scaling": 0,
+            "source": [
+              0,
+              95
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4",
+            "tilt": 0.0,
+            "track": 1,
+            "track_name": "Video 1",
+            "unique_id": "2880fe9c-bc36-43d5-b5f3-b49ed3a1ff2c",
+            "zoomx": 1.0,
+            "zoomy": 1.0
+          },
+          {
+            "kind": "video",
+            "name": "qual_b.mp4",
+            "pan": 0.0,
+            "record": [
+              96,
+              168
+            ],
+            "scaling": 0,
+            "source": [
+              0,
+              71
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4",
+            "tilt": 0.0,
+            "track": 1,
+            "track_name": "Video 1",
+            "unique_id": "49e074bd-155e-4bc3-97c8-d11b796b07af",
+            "zoomx": 1.0,
+            "zoomy": 1.0
+          },
+          {
+            "kind": "video",
+            "name": "qual_c.mp4",
+            "pan": 0.0,
+            "record": [
+              168,
+              216
+            ],
+            "scaling": 0,
+            "source": [
+              0,
+              47
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4",
+            "tilt": 0.0,
+            "track": 1,
+            "track_name": "Video 1",
+            "unique_id": "22df2878-bbdd-40f5-bc23-2d68bdccc6e2",
+            "zoomx": 1.0,
+            "zoomy": 1.0
+          },
+          {
+            "kind": "video",
+            "name": "fm-qual-logo-alt-180x64.png",
+            "pan": 0.0,
+            "record": [
+              96,
+              216
+            ],
+            "scaling": 0,
+            "source": [
+              64,
+              64
+            ],
+            "source_path": "/tmp/fm-qual-logo-alt-180x64.png",
+            "tilt": 0.0,
+            "track": 3,
+            "track_name": "V3",
+            "unique_id": "0f49ba3b-0cdb-412c-85ee-3072922f0d3d",
+            "zoomx": 1.0,
+            "zoomy": 1.0
+          }
+        ]
+      },
       "operation": "overlay.replace",
-      "production_entry": "ren revise / Resolve AXI transaction",
-      "evaluation_level": 2,
-      "status": "pass",
       "outcome": "success",
+      "production_entry": "ren revise / Resolve AXI transaction",
       "receipt": {
-        "status": "committed",
+        "carry": {
+          "acceptance_contracts": [
+            {
+              "checks": [
+                "operation_readback_matches_request",
+                "unrelated_items_unchanged"
+              ],
+              "failed": [],
+              "id": "acceptance:clip.set_property",
+              "missing": [],
+              "operation": "clip.set_property",
+              "passed": true,
+              "results": [
+                {
+                  "check": "operation_readback_matches_request",
+                  "evidence": null,
+                  "passed": true,
+                  "status": "passed"
+                },
+                {
+                  "check": "unrelated_items_unchanged",
+                  "evidence": true,
+                  "passed": true,
+                  "status": "passed"
+                }
+              ],
+              "status": "passed",
+              "structural_source": "timeline_readback"
+            },
+            {
+              "checks": [
+                "operation_readback_matches_request",
+                "unrelated_items_unchanged"
+              ],
+              "failed": [],
+              "id": "acceptance:clip.set_property",
+              "missing": [],
+              "operation": "clip.set_property",
+              "passed": true,
+              "results": [
+                {
+                  "check": "operation_readback_matches_request",
+                  "evidence": null,
+                  "passed": true,
+                  "status": "passed"
+                },
+                {
+                  "check": "unrelated_items_unchanged",
+                  "evidence": true,
+                  "passed": true,
+                  "status": "passed"
+                }
+              ],
+              "status": "passed",
+              "structural_source": "timeline_readback"
+            }
+          ],
+          "applied": {
+            "complete": true,
+            "operations": 2,
+            "requested": 2,
+            "status": "applied"
+          },
+          "backend": "edit_patch",
+          "base_generation": 9,
+          "committed": {
+            "generation": 10,
+            "project_model": {
+              "revision": null,
+              "status": "not_required"
+            },
+            "status": "committed"
+          },
+          "delivered": {
+            "status": "not_requested"
+          },
+          "exclusive_hold_seconds": 3.0969,
+          "executing": {
+            "status": "completed",
+            "stopped": null
+          },
+          "execution_contract": {
+            "backend": "edit_patch",
+            "limitations": [],
+            "receipt": {
+              "idempotency_key": "ren-ea11a01a2322a9c5e280e0af4830e730808d241208938621a4234f0a9b99a611",
+              "transaction_id": "ren-ea11a01a2322a9c5e280e0af4830e730808d241208938621a4234f0a9b99a611"
+            },
+            "recovery": {
+              "action": "none",
+              "evidence": {
+                "recovery_record_present": true
+              },
+              "reason": "transaction verified",
+              "status": "not_attempted"
+            },
+            "status": "committed",
+            "verification": {
+              "checks": [
+                {
+                  "failures": [],
+                  "operation": "clip.set_property",
+                  "passed": true,
+                  "status": "passed"
+                },
+                {
+                  "failures": [],
+                  "operation": "clip.set_property",
+                  "passed": true,
+                  "status": "passed"
+                }
+              ],
+              "evidence": {
+                "acceptance_check_count": 2,
+                "acceptance_outcome": "accepted",
+                "readback_present": true
+              },
+              "layers": {
+                "rendered_audio": {
+                  "evidence": {},
+                  "status": "not_measured"
+                },
+                "rendered_pixels": {
+                  "evidence": {},
+                  "status": "not_measured"
+                },
+                "stored_state": {
+                  "checks": 2,
+                  "status": "verified"
+                }
+              },
+              "missing": [],
+              "status": "verified"
+            }
+          },
+          "expected_state": {
+            "operations": [
+              {
+                "key": "Pan",
+                "op": "clip.set_property",
+                "unique_id": "0f49ba3b-0cdb-412c-85ee-3072922f0d3d",
+                "value": 0.0
+              },
+              {
+                "key": "Tilt",
+                "op": "clip.set_property",
+                "unique_id": "0f49ba3b-0cdb-412c-85ee-3072922f0d3d",
+                "value": 0.0
+              }
+            ],
+            "postconditions": []
+          },
+          "fingerprint": "b8b36813a4526d7f24bdf7c045cdcf5c2f24e38ced254979284ab5a1c76d9841",
+          "generation": 10,
+          "idempotency_key": "ren-ea11a01a2322a9c5e280e0af4830e730808d241208938621a4234f0a9b99a611",
+          "journal": {
+            "errors": [],
+            "intent_persisted": true
+          },
+          "lifecycle": {
+            "actual_state": {
+              "generation": 10,
+              "generation_id": "gen-867b3e0319855a9549ca913f",
+              "hash": "b8b36813a4526d7f24bdf7c045cdcf5c2f24e38ced254979284ab5a1c76d9841",
+              "model_revision": null,
+              "nle_binding_ids": [],
+              "patch_id": "ren-ea11a01a2322a9c5e280e0af4830e730808d241208938621a4234f0a9b99a611",
+              "project": "Ren Qualification",
+              "recorded_at": 1792640683.3920882,
+              "source": "patch",
+              "timeline": "fm-scratch qualify 20261022T033448Z-1f75ab",
+              "timeline_id": "0d9e922f-0fad-41f3-b4f5-46ae7a625c2b",
+              "verified_at": 1792640683.3920882
+            },
+            "affected_changes": [
+              {
+                "failure": null,
+                "index": 0,
+                "op": "clip.set_property",
+                "returned": true
+              },
+              {
+                "failure": null,
+                "index": 1,
+                "op": "clip.set_property",
+                "returned": true
+              }
+            ],
+            "backend": "edit_patch",
+            "delivery": {
+              "status": "not_requested"
+            },
+            "expected_state": {
+              "operations": [
+                {
+                  "key": "Pan",
+                  "op": "clip.set_property",
+                  "unique_id": "0f49ba3b-0cdb-412c-85ee-3072922f0d3d",
+                  "value": 0.0
+                },
+                {
+                  "key": "Tilt",
+                  "op": "clip.set_property",
+                  "unique_id": "0f49ba3b-0cdb-412c-85ee-3072922f0d3d",
+                  "value": 0.0
+                }
+              ],
+              "postconditions": []
+            },
+            "history": [
+              "PLANNED",
+              "VALIDATED",
+              "PREPARED",
+              "EXECUTING",
+              "APPLIED",
+              "VERIFIED",
+              "COMMITTED"
+            ],
+            "ids": {
+              "idempotency_key": "ren-ea11a01a2322a9c5e280e0af4830e730808d241208938621a4234f0a9b99a611",
+              "project": "Ren Qualification",
+              "timeline": "fm-scratch qualify 20261022T033448Z-1f75ab",
+              "transaction_id": "ren-ea11a01a2322a9c5e280e0af4830e730808d241208938621a4234f0a9b99a611"
+            },
+            "persistence": {
+              "generation": 10,
+              "project_model": {
+                "revision": null,
+                "status": "not_required"
+              },
+              "status": "committed"
+            },
+            "promotion": null,
+            "recovery": null,
+            "recovery_result": {
+              "reason": "transaction verified",
+              "status": "not_attempted"
+            },
+            "route_selection": null,
+            "stage": "COMMITTED",
+            "unrelated_changes": [],
+            "verification": {
+              "acceptance_contracts": [
+                {
+                  "checks": [
+                    "operation_readback_matches_request",
+                    "unrelated_items_unchanged"
+                  ],
+                  "failed": [],
+                  "id": "acceptance:clip.set_property",
+                  "missing": [],
+                  "operation": "clip.set_property",
+                  "passed": true,
+                  "results": [
+                    {
+                      "check": "operation_readback_matches_request",
+                      "evidence": null,
+                      "passed": true,
+                      "status": "passed"
+                    },
+                    {
+                      "check": "unrelated_items_unchanged",
+                      "evidence": true,
+                      "passed": true,
+                      "status": "passed"
+                    }
+                  ],
+                  "status": "passed",
+                  "structural_source": "timeline_readback"
+                },
+                {
+                  "checks": [
+                    "operation_readback_matches_request",
+                    "unrelated_items_unchanged"
+                  ],
+                  "failed": [],
+                  "id": "acceptance:clip.set_property",
+                  "missing": [],
+                  "operation": "clip.set_property",
+                  "passed": true,
+                  "results": [
+                    {
+                      "check": "operation_readback_matches_request",
+                      "evidence": null,
+                      "passed": true,
+                      "status": "passed"
+                    },
+                    {
+                      "check": "unrelated_items_unchanged",
+                      "evidence": true,
+                      "passed": true,
+                      "status": "passed"
+                    }
+                  ],
+                  "status": "passed",
+                  "structural_source": "timeline_readback"
+                }
+              ],
+              "outcome": {
+                "acceptance_contracts_passed": true,
+                "acceptance_status": "passed",
+                "failed": [],
+                "missing": [],
+                "reason": "the acceptance was measured and passed",
+                "status": "verified"
+              }
+            }
+          },
+          "operations": [
+            {
+              "failure": null,
+              "index": 0,
+              "op": "clip.set_property",
+              "returned": true
+            },
+            {
+              "failure": null,
+              "index": 1,
+              "op": "clip.set_property",
+              "returned": true
+            }
+          ],
+          "patch_id": "ren-ea11a01a2322a9c5e280e0af4830e730808d241208938621a4234f0a9b99a611",
+          "planned": {
+            "patch_id": "ren-ea11a01a2322a9c5e280e0af4830e730808d241208938621a4234f0a9b99a611",
+            "status": "planned"
+          },
+          "postcondition_failures": [],
+          "prepared": {
+            "journal": {
+              "errors": [],
+              "intent_persisted": true
+            },
+            "status": "prepared"
+          },
+          "preservation": {
+            "changes": [],
+            "expected": [
+              {
+                "domain": "picture_transform",
+                "fields": [
+                  "transform.Pan"
+                ],
+                "operation": "clip.set_property",
+                "target": "clip:0f49ba3b-0cdb-412c-85ee-3072922f0d3d"
+              },
+              {
+                "domain": "picture_transform",
+                "fields": [
+                  "transform.Tilt"
+                ],
+                "operation": "clip.set_property",
+                "target": "clip:0f49ba3b-0cdb-412c-85ee-3072922f0d3d"
+              }
+            ],
+            "expected_not_observed": [
+              {
+                "domain": "picture_transform",
+                "fields": [
+                  "transform.Pan"
+                ],
+                "operation": "clip.set_property",
+                "target": "clip:0f49ba3b-0cdb-412c-85ee-3072922f0d3d"
+              },
+              {
+                "domain": "picture_transform",
+                "fields": [
+                  "transform.Tilt"
+                ],
+                "operation": "clip.set_property",
+                "target": "clip:0f49ba3b-0cdb-412c-85ee-3072922f0d3d"
+              }
+            ],
+            "status": "preserved",
+            "unobservable_domains": [],
+            "unprovable_reason": "",
+            "unrelated_changes": []
+          },
+          "preservation_requirements": [],
+          "project": "Ren Qualification",
+          "project_model_commit": {
+            "revision": null,
+            "status": "not_required"
+          },
+          "project_model_reconcile": {
+            "revision": null,
+            "status": "not_required"
+          },
+          "promoted": {
+            "status": "not_requested"
+          },
+          "readback": {
+            "generation": 10,
+            "generation_id": "gen-867b3e0319855a9549ca913f",
+            "hash": "b8b36813a4526d7f24bdf7c045cdcf5c2f24e38ced254979284ab5a1c76d9841",
+            "model_revision": null,
+            "nle_binding_ids": [],
+            "patch_id": "ren-ea11a01a2322a9c5e280e0af4830e730808d241208938621a4234f0a9b99a611",
+            "project": "Ren Qualification",
+            "recorded_at": 1792640683.3920882,
+            "source": "patch",
+            "timeline": "fm-scratch qualify 20261022T033448Z-1f75ab",
+            "timeline_id": "0d9e922f-0fad-41f3-b4f5-46ae7a625c2b",
+            "verified_at": 1792640683.3920882
+          },
+          "recovery": null,
+          "recovery_result": {
+            "reason": "transaction verified",
+            "status": "not_attempted"
+          },
+          "requested_operation_count": 2,
+          "resolve_write_status": "committed",
+          "status": "committed",
+          "stopped": null,
+          "timeline": "fm-scratch qualify 20261022T033448Z-1f75ab",
+          "unrelated_changes": [],
+          "validated": {
+            "base_generation": 9,
+            "status": "validated"
+          },
+          "verified": {
+            "acceptance_contracts_passed": true,
+            "acceptance_status": "passed",
+            "failed": [],
+            "missing": [],
+            "reason": "the acceptance was measured and passed",
+            "status": "verified"
+          }
+        },
         "delete": {
           "argv": [
             "edit",
@@ -769,7 +2230,7 @@
             "--index",
             "0",
             "--target-unique-id",
-            "8c62bbd3-6d45-47e5-83ac-610509e1cb4f",
+            "bd9ba201-74fe-45be-8ec9-ffe08ddd7a92",
             "--expected-source-file",
             "/tmp/fm-qual-tight-caption-480x120.png",
             "--expected-source-in-frame",
@@ -784,14 +2245,14 @@
             "--project",
             "Ren Qualification",
             "--timeline",
-            "fm-scratch qualify 20261021T164626Z-f3df75",
+            "fm-scratch qualify 20261022T033448Z-1f75ab",
             "--project-folder",
-            "/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-qual-92-1k0022s6",
+            "/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-qual-92-wkll5mwd",
             "--require-recovery"
           ],
           "exit_code": 0,
-          "stdout": "deleted:\n  timeline: fm-scratch qualify 20261021T164626Z-f3df75\n  name: fm-qual-tight-caption-480x120.png\n  verified: yes (unique id absent on re-read)\njournal:\n  entry: 20261021T173134Z-fm-scratch-qualify-20261021t164626z-f3df-288cfa\n  status: applied\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify 20261021T164626Z-f3df75\"`\n",
-          "stderr": ""
+          "stderr": "",
+          "stdout": "deleted:\n  timeline: fm-scratch qualify 20261022T033448Z-1f75ab\n  name: fm-qual-tight-caption-480x120.png\n  verified: yes (unique id absent on re-read)\njournal:\n  entry: 20261022T034439Z-fm-scratch-qualify-20261022t033448z-1f75-95b260\n  status: applied\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify 20261022T033448Z-1f75ab\"`\n"
         },
         "insert": {
           "argv": [
@@ -813,653 +2274,246 @@
             "--project",
             "Ren Qualification",
             "--timeline",
-            "fm-scratch qualify 20261021T164626Z-f3df75",
+            "fm-scratch qualify 20261022T033448Z-1f75ab",
             "--project-folder",
-            "/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-qual-92-1k0022s6",
+            "/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-qual-92-wkll5mwd",
             "--require-recovery"
           ],
           "exit_code": 0,
-          "stdout": "placed:\n  timeline: fm-scratch qualify 20261021T164626Z-f3df75\n  clip: fm-qual-logo-alt-180x64.png\n  items_delta: 1\n  placed_media_id: 7e0d4dee-7ee6-4295-8181-ab3f122ba98e\n  verified: yes (the placed item carries the requested media, at the requested place; no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  fm-qual-logo-alt-180x64.png,96,216,64,64,a22278c7-776d-42c1-9027-dcc584555f7c\njournal:\n  entry: 20261021T173141Z-fm-scratch-qualify-20261021t164626z-f3df-c91278\n  status: applied\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify 20261021T164626Z-f3df75\"`\n",
-          "stderr": ""
+          "stderr": "",
+          "stdout": "placed:\n  timeline: fm-scratch qualify 20261022T033448Z-1f75ab\n  clip: fm-qual-logo-alt-180x64.png\n  items_delta: 1\n  placed_media_id: 2be85da2-ea5a-4426-a498-7e8a04a8636d\n  verified: yes (the placed item carries the requested media, at the requested place; no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  fm-qual-logo-alt-180x64.png,96,216,64,64,0f49ba3b-0cdb-412c-85ee-3072922f0d3d\njournal:\n  entry: 20261022T034440Z-fm-scratch-qualify-20261022t033448z-1f75-8c112f\n  status: applied\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify 20261022T033448Z-1f75ab\"`\n"
         },
-        "carry": {
-          "patch_id": "ren-7d4bbeda5259c6786af4b268fc972a880a15c113ecc7e8f18fdddccf9b733083",
-          "status": "committed",
-          "resolve_write_status": "committed",
-          "base_generation": 3,
-          "project": "Ren Qualification",
-          "timeline": "fm-scratch qualify 20261021T164626Z-f3df75",
-          "requested_operation_count": 2,
-          "expected_state": {
-            "operations": [
-              {
-                "op": "clip.set_property",
-                "unique_id": "a22278c7-776d-42c1-9027-dcc584555f7c",
-                "key": "Pan",
-                "value": 0.0
-              },
-              {
-                "op": "clip.set_property",
-                "unique_id": "a22278c7-776d-42c1-9027-dcc584555f7c",
-                "key": "Tilt",
-                "value": 0.0
-              }
-            ],
-            "postconditions": []
-          },
-          "readback": {
-            "project": "Ren Qualification",
-            "timeline": "fm-scratch qualify 20261021T164626Z-f3df75",
-            "timeline_id": "cc6462e0-8849-4d92-96c2-f3abb3b509be",
-            "generation": 4,
-            "hash": "67398663108676f25fe29811599eec122505b6dc20f619fdf9df3f3e40ee8c88",
-            "source": "patch",
-            "patch_id": "ren-7d4bbeda5259c6786af4b268fc972a880a15c113ecc7e8f18fdddccf9b733083",
-            "recorded_at": 1792603906.5365272,
-            "verified_at": 1792603906.5365272,
-            "model_revision": null,
-            "nle_binding_ids": []
-          },
-          "backend": "edit_patch",
-          "idempotency_key": "ren-7d4bbeda5259c6786af4b268fc972a880a15c113ecc7e8f18fdddccf9b733083",
-          "operations": [
-            {
-              "index": 0,
-              "op": "clip.set_property",
-              "returned": true,
-              "failure": null
-            },
-            {
-              "index": 1,
-              "op": "clip.set_property",
-              "returned": true,
-              "failure": null
-            }
-          ],
-          "unrelated_changes": [],
-          "acceptance_contracts": [
-            {
-              "id": "acceptance:clip.set_property",
-              "operation": "clip.set_property",
-              "checks": [
-                "operation_readback_matches_request",
-                "unrelated_items_unchanged"
-              ],
-              "structural_source": "timeline_readback",
-              "passed": true,
-              "results": [
-                {
-                  "check": "operation_readback_matches_request",
-                  "passed": true,
-                  "status": "passed",
-                  "evidence": null
-                },
-                {
-                  "check": "unrelated_items_unchanged",
-                  "passed": true,
-                  "status": "passed",
-                  "evidence": true
-                }
-              ],
-              "missing": [],
-              "failed": []
-            },
-            {
-              "id": "acceptance:clip.set_property",
-              "operation": "clip.set_property",
-              "checks": [
-                "operation_readback_matches_request",
-                "unrelated_items_unchanged"
-              ],
-              "structural_source": "timeline_readback",
-              "passed": true,
-              "results": [
-                {
-                  "check": "operation_readback_matches_request",
-                  "passed": true,
-                  "status": "passed",
-                  "evidence": null
-                },
-                {
-                  "check": "unrelated_items_unchanged",
-                  "passed": true,
-                  "status": "passed",
-                  "evidence": true
-                }
-              ],
-              "missing": [],
-              "failed": []
-            }
-          ],
-          "preservation": {
-            "status": "preserved",
-            "changes": [],
-            "expected": [
-              {
-                "target": "clip:a22278c7-776d-42c1-9027-dcc584555f7c",
-                "domain": "picture_transform",
-                "operation": "clip.set_property",
-                "fields": [
-                  "transform.Pan"
-                ]
-              },
-              {
-                "target": "clip:a22278c7-776d-42c1-9027-dcc584555f7c",
-                "domain": "picture_transform",
-                "operation": "clip.set_property",
-                "fields": [
-                  "transform.Tilt"
-                ]
-              }
-            ],
-            "expected_not_observed": [
-              {
-                "target": "clip:a22278c7-776d-42c1-9027-dcc584555f7c",
-                "domain": "picture_transform",
-                "operation": "clip.set_property",
-                "fields": [
-                  "transform.Pan"
-                ]
-              },
-              {
-                "target": "clip:a22278c7-776d-42c1-9027-dcc584555f7c",
-                "domain": "picture_transform",
-                "operation": "clip.set_property",
-                "fields": [
-                  "transform.Tilt"
-                ]
-              }
-            ],
-            "unrelated_changes": [],
-            "unobservable_domains": [],
-            "unprovable_reason": ""
-          },
-          "preservation_requirements": [],
-          "stopped": null,
-          "recovery_result": {
-            "status": "not_attempted",
-            "reason": "transaction verified"
-          },
-          "journal": {
-            "intent_persisted": true,
-            "errors": []
-          },
-          "postcondition_failures": [],
-          "exclusive_hold_seconds": 3.3126,
-          "project_model_commit": {
-            "status": "not_required",
-            "revision": null
-          },
-          "project_model_reconcile": {
-            "status": "not_required",
-            "revision": null
-          },
-          "generation": 4,
-          "fingerprint": "67398663108676f25fe29811599eec122505b6dc20f619fdf9df3f3e40ee8c88",
-          "recovery": null,
-          "planned": {
-            "status": "planned",
-            "patch_id": "ren-7d4bbeda5259c6786af4b268fc972a880a15c113ecc7e8f18fdddccf9b733083"
-          },
-          "validated": {
-            "status": "validated",
-            "base_generation": 3
-          },
-          "prepared": {
-            "status": "prepared",
-            "journal": {
-              "intent_persisted": true,
-              "errors": []
-            }
-          },
-          "executing": {
-            "status": "completed",
-            "stopped": null
-          },
-          "applied": {
-            "status": "applied",
-            "operations": 2,
-            "requested": 2,
-            "complete": true
-          },
-          "verified": {
-            "status": "verified",
-            "acceptance_contracts_passed": true
-          },
-          "committed": {
-            "status": "committed",
-            "generation": 4,
-            "project_model": {
-              "status": "not_required",
-              "revision": null
-            }
-          },
-          "promoted": {
-            "status": "not_requested"
-          },
-          "delivered": {
-            "status": "not_requested"
-          },
-          "lifecycle": {
-            "stage": "COMMITTED",
-            "ids": {
-              "transaction_id": "ren-7d4bbeda5259c6786af4b268fc972a880a15c113ecc7e8f18fdddccf9b733083",
-              "idempotency_key": "ren-7d4bbeda5259c6786af4b268fc972a880a15c113ecc7e8f18fdddccf9b733083",
-              "project": "Ren Qualification",
-              "timeline": "fm-scratch qualify 20261021T164626Z-f3df75"
-            },
-            "expected_state": {
-              "operations": [
-                {
-                  "op": "clip.set_property",
-                  "unique_id": "a22278c7-776d-42c1-9027-dcc584555f7c",
-                  "key": "Pan",
-                  "value": 0.0
-                },
-                {
-                  "op": "clip.set_property",
-                  "unique_id": "a22278c7-776d-42c1-9027-dcc584555f7c",
-                  "key": "Tilt",
-                  "value": 0.0
-                }
-              ],
-              "postconditions": []
-            },
-            "actual_state": {
-              "project": "Ren Qualification",
-              "timeline": "fm-scratch qualify 20261021T164626Z-f3df75",
-              "timeline_id": "cc6462e0-8849-4d92-96c2-f3abb3b509be",
-              "generation": 4,
-              "hash": "67398663108676f25fe29811599eec122505b6dc20f619fdf9df3f3e40ee8c88",
-              "source": "patch",
-              "patch_id": "ren-7d4bbeda5259c6786af4b268fc972a880a15c113ecc7e8f18fdddccf9b733083",
-              "recorded_at": 1792603906.5365272,
-              "verified_at": 1792603906.5365272,
-              "model_revision": null,
-              "nle_binding_ids": []
-            },
-            "affected_changes": [
-              {
-                "index": 0,
-                "op": "clip.set_property",
-                "returned": true,
-                "failure": null
-              },
-              {
-                "index": 1,
-                "op": "clip.set_property",
-                "returned": true,
-                "failure": null
-              }
-            ],
-            "unrelated_changes": [],
-            "backend": "edit_patch",
-            "route_selection": null,
-            "verification": {
-              "outcome": {
-                "status": "verified",
-                "acceptance_contracts_passed": true
-              },
-              "acceptance_contracts": [
-                {
-                  "id": "acceptance:clip.set_property",
-                  "operation": "clip.set_property",
-                  "checks": [
-                    "operation_readback_matches_request",
-                    "unrelated_items_unchanged"
-                  ],
-                  "structural_source": "timeline_readback",
-                  "passed": true,
-                  "results": [
-                    {
-                      "check": "operation_readback_matches_request",
-                      "passed": true,
-                      "status": "passed",
-                      "evidence": null
-                    },
-                    {
-                      "check": "unrelated_items_unchanged",
-                      "passed": true,
-                      "status": "passed",
-                      "evidence": true
-                    }
-                  ],
-                  "missing": [],
-                  "failed": []
-                },
-                {
-                  "id": "acceptance:clip.set_property",
-                  "operation": "clip.set_property",
-                  "checks": [
-                    "operation_readback_matches_request",
-                    "unrelated_items_unchanged"
-                  ],
-                  "structural_source": "timeline_readback",
-                  "passed": true,
-                  "results": [
-                    {
-                      "check": "operation_readback_matches_request",
-                      "passed": true,
-                      "status": "passed",
-                      "evidence": null
-                    },
-                    {
-                      "check": "unrelated_items_unchanged",
-                      "passed": true,
-                      "status": "passed",
-                      "evidence": true
-                    }
-                  ],
-                  "missing": [],
-                  "failed": []
-                }
-              ]
-            },
-            "recovery": null,
-            "recovery_result": {
-              "status": "not_attempted",
-              "reason": "transaction verified"
-            },
-            "persistence": {
-              "status": "committed",
-              "generation": 4,
-              "project_model": {
-                "status": "not_required",
-                "revision": null
-              }
-            },
-            "promotion": null,
-            "delivery": {
-              "status": "not_requested"
-            },
-            "history": [
-              "PLANNED",
-              "VALIDATED",
-              "PREPARED",
-              "EXECUTING",
-              "APPLIED",
-              "VERIFIED",
-              "COMMITTED"
-            ]
-          },
-          "execution_contract": {
-            "status": "committed",
-            "backend": "edit_patch",
-            "verification": {
-              "status": "verified",
-              "checks": [
-                {
-                  "passed": true,
-                  "operation": "clip.set_property",
-                  "failures": []
-                },
-                {
-                  "passed": true,
-                  "operation": "clip.set_property",
-                  "failures": []
-                }
-              ],
-              "missing": [],
-              "evidence": {
-                "acceptance_check_count": 2,
-                "readback_present": true
-              },
-              "layers": {
-                "stored_state": {
-                  "status": "verified",
-                  "checks": 2
-                },
-                "rendered_pixels": {
-                  "status": "not_measured",
-                  "evidence": {}
-                },
-                "rendered_audio": {
-                  "status": "not_measured",
-                  "evidence": {}
-                }
-              }
-            },
-            "recovery": {
-              "status": "not_attempted",
-              "action": "none",
-              "reason": "transaction verified",
-              "evidence": {
-                "recovery_record_present": true
-              }
-            },
-            "limitations": [],
-            "receipt": {
-              "transaction_id": "ren-7d4bbeda5259c6786af4b268fc972a880a15c113ecc7e8f18fdddccf9b733083",
-              "idempotency_key": "ren-7d4bbeda5259c6786af4b268fc972a880a15c113ecc7e8f18fdddccf9b733083"
-            }
-          }
-        }
+        "status": "committed"
       },
-      "checks": {
-        "old_graphic_gone": true,
-        "replacement_at_span": true,
-        "position_carried": true,
-        "other_items_unchanged": true
-      },
-      "collateral_changes": [],
-      "benchmark": {
-        "attempts": 1
-      },
-      "discovery": {
-        "operation": "overlay.replace",
-        "discovered_from_request": true,
-        "algebra_present": true,
-        "request_id": "edit_req_c707096ed4a44f35",
-        "phases": {
-          "discovery_s": 0.00039362499956041574,
-          "routing_s": 0.0005322920042090118,
-          "live_execution_s": 48.169205375015736
-        }
-      },
-      "backend_selection": {
-        "selected": "edit_patch",
-        "selection_correct": true,
-        "router_routes": {
-          "production": {
-            "selected": "",
-            "refusal": "RoutingRefused: ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  what: no production-qualified executor is available for: clip.delete, clip.insert\n  why: no production-qualified executor is available for: clip.delete, clip.insert; production routing fails closed (clip.delete: runtime qualification state was not inspected; clip.insert: runtime qualification state was not inspected)\n  fix: Qualify the operation on a live Resolve timeline and import the evidence, or route it under the protected experimental policy with explicit staging, preservation and verification guarantees."
-          },
-          "protected_experimental": {
-            "selected": "edit_patch"
-          },
-          "selected": "edit_patch"
-        },
-        "executed_entry": "resolve-axi edit delete + edit place (journaled)",
-        "basis": "router refuses overlay.replace under production and selects edit_patch for delete-plus-insert under the qualification-run policy; the small-edit-qualified journaled verb pair executed it and the read-back above verifies span, position carry and preservation | capability gap: reel.touchup declares clip.delete but not clip.insert, so the router-selected edit_patch pair cannot execute as one patch"
-      },
-      "elapsed_seconds": 48.171698999998625,
-      "instruction_to_verified_seconds": 48.171699458005605,
-      "fixture_setup_seconds": null,
-      "execution_mode": "request",
-      "observed": {
-        "items": [
-          {
-            "kind": "video",
-            "track": 1,
-            "track_name": "Video 1",
-            "name": "qual_a.mp4",
-            "unique_id": "6d47b948-09a6-4887-887e-49c5b3af422e",
-            "record": [
-              0,
-              96
-            ],
-            "source": [
-              0,
-              95
-            ],
-            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4",
-            "pan": 0.0,
-            "tilt": 0.0,
-            "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 0
-          },
-          {
-            "kind": "video",
-            "track": 1,
-            "track_name": "Video 1",
-            "name": "qual_b.mp4",
-            "unique_id": "55f6618d-cb95-42a1-8ed5-2bdfcfde6095",
-            "record": [
-              96,
-              168
-            ],
-            "source": [
-              0,
-              71
-            ],
-            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4",
-            "pan": 0.0,
-            "tilt": 0.0,
-            "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 0
-          },
-          {
-            "kind": "video",
-            "track": 1,
-            "track_name": "Video 1",
-            "name": "qual_c.mp4",
-            "unique_id": "540d9b0e-c21a-49bd-b157-adfa7d9b2593",
-            "record": [
-              168,
-              216
-            ],
-            "source": [
-              0,
-              47
-            ],
-            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4",
-            "pan": 0.0,
-            "tilt": 0.0,
-            "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 0
-          },
-          {
-            "kind": "video",
-            "track": 3,
-            "track_name": "V3",
-            "name": "fm-qual-logo-alt-180x64.png",
-            "unique_id": "a22278c7-776d-42c1-9027-dcc584555f7c",
-            "record": [
-              96,
-              216
-            ],
-            "source": [
-              64,
-              64
-            ],
-            "source_path": "/tmp/fm-qual-logo-alt-180x64.png",
-            "pan": 0.0,
-            "tilt": 0.0,
-            "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 0
-          }
-        ]
-      },
-      "previous_attempt": {
-        "status": "fail",
-        "outcome": "missing_evidence",
-        "error": "RuntimeError: qualification batch failed: ResolveUnavailable: Resolve is not running, or has not finished loading. Open it with the project you want to read, then try again."
-      }
+      "status": "pass"
     },
     {
-      "id": "restyle_captions",
-      "instruction": "Apply the supplied caption style consistently to every caption, keeping each caption's text and timing.",
-      "operation": "caption.style",
-      "production_entry": "ren revise / Resolve AXI transaction",
-      "evaluation_level": 2,
-      "status": "pass",
-      "outcome": "success",
-      "receipt": {
-        "status": "committed",
-        "rerendered": [
-          "sub_nospeaker_axc-caption-1_0-2000_5bceefb6.mov",
-          "sub_nospeaker_axc-caption-2_0-2000_9b696f77.mov"
-        ]
-      },
-      "checks": {
-        "every_caption_verified": true,
-        "one_caption_operation_per_card": true,
-        "committed_receipt": true,
-        "no_collateral_changes": true
-      },
-      "collateral_changes": [],
-      "benchmark": {
-        "attempts": 1
-      },
-      "discovery": {
-        "operation": "caption.style",
-        "discovered_from_request": true,
-        "algebra_present": true,
-        "request_id": "edit_req_5f9354f2c5f64177",
-        "phases": {
-          "discovery_s": 4.020801861770451e-05,
-          "routing_s": 0.0002737500180955976,
-          "live_execution_s": 124.0986483329907
-        }
-      },
       "backend_selection": {
-        "selected": "resolve_axi",
-        "selection_correct": true,
+        "basis": "each caption.style card is rendered by the existing subtitles.rerender_swap path and independently verified",
+        "executed_entry": "resolve_axi_core.execute_semantic_edit_job",
         "router_routes": {
           "production": {
-            "selected": "",
-            "refusal": "RoutingRefused: ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  what: no production-qualified executor is available for: caption.style, caption.style\n  why: no production-qualified executor is available for: caption.style, caption.style; production routing fails closed (caption.style: runtime qualification state was not inspected; caption.style: runtime qualification state was not inspected)\n  fix: Qualify the operation on a live Resolve timeline and import the evidence, or route it under the protected experimental policy with explicit staging, preservation and verification guarantees."
+            "refusal": "RoutingRefused: ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  blocker: unsupported_operation - the engine has no proven way to do this\n  what: no production-qualified executor is available for: caption.style, caption.style\n  why: no production-qualified executor is available for: caption.style, caption.style; production routing fails closed (caption.style: runtime qualification state was not inspected; caption.style: runtime qualification state was not inspected)\n  fix: Qualify the operation on a live Resolve timeline and import the evidence, or route it under the protected experimental policy with explicit staging, preservation and verification guarantees.\n  next action: use_a_supported_operation",
+            "selected": ""
           },
           "protected_experimental": {
             "selected": "resolve_axi"
           },
           "selected": "resolve_axi"
         },
-        "executed_entry": "resolve_axi_core.execute_semantic_edit_job",
-        "basis": "each caption.style card is rendered by the existing subtitles.rerender_swap path and independently verified"
+        "selected": "resolve_axi",
+        "selection_correct": true
       },
-      "elapsed_seconds": 124.11589124999591,
-      "instruction_to_verified_seconds": 124.11589329098933,
-      "fixture_setup_seconds": null,
+      "benchmark": {
+        "attempts": 1
+      },
+      "checks": {
+        "committed_receipt": true,
+        "every_caption_verified": true,
+        "no_collateral_changes": true,
+        "one_caption_operation_per_card": true
+      },
+      "collateral_changes": [],
+      "discovery": {
+        "algebra_present": true,
+        "discovered_from_request": true,
+        "operation": "caption.style",
+        "phases": {
+          "discovery_s": 7.370798266492784e-05,
+          "live_execution_s": 31.492652084009023,
+          "routing_s": 0.0005532499926630408
+        },
+        "request_id": "edit_req_ed2828fb6fb44525"
+      },
+      "elapsed_seconds": 31.494699458009563,
+      "evaluation_level": 2,
       "execution_mode": "request",
+      "fixture_setup_seconds": null,
+      "id": "restyle_captions",
+      "instruction": "Apply the supplied caption style consistently to every caption, keeping each caption's text and timing.",
+      "instruction_to_verified_seconds": 31.494705999997677,
       "observed": {
         "per_caption": [
           {
-            "unique_id": "d255e6bd-9a32-41dc-964a-aa0677895399",
-            "verified": true,
+            "style_applied": true,
             "text_preserved": true,
             "timing_preserved": true,
-            "style_applied": true
+            "unique_id": "5fa53d69-2ac8-438b-bff0-9f6bfe266e4c",
+            "verified": true
           },
           {
-            "unique_id": "6ed564b0-139e-4628-a60a-f4d9b39655a3",
-            "verified": true,
+            "style_applied": true,
             "text_preserved": true,
             "timing_preserved": true,
-            "style_applied": true
+            "unique_id": "26241033-4098-42b9-9f59-a01a90b71401",
+            "verified": true
           }
         ]
       },
-      "previous_attempt": {
-        "status": "fail",
-        "outcome": "missing_evidence",
-        "error": "RuntimeError: qualification batch failed: ResolveUnavailable: Resolve is not running, or has not finished loading. Open it with the project you want to read, then try again."
-      }
+      "operation": "caption.style",
+      "outcome": "success",
+      "production_entry": "ren revise / Resolve AXI transaction",
+      "receipt": {
+        "rerendered": [
+          "sub_nospeaker_axc-caption-1_0-2000_5bceefb6.mov",
+          "sub_nospeaker_axc-caption-2_0-2000_9b696f77.mov"
+        ],
+        "status": "committed"
+      },
+      "status": "pass"
     },
     {
+      "backend_selection": {
+        "basis": "the router routes clip.remove to the AXI track-scoped ripple verb when the measured runtime satisfies the recorded qualification predicates, and to that same verb under the qualification-run policy; the verb executed the removal and the read-back above verifies cover removal with A-roll and audio untouched and unmoved",
+        "executed_entry": "resolve-axi edit track-ripple-remove",
+        "router_routes": {
+          "production": {
+            "refusal": "RoutingRefused: ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  blocker: unsupported_operation - the engine has no proven way to do this\n  what: no production-qualified executor is available for: clip.remove\n  why: no production-qualified executor is available for: clip.remove; production routing fails closed (clip.remove: runtime state does not satisfy recorded qualification predicates: existing_effects is 'retiming', not 'none')\n  fix: Qualify the operation on a live Resolve timeline and import the evidence, or route it under the protected experimental policy with explicit staging, preservation and verification guarantees.\n  next action: use_a_supported_operation",
+            "selected": ""
+          },
+          "protected_experimental": {
+            "selected": "resolve_axi"
+          },
+          "selected": "resolve_axi"
+        },
+        "selected": "resolve_axi",
+        "selection_correct": true
+      },
+      "benchmark": {
+        "attempts": 1
+      },
+      "checks": {
+        "broll_target_absent": true,
+        "cover_track_emptied": true,
+        "linked_audio_in_sync": true,
+        "underlying_speech_and_audio_unchanged": true
+      },
+      "collateral_changes": [],
+      "discovery": {
+        "algebra_present": true,
+        "discovered_from_request": true,
+        "operation": "clip.remove",
+        "phases": {
+          "discovery_s": 8.31669894978404e-05,
+          "live_execution_s": 37.0922672089946,
+          "routing_s": 0.00019470800179988146
+        },
+        "request_id": "edit_req_24d3ac078b08428d"
+      },
+      "elapsed_seconds": 37.09366954100551,
+      "evaluation_level": 2,
+      "execution_mode": "request",
+      "fixture_setup_seconds": null,
       "id": "remove_broll",
       "instruction": "Remove the selected B-roll shot and close its gap while keeping adjacent speech and sync intact.",
+      "instruction_to_verified_seconds": 37.093670083006145,
+      "observed": {
+        "before_spans": [
+          "('audio', 'qual_a.mp4', (0, 96))",
+          "('audio', 'qual_b.mp4', (96, 168))",
+          "('audio', 'qual_c.mp4', (168, 216))",
+          "('video', 'qual_a.mp4', (0, 96))",
+          "('video', 'qual_b.mp4', (96, 168))",
+          "('video', 'qual_c.mp4', (100, 140))",
+          "('video', 'qual_c.mp4', (168, 216))"
+        ],
+        "items": [
+          {
+            "kind": "video",
+            "name": "qual_a.mp4",
+            "pan": 0.0,
+            "record": [
+              0,
+              96
+            ],
+            "scaling": 0,
+            "source": [
+              0,
+              95
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4",
+            "tilt": 0.0,
+            "track": 1,
+            "track_name": "Video 1",
+            "unique_id": "8734d085-2629-47b1-b99c-69244614d200",
+            "zoomx": 1.0,
+            "zoomy": 1.0
+          },
+          {
+            "kind": "video",
+            "name": "qual_b.mp4",
+            "pan": 0.0,
+            "record": [
+              96,
+              168
+            ],
+            "scaling": 0,
+            "source": [
+              0,
+              71
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4",
+            "tilt": 0.0,
+            "track": 1,
+            "track_name": "Video 1",
+            "unique_id": "30c8cfb2-8c05-461c-89d8-5e5715f3c22b",
+            "zoomx": 1.0,
+            "zoomy": 1.0
+          },
+          {
+            "kind": "video",
+            "name": "qual_c.mp4",
+            "pan": 0.0,
+            "record": [
+              168,
+              216
+            ],
+            "scaling": 0,
+            "source": [
+              0,
+              47
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4",
+            "tilt": 0.0,
+            "track": 1,
+            "track_name": "Video 1",
+            "unique_id": "2bbffe59-ef1a-46dd-9dfb-1693395061d6",
+            "zoomx": 1.0,
+            "zoomy": 1.0
+          },
+          {
+            "kind": "audio",
+            "name": "qual_a.mp4",
+            "record": [
+              0,
+              96
+            ],
+            "track": 1
+          },
+          {
+            "kind": "audio",
+            "name": "qual_b.mp4",
+            "record": [
+              96,
+              168
+            ],
+            "track": 1
+          },
+          {
+            "kind": "audio",
+            "name": "qual_c.mp4",
+            "record": [
+              168,
+              216
+            ],
+            "track": 1
+          }
+        ]
+      },
       "operation": "clip.remove",
-      "production_entry": "ren revise / Resolve AXI transaction",
-      "evaluation_level": 2,
-      "status": "pass",
       "outcome": "success",
+      "production_entry": "ren revise / Resolve AXI transaction",
       "receipt": {
-        "status": "committed",
         "delete": {
           "argv": [
             "edit",
@@ -1469,7 +2523,7 @@
             "--index",
             "0",
             "--target-unique-id",
-            "bd380853-f542-4cce-a5fe-cca31948a5d6",
+            "d681f93b-34b8-4904-9c0f-12e94757f56c",
             "--expected-source-file",
             "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4",
             "--expected-source-in-frame",
@@ -1484,339 +2538,271 @@
             "--project",
             "Ren Qualification",
             "--timeline",
-            "fm-scratch qualify 20261021T164626Z-f3df75",
+            "fm-scratch qualify 20261022T033448Z-1f75ab",
             "--project-folder",
-            "/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-qual-92-1k0022s6",
+            "/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-qual-92-wkll5mwd",
             "--require-recovery"
           ],
           "exit_code": 0,
-          "stdout": "track_ripple_removed:\n  timeline: fm-scratch qualify 20261021T164626Z-f3df75\n  target: qual_c.mp4\n  target_absent: yes\n  track: video2\n  shifted_groups: 0\n  shift_frames: 40\n  journal_entry: 20261021T184933Z-fm-scratch-qualify-20261021t164626z-f3df-20da84\njournal:\n  entry: 20261021T184933Z-fm-scratch-qualify-20261021t164626z-f3df-20da84\n  status: applied\n",
-          "stderr": ""
-        }
+          "stderr": "",
+          "stdout": "track_ripple_removed:\n  timeline: fm-scratch qualify 20261022T033448Z-1f75ab\n  target: qual_c.mp4\n  target_absent: yes\n  track: video2\n  shifted_groups: 0\n  shift_frames: 40\n  journal_entry: 20261022T034551Z-fm-scratch-qualify-20261022t033448z-1f75-779709\njournal:\n  entry: 20261022T034551Z-fm-scratch-qualify-20261022t033448z-1f75-779709\n  status: applied\n"
+        },
+        "status": "committed"
       },
-      "checks": {
-        "broll_target_absent": true,
-        "cover_track_emptied": true,
-        "underlying_speech_and_audio_unchanged": true,
-        "linked_audio_in_sync": true
-      },
-      "collateral_changes": [],
-      "benchmark": {
-        "attempts": 1
-      },
-      "discovery": {
-        "operation": "clip.remove",
-        "discovered_from_request": true,
-        "algebra_present": true,
-        "request_id": "edit_req_c1a7fe63589e4c38",
-        "phases": {
-          "discovery_s": 0.0001002080098260194,
-          "routing_s": 0.00018983398331329226,
-          "live_execution_s": 4544.497854542016
-        }
-      },
+      "status": "pass"
+    },
+    {
       "backend_selection": {
-        "selected": "resolve_axi",
-        "selection_correct": true,
+        "basis": "router refuses broll.insert under production and protected policies (no qualified backend; refusals on record); the journaled small-edit place entry executed the cover and the read-back above verifies span and speech preservation",
+        "executed_entry": "resolve-axi edit place",
         "router_routes": {
           "production": {
-            "selected": "",
-            "refusal": "RoutingRefused: ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  what: no production-qualified executor is available for: clip.remove\n  why: no production-qualified executor is available for: clip.remove; production routing fails closed (clip.remove: runtime state does not satisfy recorded qualification predicates: timeline_density is 'moderate', not 'light'; existing_effects is 'retiming', not 'none')\n  fix: Qualify the operation on a live Resolve timeline and import the evidence, or route it under the protected experimental policy with explicit staging, preservation and verification guarantees."
+            "refusal": "RoutingRefused: ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  blocker: unsupported_operation - the engine has no proven way to do this\n  what: no production-qualified executor is available for: broll.insert\n  why: no production-qualified executor is available for: broll.insert; production routing fails closed (broll.insert: runtime qualification state was not inspected)\n  fix: Qualify the operation on a live Resolve timeline and import the evidence, or route it under the protected experimental policy with explicit staging, preservation and verification guarantees.\n  next action: use_a_supported_operation",
+            "selected": ""
           },
           "protected_experimental": {
             "selected": "resolve_axi"
           },
           "selected": "resolve_axi"
         },
-        "executed_entry": "resolve-axi edit track-ripple-remove",
-        "basis": "the router routes clip.remove to the AXI track-scoped ripple verb when the measured runtime satisfies the recorded qualification predicates, and to that same verb under the qualification-run policy; the verb executed the removal and the read-back above verifies cover removal with A-roll and audio untouched and unmoved"
+        "selected": "resolve_axi",
+        "selection_correct": true
       },
-      "elapsed_seconds": 4544.524836500001,
-      "instruction_to_verified_seconds": 4544.52483762498,
-      "fixture_setup_seconds": null,
+      "benchmark": {
+        "attempts": 1
+      },
+      "checks": {
+        "cover_over_marked_phrase": true,
+        "linked_audio_untouched": true,
+        "underlying_speech_kept": true
+      },
+      "collateral_changes": [],
+      "discovery": {
+        "algebra_present": true,
+        "discovered_from_request": true,
+        "operation": "broll.insert",
+        "phases": {
+          "discovery_s": 5.258299643173814e-05,
+          "live_execution_s": 120.31509308301611,
+          "routing_s": 0.00014770799316465855
+        },
+        "request_id": "edit_req_b53fd25162a241d0"
+      },
+      "elapsed_seconds": 120.32246516601299,
+      "evaluation_level": 2,
       "execution_mode": "request",
+      "fixture_setup_seconds": null,
+      "id": "insert_relevant_broll",
+      "instruction": "Cover the marked phrase with the supplied matching B-roll, using the marked source range and preserving the underlying speech.",
+      "instruction_to_verified_seconds": 120.32247991600889,
       "observed": {
         "before_spans": [
-          "('audio', 'qual_a.mp4', (0, 96))",
-          "('audio', 'qual_b.mp4', (96, 168))",
-          "('audio', 'qual_c.mp4', (168, 216))",
-          "('video', 'qual_a.mp4', (0, 96))",
-          "('video', 'qual_b.mp4', (96, 168))",
-          "('video', 'qual_c.mp4', (100, 140))",
-          "('video', 'qual_c.mp4', (168, 216))"
+          [
+            "qual_a.mp4",
+            [
+              0,
+              96
+            ]
+          ],
+          [
+            "qual_b.mp4",
+            [
+              96,
+              168
+            ]
+          ],
+          [
+            "qual_c.mp4",
+            [
+              168,
+              216
+            ]
+          ]
         ],
         "items": [
           {
             "kind": "video",
-            "track": 1,
-            "track_name": "Video 1",
             "name": "qual_a.mp4",
-            "unique_id": "886492c0-2cf3-4c22-8a90-10231b3c98d9",
+            "pan": 0.0,
             "record": [
               0,
               96
             ],
+            "scaling": 0,
             "source": [
               0,
               95
             ],
             "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4",
-            "pan": 0.0,
             "tilt": 0.0,
+            "track": 1,
+            "track_name": "Video 1",
+            "unique_id": "dfa1d269-94c3-4d0a-bcc8-52cd28966a38",
             "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 0
+            "zoomy": 1.0
           },
           {
             "kind": "video",
-            "track": 1,
-            "track_name": "Video 1",
             "name": "qual_b.mp4",
-            "unique_id": "49300713-f32e-41b7-a88d-88e0bd407883",
+            "pan": 0.0,
             "record": [
               96,
               168
             ],
+            "scaling": 0,
             "source": [
               0,
               71
             ],
             "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4",
-            "pan": 0.0,
             "tilt": 0.0,
+            "track": 1,
+            "track_name": "Video 1",
+            "unique_id": "66714da0-a731-4580-943e-5410e5e9b486",
             "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 0
+            "zoomy": 1.0
           },
           {
             "kind": "video",
-            "track": 1,
-            "track_name": "Video 1",
             "name": "qual_c.mp4",
-            "unique_id": "60413b1b-9313-4597-a248-a56d20d6c001",
+            "pan": 0.0,
             "record": [
               168,
               216
             ],
+            "scaling": 0,
             "source": [
               0,
               47
             ],
             "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4",
-            "pan": 0.0,
             "tilt": 0.0,
+            "track": 1,
+            "track_name": "Video 1",
+            "unique_id": "67ef158a-7dc3-4afe-9405-17d96b732376",
             "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 0
+            "zoomy": 1.0
+          },
+          {
+            "kind": "video",
+            "name": "qual_c.mp4",
+            "pan": 0.0,
+            "record": [
+              100,
+              140
+            ],
+            "scaling": 0,
+            "source": [
+              0,
+              40
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4",
+            "tilt": 0.0,
+            "track": 2,
+            "track_name": "V2",
+            "unique_id": "164a39b0-476c-4fe1-90ff-202ede87146f",
+            "zoomx": 1.0,
+            "zoomy": 1.0
           },
           {
             "kind": "audio",
-            "track": 1,
             "name": "qual_a.mp4",
             "record": [
               0,
               96
-            ]
+            ],
+            "track": 1
           },
           {
             "kind": "audio",
-            "track": 1,
             "name": "qual_b.mp4",
             "record": [
               96,
               168
-            ]
+            ],
+            "track": 1
           },
           {
             "kind": "audio",
-            "track": 1,
             "name": "qual_c.mp4",
             "record": [
               168,
               216
-            ]
+            ],
+            "track": 1
           }
+        ],
+        "phrase_span": [
+          100,
+          140
         ]
       },
-      "previous_attempt": {
-        "status": "fail",
-        "outcome": "missing_evidence",
-        "error": "RuntimeError: qualification batch failed: ResolveUnavailable: Resolve is not running, or has not finished loading. Open it with the project you want to read, then try again."
-      }
-    },
-    {
-      "id": "insert_relevant_broll",
-      "instruction": "Cover the marked phrase with the supplied matching B-roll, using the marked source range and preserving the underlying speech.",
       "operation": "broll.insert",
+      "outcome": "success",
       "production_entry": "ren revise / Resolve AXI transaction",
-      "evaluation_level": 2,
-      "status": "fail",
-      "outcome": "missing_evidence",
-      "error": "RuntimeError: {\n  \"category\": \"fixture_batch_failed\",\n  \"reason\": \"case_failed\",\n  \"detail\": \"RuntimeError: could not seed qual_a.mp4: error: append reported nothing but the item count did not move (0 -> 0) - nothing landed.\\nhelp: resolve-axi items --timeline \\\"fm-scratch qualify 20261021T223944Z-ac6c5c\\\"\\n\",\n  \"task\": \"insert_relevant_broll\"\n}",
-      "collateral_changes": [],
-      "checks": {},
-      "elapsed_seconds": 43.11402512501809,
-      "instruction_to_verified_seconds": null,
-      "previous_attempt": {
-        "status": "fail",
-        "outcome": "missing_evidence",
-        "error": "RuntimeError: {\n  \"category\": \"fixture_batch_failed\",\n  \"reason\": \"case_failed\",\n  \"detail\": \"RuntimeError: could not seed qual_a.mp4: error: append reported nothing but the item count did not move (0 -> 0) - nothing landed.\\nhelp: resolve-axi items --timeline \\\"fm-scratch qualify 20261021T164626Z-f3df75\\\"\\n\",\n  \"task\": \"insert_relevant_broll\"\n}"
-      }
+      "receipt": {
+        "place": {
+          "argv": [
+            "edit",
+            "place",
+            "--clip",
+            "qual_c.mp4",
+            "--media",
+            "video",
+            "--track",
+            "2",
+            "--record",
+            "100",
+            "--source-in",
+            "0",
+            "--source-out",
+            "39",
+            "--apply",
+            "--project",
+            "Ren Qualification",
+            "--timeline",
+            "fm-scratch qualify 20261022T033448Z-1f75ab",
+            "--project-folder",
+            "/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-qual-92-wkll5mwd",
+            "--require-recovery"
+          ],
+          "exit_code": 0,
+          "stderr": "",
+          "stdout": "placed:\n  timeline: fm-scratch qualify 20261022T033448Z-1f75ab\n  clip: qual_c.mp4\n  items_delta: 1\n  placed_media_id: 3fa6975f-a92a-4050-a8c4-db26cfc373ee\n  verified: yes (the placed item carries the requested media, at the requested place; no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  qual_c.mp4,100,140,0,40,164a39b0-476c-4fe1-90ff-202ede87146f\njournal:\n  entry: 20261022T034751Z-fm-scratch-qualify-20261022t033448z-1f75-f9071d\n  status: applied\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify 20261022T033448Z-1f75ab\"`\n"
+        },
+        "status": "committed"
+      },
+      "status": "pass"
     },
     {
+      "checks": {},
+      "collateral_changes": [],
+      "elapsed_seconds": 104.49413304199697,
+      "error": "RuntimeError: {\n  \"category\": \"fixture_batch_failed\",\n  \"reason\": \"case_failed\",\n  \"detail\": \"AttributeError: module 'library.tools.reel_touchup' has no attribute 'TOUCH_OPS'\",\n  \"task\": \"right_speaker_camera\"\n}",
+      "evaluation_level": 2,
       "id": "right_speaker_camera",
       "instruction": "Show the camera assigned to the marked speaker for their speaking turn, preserving the edit points.",
-      "operation": "multicam.select_angle",
-      "production_entry": "ren revise / Resolve AXI transaction",
-      "evaluation_level": 2,
-      "status": "fail",
-      "outcome": "missing_evidence",
-      "error": "RuntimeError: {\n  \"category\": \"fixture_batch_failed\",\n  \"reason\": \"case_failed\",\n  \"detail\": \"RuntimeError: could not seed multicam fixture: error: append reported nothing but the item count did not move (0 -> 0) - nothing landed.\\nhelp: resolve-axi items --timeline \\\"fm-scratch qualify 20261021T223944Z-ac6c5c\\\"\\n\",\n  \"task\": \"right_speaker_camera\"\n}",
-      "collateral_changes": [],
-      "checks": {},
-      "elapsed_seconds": 31.01350050000474,
       "instruction_to_verified_seconds": null,
-      "previous_attempt": {
-        "status": "fail",
-        "outcome": "missing_evidence",
-        "error": "RuntimeError: {\n  \"category\": \"fixture_batch_failed\",\n  \"reason\": \"case_failed\",\n  \"detail\": \"RuntimeError: could not seed multicam fixture: error: append reported nothing but the item count did not move (0 -> 0) - nothing landed.\\nhelp: resolve-axi items --timeline \\\"fm-scratch qualify 20261021T164626Z-f3df75\\\"\\n\",\n  \"task\": \"right_speaker_camera\"\n}"
-      }
+      "operation": "multicam.select_angle",
+      "outcome": "missing_evidence",
+      "production_entry": "ren revise / Resolve AXI transaction",
+      "status": "fail"
     },
     {
+      "checks": {},
+      "collateral_changes": [],
+      "elapsed_seconds": 165.83818799999426,
+      "error": "RuntimeError: {\n  \"category\": \"fixture_batch_failed\",\n  \"reason\": \"case_failed\",\n  \"detail\": \"AttributeError: module 'library.tools.reel_touchup' has no attribute 'TOUCH_OPS'\",\n  \"task\": \"improve_opening\"\n}",
+      "evaluation_level": 2,
       "id": "improve_opening",
       "instruction": "Tighten the opening to the supplied brief while preserving the speaker's meaning and approved edits.",
-      "operation": "reel.opening",
-      "production_entry": "ren revise / Resolve AXI transaction",
-      "evaluation_level": 2,
-      "status": "fail",
-      "outcome": "missing_evidence",
-      "error": "RuntimeError: {\n  \"category\": \"fixture_batch_failed\",\n  \"reason\": \"case_failed\",\n  \"detail\": \"RuntimeError: could not seed qual_a.mp4: error: append reported nothing but the item count did not move (0 -> 0) - nothing landed.\\nhelp: resolve-axi items --timeline \\\"fm-scratch qualify 20261021T223944Z-ac6c5c\\\"\\n\",\n  \"task\": \"improve_opening\"\n}",
-      "collateral_changes": [],
-      "checks": {},
-      "elapsed_seconds": 81.33692524998332,
       "instruction_to_verified_seconds": null,
-      "previous_attempt": {
-        "status": "fail",
-        "outcome": "missing_evidence",
-        "error": "RuntimeError: {\n  \"category\": \"fixture_batch_failed\",\n  \"reason\": \"case_failed\",\n  \"detail\": \"RuntimeError: could not seed qual_a.mp4: error: append reported nothing but the item count did not move (0 -> 0) - nothing landed.\\nhelp: resolve-axi items --timeline \\\"fm-scratch qualify 20261021T164626Z-f3df75\\\"\\n\",\n  \"task\": \"improve_opening\"\n}"
-      }
+      "operation": "reel.opening",
+      "outcome": "missing_evidence",
+      "production_entry": "ren revise / Resolve AXI transaction",
+      "status": "fail"
     }
   ],
-  "evaluation": {
-    "level": 2,
-    "name": "semantic_execution",
-    "agent_receives_expected_operation": true,
-    "agent_receives_expected_target": true,
-    "agent_receives_asset_selection": true,
-    "agent_receives_editorial_decision": true,
-    "compound_request_count": 0,
-    "limitations": [
-      "The production host adapter is given typed operation and fixture keys; this is not an autonomy result.",
-      "Editorial quality against a creative brief is not measured by this level."
-    ]
-  },
-  "reliability_metrics": {
-    "schema": "ren-editorial-reliability-metrics/2",
-    "task_count": 10,
-    "rates": {
-      "intent_interpretation": {
-        "status": "measured",
-        "value": 1.0,
-        "measured": 4,
-        "total": 10,
-        "not_measured": 6
-      },
-      "target_resolution": {
-        "status": "not_measured",
-        "value": null,
-        "measured": 0,
-        "total": 10,
-        "not_measured": 10
-      },
-      "capability_discovery": {
-        "status": "measured",
-        "value": 1.0,
-        "measured": 4,
-        "total": 10,
-        "not_measured": 6
-      },
-      "backend_selection_correctness": {
-        "status": "measured",
-        "value": 1.0,
-        "measured": 4,
-        "total": 10,
-        "not_measured": 6
-      },
-      "first_attempt_execution": {
-        "status": "measured",
-        "value": 1.0,
-        "measured": 4,
-        "total": 10,
-        "not_measured": 6
-      },
-      "verification": {
-        "status": "measured",
-        "value": 1.0,
-        "measured": 4,
-        "total": 10,
-        "not_measured": 6
-      },
-      "collateral_change_rate": {
-        "status": "measured",
-        "value": 0.0,
-        "measured": 10,
-        "total": 10,
-        "not_measured": 0
-      },
-      "recovery": {
-        "status": "not_measured",
-        "value": null,
-        "measured": 0,
-        "total": 10,
-        "not_measured": 10
-      },
-      "preservation": {
-        "status": "not_measured",
-        "value": null,
-        "measured": 0,
-        "total": 10,
-        "not_measured": 10
-      },
-      "delivery": {
-        "status": "measured",
-        "value": 0.0,
-        "measured": 4,
-        "total": 10,
-        "not_measured": 6
-      }
-    },
-    "outcomes": {
-      "success": 4,
-      "safe_refusal": 0,
-      "reasoning_failure": 0,
-      "unsafe_failure": 0,
-      "missing_evidence": 6
-    },
-    "latency_seconds": {
-      "status": "measured",
-      "measured_tasks": 4,
-      "mean_instruction_to_verified": 1346.137943926995,
-      "median_instruction_to_verified": 395.927619312497,
-      "per_request_instruction_to_verified": {
-        "move_lower_third": 667.7393453340046,
-        "resize_logo": null,
-        "add_logo_five_seconds": null,
-        "trim_pause": null,
-        "replace_graphic": 48.171699458005605,
-        "restyle_captions": 124.11589329098933,
-        "remove_broll": 4544.52483762498,
-        "insert_relevant_broll": null,
-        "right_speaker_camera": null,
-        "improve_opening": null
-      },
-      "fixture_setup_measured_tasks": 0,
-      "fixture_setup_mean": null
-    }
-  },
-  "failure_categories": {}
+  "schema": "ren-editorial-acceptance/2",
+  "task_count": 10
 }

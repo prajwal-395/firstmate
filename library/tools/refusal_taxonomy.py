@@ -42,7 +42,6 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 
-
 BLOCKERS = (
     "missing_media",
     "unsupported_operation",
@@ -161,6 +160,8 @@ unsafe - not ambiguous, and not a gap in the evidence.
 
 
 FAMILY_BLOCKERS = {
+    "library.tools.resolve_project_open.ProjectOpenRefused":
+        "resource_contention",
     "library.schemas.project_config.ProjectConfigInvalid": "unsafe_state",
     "library.steps.step_4_02_plan_transitions.post_bridge.TransitionSpecRefused":
         "unsupported_operation",
