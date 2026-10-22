@@ -813,6 +813,137 @@ class _BM25:
         return out
 
 
+# ─── Incremental text indexing (C02) ────────────────────────────
+#
+# A full rebuild re-embeds every segment even when one transcript
+# correction changed a single utterance.  The text lane is therefore
+# incremental: each stored row carries a stable identity and the C05
+# cache key its embedding was filed under, so a rebuild re-embeds
+# only rows whose words actually moved.
+#
+# A row's identity is its span, not its position in the cut: a
+# transcript correction keeps the utterance's span and changes its
+# words, while an insertion renumbers every later ``#speech#NNN`` id.
+# Matching priority for a freshly cut segment is (1) same stable id
+# with same words (untouched - reuse), (2) same words under any id
+# (moved or renumbered - reuse), (3) otherwise re-embed.  A stored
+# row whose stable id is gone from the new cut is stale and is
+# dropped, never carried forward.
+#
+# The BM25 half needs no persisted statistics: it is rebuilt from
+# the stored segment texts on every query (``FootageIndex.bm25``),
+# so it always reflects exactly the rows on disk.  The payload
+# records the indexed document count beside it so a reader can see
+# the two agree.
+
+#: The analysis version filed on every text row's C05 cache key.
+#: Bumped when the row identity or keying changes, which retires
+#: every stored row exactly once, as a miss rather than a false hit.
+TEXT_INDEX_VERSION = "text-index-incremental/1"
+
+
+def segment_text_hash(text: str) -> str:
+    """The content hash a text row is reused under.
+
+    Normalised the way the embedder sees it: the cut already
+    whitespace-folds (``footage_segments._clean``), so this hashes
+    the stored text verbatim.  A transcript correction changes the
+    words and therefore the hash; an untouched utterance hashes the
+    same whatever else in the project moved.
+    """
+    return hashlib.sha256((text or "").encode("utf-8")).hexdigest()
+
+
+def segment_stable_id(segment: dict) -> str:
+    """The identity a text row keeps across a transcript correction.
+
+    ``clip_id#kind#start-end`` at millisecond resolution: the span a
+    correction preserves, rather than the ``#NNN`` position an
+    insertion renumbers.  Two rows that truly share a clip, kind and
+    millisecond span are the same measurement said twice.
+    """
+    try:
+        start = float(segment.get("start", 0.0))
+        end = float(segment.get("end", start))
+    except (TypeError, ValueError):
+        start = end = 0.0
+    return (f"{segment.get('clip_id')}#{segment.get('kind')}#"
+            f"{start:.3f}-{end:.3f}")
+
+
+def segment_text_cache_key(*, clip_digest: str | None, clip_id: str,
+                           text: str, embed_model: str) -> str:
+    """The C05 cache key a text embedding is filed under, as a signature.
+
+    An observation key (``library.tools.cache_keys``): the source is
+    the clip's content digest - the media's own bytes, never a path -
+    falling back to the clip id only when the digest is unresolvable
+    (media offline and nothing recorded); the model is the text
+    encoder that wrote the vector; the configuration is the words
+    themselves; the analysis version is this lane's version plus the
+    segment cutter's digest, so a change to the cutting code retires
+    every row.  Same words under the same key reuse; anything else
+    re-embeds.
+    """
+    from library.tools import cache_keys as _cache_keys
+    from library.tools.analysis import footage_segments as _segments
+    method = _segments.segment_method_digest()
+    analysis_version = (f"{TEXT_INDEX_VERSION}+"
+                        f"{method or 'unknown-method'}")
+    key = _cache_keys.observation_key(
+        source_identity=clip_digest or clip_id,
+        model=embed_model,
+        configuration={"text": text or ""},
+        analysis_version=analysis_version)
+    return key.signature()
+
+
+def plan_text_reuse(old_rows: list, new_segments: list) -> tuple:
+    """Split a fresh cut into reused rows and texts to embed.
+
+    ``old_rows`` are the stored segment dicts (carrying ``stable_id``
+    and ``text_hash``); ``new_segments`` the freshly cut ones.  Returns
+    ``(reused, to_embed)`` where ``reused`` maps new-cut position to
+    the OLD row position whose vector it keeps, and ``to_embed`` is
+    the list of new-cut positions needing a fresh embedding, in order.
+    Matching is (1) same stable id with same words, else (2) same
+    words under any id - a renumbered but untouched utterance keeps
+    its vector.  A caller that cannot satisfy the old matrix's shape
+    must not call this: reusing a row from a matrix of another
+    dimension is a silent corruption, not a speedup.
+    """
+    by_stable: dict = {}
+    by_hash: dict = {}
+    for old_pos, row in enumerate(old_rows):
+        stable = row.get("stable_id")
+        digest = row.get("text_hash")
+        if stable is not None and digest is not None:
+            by_stable.setdefault(stable, []).append(old_pos)
+            by_hash.setdefault(digest, []).append(old_pos)
+    reused: dict = {}
+    claimed: set = set()
+    to_embed: list = []
+    for new_pos, segment in enumerate(new_segments):
+        digest = segment.get("text_hash")
+        candidate = None
+        for old_pos in by_stable.get(segment.get("stable_id"), []):
+            if (old_pos not in claimed
+                    and old_rows[old_pos].get("text_hash") == digest):
+                candidate = old_pos
+                break
+        if candidate is None:
+            for old_pos in by_hash.get(digest, []):
+                if old_pos not in claimed:
+                    candidate = old_pos
+                    break
+        if candidate is None:
+            to_embed.append(new_pos)
+        else:
+            reused[new_pos] = candidate
+            claimed.add(candidate)
+    return reused, to_embed
+
+
 def _rrf(*halves: np.ndarray, k: int = RRF_K) -> np.ndarray:
     """Fuse full rankings: each half contributes ``1/(k + rank)``.
 
@@ -944,7 +1075,7 @@ def ocr_texts_for_project(project_folder) -> tuple:
 @source_memory._project_scoped
 def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=False,
                 embedder="minilm", video_chunks=False,
-                unified_anchors=False) -> dict:
+                unified_anchors=False, clip_ids=None) -> dict:
     """Cut, embed and store the index.  Returns build statistics.
 
     Reads the project's ingest output; writes ONLY into `index_dir`,
@@ -960,6 +1091,12 @@ def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=Fal
     anchors (video, still, audio, description, transcript) through
     `unified_anchors.build_unified` into the same directory - opt-in,
     never the default.
+    `clip_ids` scopes the refresh to those clips: their rows are
+    re-cut from the ingest while every other clip's stored rows are
+    kept verbatim, so a partial update never rebuilds unrelated
+    segments.  Without it the whole cut is refreshed, but vectors
+    are still reused row by row - only rows whose words changed are
+    re-embedded.
     """
     if embedder not in TEXT_EMBEDDER_MODELS:
         raise RenRefusal(
@@ -979,17 +1116,153 @@ def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=Fal
         encode, backend = load_eg2_text_embedder()
     else:
         encode, backend = load_embedder()
+    # The per-source half of the ingest record, computed once: the
+    # text rows key their C05 cache keys on it, and the payload
+    # records it, so both say what footage the rows were cut from.
+    source_digests = current_source_digests(project_folder)
+    new_dicts = [s.to_dict() for s in segments]
+    for row in new_dicts:
+        row["stable_id"] = segment_stable_id(row)
+        row["text_hash"] = segment_text_hash(row.get("text", ""))
+        row["text_cache_key"] = segment_text_cache_key(
+            clip_digest=source_digests.get(row.get("clip_id")) or None,
+            clip_id=row.get("clip_id"), text=row.get("text", ""),
+            embed_model=model_name)
+    # The previous build, when there is one.  A corrupt file is not
+    # an index: it reads as absent and the build below goes full.
+    old_payload, old_matrix = None, None
+    try:
+        previous = target / SEGMENTS_FILE
+        if previous.exists():
+            with open(previous, encoding="utf-8") as f:
+                candidate = json.load(f)
+            if isinstance(candidate, dict) and isinstance(
+                    candidate.get("segments"), list):
+                old_payload = candidate
+                embeddings_path = target / EMBEDDINGS_FILE
+                if embeddings_path.exists():
+                    matrix = np.load(embeddings_path)
+                    if (matrix.ndim == 2 and matrix.shape[0]
+                            == len(old_payload["segments"])):
+                        old_matrix = matrix
+    except (OSError, ValueError):
+        old_payload, old_matrix = None, None
+    scoped = sorted({str(c) for c in clip_ids}) if clip_ids else None
+    final_dicts = new_dicts
+    if scoped is not None and old_payload is not None:
+        # A partial update: the named clips' rows come from the fresh
+        # cut; every other clip keeps its stored rows VERBATIM -
+        # words, facets and all - so unrelated segments are not
+        # rebuilt.  A clip with no stored rows (new footage) falls
+        # back to the fresh cut, because dropping new footage
+        # silently would be the worse answer; stats name it.
+        named_new: dict = {}
+        for row in new_dicts:
+            named_new.setdefault(row.get("clip_id"), []).append(row)
+        kept_old: dict = {}
+        for row in old_payload.get("segments", []):
+            kept_old.setdefault(row.get("clip_id"), []).append(row)
+        merged, unplanned = [], []
+        for clip in load_catalog(project_folder):
+            clip_id = clip.get("clip_id")
+            if not clip_id:
+                continue
+            if clip_id in scoped:
+                merged.extend(named_new.get(clip_id, []))
+            elif clip_id in kept_old:
+                merged.extend(kept_old[clip_id])
+            elif clip_id in named_new:
+                merged.extend(named_new[clip_id])
+                unplanned.append(clip_id)
+        final_dicts = merged
+    else:
+        unplanned = []
     embed_seconds, dimension = 0.0, 0
-    if encode is not None and segments:
-        t0 = time.perf_counter()
-        matrix = encode([s.text for s in segments])
-        embed_seconds = time.perf_counter() - t0
-        dimension = int(matrix.shape[1])
-        np.save(target / EMBEDDINGS_FILE, matrix)
+    incremental, incremental_reason = False, "no previous index"
+    segments_reused, segments_reembedded, segments_removed = 0, 0, 0
+    if encode is not None and final_dicts:
+        reusable = (old_payload is not None and old_matrix is not None
+                    and old_payload.get("embed_model") == model_name
+                    and old_payload.get("embed_backend") == backend
+                    and isinstance(old_payload.get("embed_dimension"), int)
+                    and old_matrix.shape[1] == old_payload["embed_dimension"]
+                    and all(isinstance(r, dict)
+                            and r.get("stable_id") is not None
+                            and r.get("text_hash") is not None
+                            for r in old_payload.get("segments", [])))
+        if old_payload is not None and not reusable:
+            if old_matrix is None:
+                incremental_reason = ("previous embedding matrix missing "
+                                      "or misshapen")
+            elif old_payload.get("embed_model") != model_name:
+                incremental_reason = (
+                    f"embedder changed "
+                    f"({old_payload.get('embed_model')} -> {model_name})")
+            elif old_payload.get("embed_backend") != backend:
+                incremental_reason = (
+                    f"embedder backend changed "
+                    f"({old_payload.get('embed_backend')} -> {backend})")
+            else:
+                incremental_reason = ("previous index carries no per-row "
+                                      "hashes (pre-incremental build)")
+        if reusable:
+            old_rows = old_payload["segments"]
+            reused, to_embed = plan_text_reuse(old_rows, final_dicts)
+            old_stable = {r.get("stable_id") for r in old_rows}
+            new_stable = {r.get("stable_id") for r in final_dicts}
+            segments_removed = len(old_stable - new_stable)
+            if scoped is not None:
+                incremental_reason = (
+                    f"partial update scoped to clips {scoped}"
+                    + (f"; {unplanned} had no stored rows and were "
+                       f"cut fresh" if unplanned else ""))
+            else:
+                incremental_reason = "reused unchanged rows"
+            t0 = time.perf_counter()
+            matrix = np.empty((len(final_dicts),
+                               old_matrix.shape[1]), dtype="float32")
+            for new_pos, old_pos in reused.items():
+                matrix[new_pos] = old_matrix[old_pos]
+            segments_reused = len(reused)
+            if to_embed:
+                fresh = np.asarray(encode([final_dicts[i].get("text", "")
+                                           for i in to_embed]),
+                                  dtype="float32")
+                if (fresh.shape[0] != len(to_embed)
+                        or fresh.ndim != 2
+                        or fresh.shape[1] != old_matrix.shape[1]):
+                    raise ValueError(
+                        f"embedder returned {fresh.shape}; expected "
+                        f"({len(to_embed)}, {old_matrix.shape[1]}) - the "
+                        f"stored matrix is not this encoder's shape")
+                for row_pos, vector in zip(to_embed, fresh):
+                    matrix[row_pos] = vector
+            embed_seconds = time.perf_counter() - t0
+            dimension = int(matrix.shape[1])
+            np.save(target / EMBEDDINGS_FILE, matrix)
+            incremental, segments_reembedded = True, len(to_embed)
+        else:
+            t0 = time.perf_counter()
+            matrix = encode([r.get("text", "") for r in final_dicts])
+            embed_seconds = time.perf_counter() - t0
+            dimension = int(matrix.shape[1])
+            np.save(target / EMBEDDINGS_FILE, matrix)
+            segments_reembedded = len(final_dicts)
+            if old_payload is not None:
+                old_stable = {r.get("stable_id")
+                              for r in old_payload.get("segments", [])
+                              if isinstance(r, dict)}
+                new_stable = {r.get("stable_id") for r in final_dicts}
+                segments_removed = len(old_stable - new_stable)
     else:
         embeddings_path = target / EMBEDDINGS_FILE
         if embeddings_path.exists():
             embeddings_path.unlink()
+        if encode is None:
+            incremental_reason = "lexical-only build (no embedder)"
+        elif not final_dicts and old_payload is not None:
+            segments_removed = len(old_payload.get("segments", []))
+            incremental_reason = "fresh cut is empty; stored rows dropped"
 
     video_rows, video_unembedded = [], []
     video_backend, video_dimension = None, 0
@@ -1192,7 +1465,7 @@ def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=Fal
         "embed_model": model_name if dimension else None,
         "embed_backend": backend if dimension else None,
         "embed_dimension": dimension,
-        "segment_count": len(segments),
+        "segment_count": len(final_dicts),
         "kinds": list(kinds),
         "built_at": time.time(),
         # What this index was built FROM.  An index cannot notice that the
@@ -1202,14 +1475,29 @@ def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=Fal
         # rows were cut from, by content digest. The whole-set digest
         # says THAT something moved; this says WHICH footage moved, so a
         # reader can re-measure one clip instead of the project.
-        "source_digests": current_source_digests(project_folder),
+        "source_digests": source_digests,
+        # The incremental lane's own record (C02): whether this build
+        # reused stored rows, why or why not, and how many rows were
+        # reused, re-embedded and dropped as stale.  `lexical_docs` is
+        # the BM25 half's document count beside the rows it scores -
+        # the two are written together so they cannot disagree.
+        "text_index": {
+            "incremental": incremental,
+            "reason": incremental_reason,
+            "reused": segments_reused,
+            "reembedded": segments_reembedded,
+            "removed": segments_removed,
+            "scoped_clips": scoped,
+            "version": TEXT_INDEX_VERSION,
+        },
+        "lexical_docs": len(final_dicts),
         # The identity of the code that cut these segments. An index is
         # analysis as much as data, and a change to the cutting code
         # changes what the index would say.
         "segment_method": footage_segments.segment_method_digest(),
         "coverage": coverage,
         "text_lane": text_lane,
-        "segments": [s.to_dict() for s in segments],
+        "segments": final_dicts,
         # The M5 sound lane: PANNs labels per clip, reachable from search.
         "sound_events": sound_events,
         "sound_event_methods": sound_methods,
@@ -1245,10 +1533,15 @@ def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=Fal
 
     stats = {
         "index_dir": str(target),
-        "segment_count": len(segments),
-        "kinds": dict(Counter(s.kind for s in segments)),
+        "segment_count": len(final_dicts),
+        "kinds": dict(Counter(s.get("kind") for s in final_dicts)),
         "embed_backend": backend,
         "embed_dimension": dimension,
+        "incremental": incremental,
+        "incremental_reason": incremental_reason,
+        "segments_reused": segments_reused,
+        "segments_reembedded": segments_reembedded,
+        "segments_removed": segments_removed,
         "video_chunk_count": len(video_rows),
         "video_embed_backend": video_backend,
         "video_embed_dimension": video_dimension,
@@ -5290,6 +5583,12 @@ def main(argv=None):
                          help="Also build the five linked per-window anchors "
                               "(video, still, audio, description, transcript) "
                               "in the one EG2 space (opt-in; needs the model)")
+    p_build.add_argument("--clip", dest="clip_ids", action="append",
+                         default=None,
+                         help="Refresh only this clip's rows, keeping every "
+                              "other clip's stored rows verbatim; repeatable. "
+                              "Without it the whole cut refreshes, still "
+                              "re-embedding only rows whose words changed.")
 
     p_search = sub.add_parser("search", help="Semantic + keyword search")
     p_search.add_argument("project")
@@ -5658,7 +5957,8 @@ def main(argv=None):
         stats = build_index(args.project, index_dir=args.index_dir, kinds=tuple(args.kinds),
                             embedder=args.embedder,
                             video_chunks=args.video_chunks,
-                            unified_anchors=args.unified_anchors)
+                            unified_anchors=args.unified_anchors,
+                            clip_ids=args.clip_ids)
         print(json.dumps(stats, indent=2))
         # The index is DERIVED, so the project declares what it built and
         # what it was built from. The declaration is the explicit
