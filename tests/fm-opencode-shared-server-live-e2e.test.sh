@@ -14,7 +14,7 @@ set -u
 fm_live_gate opt-in FM_OPENCODE_SHARED_SERVER_LIVE opencode tmux jq curl
 REAL_TMUX=$(command -v tmux)
 VERSION="opencode $(opencode --version)"
-MODEL=${FM_OPENCODE_SHARED_SERVER_MODEL:-opencode-go/minimax-m3.1-flash-free}
+MODEL=${FM_OPENCODE_SHARED_SERVER_MODEL:-opencode-go/muse-spark-1.3-contributor}
 LAB=$(mktemp -d "${TMPDIR:-/tmp}/ocs.XXXXXX")
 LAB=$(cd "$LAB" && pwd -P)
 SOCKET="$LAB/tmux.sock"

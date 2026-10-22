@@ -62,9 +62,24 @@ cat > "$AGENT/models.json" <<'JSON'
 JSON
 "$HELPER" install "$AGENT" || fail "provider installation failed"
 jq -e --arg prefix '!bash "${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/fm-opencode-go/' \
-  '.providers.local.models[0].id == "qwen" and .providers["opencode-go"].baseUrl == "https://opencode.ai/inference/go/openai/v1" and .providers["opencode-go"].api == "openai-completions" and (.providers["opencode-go"].apiKey | startswith($prefix) and endswith("/fm-pi-opencode-go.sh\" token")) and .providers["opencode-go"].headers["x-opencode-org-id"] == "${FM_OPENCODE_ORG_ID}" and .providers["opencode-go"].headers["x-opencode-session"] == "${FM_OPENCODE_SESSION}" and ([.providers["opencode-go"].models[].id] == ["minimax-m3.1-flash-free", "muse-spark-1.3-contributor"]) and .providers["opencode-go"].models[1].api == "openai-responses"' "$AGENT/models.json" >/dev/null \
-  || fail "provider install did not preserve Pi settings and configure both ladder models"
-pass "Pi provider install preserves other providers and adds both OpenCode Go models with per-task headers"
+  '.providers.local.models[0].id == "qwen" and .providers["opencode-go"].baseUrl == "https://opencode.ai/inference/go/openai/v1" and .providers["opencode-go"].api == "openai-completions" and (.providers["opencode-go"].apiKey | startswith($prefix) and endswith("/fm-pi-opencode-go.sh\" token")) and .providers["opencode-go"].headers["x-opencode-org-id"] == "${FM_OPENCODE_ORG_ID}" and .providers["opencode-go"].headers["x-opencode-session"] == "${FM_OPENCODE_SESSION}" and ([.providers["opencode-go"].models[].id] == ["muse-spark-1.3-contributor"]) and .providers["opencode-go"].models[0].api == "openai-responses"' "$AGENT/models.json" >/dev/null \
+  || fail "provider install did not preserve Pi settings and configure the Go model"
+pass "Pi provider install preserves other providers and adds the OpenCode Go model with per-task headers"
+
+# A provider file written before the free rung retired still lists the
+# retired model; reinstalling drops it while keeping the Go model, and
+# workers already running keep their loaded helper untouched.
+RETIRED="$TMP_ROOT/retired"
+mkdir -p "$RETIRED"
+cat > "$RETIRED/models.json" <<'JSON'
+{"providers":{"opencode-go":{"baseUrl":"https://opencode.ai/inference/go/openai/v1","api":"openai-completions","apiKey":"!bash /old/home/bin/fm-pi-opencode-go.sh token","models":[{"id":"minimax-m3.1-flash-free"},{"id":"muse-spark-1.3-contributor"}]}}}
+JSON
+"$HELPER" install "$RETIRED" || fail "provider reinstall over a retired model entry failed"
+jq -e 'any(.providers["opencode-go"].models[]?; .id == "minimax-m3.1-flash-free") | not' "$RETIRED/models.json" >/dev/null \
+  || fail "reinstall did not drop the retired free model from the provider"
+jq -e 'any(.providers["opencode-go"].models[]?; .id == "muse-spark-1.3-contributor")' "$RETIRED/models.json" >/dev/null \
+  || fail "reinstall dropped the Go model alongside the retired one"
+pass "provider reinstall drops the retired free model and keeps the Go model"
 
 # Migrate the exact managed form written by older code roots, then prove two
 # distinct checkouts can safely converge the same shared Pi agent directory.

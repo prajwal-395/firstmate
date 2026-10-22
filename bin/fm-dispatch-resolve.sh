@@ -578,14 +578,14 @@ TEXT=$(jq -r '
       + (if .chosen.profile.effort then " --effort \(.chosen.profile.effort | shell_arg)" else "" end)
       + (if .source == "default" and (
             (.chosen.profile.harness == "codex" and .chosen.profile.model == "gpt-6-luna") or
-            (.chosen.profile.harness == "opencode" and (.chosen.profile.model as $m | (["opencode-go/minimax-m3.1-flash-free", "opencode-go/muse-spark-1.3-contributor"] | index($m) != null)))
+            (.chosen.profile.harness == "opencode" and (.chosen.profile.model as $m | (["opencode-go/muse-spark-1.3-contributor"] | index($m) != null)))
           ) then " --dispatch-ladder opencode" else "" end) else empty end)' <<<"$RESULT") || emit_error "output rendering failed"
 if [ "$JSON_MODE" -eq 1 ]; then
   jq -c '
     def ladder_route:
       .source == "default" and (
         (.chosen.profile.harness == "codex" and .chosen.profile.model == "gpt-6-luna") or
-        (.chosen.profile.harness == "opencode" and (.chosen.profile.model as $m | (["opencode-go/minimax-m3.1-flash-free", "opencode-go/muse-spark-1.3-contributor"] | index($m) != null)))
+        (.chosen.profile.harness == "opencode" and (.chosen.profile.model as $m | (["opencode-go/muse-spark-1.3-contributor"] | index($m) != null)))
       );
     {
       status,
@@ -602,8 +602,8 @@ if [ "$JSON_MODE" -eq 1 ]; then
   exit 0
 fi
 printf '%s\n' "$TEXT"
-for rung in free plus go; do
-  case "$rung" in free) label='OpenCode free' ;; plus) label='Codex Plus' ;; go) label='OpenCode Go' ;; esac
+for rung in plus go; do
+  case "$rung" in plus) label='Codex Plus' ;; go) label='OpenCode Go' ;; esac
   cap=$("$SCRIPT_DIR/fm-opencode-retry.sh" check-cap "$STATE" "$rung" 2>/dev/null) || cap=
   case "$cap" in
     *'status=blocked'*)

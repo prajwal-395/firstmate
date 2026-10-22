@@ -84,7 +84,7 @@
 # fine" when it actually meant "no idea". capped carries positive evidence
 # from either source; open requires a fresh non-empty capture with no cap
 # phrase and no blocking sidecar; everything else is unknown. On unknown the
-# dispatch gate still dispatches free: the captain's standing position is that
+# dispatch gate still dispatches Go: the captain's standing position is that
 # missing evidence must not stall the fleet, and that choice is documented at
 # the gate rather than hidden inside this detector.
 #
@@ -141,7 +141,7 @@
 #       refused (exit 1) with the accepted names listed.
 #       Exit 0 when the record is present, well-formed, and unexpired;
 #       exit 1 when it is absent, malformed, or its reset time has passed.
-#       Absent and expired collapse here on purpose: both route to free.
+#       Absent and expired collapse here on purpose: both route to Go.
 #       Callers that must SHOW the answer rather than route it use
 #       verdict-cap below, which keeps the two tellable apart.
 #
@@ -156,7 +156,7 @@
 #         verdict=waiting evidence=rung-record horizon_s=<s>
 #         verdict=unknown reason=<slug>
 #       where <slug> is expired-evidence (a cap was proved and its window
-#       has passed - free is worth trying, and the record says why),
+#       has passed - Go is worth trying, and the record says why),
 #       no-evidence (nobody ever proved anything about this rung), or
 #       malformed-record. Unknown is not open: the caller decides what each
 #       absence licenses, exactly as with verdict.

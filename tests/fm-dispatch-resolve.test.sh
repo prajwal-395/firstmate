@@ -654,16 +654,16 @@ assert_contains "$out" "  profile: --harness 'cursor' --model 'cursor-grok-4.6-m
 assert_not_contains "$out" "  profile: --harness 'claude'" "the exhausted first rung is never the chosen profile"
 pass "rung order: a candidate quota has ruled out is skipped, not chosen by position"
 
-# --- paid never precedes free: declared order beats better paid quota -----------
-# The sharp edge this change closes: a free-first default must name the free
-# rung even when the paid rung reports healthier quota numbers.
+# --- declared order wins: the first rung is named even with worse quota -------
+# The sharp edge this change closes: a declared-first default must name the first
+# rung even when the later rung reports healthier quota numbers.
 reset_log
 PAID_FIRST_RULES="$TMP_ROOT/paid-first-rules.json"
 cat > "$PAID_FIRST_RULES" <<'JSON'
 {"rules": [{"when": "Any task at all.", "use": {"harness": "claude", "model": "opus"}}],
  "default": [
-   {"harness": "opencode", "model": "opencode-go/minimax-m3.1-flash-free", "provider": "opencode"},
-   {"harness": "opencode", "model": "opencode-go/muse-spark-1.3-contributor", "provider": "opencode-go"}
+   {"harness": "opencode", "model": "opencode-go/muse-spark-1.3-contributor", "provider": "opencode"},
+   {"harness": "codex", "model": "gpt-6-luna", "provider": "codex"}
  ]}
 JSON
 PAID_BETTER="$TMP_ROOT/paid-better.json"
@@ -687,12 +687,12 @@ cat > "$RESPONSE" <<'JSON'
 JSON
 cp "$PAID_FIRST_RULES" "$RULES"
 TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$PAID_BETTER" run code out err "$BRIEF"
-assert_contains "$out" '  status: default' "a free-first default still resolves"
-assert_contains "$out" "  profile: --harness 'opencode' --model 'opencode-go/minimax-m3.1-flash-free'" "the free rung wins despite better paid quota"
-assert_not_contains "$out" "  profile: --harness 'opencode' --model 'opencode-go/muse-spark-1.3-contributor'" "the paid rung is never named ahead of free"
+assert_contains "$out" '  status: default' "a declared-first default still resolves"
+assert_contains "$out" "  profile: --harness 'opencode' --model 'opencode-go/muse-spark-1.3-contributor'" "the first rung wins despite better later quota"
+assert_not_contains "$out" "  profile: --harness 'codex'" "the later rung is never named ahead of the first"
 cp "$BASE_RULES" "$RULES"
 write_response "$RESPONSE" rule_4 0.9
-pass "paid-never-first: declared rung order beats better paid quota"
+pass "declared-first: rung order beats better later quota"
 
 # --- quota-axi is read exactly once --------------------------------------------
 reset_log

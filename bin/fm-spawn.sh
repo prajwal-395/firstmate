@@ -2566,7 +2566,7 @@ dispatch_opencode_ladder_apply() {
     echo "error: could not prepare opencode ladder decision" >&2
     return 1
   }
-  if model=$(fm_opencode_ladder_model "$FM_OPENCODE_LADDER_FREE" "$STATE" 2>"$note_file"); then
+  if model=$(fm_opencode_ladder_model default "$STATE" 2>"$note_file"); then
     :
   else
     rc=$?
@@ -2619,7 +2619,7 @@ dispatch_opencode_ladder_apply() {
     printf 'notice: opencode default ladder exhausted; dispatching configured fallback %s\n' "$DISPATCH_FALLBACK_SELECTED" >&2
     return 0
   fi
-  model=${model:-$FM_OPENCODE_LADDER_FREE}
+  model=${model:-$FM_OPENCODE_LADDER_GO}
   [ ! -s "$note_file" ] || cat "$note_file" >&2
   rm -f "$note_file"
   MODEL=$model
@@ -2702,7 +2702,7 @@ case "$HARNESS" in
     LAUNCH="FM_PI_HARNESS=$HARNESS $LAUNCH"
     ;;
   opencode)
-    # The free-then-Codex-then-Go ladder, enforced rather than remembered
+    # The Go-then-Codex Plus ladder, enforced rather than remembered
     # (bin/fm-opencode-ladder-lib.sh owns the rungs and cap records). It runs here
     # because this case is on the one path every opencode crewmate and scout
     # launch already takes, so an ordinary dispatch has nowhere to route
@@ -2721,7 +2721,7 @@ case "$HARNESS" in
       _FM_OPENCODE_LADDER_NOTE=$(mktemp "${TMPDIR:-/tmp}/fm-opencode-ladder.XXXXXX" 2>/dev/null) || _FM_OPENCODE_LADDER_NOTE=
       [ -n "$_FM_OPENCODE_LADDER_NOTE" ] || { echo "error: could not prepare opencode ladder decision" >&2; exit 1; }
       _FM_OPENCODE_LADDER_REQUEST=${MODEL:-}
-      [ "$DISPATCH_LADDER" != opencode ] || _FM_OPENCODE_LADDER_REQUEST=$FM_OPENCODE_LADDER_FREE
+      [ "$DISPATCH_LADDER" != opencode ] || _FM_OPENCODE_LADDER_REQUEST=default
       _FM_OPENCODE_LADDER_MODEL=$(fm_opencode_ladder_model "$_FM_OPENCODE_LADDER_REQUEST" "$STATE" 2>"$_FM_OPENCODE_LADDER_NOTE") || {
         [ -s "$_FM_OPENCODE_LADDER_NOTE" ] && cat "$_FM_OPENCODE_LADDER_NOTE" >&2 || true
         rm -f "$_FM_OPENCODE_LADDER_NOTE"
@@ -2742,19 +2742,18 @@ case "$HARNESS" in
       unset _FM_OPENCODE_LADDER_NOTE _FM_OPENCODE_LADDER_MODEL _FM_OPENCODE_LADDER_REQUEST
     fi
     if [ "$PI_OPENCODE_GO_ENABLED" -eq 1 ] && [ "$KIND" != secondmate ] \
-      && { [ "$MODEL" = "$FM_OPENCODE_LADDER_FREE" ] || [ "$MODEL" = "$FM_OPENCODE_LADDER_GO" ]; }; then
+      && [ "$MODEL" = "$FM_OPENCODE_LADDER_GO" ]; then
       HARNESS=pi
       PI_OPENCODE_GO=1
       DISPATCH_LADDER=opencode
       DISPATCH_ROUTE_LADDER=opencode
       LAUNCH=$(launch_template "$HARNESS" "$KIND") || { echo "error: Pi launch template is unavailable for OpenCode Go" >&2; exit 1; }
-      printf 'notice: OpenCode ladder rung %s routed to Pi by config/pi-opencode-go\n' \
-        "$( [ "$MODEL" = "$FM_OPENCODE_LADDER_FREE" ] && printf free || printf Go )" >&2
+      printf 'notice: OpenCode ladder rung Go routed to Pi by config/pi-opencode-go\n' >&2
     fi
     unset _FM_OPENCODE_RELAUNCH_WS
     # The descent tick cannot see FM_OPENCODE_LADDER_OVERRIDE where it runs -
     # the watcher is a long-lived process that predates the instruction - so
-    # a launch held on free on the captain's word is recorded per task where
+    # a launch held on Go on the captain's word is recorded per task where
     # the tick reads it back, and a launch under the ordinary rules clears
     # any earlier pin (bin/fm-opencode-descent-lib.sh owns both).
     if [ -n "${FM_OPENCODE_LADDER_OVERRIDE:-}" ]; then
@@ -2766,12 +2765,12 @@ case "$HARNESS" in
   codex)
     # A relaunch without an explicit model is a modelless dispatch, not a
     # decision to stay on Codex Plus: it enters the shared rung gate from
-    # free exactly like a fresh typed-ladder launch, so a capped Plus rung
+    # Go exactly like a fresh typed-ladder launch, so a capped Plus rung
     # routes onward instead of relaunching onto the refusal that stopped it.
     if { [ "$DISPATCH_LADDER" = opencode ] || { [ "$RELAUNCH" -eq 1 ] && [ "$MODEL_SET" -eq 0 ]; }; } && [ "$DISPATCH_LADDER_RESOLVED" -eq 0 ]; then
       _FM_OPENCODE_LADDER_NOTE=$(mktemp "${TMPDIR:-/tmp}/fm-opencode-ladder.XXXXXX" 2>/dev/null) || _FM_OPENCODE_LADDER_NOTE=
       [ -n "$_FM_OPENCODE_LADDER_NOTE" ] || { echo "error: could not prepare opencode ladder decision" >&2; exit 1; }
-      _FM_OPENCODE_LADDER_MODEL=$(fm_opencode_ladder_model "$FM_OPENCODE_LADDER_FREE" "$STATE" 2>"$_FM_OPENCODE_LADDER_NOTE") || {
+      _FM_OPENCODE_LADDER_MODEL=$(fm_opencode_ladder_model default "$STATE" 2>"$_FM_OPENCODE_LADDER_NOTE") || {
         [ -s "$_FM_OPENCODE_LADDER_NOTE" ] && cat "$_FM_OPENCODE_LADDER_NOTE" >&2 || true
         rm -f "$_FM_OPENCODE_LADDER_NOTE"
         exit 1
@@ -3033,10 +3032,9 @@ fi
 # mechanism; bin/fm-opencode-ladder-lib.sh fm_opencode_model_bills_go owns
 # which models bill a Go workspace). This runs after the secondmate-harness
 # tokens above so the pin decision reads the final MODEL. A pin applies only
-# to a launch that actually bills a Go workspace: the free model and every
-# other non-Go model remain outside the workspace pin flow, so discovering or
-# requiring a workspace never blocks them. The free Minimax model separately
-# requires a console login in its task database. Unpinned standalone launches
+# to a launch that actually bills a Go workspace: every
+# other non-Go model remains outside the workspace pin flow, so discovering or
+# requiring a workspace never blocks them. Unpinned standalone launches
 # seed a private per-task database from a verified main pin or a consistent
 # machine-database backup. An explicit
 # secondary workspace keeps its pin whatever the model. In a home with a
@@ -3073,14 +3071,6 @@ opencode_task_db() {
         || [ -e "$OPENCODE_TASK_DB" ] || return 1
     fi
     chmod 600 "$OPENCODE_TASK_DB" 2>/dev/null || return 1
-  fi
-  if { [ "$HARNESS" = opencode ] || [ "$PI_OPENCODE_GO" -eq 1 ]; } && [ "$OPENCODE_SHARED_SERVER" -ne 1 ] \
-    && fm_opencode_model_requires_console_login "$MODEL" 2>/dev/null; then
-    local login_db=${OPENCODE_SECOND_DB:-${OPENCODE_MAIN_DB:-$OPENCODE_TASK_DB}}
-    fm_opencode_db_has_console_login "$login_db" || {
-      echo "error: the OpenCode free Minimax model requires a console login in its task database" >&2
-      return 1
-    }
   fi
 }
 [ "$OPENCODE_SHARED_SERVER" -eq 1 ] || opencode_task_db || exit 1

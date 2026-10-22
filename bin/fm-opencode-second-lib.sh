@@ -14,8 +14,7 @@
 # only the migrated schema plus the account rows, with its own active
 # workspace id, so the pinned launch fetches that workspace's console config
 # and attributes its inference there. The paid Go model is
-# `opencode-go/muse-spark-1.3-contributor`; the free Minimax model also uses
-# the `opencode-go` provider but does not bill or pin a Go workspace. The
+# `opencode-go/muse-spark-1.3-contributor`. The
 # workspace a paid Go lane runs on is recorded per task as
 # `opencode_workspace=secondary` in its meta, absent meaning main.
 #
@@ -27,11 +26,9 @@
 # alike, and a Go launch that cannot prove its pin is refused rather than run
 # unpinned. The pin applies only to launches that actually bill a Go
 # workspace (bin/fm-opencode-ladder-lib.sh fm_opencode_model_bills_go owns
-# that test): the free model and every other non-Go model launch outside the
+# that test): every non-Go model launches outside the
 # workspace pin flow, so discovering or requiring a workspace never blocks
-# them. The free Minimax model still requires console sign-in; its unpinned
-# per-task database is seeded from the verified main pin or live console
-# database. Other unpinned standalone launches may start with an empty task
+# them. Unpinned standalone launches start with an empty task
 # database. A home with no second workspace
 # runs the main workspace without a workspace pin.
 #
@@ -440,7 +437,7 @@ fm_opencode_unpinned_seed() {  # <destination-db> [config-dir]
 }
 
 # fm_opencode_db_has_console_login <db>: 0 when the database contains an
-# OpenCode console access token, as required by the free Minimax provider.
+# OpenCode console access token, as required by the OpenCode Go provider.
 fm_opencode_db_has_console_login() {  # <db>
   local count
   [ -f "${1:-}" ] && command -v sqlite3 >/dev/null 2>&1 || return 1

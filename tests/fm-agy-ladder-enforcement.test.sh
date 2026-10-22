@@ -884,7 +884,7 @@ test_the_split_form_sets_order_independently_of_default() {
   # The split form, shaped like the captain's ruling: default dispatches to
   # the opencode ladder while agy_ladder sets an order the built-in default
   # does not share, so only the split field can account for the result.
-  f=$(ladder_config '{"default":[{"harness":"opencode","model":"opencode-go/minimax-m3.1-flash-free","provider":"opencode"},{"harness":"opencode","model":"opencode-go/muse-spark-1.3-contributor","provider":"opencode-go"}],"agy_ladder":["Claude Opus 4.6 (Thinking)","Gemini 3.8 Flash (High)"]}')
+  f=$(ladder_config '{"default":[{"harness":"opencode","model":"opencode-go/muse-spark-1.3-contributor","provider":"opencode-go"}],"agy_ladder":["Claude Opus 4.6 (Thinking)","Gemini 3.8 Flash (High)"]}')
   order=$(ladder_order_and_floor "$f")
   [ "$order" = 'Claude Opus 4.6 (Thinking)|Gemini 3.8 Flash (High)|25' ] \
     || fail "the split order must follow agy_ladder with the reserve on Opus at rung 1, got '$order'"

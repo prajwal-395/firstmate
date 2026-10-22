@@ -321,7 +321,6 @@ install_unlocked() {
       },
       "models": (($existing_providers["opencode-go"].models // []
         | map(select(.id != "minimax-m3.1-flash-free" and .id != "muse-spark-1.3-contributor"))) + [
-        {"id":"minimax-m3.1-flash-free","name":"MiniMax M3.1 Flash Free","reasoning":true,"input":["text","image"],"contextWindow":1000000,"maxTokens":512000,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0}},
         {"id":"muse-spark-1.3-contributor","name":"Muse Spark 1.3 Contributor","api":"openai-responses","reasoning":true,"input":["text","image"],"contextWindow":1048576,"maxTokens":131072,"cost":{"input":0.1,"output":0.2,"cacheRead":0,"cacheWrite":0}}
       ])
     }
