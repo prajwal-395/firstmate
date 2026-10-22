@@ -1,0 +1,611 @@
+[
+ {
+  "id": "M0-1.1",
+  "query": "the second time face_001 covers their mouth",
+  "expected": {
+   "person": {
+    "track": "face_001"
+   },
+   "ordinal": 2,
+   "action_transition": [
+    "hand_to_face"
+   ]
+  }
+ },
+ {
+  "id": "M0-1.2",
+  "query": "the second time face_001 covers their mouth",
+  "expected": {
+   "person": {
+    "track": "face_001"
+   },
+   "ordinal": 2,
+   "action_transition": [
+    "hand_to_face"
+   ]
+  }
+ },
+ {
+  "id": "M0-1.3",
+  "query": "the second time face_001 covers their mouth",
+  "expected": {
+   "person": {
+    "track": "face_001"
+   },
+   "ordinal": 2,
+   "action_transition": [
+    "hand_to_face"
+   ]
+  }
+ },
+ {
+  "id": "M0-1.4",
+  "query": "the second time face_001 covers their mouth",
+  "expected": {
+   "person": {
+    "track": "face_001"
+   },
+   "ordinal": 2,
+   "action_transition": [
+    "hand_to_face"
+   ]
+  }
+ },
+ {
+  "id": "M0-1.5",
+  "query": "the second time face_001 covers their mouth",
+  "expected": {
+   "person": {
+    "track": "face_001"
+   },
+   "ordinal": 2,
+   "action_transition": [
+    "hand_to_face"
+   ]
+  }
+ },
+ {
+  "id": "M0-1.6",
+  "query": "the second time face_001 covers their mouth",
+  "expected": {
+   "person": {
+    "track": "face_001"
+   },
+   "ordinal": 2,
+   "action_transition": [
+    "hand_to_face"
+   ]
+  }
+ },
+ {
+  "id": "M0-2.1",
+  "query": "the boundary of the second time face_001 covers their mouth",
+  "expected": {
+   "person": {
+    "track": "face_001"
+   },
+   "ordinal": 2,
+   "action_transition": [
+    "hand_to_face"
+   ]
+  }
+ },
+ {
+  "id": "M0-2.2",
+  "query": "the boundary of the second time face_001 covers their mouth",
+  "expected": {
+   "person": {
+    "track": "face_001"
+   },
+   "ordinal": 2,
+   "action_transition": [
+    "hand_to_face"
+   ]
+  }
+ },
+ {
+  "id": "M0-2.3",
+  "query": "the boundary of the second time face_001 covers their mouth",
+  "expected": {
+   "person": {
+    "track": "face_001"
+   },
+   "ordinal": 2,
+   "action_transition": [
+    "hand_to_face"
+   ]
+  }
+ },
+ {
+  "id": "M0-2.4",
+  "query": "the boundary of the second time face_001 covers their mouth",
+  "expected": {
+   "person": {
+    "track": "face_001"
+   },
+   "ordinal": 2,
+   "action_transition": [
+    "hand_to_face"
+   ]
+  }
+ },
+ {
+  "id": "M0-2.5",
+  "query": "the boundary of the second time face_001 covers their mouth",
+  "expected": {
+   "person": {
+    "track": "face_001"
+   },
+   "ordinal": 2,
+   "action_transition": [
+    "hand_to_face"
+   ]
+  }
+ },
+ {
+  "id": "M0-2.6",
+  "query": "the boundary of the second time face_001 covers their mouth",
+  "expected": {
+   "person": {
+    "track": "face_001"
+   },
+   "ordinal": 2,
+   "action_transition": [
+    "hand_to_face"
+   ]
+  }
+ },
+ {
+  "id": "M0-3.1",
+  "query": "when does face_001 cover their mouth, and which one is the second",
+  "expected": {
+   "person": {
+    "track": "face_001"
+   },
+   "ordinal": 2,
+   "action_transition": [
+    "hand_to_face"
+   ]
+  }
+ },
+ {
+  "id": "M0-3.2",
+  "query": "when does face_001 cover their mouth, and which one is the second",
+  "expected": {
+   "person": {
+    "track": "face_001"
+   },
+   "ordinal": 2,
+   "action_transition": [
+    "hand_to_face"
+   ]
+  }
+ },
+ {
+  "id": "M0-3.3",
+  "query": "when does face_001 cover their mouth, and which one is the second",
+  "expected": {
+   "person": {
+    "track": "face_001"
+   },
+   "ordinal": 2,
+   "action_transition": [
+    "hand_to_face"
+   ]
+  }
+ },
+ {
+  "id": "M0-3.4",
+  "query": "when does face_001 cover their mouth, and which one is the second",
+  "expected": {
+   "person": {
+    "track": "face_001"
+   },
+   "ordinal": 2,
+   "action_transition": [
+    "hand_to_face"
+   ]
+  }
+ },
+ {
+  "id": "M0-3.5",
+  "query": "when does face_001 cover their mouth, and which one is the second",
+  "expected": {
+   "person": {
+    "track": "face_001"
+   },
+   "ordinal": 2,
+   "action_transition": [
+    "hand_to_face"
+   ]
+  }
+ },
+ {
+  "id": "M0-3.6",
+  "query": "when does face_001 cover their mouth, and which one is the second",
+  "expected": {
+   "person": {
+    "track": "face_001"
+   },
+   "ordinal": 2,
+   "action_transition": [
+    "hand_to_face"
+   ]
+  }
+ },
+ {
+  "id": "M0-P.19",
+  "query": "what is face_001 doing at 125.06s",
+  "expected": {
+   "person": {
+    "track": "face_001"
+   },
+   "time_range": [
+    125.06,
+    125.06
+   ]
+  }
+ },
+ {
+  "id": "M0-P.20",
+  "query": "what is face_001 doing at 25.46s",
+  "expected": {
+   "person": {
+    "track": "face_001"
+   },
+   "time_range": [
+    25.46,
+    25.46
+   ]
+  }
+ },
+ {
+  "id": "M0-P.21",
+  "query": "what is face_001 doing at 2.44s",
+  "expected": {
+   "person": {
+    "track": "face_001"
+   },
+   "time_range": [
+    2.44,
+    2.44
+   ]
+  }
+ },
+ {
+  "id": "M0-P.22",
+  "query": "what is face_001 doing at 13.95s",
+  "expected": {
+   "person": {
+    "track": "face_001"
+   },
+   "time_range": [
+    13.95,
+    13.95
+   ]
+  }
+ },
+ {
+  "id": "M0-P.23",
+  "query": "what is face_001 doing at 4.44s",
+  "expected": {
+   "person": {
+    "track": "face_001"
+   },
+   "time_range": [
+    4.44,
+    4.44
+   ]
+  }
+ },
+ {
+  "id": "M0-P.24",
+  "query": "what is face_001 doing at 11.45s",
+  "expected": {
+   "person": {
+    "track": "face_001"
+   },
+   "time_range": [
+    11.45,
+    11.45
+   ]
+  }
+ },
+ {
+  "id": "M0-8.1",
+  "query": "did the person ever cover their mouth",
+  "expected": {
+   "action_transition": [
+    "hand_to_face"
+   ],
+   "object_category": [
+    "person"
+   ]
+  }
+ },
+ {
+  "id": "M0-8.2",
+  "query": "did the person ever cover their mouth",
+  "expected": {
+   "action_transition": [
+    "hand_to_face"
+   ],
+   "object_category": [
+    "person"
+   ]
+  }
+ },
+ {
+  "id": "M0-8.3",
+  "query": "did the person ever cover their mouth",
+  "expected": {
+   "action_transition": [
+    "hand_to_face"
+   ],
+   "object_category": [
+    "person"
+   ]
+  }
+ },
+ {
+  "id": "M0-8.4",
+  "query": "did the person ever cover their mouth",
+  "expected": {
+   "action_transition": [
+    "hand_to_face"
+   ],
+   "object_category": [
+    "person"
+   ]
+  }
+ },
+ {
+  "id": "M0-8.5",
+  "query": "did the person ever cover their mouth",
+  "expected": {
+   "action_transition": [
+    "hand_to_face"
+   ],
+   "object_category": [
+    "person"
+   ]
+  }
+ },
+ {
+  "id": "M0-8.6",
+  "query": "did the person ever cover their mouth",
+  "expected": {
+   "action_transition": [
+    "hand_to_face"
+   ],
+   "object_category": [
+    "person"
+   ]
+  }
+ },
+ {
+  "id": "M0-8.7",
+  "query": "did the person ever cover their mouth",
+  "expected": {
+   "action_transition": [
+    "hand_to_face"
+   ],
+   "object_category": [
+    "person"
+   ]
+  }
+ },
+ {
+  "id": "M0-8.8",
+  "query": "did the person ever cover their mouth",
+  "expected": {
+   "action_transition": [
+    "hand_to_face"
+   ],
+   "object_category": [
+    "person"
+   ]
+  }
+ },
+ {
+  "id": "E01",
+  "query": "the twenty percent line, where he says a beautiful website is only twenty percent of what AI looks at",
+  "expected": {
+   "transcript_phrase": [
+    "twenty",
+    "percent"
+   ]
+  }
+ },
+ {
+  "id": "E02",
+  "query": "the nail salon example, the one about the place that specialises in 3D nail art",
+  "expected": {
+   "transcript_phrase": [
+    "nail"
+   ]
+  }
+ },
+ {
+  "id": "E03",
+  "query": "the client story about the SEO team stuffing keywords into the H1 tags",
+  "expected": {
+   "transcript_phrase": [
+    "seo",
+    "keywords"
+   ]
+  }
+ },
+ {
+  "id": "E04",
+  "query": "the bit about why AI treats YouTube as a source it can trust",
+  "expected": {
+   "transcript_phrase": [
+    "youtube"
+   ]
+  }
+ },
+ {
+  "id": "E05",
+  "query": "the press credibility mention, the one where being in the Atlanta Journal-Constitution builds trust",
+  "expected": {
+   "transcript_phrase": [
+    "atlanta"
+   ]
+  }
+ },
+ {
+  "id": "E06",
+  "query": "the comparison of a ten person agency against a company fifty times its size",
+  "expected": {
+   "transcript_phrase": [
+    "agency"
+   ]
+  }
+ },
+ {
+  "id": "E07",
+  "query": "the question about which CRM to use for a ten person law firm",
+  "expected": {
+   "transcript_phrase": [
+    "crm"
+   ]
+  }
+ },
+ {
+  "id": "E08",
+  "query": "the pushback from the marketing directors, the one calling GEO just SEO two point oh",
+  "expected": {
+   "transcript_phrase": [
+    "geo",
+    "seo"
+   ]
+  }
+ },
+ {
+  "id": "E09",
+  "query": "a shot of the open laptop on the desk, to sit under the pricing point",
+  "expected": {
+   "object_category": [
+    "laptop",
+    "desk"
+   ],
+   "shot_scene": [
+    "shot"
+   ],
+   "action_transition": [
+    "open"
+   ]
+  }
+ },
+ {
+  "id": "E10",
+  "query": "a shot of the studio, the dark geometric set behind the speaker",
+  "expected": {
+   "person": {
+    "role": "speaker"
+   },
+   "shot_scene": [
+    "shot",
+    "studio"
+   ]
+  }
+ },
+ {
+  "id": "E11",
+  "query": "a shot of the blue laptop screen at the edge of the frame",
+  "expected": {
+   "object_category": [
+    "laptop",
+    "screen"
+   ],
+   "shot_scene": [
+    "shot"
+   ]
+  }
+ },
+ {
+  "id": "E12",
+  "query": "the part where he explains how to train a puppy to sit",
+  "expected": {
+   "transcript_phrase": [
+    "train",
+    "puppy"
+   ]
+  }
+ },
+ {
+  "id": "E13",
+  "query": "the chocolate chip cookie recipe he reads out",
+  "expected": {
+   "transcript_phrase": [
+    "cookie",
+    "recipe"
+   ]
+  }
+ },
+ {
+  "id": "E14",
+  "query": "a shot of a dog lying on the floor",
+  "expected": {
+   "object_category": [
+    "dog",
+    "floor"
+   ],
+   "shot_scene": [
+    "shot"
+   ]
+  }
+ },
+ {
+  "id": "E15",
+  "query": "a shot of a busy city street full of cars",
+  "expected": {
+   "object_category": [
+    "car"
+   ],
+   "shot_scene": [
+    "shot",
+    "street"
+   ]
+  }
+ },
+ {
+  "id": "E16",
+  "query": "the twenty percent line while the laptop is open on the desk",
+  "expected": {
+   "transcript_phrase": [
+    "twenty",
+    "percent"
+   ],
+   "object_category": [
+    "laptop",
+    "desk"
+   ],
+   "action_transition": [
+    "open"
+   ]
+  }
+ },
+ {
+  "id": "R03-ACC",
+  "query": "Find the close-up where the speaker picks up the phone after saying goodbye",
+  "expected": {
+   "person": {
+    "role": "speaker"
+   },
+   "transcript_phrase": [
+    "goodbye"
+   ],
+   "object_category": [
+    "phone"
+   ],
+   "action_transition": [
+    "pick_up_put_down"
+   ],
+   "shot_scene": [
+    "close-up"
+   ]
+  }
+ }
+]

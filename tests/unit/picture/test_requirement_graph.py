@@ -199,3 +199,39 @@ def test_pickup_sequence_is_one_candidate():
     graph = rg.parse_query("she picks it up and puts it down")
     assert len(graph["requirements"]) == 1
     assert graph["requirements"][0]["value"] == "pick_up_put_down"
+
+
+def test_after_orders_the_anchor_before_the_event():
+    graph = rg.parse_query(
+        "Find the close-up where the speaker picks up the phone "
+        "after saying goodbye")
+    assert graph["order"] != []
+    first, second = graph["order"][0]
+    by_id = {req["id"]: req for req in graph["requirements"]}
+    assert by_id[first]["family"] == "speech"
+    assert by_id[second]["value"] == "pick_up_put_down", (
+        "after attaches the anchor to the event, not to the "
+        "earliest mention before the marker")
+
+
+def test_order_markers_never_become_object_queries():
+    graph = rg.parse_query(
+        "Find the close-up where the speaker picks up the phone "
+        "after saying goodbye")
+    assert all(req.get("value") not in ("after", "before")
+               for req in graph["requirements"])
+
+
+def test_scaffolding_words_never_become_queries():
+    graph = rg.parse_query(
+        "the boundary of the second time face_001 covers their mouth")
+    assert all(req.get("value") not in ("boundary", "ever", "doing",
+                                        "one")
+               for req in graph["requirements"])
+
+
+def test_plural_objects_fold_to_the_singular_label():
+    graph = rg.parse_query("a shot of a busy city street full of cars")
+    assert any(req.get("value") == "car"
+               for req in graph["requirements"]
+               if req["family"] == "image")

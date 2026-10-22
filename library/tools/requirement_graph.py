@@ -168,7 +168,7 @@ _VALUE_ALIASES = {
 # object name (the detector tier answers names, never vibes): silently
 # dropping "backpack" while answering "person" would weaken the
 # conjunction without saying so.
-_STOPWORDS = frozenset(["footage", "moment", "part", "clip", "scene", "video", "shot", "shots", "take", "interview", "episode", "podcast", "vlog", "film", "movie", "photo", "picture", "frame", "sequence", "where", "find", "visible", "appears", "appearing", "appear", "screen", "onscreen", "speaker", "speakers", "show", "shows", "showing", "showed", "look", "looks", "looking", "get", "gets", "give", "gives", "cover", "covers", "touch", "touches", "touching", "puts", "put", "make", "makes", "feel", "feels", "seem", "seems", "become", "becomes", "very", "really", "just", "more", "most", "best", "good", "nice", "great", "cool", "warm", "cold", "hot", "beautiful", "pretty", "cinematic", "aesthetic", "lovely", "amazing", "awesome", "stunning", "gorgeous", "vivid", "fast", "slow", "quick", "quickly", "briefly", "long", "short", "big", "small", "large", "tiny", "whole", "entire", "full", "half", "same", "other", "another", "each", "every", "any", "some", "few", "many", "much", "more", "less", "first", "last", "next", "previous", "same", "such", "only", "even", "also", "too", "either", "neither", "not", "never", "always", "often", "sometimes", "usually", "the", "a", "an", "of", "about", "on", "for", "and", "or", "to", "in", "is", "are", "was", "were", "be", "been", "it", "its", "this", "that", "these", "those", "there", "here", "which", "who", "whom", "whose", "what", "when", "how", "why", "my", "your", "his", "her", "their", "our", "me", "him", "them", "us", "we", "you", "i", "he", "she", "they", "do", "does", "did", "done", "have", "has", "had", "having", "with", "without", "from", "into", "over", "under", "again", "once", "twice", "during", "while", "then", "than", "s", "t", "d", "m", "ll", "re", "ve"])
+_STOPWORDS = frozenset(["footage", "moment", "part", "clip", "scene", "video", "shot", "shots", "take", "interview", "episode", "podcast", "vlog", "film", "movie", "photo", "picture", "frame", "sequence", "where", "find", "visible", "appears", "appearing", "appear", "screen", "onscreen", "speaker", "speakers", "show", "shows", "showing", "showed", "look", "looks", "looking", "get", "gets", "give", "gives", "cover", "covers", "touch", "touches", "touching", "puts", "put", "make", "makes", "feel", "feels", "seem", "seems", "become", "becomes", "after", "before", "doing", "ever", "one", "boundary", "very", "really", "just", "more", "most", "best", "good", "nice", "great", "cool", "warm", "cold", "hot", "beautiful", "pretty", "cinematic", "aesthetic", "lovely", "amazing", "awesome", "stunning", "gorgeous", "vivid", "fast", "slow", "quick", "quickly", "briefly", "long", "short", "big", "small", "large", "tiny", "whole", "entire", "full", "half", "same", "other", "another", "each", "every", "any", "some", "few", "many", "much", "more", "less", "first", "last", "next", "previous", "same", "such", "only", "even", "also", "too", "either", "neither", "not", "never", "always", "often", "sometimes", "usually", "the", "a", "an", "of", "about", "on", "for", "and", "or", "to", "in", "is", "are", "was", "were", "be", "been", "it", "its", "this", "that", "these", "those", "there", "here", "which", "who", "whom", "whose", "what", "when", "how", "why", "my", "your", "his", "her", "their", "our", "me", "him", "them", "us", "we", "you", "i", "he", "she", "they", "do", "does", "did", "done", "have", "has", "had", "having", "with", "without", "from", "into", "over", "under", "again", "once", "twice", "during", "while", "then", "than", "s", "t", "d", "m", "ll", "re", "ve"])
 
 
 class RequirementGraphError(ValueError):
@@ -277,7 +277,18 @@ def parse_query(text: str) -> dict[str, Any]:
         return False
 
     def canonical(value: str) -> str:
-        return _VALUE_ALIASES.get(value.lower(), value.lower())
+        lowered_value = value.lower()
+        direct = _VALUE_ALIASES.get(lowered_value, lowered_value)
+        if direct != lowered_value:
+            return direct
+        # Object names are singular: "cars" asks about "car",
+        # because the detector tier labels categories, never plurals.
+        if lowered_value.endswith("s") and len(lowered_value) > 3:
+            singular = lowered_value[:-1]
+            if (singular in _IMAGE_CUES
+                    or singular in _VALUE_ALIASES.values()):
+                return _VALUE_ALIASES.get(singular, singular)
+        return direct
 
     # OCR first: quoted or anchored on-screen text, so later framing
     # words ("on screen", "visible") read as its modifiers, not as
@@ -464,7 +475,8 @@ def parse_query(text: str) -> dict[str, Any]:
         if key in seen_keys:
             continue
         seen_keys.add(key)
-        req = add(IMAGE, word, start, kind="presence", value=word)
+        req = add(IMAGE, word, start, kind="presence",
+                  value=canonical(word))
         req["negated"] = is_negated(start, word)
 
     if not requirements:
@@ -492,11 +504,21 @@ def parse_query(text: str) -> dict[str, Any]:
             if before and after:
                 # An ordering constrains EVENTS ("opens ... then shows"):
                 # prefer the nearest action/relationship requirement on
-                # the before side over a nearer object mention.
+                # each side over a nearer object mention. On the after
+                # side the nearest event to the marker wins: in "A after
+                # B" the anchor B is the marker's neighbour, and the
+                # event of A is the requirement the marker governs, not
+                # the earliest mention before it.
                 event_before = [req_id for req_id in before
                                 if req_id in event_like]
                 first = event_before[-1] if event_before else before[-1]
-                second = after[0]
+                event_after = [req_id for req_id in after
+                               if req_id in event_like]
+                if event_after:
+                    second = (event_after[0] if "after" not in marker
+                              else event_after[-1])
+                else:
+                    second = after[0]
                 if first != second and [first, second] not in order:
                     order.append([first, second])
 
