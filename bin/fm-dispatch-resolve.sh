@@ -594,6 +594,14 @@ if [ "$JSON_MODE" -eq 1 ]; then
       status,
       source: (if (.source // "") | startswith("rule_") then (.source | sub("^rule_"; "rule:")) else .source end),
       reason: (.reason // .note // ""),
+      explanation: {
+        status: .status,
+        source: .source,
+        reason: (.reason // .note // ""),
+        confidence: .confidence,
+        candidates: (.candidates // []),
+        chosen: (.chosen // null)
+      },
       profile: (if .chosen then {
         harness: .chosen.profile.harness,
         model: (.chosen.profile.model // null),

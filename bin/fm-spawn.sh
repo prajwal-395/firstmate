@@ -795,6 +795,9 @@ DISPATCH_ROUTE_EFFORT=
 DISPATCH_ROUTE_LADDER=
 DISPATCH_FALLBACK_SELECTED=
 DISPATCH_META_OVERRIDE_REASON=
+DISPATCH_EXPLANATION=
+DISPATCH_LADDER_EXPLANATION=
+unset FM_CAPTAIN_OVERRIDE_REASON
 PI_OPENCODE_GO=0
 PI_OPENCODE_REROUTE=0
 PI_OPENCODE_ORG=
@@ -1940,6 +1943,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
   DISPATCH_ROUTE_LADDER=$(fm_meta_get "$RELAUNCH_META" dispatch_ladder)
   DISPATCH_FALLBACK_SELECTED=$(fm_meta_get "$RELAUNCH_META" dispatch_fallback)
   DISPATCH_META_OVERRIDE_REASON=$(fm_meta_get "$RELAUNCH_META" dispatch_override_reason)
+  DISPATCH_EXPLANATION=$(fm_meta_get "$RELAUNCH_META" dispatch_explanation)
   MODE=$(fm_meta_get "$RELAUNCH_META" mode)
   YOLO=$(fm_meta_get "$RELAUNCH_META" yolo)
   if [ "$KIND" = ship ]; then
@@ -2139,6 +2143,7 @@ dispatch_apply_profile() {
   DISPATCH_ROUTE_MODEL=$(jq -r '.profile.model // ""' <<<"$route_json")
   DISPATCH_ROUTE_EFFORT=$(jq -r '.profile.effort // ""' <<<"$route_json")
   DISPATCH_ROUTE_LADDER=$(jq -r '.profile.dispatch_ladder // ""' <<<"$route_json")
+  DISPATCH_EXPLANATION=$(jq -c '.explanation // {}' <<<"$route_json")
   route_status=$(jq -r '.status' <<<"$route_json")
   expected_profile=$(jq -r '
     if .profile == null then "no profile (status=" + .status + "; " + (.reason // "no route reason") + ")"
@@ -2832,6 +2837,7 @@ case "$HARNESS" in
       printf '%s\n' "$AGY_LADDER_NOTE" >&2
       exit 1
     }
+    DISPATCH_LADDER_EXPLANATION=$AGY_LADDER_NOTE
     [ -z "$AGY_LADDER_NOTE" ] || printf '%s\n' "$AGY_LADDER_NOTE" >&2
     # This launch's headroom is already reserved: fm_agy_ladder_gate records it
     # under the same account-wide lock it decided on, so no launch can slip
@@ -6331,7 +6337,7 @@ SPAWN_META_PATH=$SPAWN_META_TMP
 preserve_relaunch_meta() {
   awk -F= '
     BEGIN {
-      split("window endpoint_task_id worktree project harness kind mode yolo branch tasktmp base_branch model effort account account_provider busy_gen spawn_gen spawned_at traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx dispatch_source dispatch_reason dispatch_route_harness dispatch_route_model dispatch_route_effort dispatch_ladder dispatch_fallback dispatch_override_reason opencode_workspace opencode_server opencode_server_session", keys, " ")
+      split("window endpoint_task_id worktree project harness kind mode yolo branch tasktmp base_branch model effort account account_provider busy_gen spawn_gen spawned_at traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx dispatch_source dispatch_reason dispatch_route_harness dispatch_route_model dispatch_route_effort dispatch_ladder dispatch_fallback dispatch_override_reason dispatch_explanation opencode_workspace opencode_server opencode_server_session", keys, " ")
       for (i in keys) owned[keys[i]] = 1
     }
     !($1 in owned)
@@ -6376,6 +6382,9 @@ preserve_relaunch_meta() {
   [ -z "$DISPATCH_ROUTE_LADDER" ] || echo "dispatch_ladder=$DISPATCH_ROUTE_LADDER"
   [ -z "$DISPATCH_FALLBACK_SELECTED" ] || echo "dispatch_fallback=$DISPATCH_FALLBACK_SELECTED"
   [ -z "$DISPATCH_META_OVERRIDE_REASON" ] || echo "dispatch_override_reason=$DISPATCH_META_OVERRIDE_REASON"
+  if [ -n "$DISPATCH_EXPLANATION" ]; then
+    echo "dispatch_explanation=$(jq -cn --argjson route "$DISPATCH_EXPLANATION" --arg ladder "$DISPATCH_LADDER_EXPLANATION" '{resolver:$route,ladder:$ladder}')"
+  fi
   [ -z "${BUSY_GEN:-}" ] || echo "busy_gen=$BUSY_GEN"
   echo "spawn_gen=$SPAWN_GEN"
   echo "spawned_at=$SPAWN_PUBLISHED_AT"
