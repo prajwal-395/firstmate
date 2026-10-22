@@ -125,6 +125,8 @@ from library.tools import (
     contact_onsets,
     conversation_clock,
     face_tracks,
+    object_contact,
+    object_measurements,
     person_entity,
     person_measurements,
     project_ref,
@@ -170,6 +172,17 @@ CANDIDATE_PREDICATES = {
                            "measured release level, so the repeated "
                            "arrivals of one take are SEPARATE occurrences "
                            "(a candidate, not an answer)",
+    "object_contact_onset": "one span per measured CONTACT ONSET of a "
+                            "NAMED OBJECT at the lips: the object's own "
+                            "measured box reaches contact (within "
+                            "object_contact.CONTACT_DISTANCE_FACE_WIDTHS "
+                            "face widths of the lips) and is released "
+                            "only when it passes the take's own measured "
+                            "release level, so the object's arrivals are "
+                            "SEPARATE occurrences - the class the hand "
+                            "lane cannot be, because the hand reaches the "
+                            "lips with the object a centimetre below (a "
+                            "candidate, not an answer)",
     "hand_raise": "M3 hand joint risen HAND_RAISE_MIN_RISE face heights "
                   "within HAND_RAISE_WINDOW frames, ending above the face's "
                   "centre (a candidate, not an answer)",
@@ -1076,6 +1089,71 @@ def hand_contact_onset_candidates(m3: dict,
     return spans
 
 
+def object_contact_onset_candidates(m3: dict,
+                                    assignment: List[List[Optional[str]]],
+                                    objects: dict) -> List[dict]:
+    """One candidate span per measured CONTACT ONSET of a named OBJECT.
+
+    The `hand_contact_onset` candidate above measures the HAND, and a
+    hand that reaches the lips with the object a centimetre below is
+    not an arrival of the object - so the class's ordinal is the
+    ordinal of the hand's contacts rather than the ordinal of the
+    object's arrivals
+    (`docs/evidence/m0-object-contact-occurrences.md`).
+
+    This candidate measures the OBJECT: its own measured box, per
+    frame, against the measured lips, with the object identity that
+    says which physical object the box is. The two levels are the hand
+    lane's levels, read from ONE place
+    (`library.tools.contact_onsets`), and each span carries the
+    identities it saw, so a reader can tell one object's arrivals from
+    two objects' arrivals.
+    """
+    times = [f["t"] for f in m3["frames"]]
+    rows = object_contact.lips_series(objects, m3, assignment=assignment)
+    if not rows:
+        return []
+    occurrences = object_contact.contact_occurrences(rows)
+    spans: List[dict] = []
+    for occurrence in occurrences:
+        contact_frames = occurrence["contact_frames"]
+        frames = [{"index": f["index"], "t": f["t"], "d": f["distance"],
+                   "object_box": f.get("box"),
+                   "object_entity": f.get("entity_id"),
+                   "source_frame_index": f.get("source_frame_index"),
+                   "box": None}
+                  for f in contact_frames]
+        first = contact_frames[0]["index"]
+        last = contact_frames[-1]["index"]
+        start, end = span_bounds(times, first, last)
+        closest = occurrence["closest_distance"]
+        firm = closest <= object_contact.CONTACT_DISTANCE_FACE_WIDTHS / 2.0
+        spans.append({
+            "face_track": contact_frames[0].get("face_track"),
+            "start": start,
+            "end": end,
+            "frames": frames,
+            "tier": TIER_STRONG if firm else TIER_MARGINAL,
+            "score": round(-closest, 3),
+            "tier_reason": (
+                f"object contact onset: closest approach {closest:.2f} face "
+                f"widths, release level {occurrence['release_distance']:.2f} "
+                f"measured on this take"),
+            "onset_index": occurrence["onset_index"],
+            "onset_seconds": round(occurrence["onset_seconds"], 3),
+            "closest_index": occurrence["closest_index"],
+            "closest_seconds": round(occurrence["closest_seconds"], 3),
+            "closest_distance": closest,
+            "contact_distance": occurrence["contact_distance"],
+            "release_distance": round(occurrence["release_distance"], 3),
+            "object_entities": occurrence["entity_ids"],
+            "object_phrases": occurrence["phrases"],
+        })
+    spans.sort(key=lambda s: (s.get("tier", TIER_STRONG),
+                               -(s.get("score", 0.0) or 0.0), s["start"]))
+    return spans
+
+
 def hand_raise_candidates(m3: dict, assignment: List[List[Optional[str]]]
                           ) -> List[dict]:
     """Per face track, runs of frames where a hand rose
@@ -1220,6 +1298,15 @@ IDENTITY_ABSENT_REASON = (
 so nothing downstream reads a missing identity lane as an empty
 measurement."""
 
+OBJECT_CONTACT_ABSENT_REASON = (
+    "no object measurement (objects.json) for this source: the contact "
+    "of a NAMED OBJECT is measured from the object's own box and the "
+    "object's identity, and a source with no object measurement has no "
+    "such measurement - which is NOT the same as the object never "
+    "reaching the lips.")
+"""Why the object-contact candidate is absent from a record. Recorded IN
+the record, so an unmeasured class is never read as an empty one."""
+
 
 def build_source_events(content_digest: str, source_file: str,
                         root: Optional[Path] = None) -> dict:
@@ -1293,6 +1380,17 @@ def build_source_events(content_digest: str, source_file: str,
         predicates_unavailable = {}
     faces_total = sum(len(row) for row in assignment)
     faces_assigned = sum(1 for row in assignment for t in row if t)
+    objects = object_measurements.read_objects(content_digest, root)
+    candidates_unavailable: Dict[str, str] = {}
+    object_candidates: Dict[str, dict] = {}
+    if objects is None:
+        candidates_unavailable["object_contact_onset"] = (
+            OBJECT_CONTACT_ABSENT_REASON)
+    else:
+        object_candidates["object_contact_onset"] = {
+            "basis": CANDIDATE_PREDICATES["object_contact_onset"],
+            "spans": object_contact_onset_candidates(m3, assignment, objects),
+        }
     record = {
         "content_digest": content_digest,
         "size_bytes": m3.get("size_bytes"),
@@ -1335,7 +1433,9 @@ def build_source_events(content_digest: str, source_file: str,
                 "basis": CANDIDATE_PREDICATES["person_leaves"],
                 "spans": person_leaves_candidates(m3, assignment),
             },
+            **object_candidates,
         },
+        "candidates_unavailable": candidates_unavailable,
         "built_at": datetime.datetime.now(datetime.timezone.utc).isoformat(
             timespec="seconds"),
     }
@@ -1608,8 +1708,11 @@ def _candidate_spans(person: dict, predicate: str,
         record = read_m7(digest, root)
         body = ((record or {}).get("candidates") or {}).get(predicate)
         if body is None:
+            unavailable = ((record or {}).get("candidates_unavailable")
+                           or {}).get(predicate)
             raise RenRefusal(
                 f"M7 on {digest[:12]} carries no {predicate!r} candidates",
+                unavailable or
                 "it was built before candidates were recorded; an unbuilt "
                 "source would read as 'never happens there'",
                 "python3 -m library.tools.event_spans build <project>", blocker="insufficient_evidence")

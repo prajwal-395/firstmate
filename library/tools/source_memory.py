@@ -205,6 +205,7 @@ SLOT_AUDIO_QUALITY = "audio_quality.json"       # M11 - written by audio_quality
 SLOT_IMAGE_DEFECTS = "image_defects.json"        # VI-03 - image_defects.py
 SLOT_PICTURE_QUALITY = "picture_quality.json"    # picture_quality.py
 SLOT_ON_DEMAND = "on_demand.json"        # VI-014 - on_demand_verification.py
+SLOT_OBJECTS = "objects.json"            # M3o - written by object_measurements.py
 
 SLOT_BY_LANE = {
     "m0": SLOT_SOURCE, "m1": SLOT_TRANSCRIPT, "m1b": SLOT_SPEAKERS,
@@ -215,7 +216,7 @@ SLOT_BY_LANE = {
     "m6": SLOT_CLOCK, "m7": SLOT_EVENTS, "m8": SLOT_VERDICTS,
     "m9": SLOT_WORLD_MODEL, "m10": SLOT_RELATIONSHIPS,
     "m11": SLOT_AUDIO_QUALITY, "vi-03": SLOT_IMAGE_DEFECTS,
-    "vi-14": SLOT_ON_DEMAND,
+    "vi-14": SLOT_ON_DEMAND, "m3o": SLOT_OBJECTS,
 }
 
 LANE_ALIASES = {
