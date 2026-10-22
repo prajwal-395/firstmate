@@ -12748,14 +12748,15 @@ def _archive_retiring_generation(resolve, project, timeline,
     outcome = replaced_generation.ensure_archived(
         resolve=resolve, project=project, timeline=timeline,
         project_folder=project_folder, entry=entry,
-        label=f"retiring timeline {timeline_id}")
+        label=f"retiring timeline {timeline_id}",
+        rows_digest=rows_digest)
     if outcome["status"] == "unavailable":
         raise PromotionFailure(
             f"REFUSING to replace {name!r}: verified recovery "
             f"archive failed ({outcome['reason']}).",
             failure_class=PromotionFailure.DELIVERY)
     receipt = outcome["receipt"]
-    if outcome["status"] == "exported" and entry is not None:
+    if outcome["status"] in ("exported", "reused") and entry is not None:
         # The archive of the generation being replaced belongs to the
         # version that generation is. A version may hold more than one
         # archive; none of them is ever replaced.

@@ -146,7 +146,24 @@ def _timeline_by_identity(project, timeline_name: str, timeline_id: str):
 
 def _adopt(project_folder: str, project, resolve, timeline_name: str, *,
            reason: str, by: str, timeline_id: str) -> dict:
-    """Capture the live generation and append the adopted version."""
+    """Capture the live generation and append the adopted version.
+
+    VC-009: an adoption of a generation that is ALREADY archived does
+    not export it again. A `.drt` export is a full reconstruction of
+    the whole timeline - the expensive half of creating a version - and
+    an unchanged generation does not need a second one. The archive
+    that is kept is read back and compared with the live generation
+    (the media it plays, the items it holds) before it is reused, so
+    the reuse carries the same evidence the export would have.
+
+    A generation is (Resolve id, rows digest, look digest): the id
+    names the timeline object, the rows say what it plays, and the look
+    says what it looks like. A hand edit that changes only the grade
+    keeps the rows and changes the look, so the look is part of the
+    identity - without it, the reuse would keep an archive of the
+    generation BEFORE the captain's grade, and a restore would bring
+    back the wrong look.
+    """
     import uuid
 
     from library.tools import reel_read, reel_replace_guard
@@ -174,32 +191,8 @@ def _adopt(project_folder: str, project, resolve, timeline_name: str, *,
             f"({unreadable}); a version that cannot be read is not a "
             "version, so nothing was adopted") from unreadable
 
-    archive = store.export_timeline_recovery_archive(
-        resolve, target, target.GetName(), project_folder,
-        # VC-002: the captain's hand edit is a generation like any other,
-        # and its archive is a file of its own - the shared per-reel path
-        # is overwritten by the next build, and a version that cannot be
-        # restored is a note, not a version.
-        #
-        # The generation's own suffix, plus THIS adoption's own
-        # discriminator: a Resolve id names a timeline OBJECT, and an
-        # in-place hand edit changes the generation while the object -
-        # and so the id - stays the same. Two adoptions of the same
-        # timeline are two generations, and with the generation suffix
-        # alone the second adoption replaced the first one's archive:
-        # the first version's receipt went on naming a file whose
-        # content had changed under it (measured 2026-10-21 on a live
-        # adoption).
-        archive_suffix=(f"{replaced_generation.generation_suffix(unique_id)}"
-                        f"--adopted-{uuid.uuid4().hex[:8]}"))
-    if not archive.get("archived"):
-        raise reel_versions.ReelVersionsUnreadable(
-            f"the live generation of {timeline_name!r} could not be "
-            f"exported to a recovery archive "
-            f"({archive.get('reason', 'unknown reason')}), so it cannot "
-            f"be adopted: a version that cannot be restored is a note, "
-            f"not a version")
-    archive_path = archive["path"]
+    rows_digest = rounds.digest_rows(rows)
+    look_digest = replaced_generation.preservation_digest(preservation)
 
     assets = []
     media = set()
@@ -209,6 +202,46 @@ def _adopt(project_folder: str, project, resolve, timeline_name: str, *,
             if not source:
                 continue
             media.add(source)
+
+    # VC-009: the archive of THIS generation, if one is already on disk
+    # and still verifies, is REUSED. The export is a full
+    # reconstruction of the whole timeline, and an unchanged generation
+    # does not need a second one.
+    reusable = replaced_generation.reusable_archive(
+        project_folder=project_folder, final=target.GetName(),
+        timeline_id=unique_id, rows_digest=rows_digest,
+        preservation_digest=look_digest, media_paths=sorted(media))
+    archive_reused = reusable is not None
+    if reusable is not None:
+        archive_path = str(reusable.get("archive_path")
+                           or reusable.get("path") or "")
+    else:
+        archive = store.export_timeline_recovery_archive(
+            resolve, target, target.GetName(), project_folder,
+            # VC-002: the captain's hand edit is a generation like any
+            # other, and its archive is a file of its own - the shared
+            # per-reel path is overwritten by the next build, and a
+            # version that cannot be restored is a note, not a version.
+            #
+            # The generation's own suffix, plus THIS adoption's own
+            # discriminator: a Resolve id names a timeline OBJECT, and
+            # an in-place hand edit changes the generation while the
+            # object - and so the id - stays the same. Two adoptions of
+            # the same timeline are two generations, and with the
+            # generation suffix alone the second adoption replaced the
+            # first one's archive: the first version's receipt went on
+            # naming a file whose content had changed under it (measured
+            # 2026-10-21 on a live adoption).
+            archive_suffix=(f"{replaced_generation.generation_suffix(unique_id)}"
+                            f"--adopted-{uuid.uuid4().hex[:8]}"))
+        if not archive.get("archived"):
+            raise reel_versions.ReelVersionsUnreadable(
+                f"the live generation of {timeline_name!r} could not be "
+                f"exported to a recovery archive "
+                f"({archive.get('reason', 'unknown reason')}), so it cannot "
+                f"be adopted: a version that cannot be restored is a note, "
+                f"not a version")
+        archive_path = archive["path"]
     # The archive must hold the media the live timeline plays: the
     # restore compares the archive's inventory with this receipt's, and
     # an archive of a DIFFERENT generation is refused at the adoption,
@@ -249,7 +282,7 @@ def _adopt(project_folder: str, project, resolve, timeline_name: str, *,
         "archive_path": str(archive_path),
         "archive_sha256": store._sha256(archive_path),
         "content_id": store.recovery_archive_content_id(archive_path),
-        "rows_digest": rounds.digest_rows(rows),
+        "rows_digest": rows_digest,
         # The item count the archive holds: the restore checks the
         # archive's inventory against it, and a receipt without it
         # cannot be restored at all.
@@ -257,6 +290,14 @@ def _adopt(project_folder: str, project, resolve, timeline_name: str, *,
         "assets": assets,
         # The look of the generation this version records.
         "preservation": preservation,
+        # VC-009: the digest of that look, so a later reader can tell
+        # whether an archive on disk holds THIS generation's look or an
+        # earlier one's - a hand edit that changes only the grade keeps
+        # the rows and changes the look.
+        "preservation_digest": look_digest,
+        # And whether this version's archive was REUSED from an earlier
+        # one or exported now.
+        "archive_reused": archive_reused,
     }
     accepted = None
     try:

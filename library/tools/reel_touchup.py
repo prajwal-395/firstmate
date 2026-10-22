@@ -5888,8 +5888,9 @@ def _archive_replaced_generation(project_folder: str, project: Any,
     outcome = replaced_generation.ensure_archived(
         resolve=resolve, project=project, timeline=timeline,
         project_folder=project_folder, entry=entry,
-        label=f"generation replaced by a touch on {final}")
-    if outcome["status"] == "exported":
+        label=f"generation replaced by a touch on {final}",
+        rows_digest=replaced_generation.live_rows_digest(timeline, final))
+    if outcome["status"] in ("exported", "reused"):
         reel_versions.attach_recovery_archive(
             project_folder, final, int(entry["version"]),
             outcome["receipt"])

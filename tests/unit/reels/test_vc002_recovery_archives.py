@@ -240,7 +240,8 @@ def test_the_builds_own_export_names_the_generations_archive(
     of its own, or the next build overwrites the archive of the
     generation it is about to replace.
     """
-    from library.tools.versions import replaced_generation, store
+    from library.tools import reel_read
+    from library.tools.versions import replaced_generation, rounds, store
 
     class _Resolve:
         EXPORT_DRT = 18
@@ -258,8 +259,14 @@ def test_the_builds_own_export_names_the_generations_archive(
         {"reels": {FINAL: {"files": [], "items_with_comps": 0}}},
         str(_project(tmp_path)))
 
-    assert captured == [replaced_generation.generation_suffix(
-        timeline.GetUniqueId())]
+    # The name carries the generation: its Resolve id, and (VC-009) the
+    # digest of the rows it holds - so two generations of one timeline
+    # object cannot land on one file either.
+    suffix = captured[0]
+    assert suffix.startswith(replaced_generation.generation_suffix(
+        timeline.GetUniqueId()))
+    rows = reel_read.rows_of({"tracks": reel_read.read_tracks(timeline)})
+    assert suffix.endswith(rounds.digest_rows(rows)[:12])
 
 
 # ── 3. the restore reads the archive that verifies ────────────────

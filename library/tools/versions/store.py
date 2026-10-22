@@ -400,6 +400,25 @@ def store_recovery_archive_content(path: Path, project_folder: str) -> dict:
             "bytes": destination.stat().st_size}
 
 
+def _rows_digest_of(timeline) -> str:
+    """The digest of the rows a live timeline holds.
+
+    The archive file is named by the generation - its Resolve id and
+    this digest - so two generations of one timeline object never land
+    on the same file (VC-009). An unreadable timeline reads as NO
+    digest: the name is then the coarse per-object one, and the
+    export's own verification still proves what the file holds.
+    """
+    try:
+        from library.tools import reel_read
+        from library.tools.versions import rounds
+
+        rows = reel_read.rows_of({"tracks": reel_read.read_tracks(timeline)})
+        return rounds.digest_rows(rows)
+    except Exception:  # noqa: BLE001 - an unreadable timeline names nothing
+        return ""
+
+
 def _recovery_archive_stem(timeline_name: str) -> str:
     safe = "".join(
         char if char.isalnum() or char in "-_." else "_"
@@ -638,8 +657,12 @@ def _export_reel_recovery_archives(
             # per-reel filename was OVERWRITTEN by the next
             # generation's export, and the receipt that named it
             # stopped verifying - so a generation that was replaced
-            # could no longer be put back.
-            archive_suffix=replaced_generation.generation_suffix(timeline_id))
+            # could no longer be put back. VC-009: the file is named
+            # by the GENERATION - its Resolve id and the digest of the
+            # rows it holds - so a later generation of the same object
+            # cannot land on this file either.
+            archive_suffix=replaced_generation.generation_suffix(
+                timeline_id, _rows_digest_of(timeline)))
         try:
             resolve_version = str(resolve.GetVersion() or "")
         except Exception:  # noqa: BLE001 - API differs by Resolve
