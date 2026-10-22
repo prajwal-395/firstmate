@@ -11230,3 +11230,24 @@ is `edit_preparation._machine_plan`; the measurement is
 `scripts/measure_intent_neutrality.py` (the report:
 `docs/benchmarks/2026-10-21-infra004-intent-neutrality.md`).
 
+## the-merge-that-kept-two-qualification-records
+
+**The rule:** The qualification registry has one routing row per
+operation/backend pair. A legacy row that lacks a complete measured boundary is
+retained as historical evidence, but it does not widen the active row.
+
+**What happened.** After PR 3164 merged, the registry contained duplicate JSON
+keys for `clip.delete::resolve_axi`, `mask.create::edit_patch`, and
+`retime.segments::edit_patch`. The strict reader refused the whole registry,
+including unrelated live requests. Each pair had one complete, state-bounded
+row and one older row without coverage, environment, or semantic boundary; the
+older `clip.delete` row also named the fixture project and timeline as
+predicates. Treating those copies as equivalent qualifications would either
+drop evidence or broaden the route beyond what the older record measured.
+
+**Where it is.** The complete rows remain in `records`. The older rows are
+preserved verbatim under `retained_historical_evidence`, with the reason each
+cannot qualify a route under the current schema. The importer preserves this
+archive when it replaces an active row. `tests/contracts/test_axi_qualification_registry.py`
+checks the committed JSON for duplicate keys and checks that all three older
+records remain archived.

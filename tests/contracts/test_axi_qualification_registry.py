@@ -265,13 +265,39 @@ def test_a_registry_that_names_one_row_twice_is_refused(tmp_path):
 
 
 def test_the_shipped_registry_names_one_row_per_pair():
-    """The shipped file reads without the duplicate-row refusal.
+    """Committed JSON has one routing row per pair and retains old evidence.
 
-    The registry is written by several lanes, and two of them promoted
-    the same pair on different branches: the merge kept both copies, and
-    the reader silently served whichever landed last.  This is the gate
-    that says the shipped file holds one row per pair.
+    `json.loads` normally hides duplicate keys by retaining the last
+    value. Inspect serialized keys directly so a merge cannot silently
+    discard an independently measured row.
     """
+    duplicates = []
+
+    def record_duplicate_keys(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                duplicates.append(key)
+            result[key] = value
+        return result
+
+    registry_path = (Path(__file__).resolve().parents[2] / "library" /
+                     "tools" / "axi_qualification_records.json")
+    payload = json.loads(registry_path.read_text(encoding="utf-8"),
+                         object_pairs_hook=record_duplicate_keys)
+    assert not duplicates, (
+        "the committed qualification registry repeats operation/backend "
+        f"keys: {sorted(set(duplicates))}")
+
+    retained = payload.get("retained_historical_evidence", [])
+    retained_pairs = [row["operation_backend"] for row in retained]
+    assert set(retained_pairs) == {
+        "clip.delete::resolve_axi",
+        "mask.create::edit_patch",
+        "retime.segments::edit_patch",
+    }
+    assert all(row["record"].get("evidence") for row in retained)
+
     records = axi_qualification.load_qualification_records()
 
     assert records, "the shipped registry holds no evidence-complete row"
