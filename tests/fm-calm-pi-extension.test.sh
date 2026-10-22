@@ -44,8 +44,10 @@ wait_for_text() {
   while [ "$i" -lt 120 ]; do
     # Include recent scrollback: expanding a long restored transcript can move
     # the asserted tool output above the current viewport while the footer and
-    # editor remain visible.
-    tmux -L "$TMUX_SOCKET" capture-pane -p -t "$TMUX_SESSION" -S -600 >"$file" 2>/dev/null || true
+    # editor remain visible. The window is wide because a Calm toggle can
+    # re-render a long transcript in one go, and a row that was on screen
+    # before the toggle can end up further back than a narrow window shows.
+    tmux -L "$TMUX_SOCKET" capture-pane -p -t "$TMUX_SESSION" -S -5000 >"$file" 2>/dev/null || true
     grep -Fq "$text" "$file" 2>/dev/null && return 0
     sleep 0.05
     i=$((i + 1))
@@ -4608,7 +4610,8 @@ JS
     CURRENT_FROM_FIRSTMATE_E2E \
     CURRENT_LAUNCH_BRIEF_E2E
   do
-    assert_contains "$(cat "$restored_snapshot")" "$restored" "second /calm did not restore current operational kind $restored"
+    wait_for_text "$restored_snapshot" "$restored" \
+      || fail "second /calm did not restore current operational kind $restored"
   done
   assert_contains "$(cat "$restored_snapshot")" "Warning: CALM_TRANSIENT_DIAGNOSTIC" "second /calm dropped a transient diagnostic"
   assert_contains "$(cat "$restored_snapshot")" " Error:" "second /calm dropped the synthetic delivery diagnostic"
