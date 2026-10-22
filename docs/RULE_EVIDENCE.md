@@ -11187,3 +11187,46 @@ cannot be placed in a file is refused by name.
 `docs/QUERY_INTERFACE.md` the contract a consumer reads,
 `tests/unit/picture/test_world_model_query_search.py` names each
 defect.
+
+## the-plan-that-named-the-instance-instead-of-the-material
+
+**What happened.** The punch list's INFRA-004 asks that editorial intent
+stay independent from Resolve, and that a high-level creative plan carry
+no Resolve-specific command. The two records that state an edit - the
+intent record (`EditRequest.to_dict()`) and the machine plan
+(`edit_preparation._machine_plan`) - carried Resolve object identifiers
+in every step's target, in every step's parameters, and in the affected
+scope's clip list.
+
+A `unique_id` in Ren's vocabulary is Resolve's `GetUniqueId()` of a
+timeline item: an EXECUTION ADDRESS. It is short-lived, it changes when
+the timeline is rebuilt, and it means nothing to another NLE. A plan that
+carries one is a plan for one instance of one application, and the layer
+that states WHAT WAS ASKED was quietly stating WHICH INSTANCE.
+
+**Measured, before and after, with the denominators** (the corpus is
+committed recorded evidence - the recorded reel-26 timeline export and
+the recorded live receipts - and the same script ran on both revisions):
+
+- intent record fields carrying a Resolve identifier: 26/832 before,
+  0/910 after;
+- machine plan fields carrying a Resolve identifier: 52/1196 before,
+  0/2470 after;
+- the router input of every recorded request, digested: 18/18 routed,
+  digest `4110ce008cbf2bd0` before and after - the same route.
+
+**The rule.** An INTENT record names the MATERIAL an operation acts on -
+the source file and range, the row, the frames - and never the instance
+identifier of the NLE it happens to run against. The instance handles
+live in the ADAPTER, beside the intent, where the backend reads them. A
+target the recorded timeline cannot state neutrally, and an operation
+whose own semantics need a Resolve object, are CAPABILITY MISMATCHES:
+they are named, in the plan and in the intent, and they are never dropped
+and never guessed.
+
+One enumeration, `library/tools/intent_neutrality.py` (`RESOLVE_SPECIFIC_FIELDS`,
+`ItemRef`, `neutralize`, `bind`, `capability_mismatches`); the live wiring
+is `edit_preparation._machine_plan`; the measurement is
+`scripts/measure_intent_neutrality.py` (the report:
+`docs/benchmarks/2026-10-21-infra004-intent-neutrality.md`).
+

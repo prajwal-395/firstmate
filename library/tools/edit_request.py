@@ -400,6 +400,24 @@ class EditRequest:
     def is_mixed(self) -> bool:
         return self.has_plan_changes and self.has_direct_mutations
 
+    def to_neutral(self, *, refs=None):
+        """The NLE-neutral form of this intent (INFRA-004).
+
+        A request names what was asked; this names it in terms no NLE
+        owns - the MATERIAL an operation acts on, not the Resolve
+        instance that material sits on today.  `refs` is the resolver's
+        map from instance id to material (`intent_neutrality
+        .refs_from_snapshot`); a target whose material was not recorded
+        comes back with a named mismatch, not a guess.
+
+        The request itself is unchanged: this is a VIEW across the
+        boundary, and `intent_neutrality.bind` turns it back into the
+        request the backends execute.
+        """
+        from library.tools import intent_neutrality
+
+        return intent_neutrality.neutralize(self, refs=refs)
+
     def to_dict(self) -> dict:
         return {
             "version": self.version,

@@ -1,0 +1,1337 @@
+{
+ "schema": "ren-intent-neutrality-corpus/1",
+ "provenance": {
+  "timeline": "tests/fixtures/reel_hearing/reel26.timeline.json",
+  "reports_root": "tests/live/reports",
+  "note": "committed recorded evidence: a recorded timeline export and the recorded live receipts"
+ },
+ "snapshot": {
+  "start_frame": 0,
+  "end_frame": 1099,
+  "fps": 23.976,
+  "tracks": [
+   {
+    "type": "video",
+    "index": 1,
+    "name": "SpeakerOne",
+    "clips": [
+     {
+      "unique_id": "5d501dc7-9062-4c2b-ba9b-573fec8ef50e",
+      "name": "LC4932.MXF",
+      "source_file": "/footage/LC4932.MXF",
+      "source_in_frame": 102392,
+      "source_out_frame": 103063,
+      "record_in": 120,
+      "record_out": 791,
+      "duration": 671,
+      "track_type": "video",
+      "track_index": 1,
+      "enabled": true,
+      "markers": []
+     }
+    ]
+   },
+   {
+    "type": "video",
+    "index": 2,
+    "name": "SpeakerTwo",
+    "clips": [
+     {
+      "unique_id": "127bb042-e1c7-4ab9-9250-8749231aa07a",
+      "name": "LCATL0014.MXF",
+      "source_file": "/footage/LCATL0014.MXF",
+      "source_in_frame": 3889,
+      "source_out_frame": 4009,
+      "record_in": 0,
+      "record_out": 120,
+      "duration": 120,
+      "track_type": "video",
+      "track_index": 2,
+      "enabled": true,
+      "markers": []
+     },
+     {
+      "unique_id": "acccc5c9-4f3c-4a46-9e3b-ca2415287525",
+      "name": "LCATL0013.MXF",
+      "source_file": "/footage/LCATL0013.MXF",
+      "source_in_frame": 11540,
+      "source_out_frame": 11758,
+      "record_in": 791,
+      "record_out": 1009,
+      "duration": 218,
+      "track_type": "video",
+      "track_index": 2,
+      "enabled": true,
+      "markers": []
+     },
+     {
+      "unique_id": "a16d4873-f8ea-4132-8b57-c230b1706b10",
+      "name": "reel_freeze_8da72bf764.mov",
+      "source_file": "/footage/reel_freeze_8da72bf764.mov",
+      "source_in_frame": 0,
+      "source_out_frame": 18,
+      "record_in": 1009,
+      "record_out": 1028,
+      "duration": 19,
+      "track_type": "video",
+      "track_index": 2,
+      "enabled": true,
+      "markers": []
+     }
+    ]
+   },
+   {
+    "type": "video",
+    "index": 3,
+    "name": "Frame",
+    "clips": [
+     {
+      "unique_id": "0574643f-33ee-47c0-88ff-5d4cd4fbb6c7",
+      "name": "tv_frame_1f8e8d06ff.mov",
+      "source_file": "/footage/tv_frame_1f8e8d06ff.mov",
+      "source_in_frame": 0,
+      "source_out_frame": 1028,
+      "record_in": 0,
+      "record_out": 1028,
+      "duration": 1028,
+      "track_type": "video",
+      "track_index": 3,
+      "enabled": true,
+      "markers": []
+     }
+    ]
+   },
+   {
+    "type": "video",
+    "index": 4,
+    "name": "Subtitles",
+    "clips": [
+     {
+      "unique_id": "3c39bc98-600f-431f-942c-87cfd24f5079",
+      "name": "sub_speakertwo_f24c6416-7523-42bb-b9fe_162243-166986_e135147f.mov",
+      "source_file": "/footage/sub_speakertwo_f24c6416-7523-42bb-b9fe_162243-166986_e135147f.mov",
+      "source_in_frame": 0,
+      "source_out_frame": 114,
+      "record_in": 0,
+      "record_out": 114,
+      "duration": 114,
+      "track_type": "video",
+      "track_index": 4,
+      "enabled": true,
+      "markers": []
+     },
+     {
+      "unique_id": "9e81f961-819c-4f87-9b28-9664546f02d3",
+      "name": "sub_speakerone_9aeb99e4-0279-4996-a126_4270782-4274261_d48715b5.mov",
+      "source_file": "/footage/sub_speakerone_9aeb99e4-0279-4996-a126_4270782-4274261_d48715b5.mov",
+      "source_in_frame": 12,
+      "source_out_frame": 96,
+      "record_in": 124,
+      "record_out": 208,
+      "duration": 84,
+      "track_type": "video",
+      "track_index": 4,
+      "enabled": true,
+      "markers": []
+     },
+     {
+      "unique_id": "90bec21e-ec24-4131-b5da-ec07fab54425",
+      "name": "sub_speakerone_9aeb99e4-0279-4996-a126_4274703-4278899_eb7ecb94.mov",
+      "source_file": "/footage/sub_speakerone_9aeb99e4-0279-4996-a126_4274703-4278899_eb7ecb94.mov",
+      "source_in_frame": 12,
+      "source_out_frame": 113,
+      "record_in": 218,
+      "record_out": 319,
+      "duration": 101,
+      "track_type": "video",
+      "track_index": 4,
+      "enabled": true,
+      "markers": []
+     },
+     {
+      "unique_id": "c48d0b29-8bbe-4dea-8003-bc4f24c1c54c",
+      "name": "sub_speakerone_9aeb99e4-0279-4996-a126_4279702-4281120_7892fa2b.mov",
+      "source_file": "/footage/sub_speakerone_9aeb99e4-0279-4996-a126_4279702-4281120_7892fa2b.mov",
+      "source_in_frame": 12,
+      "source_out_frame": 46,
+      "record_in": 338,
+      "record_out": 372,
+      "duration": 34,
+      "track_type": "video",
+      "track_index": 4,
+      "enabled": true,
+      "markers": []
+     },
+     {
+      "unique_id": "3c58c467-066a-497a-a5b1-0f604a7a4fee",
+      "name": "sub_speakerone_9aeb99e4-0279-4996-a126_4281502-4284862_73f18a82.mov",
+      "source_file": "/footage/sub_speakerone_9aeb99e4-0279-4996-a126_4281502-4284862_73f18a82.mov",
+      "source_in_frame": 12,
+      "source_out_frame": 93,
+      "record_in": 381,
+      "record_out": 462,
+      "duration": 81,
+      "track_type": "video",
+      "track_index": 4,
+      "enabled": true,
+      "markers": []
+     },
+     {
+      "unique_id": "2ee318f4-efdb-4fb0-aaa0-175c31b68139",
+      "name": "sub_speakerone_9aeb99e4-0279-4996-a126_4285122-4289542_b84c3a2a.mov",
+      "source_file": "/footage/sub_speakerone_9aeb99e4-0279-4996-a126_4285122-4289542_b84c3a2a.mov",
+      "source_in_frame": 12,
+      "source_out_frame": 118,
+      "record_in": 468,
+      "record_out": 574,
+      "duration": 106,
+      "track_type": "video",
+      "track_index": 4,
+      "enabled": true,
+      "markers": []
+     },
+     {
+      "unique_id": "74bedacc-2559-4810-b922-2c75a67cb258",
+      "name": "sub_speakerone_9aeb99e4-0279-4996-a126_4289562-4290678_a84166b0.mov",
+      "source_file": "/footage/sub_speakerone_9aeb99e4-0279-4996-a126_4289562-4290678_a84166b0.mov",
+      "source_in_frame": 12,
+      "source_out_frame": 38,
+      "record_in": 575,
+      "record_out": 601,
+      "duration": 26,
+      "track_type": "video",
+      "track_index": 4,
+      "enabled": true,
+      "markers": []
+     },
+     {
+      "unique_id": "2651b5e6-ab1e-4cca-b90c-d270cf74dda3",
+      "name": "sub_speakerone_9aeb99e4-0279-4996-a126_4292262-4295562_948b012a.mov",
+      "source_file": "/footage/sub_speakerone_9aeb99e4-0279-4996-a126_4292262-4295562_948b012a.mov",
+      "source_in_frame": 12,
+      "source_out_frame": 92,
+      "record_in": 639,
+      "record_out": 719,
+      "duration": 80,
+      "track_type": "video",
+      "track_index": 4,
+      "enabled": true,
+      "markers": []
+     },
+     {
+      "unique_id": "af5da8be-88f6-4bc8-90c8-3540131d8585",
+      "name": "sub_speakerone_9aeb99e4-0279-4996-a126_4295642-4297401_57856fc8.mov",
+      "source_file": "/footage/sub_speakerone_9aeb99e4-0279-4996-a126_4295642-4297401_57856fc8.mov",
+      "source_in_frame": 12,
+      "source_out_frame": 55,
+      "record_in": 720,
+      "record_out": 763,
+      "duration": 43,
+      "track_type": "video",
+      "track_index": 4,
+      "enabled": true,
+      "markers": []
+     },
+     {
+      "unique_id": "d37c6c32-86f9-4950-8767-704da0966a8b",
+      "name": "sub_speakerone_9aeb99e4-0279-4996-a126_4297744-4298601_465f148e.mov",
+      "source_file": "/footage/sub_speakerone_9aeb99e4-0279-4996-a126_4297744-4298601_465f148e.mov",
+      "source_in_frame": 12,
+      "source_out_frame": 32,
+      "record_in": 771,
+      "record_out": 791,
+      "duration": 20,
+      "track_type": "video",
+      "track_index": 4,
+      "enabled": true,
+      "markers": []
+     },
+     {
+      "unique_id": "29307fac-acbb-4361-a7cd-ce32642928a4",
+      "name": "sub_speakertwo_e6090373-2cf5-4e9d-bfb9_481311-483483_c0bda81c.mov",
+      "source_file": "/footage/sub_speakertwo_e6090373-2cf5-4e9d-bfb9_481311-483483_c0bda81c.mov",
+      "source_in_frame": 12,
+      "source_out_frame": 65,
+      "record_in": 791,
+      "record_out": 844,
+      "duration": 53,
+      "track_type": "video",
+      "track_index": 4,
+      "enabled": true,
+      "markers": []
+     },
+     {
+      "unique_id": "11331e83-80d8-4dd3-a150-cd34b292824d",
+      "name": "sub_speakertwo_e6090373-2cf5-4e9d-bfb9_483563-489183_8278c86b.mov",
+      "source_file": "/footage/sub_speakertwo_e6090373-2cf5-4e9d-bfb9_483563-489183_8278c86b.mov",
+      "source_in_frame": 12,
+      "source_out_frame": 147,
+      "record_in": 845,
+      "record_out": 980,
+      "duration": 135,
+      "track_type": "video",
+      "track_index": 4,
+      "enabled": true,
+      "markers": []
+     },
+     {
+      "unique_id": "e4592598-04e0-4767-96db-20cad07f1ca9",
+      "name": "sub_speakertwo_e6090373-2cf5-4e9d-bfb9_489323-490184_dbf1ea5b.mov",
+      "source_file": "/footage/sub_speakertwo_e6090373-2cf5-4e9d-bfb9_489323-490184_dbf1ea5b.mov",
+      "source_in_frame": 12,
+      "source_out_frame": 32,
+      "record_in": 984,
+      "record_out": 1004,
+      "duration": 20,
+      "track_type": "video",
+      "track_index": 4,
+      "enabled": true,
+      "markers": []
+     }
+    ]
+   },
+   {
+    "type": "video",
+    "index": 5,
+    "name": "Semantic",
+    "clips": [
+     {
+      "unique_id": "ebb59578-0280-45df-b3c7-c0ea23832521",
+      "name": "mg_geo-podcast_589d4594.mov",
+      "source_file": "/footage/mg_geo-podcast_589d4594.mov",
+      "source_in_frame": 0,
+      "source_out_frame": 143,
+      "record_in": 234,
+      "record_out": 378,
+      "duration": 144,
+      "track_type": "video",
+      "track_index": 5,
+      "enabled": true,
+      "markers": []
+     }
+    ]
+   },
+   {
+    "type": "video",
+    "index": 6,
+    "name": "Semantic 2",
+    "clips": [
+     {
+      "unique_id": "462b6bfb-62d1-407d-8897-79e72a1b6889",
+      "name": "mg_geo-podcast_5a103b10.mov",
+      "source_file": "/footage/mg_geo-podcast_5a103b10.mov",
+      "source_in_frame": 0,
+      "source_out_frame": 95,
+      "record_in": 343,
+      "record_out": 439,
+      "duration": 96,
+      "track_type": "video",
+      "track_index": 6,
+      "enabled": true,
+      "markers": []
+     }
+    ]
+   },
+   {
+    "type": "video",
+    "index": 7,
+    "name": "Motion Graphics",
+    "clips": [
+     {
+      "unique_id": "01f71956-2d43-42d3-acb9-3c8a9bdd4ca1",
+      "name": "mg_geo-podcast_dd97954f.mov",
+      "source_file": "/footage/mg_geo-podcast_dd97954f.mov",
+      "source_in_frame": 0,
+      "source_out_frame": 83,
+      "record_in": 0,
+      "record_out": 84,
+      "duration": 84,
+      "track_type": "video",
+      "track_index": 7,
+      "enabled": true,
+      "markers": []
+     },
+     {
+      "unique_id": "261e02a9-e3f6-41a8-a79e-1973705790ea",
+      "name": "mg_geo-podcast_a1b596b2.mov",
+      "source_file": "/footage/mg_geo-podcast_a1b596b2.mov",
+      "source_in_frame": 0,
+      "source_out_frame": 83,
+      "record_in": 124,
+      "record_out": 208,
+      "duration": 84,
+      "track_type": "video",
+      "track_index": 7,
+      "enabled": true,
+      "markers": []
+     },
+     {
+      "unique_id": "75da4dbb-a6c1-4f2e-abe8-bae9dea78d0d",
+      "name": "logo_reveal.mov",
+      "source_file": "/footage/logo_reveal.mov",
+      "source_in_frame": 0,
+      "source_out_frame": 88,
+      "record_in": 1028,
+      "record_out": 1099,
+      "duration": 71,
+      "track_type": "video",
+      "track_index": 7,
+      "enabled": true,
+      "markers": []
+     }
+    ]
+   },
+   {
+    "type": "audio",
+    "index": 1,
+    "name": "SpeakerOne CH1",
+    "clips": [
+     {
+      "unique_id": "60b251e2-e813-4512-b8b1-5a5558fdc854",
+      "name": "LC4932.MXF",
+      "source_file": "/footage/LC4932.MXF",
+      "source_in_frame": 102392,
+      "source_out_frame": 103063,
+      "record_in": 120,
+      "record_out": 791,
+      "duration": 671,
+      "track_type": "audio",
+      "track_index": 1,
+      "enabled": true,
+      "markers": []
+     }
+    ]
+   },
+   {
+    "type": "audio",
+    "index": 2,
+    "name": "SpeakerTwo CH1",
+    "clips": [
+     {
+      "unique_id": "47f137bf-edf2-45e4-8eb6-7b93550a7ab1",
+      "name": "LCATL0014.MXF",
+      "source_file": "/footage/LCATL0014.MXF",
+      "source_in_frame": 3889,
+      "source_out_frame": 4009,
+      "record_in": 0,
+      "record_out": 120,
+      "duration": 120,
+      "track_type": "audio",
+      "track_index": 2,
+      "enabled": true,
+      "markers": []
+     },
+     {
+      "unique_id": "8203f47f-1f6d-42b3-afbf-059c7b49b823",
+      "name": "LCATL0013.MXF",
+      "source_file": "/footage/LCATL0013.MXF",
+      "source_in_frame": 11540,
+      "source_out_frame": 11758,
+      "record_in": 791,
+      "record_out": 1009,
+      "duration": 218,
+      "track_type": "audio",
+      "track_index": 2,
+      "enabled": true,
+      "markers": []
+     }
+    ]
+   }
+  ],
+  "markers": {
+   "timeline": []
+  }
+ },
+ "requests": [
+  {
+   "id": "recorded:5d501dc7-9062-4c2b-ba9b-573fec8ef50e",
+   "project": "Recorded Reel 26",
+   "timeline": "Reel 26 - write-for-the-question-your-customer-ask",
+   "expected_base_generation": 1,
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "target": {
+      "unique_id": "5d501dc7-9062-4c2b-ba9b-573fec8ef50e",
+      "track_type": "video",
+      "track_index": 1,
+      "name": "LC4932.MXF"
+     },
+     "params": {
+      "key": "Pan",
+      "value": 1.0
+     },
+     "kind": "direct",
+     "expected_effect": "nudge the frame playing LC4932.MXF"
+    }
+   ]
+  },
+  {
+   "id": "recorded:127bb042-e1c7-4ab9-9250-8749231aa07a",
+   "project": "Recorded Reel 26",
+   "timeline": "Reel 26 - write-for-the-question-your-customer-ask",
+   "expected_base_generation": 1,
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "target": {
+      "unique_id": "127bb042-e1c7-4ab9-9250-8749231aa07a",
+      "track_type": "video",
+      "track_index": 2,
+      "name": "LCATL0014.MXF"
+     },
+     "params": {
+      "key": "Pan",
+      "value": 1.0
+     },
+     "kind": "direct",
+     "expected_effect": "nudge the frame playing LCATL0014.MXF"
+    }
+   ]
+  },
+  {
+   "id": "recorded:acccc5c9-4f3c-4a46-9e3b-ca2415287525",
+   "project": "Recorded Reel 26",
+   "timeline": "Reel 26 - write-for-the-question-your-customer-ask",
+   "expected_base_generation": 1,
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "target": {
+      "unique_id": "acccc5c9-4f3c-4a46-9e3b-ca2415287525",
+      "track_type": "video",
+      "track_index": 2,
+      "name": "LCATL0013.MXF"
+     },
+     "params": {
+      "key": "Pan",
+      "value": 1.0
+     },
+     "kind": "direct",
+     "expected_effect": "nudge the frame playing LCATL0013.MXF"
+    }
+   ]
+  },
+  {
+   "id": "recorded:a16d4873-f8ea-4132-8b57-c230b1706b10",
+   "project": "Recorded Reel 26",
+   "timeline": "Reel 26 - write-for-the-question-your-customer-ask",
+   "expected_base_generation": 1,
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "target": {
+      "unique_id": "a16d4873-f8ea-4132-8b57-c230b1706b10",
+      "track_type": "video",
+      "track_index": 2,
+      "name": "reel_freeze_8da72bf764.mov"
+     },
+     "params": {
+      "key": "Pan",
+      "value": 1.0
+     },
+     "kind": "direct",
+     "expected_effect": "nudge the frame playing reel_freeze_8da72bf764.mov"
+    }
+   ]
+  },
+  {
+   "id": "recorded:0574643f-33ee-47c0-88ff-5d4cd4fbb6c7",
+   "project": "Recorded Reel 26",
+   "timeline": "Reel 26 - write-for-the-question-your-customer-ask",
+   "expected_base_generation": 1,
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "target": {
+      "unique_id": "0574643f-33ee-47c0-88ff-5d4cd4fbb6c7",
+      "track_type": "video",
+      "track_index": 3,
+      "name": "tv_frame_1f8e8d06ff.mov"
+     },
+     "params": {
+      "key": "Pan",
+      "value": 1.0
+     },
+     "kind": "direct",
+     "expected_effect": "nudge the frame playing tv_frame_1f8e8d06ff.mov"
+    }
+   ]
+  },
+  {
+   "id": "recorded:3c39bc98-600f-431f-942c-87cfd24f5079",
+   "project": "Recorded Reel 26",
+   "timeline": "Reel 26 - write-for-the-question-your-customer-ask",
+   "expected_base_generation": 1,
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "target": {
+      "unique_id": "3c39bc98-600f-431f-942c-87cfd24f5079",
+      "track_type": "video",
+      "track_index": 4,
+      "name": "sub_speakertwo_f24c6416-7523-42bb-b9fe_162243-166986_e135147f.mov"
+     },
+     "params": {
+      "key": "Pan",
+      "value": 1.0
+     },
+     "kind": "direct",
+     "expected_effect": "nudge the frame playing sub_speakertwo_f24c6416-7523-42bb-b9fe_162243-166986_e135147f.mov"
+    }
+   ]
+  },
+  {
+   "id": "recorded:9e81f961-819c-4f87-9b28-9664546f02d3",
+   "project": "Recorded Reel 26",
+   "timeline": "Reel 26 - write-for-the-question-your-customer-ask",
+   "expected_base_generation": 1,
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "target": {
+      "unique_id": "9e81f961-819c-4f87-9b28-9664546f02d3",
+      "track_type": "video",
+      "track_index": 4,
+      "name": "sub_speakerone_9aeb99e4-0279-4996-a126_4270782-4274261_d48715b5.mov"
+     },
+     "params": {
+      "key": "Pan",
+      "value": 1.0
+     },
+     "kind": "direct",
+     "expected_effect": "nudge the frame playing sub_speakerone_9aeb99e4-0279-4996-a126_4270782-4274261_d48715b5.mov"
+    }
+   ]
+  },
+  {
+   "id": "recorded:90bec21e-ec24-4131-b5da-ec07fab54425",
+   "project": "Recorded Reel 26",
+   "timeline": "Reel 26 - write-for-the-question-your-customer-ask",
+   "expected_base_generation": 1,
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "target": {
+      "unique_id": "90bec21e-ec24-4131-b5da-ec07fab54425",
+      "track_type": "video",
+      "track_index": 4,
+      "name": "sub_speakerone_9aeb99e4-0279-4996-a126_4274703-4278899_eb7ecb94.mov"
+     },
+     "params": {
+      "key": "Pan",
+      "value": 1.0
+     },
+     "kind": "direct",
+     "expected_effect": "nudge the frame playing sub_speakerone_9aeb99e4-0279-4996-a126_4274703-4278899_eb7ecb94.mov"
+    }
+   ]
+  },
+  {
+   "id": "recorded:c48d0b29-8bbe-4dea-8003-bc4f24c1c54c",
+   "project": "Recorded Reel 26",
+   "timeline": "Reel 26 - write-for-the-question-your-customer-ask",
+   "expected_base_generation": 1,
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "target": {
+      "unique_id": "c48d0b29-8bbe-4dea-8003-bc4f24c1c54c",
+      "track_type": "video",
+      "track_index": 4,
+      "name": "sub_speakerone_9aeb99e4-0279-4996-a126_4279702-4281120_7892fa2b.mov"
+     },
+     "params": {
+      "key": "Pan",
+      "value": 1.0
+     },
+     "kind": "direct",
+     "expected_effect": "nudge the frame playing sub_speakerone_9aeb99e4-0279-4996-a126_4279702-4281120_7892fa2b.mov"
+    }
+   ]
+  },
+  {
+   "id": "recorded:3c58c467-066a-497a-a5b1-0f604a7a4fee",
+   "project": "Recorded Reel 26",
+   "timeline": "Reel 26 - write-for-the-question-your-customer-ask",
+   "expected_base_generation": 1,
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "target": {
+      "unique_id": "3c58c467-066a-497a-a5b1-0f604a7a4fee",
+      "track_type": "video",
+      "track_index": 4,
+      "name": "sub_speakerone_9aeb99e4-0279-4996-a126_4281502-4284862_73f18a82.mov"
+     },
+     "params": {
+      "key": "Pan",
+      "value": 1.0
+     },
+     "kind": "direct",
+     "expected_effect": "nudge the frame playing sub_speakerone_9aeb99e4-0279-4996-a126_4281502-4284862_73f18a82.mov"
+    }
+   ]
+  },
+  {
+   "id": "recorded:2ee318f4-efdb-4fb0-aaa0-175c31b68139",
+   "project": "Recorded Reel 26",
+   "timeline": "Reel 26 - write-for-the-question-your-customer-ask",
+   "expected_base_generation": 1,
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "target": {
+      "unique_id": "2ee318f4-efdb-4fb0-aaa0-175c31b68139",
+      "track_type": "video",
+      "track_index": 4,
+      "name": "sub_speakerone_9aeb99e4-0279-4996-a126_4285122-4289542_b84c3a2a.mov"
+     },
+     "params": {
+      "key": "Pan",
+      "value": 1.0
+     },
+     "kind": "direct",
+     "expected_effect": "nudge the frame playing sub_speakerone_9aeb99e4-0279-4996-a126_4285122-4289542_b84c3a2a.mov"
+    }
+   ]
+  },
+  {
+   "id": "recorded:74bedacc-2559-4810-b922-2c75a67cb258",
+   "project": "Recorded Reel 26",
+   "timeline": "Reel 26 - write-for-the-question-your-customer-ask",
+   "expected_base_generation": 1,
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "target": {
+      "unique_id": "74bedacc-2559-4810-b922-2c75a67cb258",
+      "track_type": "video",
+      "track_index": 4,
+      "name": "sub_speakerone_9aeb99e4-0279-4996-a126_4289562-4290678_a84166b0.mov"
+     },
+     "params": {
+      "key": "Pan",
+      "value": 1.0
+     },
+     "kind": "direct",
+     "expected_effect": "nudge the frame playing sub_speakerone_9aeb99e4-0279-4996-a126_4289562-4290678_a84166b0.mov"
+    }
+   ]
+  },
+  {
+   "id": "recorded:2651b5e6-ab1e-4cca-b90c-d270cf74dda3",
+   "project": "Recorded Reel 26",
+   "timeline": "Reel 26 - write-for-the-question-your-customer-ask",
+   "expected_base_generation": 1,
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "target": {
+      "unique_id": "2651b5e6-ab1e-4cca-b90c-d270cf74dda3",
+      "track_type": "video",
+      "track_index": 4,
+      "name": "sub_speakerone_9aeb99e4-0279-4996-a126_4292262-4295562_948b012a.mov"
+     },
+     "params": {
+      "key": "Pan",
+      "value": 1.0
+     },
+     "kind": "direct",
+     "expected_effect": "nudge the frame playing sub_speakerone_9aeb99e4-0279-4996-a126_4292262-4295562_948b012a.mov"
+    }
+   ]
+  },
+  {
+   "id": "recorded:af5da8be-88f6-4bc8-90c8-3540131d8585",
+   "project": "Recorded Reel 26",
+   "timeline": "Reel 26 - write-for-the-question-your-customer-ask",
+   "expected_base_generation": 1,
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "target": {
+      "unique_id": "af5da8be-88f6-4bc8-90c8-3540131d8585",
+      "track_type": "video",
+      "track_index": 4,
+      "name": "sub_speakerone_9aeb99e4-0279-4996-a126_4295642-4297401_57856fc8.mov"
+     },
+     "params": {
+      "key": "Pan",
+      "value": 1.0
+     },
+     "kind": "direct",
+     "expected_effect": "nudge the frame playing sub_speakerone_9aeb99e4-0279-4996-a126_4295642-4297401_57856fc8.mov"
+    }
+   ]
+  },
+  {
+   "id": "recorded:d37c6c32-86f9-4950-8767-704da0966a8b",
+   "project": "Recorded Reel 26",
+   "timeline": "Reel 26 - write-for-the-question-your-customer-ask",
+   "expected_base_generation": 1,
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "target": {
+      "unique_id": "d37c6c32-86f9-4950-8767-704da0966a8b",
+      "track_type": "video",
+      "track_index": 4,
+      "name": "sub_speakerone_9aeb99e4-0279-4996-a126_4297744-4298601_465f148e.mov"
+     },
+     "params": {
+      "key": "Pan",
+      "value": 1.0
+     },
+     "kind": "direct",
+     "expected_effect": "nudge the frame playing sub_speakerone_9aeb99e4-0279-4996-a126_4297744-4298601_465f148e.mov"
+    }
+   ]
+  },
+  {
+   "id": "recorded:29307fac-acbb-4361-a7cd-ce32642928a4",
+   "project": "Recorded Reel 26",
+   "timeline": "Reel 26 - write-for-the-question-your-customer-ask",
+   "expected_base_generation": 1,
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "target": {
+      "unique_id": "29307fac-acbb-4361-a7cd-ce32642928a4",
+      "track_type": "video",
+      "track_index": 4,
+      "name": "sub_speakertwo_e6090373-2cf5-4e9d-bfb9_481311-483483_c0bda81c.mov"
+     },
+     "params": {
+      "key": "Pan",
+      "value": 1.0
+     },
+     "kind": "direct",
+     "expected_effect": "nudge the frame playing sub_speakertwo_e6090373-2cf5-4e9d-bfb9_481311-483483_c0bda81c.mov"
+    }
+   ]
+  },
+  {
+   "id": "recorded:11331e83-80d8-4dd3-a150-cd34b292824d",
+   "project": "Recorded Reel 26",
+   "timeline": "Reel 26 - write-for-the-question-your-customer-ask",
+   "expected_base_generation": 1,
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "target": {
+      "unique_id": "11331e83-80d8-4dd3-a150-cd34b292824d",
+      "track_type": "video",
+      "track_index": 4,
+      "name": "sub_speakertwo_e6090373-2cf5-4e9d-bfb9_483563-489183_8278c86b.mov"
+     },
+     "params": {
+      "key": "Pan",
+      "value": 1.0
+     },
+     "kind": "direct",
+     "expected_effect": "nudge the frame playing sub_speakertwo_e6090373-2cf5-4e9d-bfb9_483563-489183_8278c86b.mov"
+    }
+   ]
+  },
+  {
+   "id": "recorded:e4592598-04e0-4767-96db-20cad07f1ca9",
+   "project": "Recorded Reel 26",
+   "timeline": "Reel 26 - write-for-the-question-your-customer-ask",
+   "expected_base_generation": 1,
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "target": {
+      "unique_id": "e4592598-04e0-4767-96db-20cad07f1ca9",
+      "track_type": "video",
+      "track_index": 4,
+      "name": "sub_speakertwo_e6090373-2cf5-4e9d-bfb9_489323-490184_dbf1ea5b.mov"
+     },
+     "params": {
+      "key": "Pan",
+      "value": 1.0
+     },
+     "kind": "direct",
+     "expected_effect": "nudge the frame playing sub_speakertwo_e6090373-2cf5-4e9d-bfb9_489323-490184_dbf1ea5b.mov"
+    }
+   ]
+  },
+  {
+   "id": "recorded:ebb59578-0280-45df-b3c7-c0ea23832521",
+   "project": "Recorded Reel 26",
+   "timeline": "Reel 26 - write-for-the-question-your-customer-ask",
+   "expected_base_generation": 1,
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "target": {
+      "unique_id": "ebb59578-0280-45df-b3c7-c0ea23832521",
+      "track_type": "video",
+      "track_index": 5,
+      "name": "mg_geo-podcast_589d4594.mov"
+     },
+     "params": {
+      "key": "Pan",
+      "value": 1.0
+     },
+     "kind": "direct",
+     "expected_effect": "nudge the frame playing mg_geo-podcast_589d4594.mov"
+    }
+   ]
+  },
+  {
+   "id": "recorded:462b6bfb-62d1-407d-8897-79e72a1b6889",
+   "project": "Recorded Reel 26",
+   "timeline": "Reel 26 - write-for-the-question-your-customer-ask",
+   "expected_base_generation": 1,
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "target": {
+      "unique_id": "462b6bfb-62d1-407d-8897-79e72a1b6889",
+      "track_type": "video",
+      "track_index": 6,
+      "name": "mg_geo-podcast_5a103b10.mov"
+     },
+     "params": {
+      "key": "Pan",
+      "value": 1.0
+     },
+     "kind": "direct",
+     "expected_effect": "nudge the frame playing mg_geo-podcast_5a103b10.mov"
+    }
+   ]
+  },
+  {
+   "id": "recorded:01f71956-2d43-42d3-acb9-3c8a9bdd4ca1",
+   "project": "Recorded Reel 26",
+   "timeline": "Reel 26 - write-for-the-question-your-customer-ask",
+   "expected_base_generation": 1,
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "target": {
+      "unique_id": "01f71956-2d43-42d3-acb9-3c8a9bdd4ca1",
+      "track_type": "video",
+      "track_index": 7,
+      "name": "mg_geo-podcast_dd97954f.mov"
+     },
+     "params": {
+      "key": "Pan",
+      "value": 1.0
+     },
+     "kind": "direct",
+     "expected_effect": "nudge the frame playing mg_geo-podcast_dd97954f.mov"
+    }
+   ]
+  },
+  {
+   "id": "recorded:261e02a9-e3f6-41a8-a79e-1973705790ea",
+   "project": "Recorded Reel 26",
+   "timeline": "Reel 26 - write-for-the-question-your-customer-ask",
+   "expected_base_generation": 1,
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "target": {
+      "unique_id": "261e02a9-e3f6-41a8-a79e-1973705790ea",
+      "track_type": "video",
+      "track_index": 7,
+      "name": "mg_geo-podcast_a1b596b2.mov"
+     },
+     "params": {
+      "key": "Pan",
+      "value": 1.0
+     },
+     "kind": "direct",
+     "expected_effect": "nudge the frame playing mg_geo-podcast_a1b596b2.mov"
+    }
+   ]
+  },
+  {
+   "id": "recorded:75da4dbb-a6c1-4f2e-abe8-bae9dea78d0d",
+   "project": "Recorded Reel 26",
+   "timeline": "Reel 26 - write-for-the-question-your-customer-ask",
+   "expected_base_generation": 1,
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "target": {
+      "unique_id": "75da4dbb-a6c1-4f2e-abe8-bae9dea78d0d",
+      "track_type": "video",
+      "track_index": 7,
+      "name": "logo_reveal.mov"
+     },
+     "params": {
+      "key": "Pan",
+      "value": 1.0
+     },
+     "kind": "direct",
+     "expected_effect": "nudge the frame playing logo_reveal.mov"
+    }
+   ]
+  },
+  {
+   "id": "recorded:60b251e2-e813-4512-b8b1-5a5558fdc854",
+   "project": "Recorded Reel 26",
+   "timeline": "Reel 26 - write-for-the-question-your-customer-ask",
+   "expected_base_generation": 1,
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "target": {
+      "unique_id": "60b251e2-e813-4512-b8b1-5a5558fdc854",
+      "track_type": "audio",
+      "track_index": 1,
+      "name": "LC4932.MXF"
+     },
+     "params": {
+      "key": "Pan",
+      "value": 1.0
+     },
+     "kind": "direct",
+     "expected_effect": "nudge the frame playing LC4932.MXF"
+    }
+   ]
+  },
+  {
+   "id": "recorded:47f137bf-edf2-45e4-8eb6-7b93550a7ab1",
+   "project": "Recorded Reel 26",
+   "timeline": "Reel 26 - write-for-the-question-your-customer-ask",
+   "expected_base_generation": 1,
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "target": {
+      "unique_id": "47f137bf-edf2-45e4-8eb6-7b93550a7ab1",
+      "track_type": "audio",
+      "track_index": 2,
+      "name": "LCATL0014.MXF"
+     },
+     "params": {
+      "key": "Pan",
+      "value": 1.0
+     },
+     "kind": "direct",
+     "expected_effect": "nudge the frame playing LCATL0014.MXF"
+    }
+   ]
+  },
+  {
+   "id": "recorded:8203f47f-1f6d-42b3-afbf-059c7b49b823",
+   "project": "Recorded Reel 26",
+   "timeline": "Reel 26 - write-for-the-question-your-customer-ask",
+   "expected_base_generation": 1,
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "target": {
+      "unique_id": "8203f47f-1f6d-42b3-afbf-059c7b49b823",
+      "track_type": "audio",
+      "track_index": 2,
+      "name": "LCATL0013.MXF"
+     },
+     "params": {
+      "key": "Pan",
+      "value": 1.0
+     },
+     "kind": "direct",
+     "expected_effect": "nudge the frame playing LCATL0013.MXF"
+    }
+   ]
+  }
+ ],
+ "recorded_requests": [
+  {
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "unique_id": "$qual_a.mp4@video",
+     "key": "Pan",
+     "value": 24.0
+    }
+   ]
+  },
+  {
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "unique_id": "$qual_a.mp4@video",
+     "key": "Pan",
+     "value": 24.0
+    }
+   ]
+  },
+  {
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "unique_id": "27f05328-739b-4edd-a8f4-3cd0c70622bd",
+     "key": "Pan",
+     "value": 0.0
+    },
+    {
+     "op": "clip.set_property",
+     "unique_id": "27f05328-739b-4edd-a8f4-3cd0c70622bd",
+     "key": "Tilt",
+     "value": -40.0
+    }
+   ]
+  },
+  {
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "unique_id": "27f05328-739b-4edd-a8f4-3cd0c70622bd",
+     "key": "Pan",
+     "value": 0.0
+    },
+    {
+     "op": "clip.set_property",
+     "unique_id": "27f05328-739b-4edd-a8f4-3cd0c70622bd",
+     "key": "Tilt",
+     "value": -40.0
+    }
+   ]
+  },
+  {
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "unique_id": "a402b270-52d5-4949-a1c4-2ca30c76c001",
+     "key": "Scaling",
+     "value": 1
+    },
+    {
+     "op": "clip.set_property",
+     "unique_id": "a402b270-52d5-4949-a1c4-2ca30c76c001",
+     "key": "ZoomX",
+     "value": 1.0
+    },
+    {
+     "op": "clip.set_property",
+     "unique_id": "a402b270-52d5-4949-a1c4-2ca30c76c001",
+     "key": "ZoomY",
+     "value": 1.0
+    }
+   ]
+  },
+  {
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "unique_id": "a402b270-52d5-4949-a1c4-2ca30c76c001",
+     "key": "Scaling",
+     "value": 1
+    },
+    {
+     "op": "clip.set_property",
+     "unique_id": "a402b270-52d5-4949-a1c4-2ca30c76c001",
+     "key": "ZoomX",
+     "value": 1.0
+    },
+    {
+     "op": "clip.set_property",
+     "unique_id": "a402b270-52d5-4949-a1c4-2ca30c76c001",
+     "key": "ZoomY",
+     "value": 1.0
+    }
+   ]
+  },
+  {
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "unique_id": "7b256ab6-5a8f-46ac-a3be-ee532484ea86",
+     "key": "Pan",
+     "value": -24.0
+    }
+   ]
+  },
+  {
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "unique_id": "7b256ab6-5a8f-46ac-a3be-ee532484ea86",
+     "key": "Pan",
+     "value": -24.0
+    }
+   ]
+  },
+  {
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "unique_id": "7b256ab6-5a8f-46ac-a3be-ee532484ea86",
+     "key": "Scaling",
+     "value": 1
+    },
+    {
+     "op": "clip.set_property",
+     "unique_id": "7b256ab6-5a8f-46ac-a3be-ee532484ea86",
+     "key": "ZoomX",
+     "value": 1.0
+    },
+    {
+     "op": "clip.set_property",
+     "unique_id": "7b256ab6-5a8f-46ac-a3be-ee532484ea86",
+     "key": "ZoomY",
+     "value": 1.0
+    }
+   ]
+  },
+  {
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "unique_id": "7b256ab6-5a8f-46ac-a3be-ee532484ea86",
+     "key": "Scaling",
+     "value": 1
+    },
+    {
+     "op": "clip.set_property",
+     "unique_id": "7b256ab6-5a8f-46ac-a3be-ee532484ea86",
+     "key": "ZoomX",
+     "value": 1.0
+    },
+    {
+     "op": "clip.set_property",
+     "unique_id": "7b256ab6-5a8f-46ac-a3be-ee532484ea86",
+     "key": "ZoomY",
+     "value": 1.0
+    }
+   ]
+  },
+  {
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "unique_id": "b41288b0-6a80-40ce-9102-6e35765bf406",
+     "key": "Pan",
+     "value": 0.0
+    },
+    {
+     "op": "clip.set_property",
+     "unique_id": "b41288b0-6a80-40ce-9102-6e35765bf406",
+     "key": "Tilt",
+     "value": -40.0
+    }
+   ]
+  },
+  {
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "unique_id": "b41288b0-6a80-40ce-9102-6e35765bf406",
+     "key": "Pan",
+     "value": 0.0
+    },
+    {
+     "op": "clip.set_property",
+     "unique_id": "b41288b0-6a80-40ce-9102-6e35765bf406",
+     "key": "Tilt",
+     "value": -40.0
+    }
+   ]
+  },
+  {
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "unique_id": "dd403cde-6564-496b-9c04-336076ec7c1b",
+     "key": "Scaling",
+     "value": 1
+    },
+    {
+     "op": "clip.set_property",
+     "unique_id": "dd403cde-6564-496b-9c04-336076ec7c1b",
+     "key": "ZoomX",
+     "value": 1.0
+    },
+    {
+     "op": "clip.set_property",
+     "unique_id": "dd403cde-6564-496b-9c04-336076ec7c1b",
+     "key": "ZoomY",
+     "value": 1.0
+    }
+   ]
+  },
+  {
+   "operations": [
+    {
+     "op": "clip.set_property",
+     "unique_id": "dd403cde-6564-496b-9c04-336076ec7c1b",
+     "key": "Scaling",
+     "value": 1
+    },
+    {
+     "op": "clip.set_property",
+     "unique_id": "dd403cde-6564-496b-9c04-336076ec7c1b",
+     "key": "ZoomX",
+     "value": 1.0
+    },
+    {
+     "op": "clip.set_property",
+     "unique_id": "dd403cde-6564-496b-9c04-336076ec7c1b",
+     "key": "ZoomY",
+     "value": 1.0
+    }
+   ]
+  },
+  {
+   "operations": [
+    {
+     "unique_id": "b54c259f-059e-4334-a635-10cea36d8a50",
+     "brief": "Tighten the opening to the supplied brief while preserving the\nspeaker's meaning and approved edits.\n\nThe opening runs long because its marked trailing pause holds two\nseconds of dead air after the speaker finishes. Remove the marked\npause and close the gap; keep every spoken word in order and keep\nall approved edits and items outside the opening exactly as they are.",
+     "edits": [
+      {
+       "op": "clip.trim",
+       "unique_id": "b54c259f-059e-4334-a635-10cea36d8a50",
+       "in_frame": 0,
+       "out_frame": 72
+      }
+     ],
+     "op": "reel.opening"
+    }
+   ]
+  },
+  {
+   "operations": [
+    {
+     "unique_id": "b54c259f-059e-4334-a635-10cea36d8a50",
+     "brief": "Tighten the opening to the supplied brief while preserving the\nspeaker's meaning and approved edits.\n\nThe opening runs long because its marked trailing pause holds two\nseconds of dead air after the speaker finishes. Remove the marked\npause and close the gap; keep every spoken word in order and keep\nall approved edits and items outside the opening exactly as they are.",
+     "edits": [
+      {
+       "op": "clip.trim",
+       "unique_id": "b54c259f-059e-4334-a635-10cea36d8a50",
+       "in_frame": 0,
+       "out_frame": 72
+      }
+     ],
+     "op": "reel.opening"
+    }
+   ]
+  },
+  {
+   "operations": [
+    {
+     "key": "Pan",
+     "op": "clip.set_property",
+     "unique_id": "79cc964b-65d3-4c99-997b-37a0f236a4f4",
+     "value": 1.0
+    }
+   ]
+  },
+  {
+   "operations": [
+    {
+     "key": "Pan",
+     "op": "clip.set_property",
+     "unique_id": "79cc964b-65d3-4c99-997b-37a0f236a4f4",
+     "value": 1.0
+    }
+   ]
+  }
+ ]
+}

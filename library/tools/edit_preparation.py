@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from library.tools import edit_algebra
+from library.tools import edit_algebra, intent_neutrality
 from library.tools.edit_request import (
     CompiledEdit,
     EditRequest,
@@ -612,26 +612,84 @@ def _machine_plan(request: EditRequest, compiled: CompiledEdit,
                   resolved: Sequence[ResolvedTarget],
                   affected: AffectedScope, no_write: NoWriteFinding,
                   base_generation: int | None,
-                  model_revision: int | None) -> dict:
-    """The machine-readable plan: ordered ops, scope, verification."""
+                  model_revision: int | None,
+                  refs: Mapping[str, intent_neutrality.ItemRef] | None = None
+                  ) -> dict:
+    """The machine-readable plan: ordered ops, scope, verification.
+
+    INFRA-004: the PLAN states what will happen, and it states it in
+    terms no NLE owns.  A step names the MATERIAL it acts on (the
+    source file and range, the row, the frames), not the Resolve
+    instance that material happens to sit on today.  The instance
+    handles the executor needs live beside the plan, in
+    `PreparationResult.resolved` - the resolution evidence - and never
+    inside the plan itself.
+
+    A target the recorded timeline cannot state neutrally is a
+    CAPABILITY MISMATCH, and the plan names it in
+    `capability_mismatches` rather than dropping it.
+    """
+    resolver = dict(refs or {})
+    mismatches: list[dict] = []
     steps = []
     by_index = {row.op_index: row for row in resolved}
+    target_ids = {str(row.unique_id) for row in resolved if row.unique_id}
     for position, op in enumerate(compiled.operations):
         index = compiled.order[position] if compiled.order else position
         row = by_index.get(index)
         spec = edit_algebra.get(str(op.get("op", "")))
+        params = {k: v for k, v in op.items() if k != "op"}
+        target = (row.as_dict() if row is not None else None)
+        if target is not None:
+            unique_id = str(target.get("unique_id") or "")
+            ref = resolver.get(unique_id)
+            target = {k: v for k, v in target.items() if k != "unique_id"}
+            if ref is not None:
+                target["item_ref"] = ref.to_dict()
+            elif unique_id:
+                mismatches.append({
+                    "kind": "unresolved_target",
+                    "op": str(op.get("op", "")),
+                    "op_index": index,
+                    "field": "unique_id",
+                    "detail": (
+                        f"operation[{index}] ({op.get('op')}) names its "
+                        f"target by a Resolve object id and the material it "
+                        f"stands for was not recorded, so the plan cannot "
+                        f"state the target without naming the instance")})
+        for key in list(params):
+            if (key in intent_neutrality.RESOLVE_SPECIFIC_FIELDS
+                    and intent_neutrality._is_identifier(params[key])):
+                if str(params[key]) in target_ids:
+                    # The TARGET, named in the flat op's parameters.  The
+                    # neutral target already carries the address, so the
+                    # plan says it once and in neutral terms.
+                    params.pop(key)
+                    continue
+                mismatches.append({
+                    "kind": "instance_only_operation",
+                    "op": str(op.get("op", "")),
+                    "op_index": index,
+                    "field": key,
+                    "detail": (
+                        f"operation[{index}] ({op.get('op')}) carries "
+                        f"{key!r}, which names a Resolve object; the "
+                        f"operation's semantics need the instance, so the "
+                        f"backend mints it")})
+                params.pop(key)
         steps.append({
             "position": position,
             "request_index": index,
             "op": str(op.get("op", "")),
             "kind": (compiled.kinds[position]
                      if position < len(compiled.kinds) else "direct"),
-            "target": (row.as_dict() if row is not None else None),
-            "params": {k: v for k, v in op.items() if k != "op"},
+            "target": target,
+            "params": params,
             "verification": (spec.verify.__name__
                              if spec is not None and spec.verify is not None
                              else "missing"),
         })
+    neutral = intent_neutrality.neutralize(request, refs=resolver)
     return {
         "request_id": request.id,
         "originator": copy.deepcopy(request.originator),
@@ -645,11 +703,40 @@ def _machine_plan(request: EditRequest, compiled: CompiledEdit,
         "has_plan_changes": request.has_plan_changes,
         "order": list(compiled.order),
         "steps": steps,
-        "affected": affected.as_dict(),
+        "affected": _neutral_affected(affected, resolver),
         "no_write": no_write.as_dict(),
+        "capability_mismatches": mismatches,
+        "neutral_intent": neutral.to_dict(),
         "verification": "every op is judged by algebra read-back on "
                         "the post-write snapshot, never by a return value",
     }
+
+
+def _neutral_affected(affected: AffectedScope,
+                      resolver: Mapping[str, intent_neutrality.ItemRef]
+                      ) -> dict:
+    """The affected scope, with each clip named by its material.
+
+    The scope is part of the plan, so it names WHAT is affected - the
+    material - and not which instance of it the recorded timeline
+    happens to hold.
+    """
+    scope = affected.as_dict()
+    scope["clips"] = [_neutral_clip_key(clip, resolver)
+                      for clip in affected.clips]
+    scope["dependents"] = [_neutral_clip_key(clip, resolver)
+                           for clip in affected.dependents]
+    return scope
+
+
+def _neutral_clip_key(unique_id: str,
+                      resolver: Mapping[str, intent_neutrality.ItemRef]
+                      ) -> str:
+    """One clip's neutral name: its material, or its name when unnamed."""
+    ref = resolver.get(str(unique_id))
+    if ref is None:
+        return str(unique_id)
+    return ref.key
 
 
 # ── The stage ─────────────────────────────────────────────────────────
@@ -697,8 +784,10 @@ def prepare(request: EditRequest | Mapping[str, Any], *,
     affected = _compute_affected(compiled, resolved, base)
     no_write = _check_no_write(compiled, resolved, base)
     candidates = _backend_candidates(compiled)
+    refs = (intent_neutrality.refs_from_snapshot(base)
+            if base is not None else {})
     plan = _machine_plan(request, compiled, resolved, affected, no_write,
-                         generation, model)
+                         generation, model, refs=refs)
     return PreparationResult(
         request_id=request.id,
         project=request.project,
@@ -728,10 +817,16 @@ def explain(result: PreparationResult) -> str:
     lines.append(f"{len(steps)} operation(s), in order:")
     for step in steps:
         target = step.get("target") or {}
-        who = (target.get("unique_id") or target.get("name")
+        ref = target.get("item_ref") or {}
+        who = (ref.get("source_file") or target.get("name")
                or "the timeline")
         lines.append(f"  {step['position']}. {step['op']} on {who} "
                      f"[{step.get('kind')}]")
+    mismatches = result.plan.get("capability_mismatches") or []
+    if mismatches:
+        lines.append(f"{len(mismatches)} capability mismatch(es):")
+        for row in mismatches:
+            lines.append(f"  - {row.get('kind')}: {row.get('detail')}")
     affected = result.affected
     lines.append(
         f"affected: {len(affected.clips)} clip(s), "
