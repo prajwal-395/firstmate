@@ -3742,10 +3742,10 @@ def _rollback_from_verified_archive(project_folder: str, final: str,
     normalized = reel_versions.read_recovery_receipt(receipt)
     act_receipt = reel_versions.read_recovery_receipt(
         reel_versions.identity_receipt(act) or {})
-    (restore_archive(project_folder, final, target, receipt)
-     if restore_archive else _restore_archive_by_resolve_id(
-         project_folder, final, target, receipt,
-         expected_current_id=act_receipt.get("timeline_id") or None))
+    restored = (restore_archive(project_folder, final, target, receipt)
+                if restore_archive else _restore_archive_by_resolve_id(
+                    project_folder, final, target, receipt,
+                    expected_current_id=act_receipt.get("timeline_id") or None))
     after = dict(read_live_rows(final) or {})
     if not rounds.rows_agree(after, target["rows"]):
         raise UndoNotVerified(
@@ -3763,8 +3763,9 @@ def _rollback_from_verified_archive(project_folder: str, final: str,
     entry = reel_versions.record(
         project_folder, final, kind=reel_versions.KIND_ROLLBACK,
         rows=target["rows"], undoes=int(act["version"]),
-        recovery_archive=dict(receipt),
-        resolve_timeline_id=normalized["timeline_id"], author="ren",
+        recovery_archive=_restored_receipt(receipt, restored),
+        resolve_timeline_id=_restored_timeline_id(restored, normalized),
+        author="ren",
         preservation_verified=bool(preservation["verified"]),
         preservation_note=str(preservation.get("reason") or ""),
         restored_from_timeline_id=normalized["timeline_id"])
@@ -3779,28 +3780,68 @@ def _rollback_from_verified_archive(project_folder: str, final: str,
             "timeline_id": normalized["timeline_id"]}
 
 
-def _verify_preservation(project_folder: str, final: str, target: Mapping,
-                         read_live_preservation: Callable) -> dict:
-    """Whether the restored generation still holds the recorded look.
+def _restored_timeline_id(restored: Mapping | None, normalized: Mapping) -> str:
+    """The Resolve id of the object that holds the RESTORED generation.
 
-    The recorded state is the version's own receipt: the grade, the
-    Fusion comps and the composite settings the generation held when it
-    was adopted or built. A version that records none cannot be checked,
-    and says so - an unverified restoration is reported as unverified,
-    never as a verified one.
+    A restore imports the archive as a NEW Resolve timeline and puts that
+    under the reel's name, so the object that holds the generation after
+    a restore is not the object the archive was taken from. Measured on
+    the live VC-004 restore of 2026-10-21: the archive was taken from
+    `e4e3cf87-...` and the timeline that holds the restored generation is
+    `2891be92-...`.
+
+    So the version a restore records names the LIVE object - that is
+    where the generation is now - and the archive's own id is kept as
+    the provenance of where the content came from. A version that named
+    the archive's id left the ledger pointing at an object that no
+    longer existed, and the NEXT restore refused: "a different
+    generation occupies the final name".
     """
-    from library.tools import reel_replace_guard
+    live = str((restored or {}).get("live_timeline_id") or "")
+    return live or str(normalized.get("timeline_id") or "")
+
+
+def _restored_receipt(receipt: Mapping, restored: Mapping | None) -> dict:
+    """The receipt the restored version carries, naming the live object."""
+    recorded = dict(receipt or {})
+    live = str((restored or {}).get("live_timeline_id") or "")
+    if live:
+        recorded["timeline_id"] = live
+    return recorded
+
+
+def _recorded_look(target: Mapping) -> list:
+    """The look the version recorded: its grade, comps and composite.
+
+    The version's own receipt carries it - the state the generation held
+    when it was adopted or built. A version that records none carries
+    none, and the caller says so rather than passing it.
+    """
     from library.tools.versions import reel_versions
 
     receipt = reel_versions.read_recovery_receipt(
         target.get("recovery_archive"))
-    recorded = receipt.get("preservation")
+    return receipt.get("preservation") or []
+
+
+def _preservation_verdict(final: str, target: Mapping, recorded, live, *,
+                           timeline_replaced: bool = True) -> dict:
+    """Whether the restored generation holds the recorded look.
+
+    `timeline_replaced` says whether the generation under the reel's
+    name is ALREADY the archive's one. A restore that refuses BEFORE it
+    replaces anything leaves the live generation in place, and the
+    refusal says so; a restore that refuses after it replaced something
+    says that too. The two are different states and the message must not
+    claim one while the other holds.
+    """
+    from library.tools import reel_replace_guard
+
     if not recorded:
         return {"verified": False,
                 "reason": f"version {target.get('version')} of {final!r} "
                            "records no grade or effects state, so the "
                            "restoration could not be checked against one"}
-    live = read_live_preservation(project_folder, final)
     if live is None:
         return {"verified": False,
                 "reason": f"the restored {final!r} could not be read back, "
@@ -3821,17 +3862,35 @@ def _verify_preservation(project_folder: str, final: str, target: Mapping,
             because.append(
                 "the recovery archive carries the effects, so a lost effect "
                 "is a loss the restore did not make good")
+        state = ("The timeline holds the archive's generation, which is "
+                 "not the recorded one; the rollback was not recorded."
+                 if timeline_replaced else
+                 "The timeline was NOT changed: the generation that was "
+                 "there is still there; the rollback was not recorded.")
         raise UndoNotVerified(
             f"the restored {final!r} does not hold the grade and effects "
             f"version {target.get('version')} recorded: "
             + "; ".join(said)
-            + ". The timeline holds the archive's generation, which is not "
-              "the recorded one; the rollback was not recorded. "
+            + ". " + state + " "
             + ("; ".join(because)) + " - re-apply the grade and effects, "
             "or keep the current timeline and adopt it.")
     return {"verified": True,
             "reason": "the restored generation holds the recorded grade "
                       "and effects"}
+
+
+def _verify_preservation(project_folder: str, final: str, target: Mapping,
+                         read_live_preservation: Callable) -> dict:
+    """Whether the restored generation still holds the recorded look.
+
+    The recorded state is the version's own receipt: the grade, the
+    Fusion comps and the composite settings the generation held when it
+    was adopted or built. A version that records none cannot be checked,
+    and says so - an unverified restoration is reported as unverified,
+    never as a verified one.
+    """
+    live = read_live_preservation(project_folder, final)
+    return _preservation_verdict(final, target, _recorded_look(target), live)
 
 
 def _read_live_preservation(project_folder: str, final: str):
@@ -3840,8 +3899,7 @@ def _read_live_preservation(project_folder: str, final: str):
     None when the live timeline cannot be read: an unreadable state is
     not a preserved one, and the caller says so rather than passing it.
     """
-    from library.tools import reel_read, reel_replace_guard
-    from library.tools.resolve_lock import cursor_excursion, resolve_lease
+    from library.tools.resolve_lock import resolve_lease
 
     try:
         resolve_name = _resolve_name(project_folder)
@@ -3855,14 +3913,27 @@ def _read_live_preservation(project_folder: str, final: str):
                     break
             if timeline is None:
                 return None
-            # The reading is comparable only with the reel current, so
-            # the cursor is moved for the read and put back.
-            with cursor_excursion(project, timeline,
-                                  f"verify the restored {final}"):
-                tracks = reel_read.read_tracks(timeline,
-                                               resolve_project=project)
-            return reel_replace_guard.preservation_record(
-                reel_replace_guard.snapshot_items(tracks))
+            return _read_preservation(project, timeline,
+                                      f"verify the restored {final}")
+    except Exception:  # noqa: BLE001 - an unreadable state is not a loss
+        return None
+
+
+def _read_preservation(project, timeline, purpose: str):
+    """One timeline's grade and effects, read with that timeline current.
+
+    The reading is comparable only with the reel current, so the cursor
+    is moved for the read and put back. None when the timeline cannot be
+    read: an unreadable state is not a preserved one.
+    """
+    from library.tools import reel_read, reel_replace_guard
+    from library.tools.resolve_lock import cursor_excursion
+
+    try:
+        with cursor_excursion(project, timeline, purpose):
+            tracks = reel_read.read_tracks(timeline, resolve_project=project)
+        return reel_replace_guard.preservation_record(
+            reel_replace_guard.snapshot_items(tracks))
     except Exception:  # noqa: BLE001 - an unreadable state is not a loss
         return None
 
@@ -4047,6 +4118,7 @@ def _restore_archive_by_resolve_id(project_folder: str, final: str,
             "archive and retry")
 
     resolve_name = _resolve_name(project_folder)
+    live_timeline_id = ""
     with resolve_lease(f"restore reel version {target['version']}"):
         project = _connect(resolve_name)
         pool = project.GetMediaPool()
@@ -4159,6 +4231,22 @@ def _restore_archive_by_resolve_id(project_folder: str, final: str,
         # restored generation takes the final name, so the version that
         # is restored is the one the captain accepted.
         grade = _reapply_declared_grade(project_folder, donor)
+        # The LOOK is checked BEFORE the swap, on the imported donor and
+        # while the current generation is still in place. A restore that
+        # cannot bring the recorded look back is then refused with
+        # NOTHING changed - instead of replacing the timeline and then
+        # reporting that it could not verify what it had put there, which
+        # left the ledger saying one thing and the timeline another
+        # (measured on the live VC-004 restore, 2026-10-21).
+        try:
+            _preservation_verdict(
+                final, target, _recorded_look(target),
+                _read_preservation(project, donor,
+                                   f"verify the restored {final}"),
+                timeline_replaced=False)
+        except UndoNotVerified:
+            pool.DeleteTimelines([donor])
+            raise
         donor_name = donor.GetName()
         backup = f"{final} (undo recovery {uuid.uuid4().hex[:8]})"
         if not current.SetName(backup):
@@ -4184,7 +4272,12 @@ def _restore_archive_by_resolve_id(project_folder: str, final: str,
             raise UndoNotVerified(
                 f"{final!r} reads as the archived version, but Resolve could "
                 f"not remove the preserved backup {backup!r}; both remain")
+        # The object that holds the restored generation is the IMPORTED
+        # one: the archive's own id named the object the archive was
+        # taken from, and that object is gone.
+        live_timeline_id = str(donor.GetUniqueId() or "")
     return {"restored": True, "timeline_id": normalized["timeline_id"],
+            "live_timeline_id": live_timeline_id,
             "grade": grade}
 
 
@@ -4288,11 +4381,11 @@ def restore_version(project_folder: str, final: str, version: int, *,
     # supersede) is what authorizes it.  A version that carries no
     # accepted state says so - an absent measurement is not a pass.
     accepted_change = _accepted_change(current, target)
-    (restore_archive(project_folder, final, target, receipt)
-     if restore_archive else _restore_archive_by_resolve_id(
-         project_folder, final, target, receipt,
-         expected_current_id=reel_versions.read_recovery_receipt(
-             current_receipt)["timeline_id"]))
+    restored = (restore_archive(project_folder, final, target, receipt)
+                if restore_archive else _restore_archive_by_resolve_id(
+                    project_folder, final, target, receipt,
+                    expected_current_id=reel_versions.read_recovery_receipt(
+                        current_receipt)["timeline_id"]))
     after = dict(reader(final) or {})
     if not rounds.rows_agree(after, target.get("rows") or {}):
         raise UndoNotVerified(
@@ -4309,8 +4402,9 @@ def restore_version(project_folder: str, final: str, version: int, *,
     entry = reel_versions.record(
         project_folder, final, kind=reel_versions.KIND_ROLLBACK,
         rows=target.get("rows") or {}, undoes=int(current["version"]),
-        recovery_archive=dict(receipt),
-        resolve_timeline_id=normalized["timeline_id"], author="ren",
+        recovery_archive=_restored_receipt(receipt, restored),
+        resolve_timeline_id=_restored_timeline_id(restored, normalized),
+        author="ren",
         preservation_verified=bool(preservation["verified"]),
         preservation_note=str(preservation.get("reason") or ""),
         restored_from_timeline_id=normalized["timeline_id"])

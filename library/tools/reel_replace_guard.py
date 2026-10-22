@@ -240,8 +240,7 @@ def _native_state_losses(live: dict, staged: dict) -> list[str]:
             and candidate["source_in_frame"] >= item["source_in_frame"]
             and candidate["source_out_frame"] <= item["source_out_frame"]]
         if len(candidates) != 1 or any(
-                not _same_preservation_value(field, value,
-                                             candidates[0].get(field))
+                not _preserved(field, value, candidates[0].get(field))
                 for field, value in values.items()):
             label = item.get("name") or item.get("source_identity") or "item"
             losses.extend(f"{label}: {field}" for field in values)
@@ -658,10 +657,14 @@ def preservation_losses(recorded: list, live: list) -> list:
     and the live one does not.
 
     The same field semantics as the promotion's own native-state guard
-    (`_same_preservation_value`), matched by PLACEMENT rather than by
+    (`_preserved`), matched by PLACEMENT rather than by
     passage: a restoration is the same generation put back, so the item
     that held the grade sits where it sat, and an item that is simply
     gone is named rather than passed.
+
+    A LOSS is what the recorded look held and the live one does not. A
+    detail the live read carries that the recorded look never held is
+    not a loss (`_survives`): the record could not speak about it.
 
     Each loss names the item and the field, so a reader can tell a lost
     EFFECT (the archive carries those) from a lost GRADE (it does not).
@@ -684,7 +687,7 @@ def preservation_losses(recorded: list, live: list) -> list:
                 if field == "composite" else _has_native_payload(before))
             if not has_payload:
                 continue
-            if not _same_preservation_value(field, before, found.get(field)):
+            if not _preserved(field, before, found.get(field)):
                 losses.append({"label": label, "field": field})
     return losses
 
@@ -698,6 +701,59 @@ def _same_preservation_value(field: str, before, after) -> bool:
     if field == "transform":
         return _same_value(before, after, TRANSFORM_TOLERANCE)
     return _same_value(before, after)
+
+
+def _survives(expected, actual, tolerance: float = VALUE_TOLERANCE) -> bool:
+    """Whether everything the EXPECTED value held is still in the ACTUAL one.
+
+    A LOSS is what the expected state held and the actual state does not.
+    A key the actual read carries that the expected state never held is
+    not a loss: it is a detail the record could not speak about, and the
+    read that grew it says nothing about what was lost.
+
+    The strict comparison (`_same_value`) demands the same KEYS on both
+    sides, and that turned a read that gained a field into a lost
+    effect. Measured on the live VC-004 restore, 2026-10-21: the Fusion
+    comps were added to the read by #3097 the same day, so a look
+    recorded before that carries no `comps` key, and the restore refused
+    a generation that KEPT its look - the rows came back right and the
+    comp was still there, and the ledger was told the effect was lost.
+    """
+    if isinstance(expected, dict) and isinstance(actual, dict):
+        return all(key in actual and _survives(value, actual[key], tolerance)
+                   for key, value in expected.items())
+    numbers = (int, float)
+    if (isinstance(expected, numbers) and isinstance(actual, numbers)
+            and not isinstance(expected, bool)
+            and not isinstance(actual, bool)):
+        return abs(float(expected) - float(actual)) <= tolerance
+    if (isinstance(expected, (list, tuple))
+            and isinstance(actual, (list, tuple))):
+        return len(expected) == len(actual) and all(
+            _survives(one, other, tolerance)
+            for one, other in zip(expected, actual))
+    return _canonical(expected) == _canonical(actual)
+
+
+def _preserved(field: str, expected, actual) -> bool:
+    """Whether the RECORDED state survived in the live one.
+
+    The domain semantics are the ones the promotion's own guard reads
+    (`_same_preservation_value`), and the comparison is the LOSS
+    comparison: the recorded state must survive in the live one, and a
+    detail only the live read carries is not a loss (`_survives`).
+
+    The two are not the same question, and this is where they part: a
+    pending editor change is detected by a DIFFERENCE in either
+    direction, so that comparison stays a strict equality.
+    """
+    if field == "color":
+        expected, actual = _normalized_color(expected), _normalized_color(actual)
+    if field == "fusion":
+        expected, actual = _normalized_fusion(expected), _normalized_fusion(actual)
+    if field == "transform":
+        return _survives(expected, actual, TRANSFORM_TOLERANCE)
+    return _survives(expected, actual)
 
 
 # Fields whose read gained a no-op shape after records were written: an
