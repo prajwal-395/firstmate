@@ -24,13 +24,17 @@ from __future__ import annotations
 from typing import Any
 from collections.abc import Mapping, Sequence
 
+from library.tools import edit_precision
+
 # Candidate policies: named orderings, caller-chosen. `longest_verified`
 # is the incumbent ground_cuts behavior (longest surviving span first).
 CANDIDATE_POLICIES = ("longest_verified", "earliest", "latest")
 
 
 def candidates_from_retrieval(
-        hits: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+        hits: Sequence[Mapping[str, Any]],
+        *, precision: str = edit_precision.PRECISION_BROWSE
+        ) -> list[dict[str, Any]]:
     """Moment skeletons directly usable by edit-point planning (EDIT-014).
 
     A retrieval `hit` carries `source_id`, `start_seconds`,
@@ -39,7 +43,18 @@ def candidates_from_retrieval(
     presented as one. Hits with empty or inverted ranges are dropped
     with the drop REPORTED in the returned `dropped` list, never
     silently.
+
+    `precision` is the task the moments are wanted for
+    (`edit_precision.PRECISIONS`; default `browse`, which places every
+    measurable range exactly as before). At `cut` a frame-approximate
+    observation is REFUSED - dropped with the reason - so Ren never
+    places a frame-approximate observation on the timeline as though
+    it were an exact event boundary (F02). A speech hit whose matching
+    words carry their own timings is frame-exact and still places; a
+    vision window, a chunk, a widened passage or any other row without
+    a measured boundary does not.
     """
+    edit_precision.requirement_for(precision)
     moments: list[dict[str, Any]] = []
     dropped: list[dict[str, Any]] = []
     for position, hit in enumerate(hits):
@@ -55,11 +70,24 @@ def candidates_from_retrieval(
             dropped.append({"hit": dict(hit),
                             "reason": "empty range or source"})
             continue
+        if precision == edit_precision.PRECISION_CUT:
+            verdict = edit_precision.check_boundary_for_cut(
+                temporal_precision=edit_precision.classify_hit(
+                    hit)["temporal_precision"],
+                boundary_status=hit.get("boundary_status"),
+                boundary_precision_seconds=hit.get(
+                    "boundary_precision_seconds"),
+                tolerance_seconds=hit.get("tolerance_seconds"))
+            if verdict["status"] == "refused":
+                dropped.append({"hit": dict(hit),
+                                "reason": "; ".join(verdict["reasons"])})
+                continue
         moments.append({"moment_id": f"retrieval-{position}",
                         "source_id": source_id,
                         "start_seconds": start, "end_seconds": end,
                         "retrieval_rank": int(hit.get("rank", position))})
-    return [{"moments": moments, "dropped": dropped}]
+    return [{"moments": moments, "dropped": dropped,
+             "precision": precision}]
 
 
 def build_candidate(

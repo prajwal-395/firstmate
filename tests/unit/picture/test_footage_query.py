@@ -2963,7 +2963,8 @@ def test_ren_transcript_converts_timecode_rows(offline_index, tmp_path,
 # --------------------------------------------------------------------------
 
 _HIT_KEYS = {"source_digest", "clip_id", "file", "start_s", "end_s",
-             "kind", "score", "dense", "band", "text"}
+             "kind", "score", "dense", "band", "text",
+             "temporal_precision", "cut_allowed"}
 
 
 def _stub_loader():

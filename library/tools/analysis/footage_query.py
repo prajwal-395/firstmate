@@ -97,6 +97,7 @@ from library.tools.analysis.footage_segments import (
 )
 from library.tools.analysis import footage_segments
 from library.tools import person_entity, perf_ledger, source_memory
+from library.tools import edit_precision
 
 EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 INDEX_SUBDIR = os.path.join("pipeline_output", "scratch", "footage_index")
@@ -2344,7 +2345,8 @@ class FootageIndex:
 
     def search(self, query: str, top_k: int = 5, mode: str = "hybrid",
                floor: float | None = None,
-               signal_merge: bool = False) -> list:
+               signal_merge: bool = False,
+               precision: str = edit_precision.PRECISION_BROWSE) -> list:
         """Find the footage segments most relevant to a natural-language query.
 
         Args:
@@ -2357,6 +2359,10 @@ class FootageIndex:
             floor: minimum dense cosine for a segment to count as evidence.
                 Defaults to this index's backend floor (`floors_for`).
                 Pass 0 to rank everything the way an unfloored index would.
+            precision: the task the answer is wanted for
+                (`edit_precision.PRECISIONS`; default `browse`). At `cut`
+                only frame-exact rows come back - a frame-approximate
+                observation is refused, never placed as an exact boundary.
 
         Returns:
             Segments ordered by relevance, each with `clip_id`, `start`,
@@ -2373,7 +2379,8 @@ class FootageIndex:
             to say so in as many words.
         """
         report = self.search_report(query, top_k=top_k, mode=mode, floor=floor,
-                                    signal_merge=signal_merge)
+                                    signal_merge=signal_merge,
+                                    precision=precision)
         if report.get("error"):
             return [{"error": report["error"]}]
         return report["results"]
@@ -2384,7 +2391,8 @@ class FootageIndex:
                       weak_k: int = WEAK_BAND_LIMIT,
                       external_hits: list | None = None,
                       signal_merge: bool = False,
-                      before_embedding=None) -> dict:
+                      before_embedding=None,
+                      precision: str = edit_precision.PRECISION_BROWSE) -> dict:
         """`search`, plus everything needed to explain an empty answer.
 
         Returns a dict carrying the results, the WEAK band beneath the
@@ -2397,7 +2405,16 @@ class FootageIndex:
         the Resolve-side collector wrote) merged through
         `merge_external_evidence`: extra evidence beside Ren's answer,
         never a replacement for it.
+
+        `precision` is the task the answer is wanted for
+        (`edit_precision.PRECISIONS`; default `browse`, which answers
+        exactly as before). Every result carries a `precision` block
+        naming the precision it carries (`frame_exact` only for a
+        measured source-clock boundary, else `frame_approximate`) and
+        whether it may bound a cut. At `cut` the approximate rows are
+        refused - reported in `precision_refused`, never placed.
         """
+        edit_precision.requirement_for(precision)
         if floor is None:
             mode_floor, weak_floor, floor_source = floors_for(
                 self.payload.get("embed_model"), self.payload.get("embed_backend"))
@@ -2623,6 +2640,37 @@ class FootageIndex:
                 "the answer is keyword-only, so nothing was measured by "
                 "similarity" if lexical_only else ""),
             near_miss=report.get("best_rejected"))
+        # F02: editorial precision is an explicit query parameter, not a
+        # by-product of which tool was called. Every result names the
+        # precision it carries; at `cut` the approximate rows are
+        # refused (reported, never silently dropped) so a
+        # frame-approximate observation never reaches the timeline as an
+        # exact event boundary.
+        report["precision_requested"] = precision
+        report["results"] = [edit_precision.annotate_hit(hit, precision)
+                               for hit in report["results"]]
+        report["precision_refused"] = []
+        if precision == edit_precision.PRECISION_CUT:
+            placed, refused = edit_precision.partition_for_cut(
+                report["results"])
+            report["results"] = placed
+            report["precision_refused"] = [
+                {"segment_id": row["hit"].get("segment_id"),
+                 "clip_id": row["hit"].get("clip_id"),
+                 "kind": row["hit"].get("kind"),
+                 "reason": row["reason"]} for row in refused]
+            if refused:
+                report["precision_note"] = (
+                    f"{len(refused)} frame-approximate row(s) refused "
+                    f"for a cut; {len(placed)} frame-exact row(s) placed")
+                if not placed:
+                    report["abstained"] = True
+                    report["answer_status"] = "insufficient_evidence"
+                    report["abstention"] = self._abstain(
+                        ran=not lexical_only, found=False,
+                        scope_note=("nothing frame-exact answers this "
+                                   "question at cut precision"),
+                        near_miss=report.get("best_rejected"))
         if external_hits is not None:
             merge_external_evidence(report, external_hits)
         return report
@@ -4397,6 +4445,10 @@ def _print_report(report):
         print("coverage: " + "  ".join(counts))
     if report.get("degraded"):
         print(f"DEGRADED: {report['degraded']}")
+    if report.get("precision_requested", "browse") != "browse":
+        print(f"precision: {report['precision_requested']}")
+    if report.get("precision_note"):
+        print(report["precision_note"])
     if report.get("error"):
         print(report["error"])
         _print_external_evidence(report)
@@ -4744,7 +4796,8 @@ def _num(value):
 
 def _json_hit(*, source_digest, clip_id, file, start_s, end_s, kind,
               score, dense, band, text, region=None,
-              region_person=None, quality_profile=None) -> dict:
+              region_person=None, quality_profile=None,
+              temporal_precision=None, cut_allowed=None) -> dict:
     """One stable hit row, whatever lane produced it."""
     row = {
         "source_digest": source_digest,
@@ -4758,6 +4811,10 @@ def _json_hit(*, source_digest, clip_id, file, start_s, end_s, kind,
         "band": band,
         "text": text if text is not None else "",
     }
+    if temporal_precision is not None:
+        row["temporal_precision"] = temporal_precision
+    if cut_allowed is not None:
+        row["cut_allowed"] = cut_allowed
     if region is not None:
         row["region"] = region
     if region_person is not None:
@@ -4777,6 +4834,7 @@ def _text_json_hits(report, sources) -> list:
                        ("weak", report.get("weak") or [])):
         for row in rows:
             src = sources.get(row.get("clip_id", ""), {})
+            block = row.get("precision") or {}
             hits.append(_json_hit(
                 source_digest=src.get("source_digest"),
                 clip_id=row.get("clip_id"),
@@ -4787,7 +4845,9 @@ def _text_json_hits(report, sources) -> list:
                 band=band, text=row.get("text", ""),
                 region=row.get("region"),
                 region_person=row.get("region_person"),
-                quality_profile=row.get("quality_profile")))
+                quality_profile=row.get("quality_profile"),
+                temporal_precision=block.get("temporal_precision"),
+                cut_allowed=block.get("cut_allowed")))
     return hits
 
 
@@ -4805,7 +4865,9 @@ def _sound_json_hits(report, sources) -> list:
             start_s=row.get("start"), end_s=row.get("end"),
             kind="sound",
             score=row.get("confidence"), dense=None,
-            band="strong", text=row.get("label", "")))
+            band="strong", text=row.get("label", ""),
+            temporal_precision=edit_precision.FRAME_APPROXIMATE,
+            cut_allowed=False))
     return hits
 
 
@@ -4822,7 +4884,9 @@ def _ocr_json_hits(report, sources) -> list:
             start_s=row.get("start"), end_s=row.get("end"),
             kind="ocr",
             score=row.get("confidence"), dense=None,
-            band="strong", text=row.get("text", "")))
+            band="strong", text=row.get("text", ""),
+            temporal_precision=edit_precision.FRAME_APPROXIMATE,
+            cut_allowed=False))
     return hits
 
 
@@ -4842,7 +4906,9 @@ def _chunk_json_hits(report, sources) -> list:
                 start_s=row.get("start"), end_s=row.get("end"),
                 kind="video_chunk",
                 score=row.get("dense_score"), dense=row.get("dense_score"),
-                band=band, text=""))
+                band=band, text="",
+                temporal_precision=edit_precision.FRAME_APPROXIMATE,
+                cut_allowed=False))
     return hits
 
 
@@ -4864,7 +4930,9 @@ def _unified_json_hits(report, sources) -> list:
                 score=row.get("score"), dense=row.get("dense_score"),
                 band=band,
                 text=row.get("description_text")
-                or row.get("transcript_text", "")))
+                or row.get("transcript_text", ""),
+                temporal_precision=edit_precision.FRAME_APPROXIMATE,
+                cut_allowed=False))
     return hits
 
 
@@ -4884,7 +4952,9 @@ def _frame_json_hits(report, sources) -> list:
             start_s=span.get("start"), end_s=span.get("end"),
             kind="visual",
             score=span.get("best_score"), dense=None,
-            band="unverified", text="")
+            band="unverified", text="",
+            temporal_precision=edit_precision.FRAME_APPROXIMATE,
+            cut_allowed=False)
         if span.get("justification"):
             # The verdict that justified this window, and the frames it
             # was judged on.  A window the temporal pass presented says
@@ -4921,7 +4991,8 @@ def search_json(project_folder, query, *, mode="hybrid", top_k=5, floor=None,
                 signal_merge=False, person=None, lane="text",
                 include_actions=False, index_dir=None,
                 external_hits=None, filters=None, quality=False,
-                visual_floor=LANE_FLOOR, temporal=True) -> dict:
+                visual_floor=LANE_FLOOR, temporal=True,
+                precision=edit_precision.PRECISION_BROWSE) -> dict:
     """One machine-readable answer for every `ren search` lane.
 
     `lane` is `text` (the default index), `sound`, `ocr`, `visual`
@@ -5000,7 +5071,7 @@ def search_json(project_folder, query, *, mode="hybrid", top_k=5, floor=None,
         query, top_k=top_k, mode=mode, floor=floor,
         signal_merge=signal_merge,
         filters={"person": person} if filters is None else filters,
-        external_hits=external_hits)
+        external_hits=external_hits, precision=precision)
     if quality:
         _attach_quality_profiles(idx, report.get("results", []))
         _attach_quality_profiles(idx, report.get("weak", []))
@@ -5267,6 +5338,17 @@ def main(argv=None):
                                 "the detailed one, so a caller asks for more "
                                 "only when it needs more")
     p_search.add_argument("--mode", choices=["hybrid", "dense", "lexical"], default="hybrid")
+    p_search.add_argument("--precision",
+                           choices=list(edit_precision.PRECISIONS),
+                           default=edit_precision.PRECISION_BROWSE,
+                           help="the task the answer is wanted for: 'browse' "
+                                "(rough logging, the default), 'concept' "
+                                "(a shot-level region answers), 'transient' "
+                                "(tighter verification for transient actions "
+                                "and speech boundaries), 'cut' (exact "
+                                "source-clock intervals only - a "
+                                "frame-approximate observation is refused, "
+                                "never placed as an exact boundary)")
     p_search.add_argument("--signal-merge", action="store_true",
                           help="opt in to direct shot-facet and precise OCR-span "
                                "signals (experimental; not the default)")
@@ -5795,6 +5877,7 @@ def main(argv=None):
                 floor=args.floor, signal_merge=args.signal_merge,
                 person=args.person, index_dir=args.index_dir, lane="text",
                 quality=getattr(args, "quality", False),
+                precision=args.precision,
                 external_hits=_load_external_hits(args.external_hits)
                 if args.external_hits else None)
             print(json.dumps(answer, indent=2))
@@ -5803,6 +5886,7 @@ def main(argv=None):
                                    floor=args.floor,
                                    signal_merge=args.signal_merge,
                                    filters={"person": args.person},
+                                   precision=args.precision,
                                    external_hits=_load_external_hits(args.external_hits)
                                    if args.external_hits else None)
         if getattr(args, "quality", False):
