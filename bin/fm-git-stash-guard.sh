@@ -40,7 +40,9 @@ EOF
 # at run time inside the lane rather than baked in at install time.
 write_guard() {
   local dest=$1
-  cat >"$dest" <<'GUARD'
+  local tmp
+  tmp=$(mktemp "${dest}.XXXXXX") || return 1
+  cat >"$tmp" <<'GUARD'
 #!/usr/bin/env bash
 # Firstmate per-task git guard: refuses `git stash` in this worker lane.
 #
@@ -150,7 +152,8 @@ fi
 
 exec env PATH="$rest_path" "$next_git" "$@"
 GUARD
-  chmod 500 "$dest"
+  chmod 500 "$tmp" || return 1
+  mv -f -- "$tmp" "$dest"
 }
 
 install_guard() {
