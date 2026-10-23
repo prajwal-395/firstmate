@@ -7,18 +7,19 @@ HOME_DIR="$TMP_ROOT/home"
 mkdir -p "$HOME_DIR/config" "$HOME_DIR/data/task" "$HOME_DIR/state" "$TMP_ROOT/bin"
 cat > "$HOME_DIR/config/dispatch-policy.json" <<'JSON'
 {"version":2,"rules":[],"default_ladder":[
-  {"id":"first","harness":"codex","model":"model-a","provider":"provider-a"},
+  {"id":"first","harness":"opencode","model":"opencode/deepseek-v4.1-flash-free","provider":"opencode","accounts":["secondary"]},
   {"id":"next","harness":"codex","model":"model-b","provider":"provider-b"}
 ],"constraints":[],"providers":[]}
 JSON
 printf 'Task\n\nContinue the existing work.\n' > "$HOME_DIR/data/task/brief.md"
 cat > "$HOME_DIR/state/task.meta" <<'META'
 kind=scout
-harness=codex
-model=model-a
+harness=opencode
+model=opencode/deepseek-v4.1-flash-free
+opencode_workspace=secondary
 dispatch_unified=1
 dispatch_source=default
-dispatch_route_provider=provider-a
+dispatch_route_provider=opencode
 dispatch_project=sample
 META
 cat > "$TMP_ROOT/bin/quota-axi" <<'SH'
@@ -34,11 +35,11 @@ export PATH="$TMP_ROOT/bin:$PATH"
 export FM_HOME="$HOME_DIR" FM_DISPATCH_DESCENT_CONTROL_BIN="$TMP_ROOT/control.sh"
 export FM_DISPATCH_TEST_CONTROL_LOG="$TMP_ROOT/control.log"
 reset_ms=$(( ($(date +%s) + 3600) * 1000 ))
-"$ROOT/bin/fm-dispatch-reset.sh" record "$HOME_DIR/state" provider-a model-a default "$reset_ms" fixture
+"$ROOT/bin/fm-dispatch-reset.sh" record "$HOME_DIR/state" opencode deepseek-v4.1-flash-free secondary "$reset_ms" fixture
 
 out=$("$ROOT/bin/fm-dispatch-descent.sh" "$HOME_DIR/state")
 case "$out" in
-  'relaunched task model-a -> codex/model-b'*) ;;
+  'relaunched task opencode/deepseek-v4.1-flash-free -> codex/model-b'*) ;;
   *) echo "not ok - unified descent did not select the next eligible rung: ${out:-<silent>}" >&2; exit 1 ;;
 esac
 grep -qF 'task relaunch --harness codex --model model-b' "$FM_DISPATCH_TEST_CONTROL_LOG" \

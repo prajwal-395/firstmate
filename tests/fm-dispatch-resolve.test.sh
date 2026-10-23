@@ -139,7 +139,7 @@ pass "version 2 resolves the first eligible rung and retains its configured work
 
 now_ms=$(( $(date +%s) * 1000 ))
 reset_ms=$((now_ms + 60000))
-"$ROOT/bin/fm-dispatch-reset.sh" record "$HOME_DIR/state" opencode opencode/deepseek-v4.1-flash-free secondary "$reset_ms" test
+"$ROOT/bin/fm-dispatch-reset.sh" record "$HOME_DIR/state" opencode deepseek-v4.1-flash-free secondary "$reset_ms" test
 out=$(run_resolver)
 assert_equals main "$(jq -r .profile.workspace <<<"$out")" "an active reset skips only its provider/model/workspace tuple"
 "$ROOT/bin/fm-dispatch-reset.sh" record "$HOME_DIR/state" opencode opencode/deepseek-v4.1-flash-free main "$reset_ms" test

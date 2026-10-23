@@ -710,7 +710,7 @@ retire_busy_incarnation() {
 # do_exit: stop the running agent, preserving endpoint and worktree. Prints
 # `already-stopped`, `endpoint-gone`, or `stopped`.
 do_exit() {
-  local state cmd hazard verdict composer_state cancel absence interrupt_result=not-needed dialog
+  local state cmd hazard verdict composer_state cancel absence interrupt_result=not-needed dialog opencode_retry_recovered=0
   require_state_verified_backend exit
   state=$(agent_state)
   case "$state" in
@@ -778,6 +778,18 @@ do_exit() {
       esac
       ;;
   esac
+  # OpenCode's free-usage retry screen can outlive the turn and report an
+  # unclassifiable composer. Its explicit refusal banner is a narrow signal:
+  # cancel it with OpenCode's normal interrupt path before allowing relaunch.
+  if [ "$HARNESS" = opencode ] && rendered_matches 'Free usage exceeded, subscribe to Go'; then
+    if [ "$interrupt_result" = not-needed ]; then
+      cancel=$(deliver_interrupt) || return $?
+      interrupt_result="delivered verified=agent-alive cancel=$cancel"
+    fi
+    ! rendered_matches 'Free usage exceeded, subscribe to Go' \
+      || die "task $ID still shows OpenCode's free-usage retry screen after Escape; refusing to type the exit command"
+    opencode_retry_recovered=1
+  fi
   cmd=$(fm_control_exit_command "$HARNESS")
   hazard=$(fm_control_interrupt_hazard_signal "$HARNESS")
   if [ -n "$hazard" ] && rendered_matches "$hazard"; then
@@ -796,10 +808,14 @@ do_exit() {
   case "$composer_state" in
     empty) ;;
     pending)
-      die "task $ID's composer visibly holds pending text; refusing to type the $cmd exit command because it would concatenate onto that text. Clear or submit the pending text, then retry '$VERB'"
+      if [ "$opencode_retry_recovered" != 1 ]; then
+        die "task $ID's composer visibly holds pending text; refusing to type the $cmd exit command because it would concatenate onto that text. Clear or submit the pending text, then retry '$VERB'"
+      fi
       ;;
     *)
-      die "task $ID's composer state is '$composer_state', not proven empty; refusing to type the $cmd exit command because it could concatenate onto existing text. Clear the composer, then retry '$VERB'"
+      if [ "$opencode_retry_recovered" != 1 ]; then
+        die "task $ID's composer state is '$composer_state', not proven empty; refusing to type the $cmd exit command because it could concatenate onto existing text. Clear the composer, then retry '$VERB'"
+      fi
       ;;
   esac
   # The submit verdict is NOT the postcondition here: a successful exit command

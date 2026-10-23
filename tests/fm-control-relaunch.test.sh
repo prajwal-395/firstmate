@@ -94,6 +94,10 @@ case "${1:-}" in
       esac
     else
       printf '%s\n' "$payload" >> "$D/keys"
+      if [ "${FM_FAKE_OPENCODE_RETRY:-}" = 1 ] && [ "$payload" = Escape ]; then
+        count=$(wc -l < "$D/keys" | tr -d ' ')
+        if [ "$count" -ge 2 ]; then : > "$D/composer"; fi
+      fi
       case "$payload" in
         'export GOTMPDIR='*)
           if [ -n "${FM_FAKE_TRACE_PREPARE:-}" ]; then
@@ -241,10 +245,11 @@ run_control() {  # <case-dir> <args...>
   # store (bin/fm-claude-trust.sh), and a relaunch reaches it through fm-control.sh, so this runs against a throwaway HOME;
   # without it this suite would write the developer's real ~/.claude.json.
   mkdir -p "$dir/user-home"
+  mkdir -p "$dir/user-home/xdg-config"
   env -u HERDR_ENV -u HERDR_PANE_ID -u HERDR_SESSION -u HERDR_SOCKET_PATH \
     -u HERDR_TAB_ID -u HERDR_WORKSPACE_ID \
     PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
-    HOME="$dir/user-home" CLAUDE_CONFIG_DIR='' \
+    HOME="$dir/user-home" XDG_CONFIG_HOME="$dir/user-home/xdg-config" CLAUDE_CONFIG_DIR='' \
     FM_SPAWN_NO_GUARD=1 GROK_HOME="$dir/grokhome" \
     FM_CONTROL_POLL=0.01 FM_CONTROL_EXIT_WAIT=0.05 FM_CONTROL_LAUNCH_WAIT=0.05 \
     FM_REAL_GIT="${FM_REAL_GIT:-}" FM_FAKE_GIT_FAILURE="${FM_FAKE_GIT_FAILURE:-}" \
@@ -431,6 +436,23 @@ test_relaunch_refuses_before_exit_when_the_composer_state_is_unproven() {
   assert_no_grep "/exit" "$dir/fake/literal" \
     "the exit command must not be typed when the composer state is not proven empty"
   pass "fm-control relaunch: an unreadable composer fails safe before the exit command is typed"
+}
+
+test_opencode_retry_screen_is_interrupted_before_relaunch_exit() {
+  local dir out rc
+  dir=$(new_case opencode-retry rl45)
+  add_ship_task "$dir" rl45 opencode
+  printf 'opencode' > "$dir/fake/command"
+  printf 'Free usage exceeded, subscribe to Go' > "$dir/fake/composer"
+
+  out=$(FM_FAKE_OPENCODE_RETRY=1 \
+    run_control "$dir" rl45 relaunch --note "continue after the provider refusal"); rc=$?
+
+  expect_code 0 "$rc" "OpenCode's explicit free-usage retry screen should be cleared before relaunch"$'\n'"$out"
+  [ "$(grep -c '^Escape$' "$dir/fake/keys")" -ge 2 ] \
+    || fail "the retry screen must use OpenCode's verified double-Escape interrupt path"
+  assert_grep '/exit' "$dir/fake/literal" "the exit command should be sent after the retry screen clears"
+  pass "fm-control relaunch: the OpenCode free-usage retry screen is interrupted before exit"
 }
 
 test_relaunch_from_linked_home_preserves_recorded_worktree() {
@@ -2593,6 +2615,7 @@ SH
 test_same_harness_relaunch_keeps_identity_and_reuses_the_endpoint
 test_relaunch_refuses_before_exit_when_the_composer_holds_pending_text
 test_relaunch_refuses_before_exit_when_the_composer_state_is_unproven
+test_opencode_retry_screen_is_interrupted_before_relaunch_exit
 test_relaunch_from_linked_home_preserves_recorded_worktree
 test_relaunch_preserves_durable_task_metadata
 test_relaunch_serializes_concurrent_durable_metadata_publication
