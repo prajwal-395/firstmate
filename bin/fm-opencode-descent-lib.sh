@@ -276,6 +276,33 @@ fm_opencode_descent_when() {  # <horizon>
   esac
 }
 
+# Preserve a mid-run refusal in the same provider/model/account store used by
+# fresh dispatch. Policy data supplies the provider and default account key.
+fm_opencode_descent_record_dispatch_reset() {  # <state-dir> <task-id> <reset-ms>
+  local state_dir=$1 id=$2 reset_ms=$3 meta model workspace config_dir policy route provider
+  meta="$state_dir/$id.meta"
+  model=$(fm_meta_get "$meta" model 2>/dev/null) || model=
+  [ -n "$model" ] || return 0
+  config_dir=${FM_CONFIG_OVERRIDE:-}
+  [ -n "$config_dir" ] || { [ -n "${FM_HOME:-}" ] && config_dir="$FM_HOME/config"; }
+  [ -n "$config_dir" ] || return 0
+  policy="$config_dir/dispatch-policy.json"
+  [ -r "$policy" ] || return 0
+  provider=$(fm_meta_get "$meta" dispatch_route_provider 2>/dev/null) || provider=
+  workspace=$(fm_meta_get "$meta" dispatch_route_workspace 2>/dev/null) || workspace=
+  [ -n "$workspace" ] || workspace=$(fm_meta_get "$meta" opencode_workspace 2>/dev/null) || workspace=
+  [ -n "$provider" ] || provider=$(jq -r --arg model "$model" '
+    ([.default_ladder[]?, .rules[]?.ladder[]? | select(.model == $model) | .provider] | unique | if length == 1 then .[0] else empty end)
+  ' "$policy" 2>/dev/null) || provider=
+  [ -n "$provider" ] || return 0
+  [ -n "$workspace" ] || workspace=$(jq -r --arg model "$model" '
+    ([.default_ladder[]?, .rules[]?.ladder[]? | select(.model == $model)] | first) as $r
+    | if ($r.accounts | type) == "array" and ($r.accounts | length) > 0 then $r.accounts[0] else "default" end
+  ' "$policy" 2>/dev/null) || workspace=
+  [ -n "$workspace" ] || workspace=default
+  "$_FM_OPENCODE_DESCENT_LIB_DIR/fm-dispatch-reset.sh" record "$state_dir" "$provider" "$model" "$workspace" "$reset_ms" mid-run-cap >/dev/null 2>&1 || true
+}
+
 # fm_opencode_descent_cap: the quota-scale verdict for one lane, reusing both
 # owners and re-deriving neither. Prints "<horizon_s|unknown> <bound>
 # <episode>" and returns 0 on either shape:
@@ -301,7 +328,7 @@ fm_opencode_descent_when() {  # <horizon>
 fm_opencode_descent_cap() {  # <state-dir> <id>
   local state_dir=$1 id=$2 out rec word bound='' horizon='' status='' next=''
   local r_state='' r_source='' r_event='' episode=''
-  local meta lane_model lane_bare cap_file scan_out
+  local meta lane_model lane_bare cap_file scan_out policy
   local go_bare model_bare
   # The sidecar's model is the plugin's own vocabulary (model.id, no provider
 # prefix); the rung constants carry one. Both sides normalise through the
@@ -363,9 +390,13 @@ fm_opencode_descent_cap() {  # <state-dir> <id>
   [ "$r_state" = idle ] || return 1
   [ "$r_source" = opencode-plugin ] || return 1
   case "$r_event" in session-idle|session-status-idle) ;; *) return 1 ;; esac
+  meta="$state_dir/$id.meta"
+  lane_model=$(fm_meta_get "$meta" model 2>/dev/null) || lane_model=''
+  policy=${FM_CONFIG_OVERRIDE:-${FM_HOME:-.}/config}/dispatch-policy.json
+  [ -n "$lane_model" ] || return 1
   command -v fm_opencode_ladder_pane_file >/dev/null 2>&1 || return 1
   cap_file=$(fm_opencode_ladder_pane_file "$state_dir" "$id" 2>/dev/null) || return 1
-  scan_out=$("$_FM_OPENCODE_DESCENT_RETRY" scan-text --file "$cap_file" 2>/dev/null) \
+  scan_out=$("$_FM_OPENCODE_DESCENT_RETRY" scan-text --file "$cap_file" --policy "$policy" --model "$lane_model" 2>/dev/null) \
     || { rm -f "$cap_file"; return 1; }
   rm -f "$cap_file"
   episode=''
@@ -374,12 +405,8 @@ fm_opencode_descent_cap() {  # <state-dir> <id>
   done
   [ -n "$episode" ] || return 1
   bound=unbound
-  meta="$state_dir/$id.meta"
-  if [ -f "$meta" ]; then
-    lane_model=$(fm_meta_get "$meta" model 2>/dev/null) || lane_model=''
-    lane_bare=$(fm_opencode_ladder_bare_model "$lane_model")
-    [ "$lane_bare" = "$go_bare" ] && bound=go
-  fi
+  lane_bare=$(fm_opencode_ladder_bare_model "$lane_model")
+  [ "$lane_bare" = "$go_bare" ] && bound=go
   printf 'unknown %s %s\n' "$bound" "$episode"
 }
 
@@ -517,6 +544,8 @@ fm_opencode_descent_skip_lane() {  # <state-dir> <id>
 fm_opencode_descent_tick() {  # <state-dir> [<now>]
   local state_dir=$1 now=${2:-} rc=0
   local meta id harness model model_bare kind dispatch_ladder cap horizon bound note ctl_out reason
+  local unified provider policy workspace cap_file unified_out
+  local legacy_found=0
   local plus_bare target_model target_harness target_rung target_cap
   local target_workspace lane_ws recorded_ws expected_ws
   local recorded after next rest hold_reason when
@@ -540,13 +569,19 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
     [ -e "$meta" ] || continue
     harness=$(fm_meta_get "$meta" harness 2>/dev/null) || harness=''
     model=$(fm_meta_get "$meta" model 2>/dev/null) || model=''
+    if [ "$(fm_meta_get "$meta" dispatch_unified 2>/dev/null || true)" = 1 ]; then
+      provider=$(fm_meta_get "$meta" dispatch_route_provider 2>/dev/null) || provider=''
+      case "$provider" in opencode|opencode-go) harness=found; break ;; esac
+      continue
+    fi
     dispatch_ladder=$(fm_meta_get "$meta" dispatch_ladder 2>/dev/null) || dispatch_ladder=''
     case "$harness" in
-      opencode*) harness=found; break ;;
-      codex) [ "$model" = "$FM_OPENCODE_LADDER_PLUS_MODEL" ] && { harness=found; break; } ;;
+      opencode*) legacy_found=1; harness=found; break ;;
+      codex) [ "$model" = "$FM_OPENCODE_LADDER_PLUS_MODEL" ] && { legacy_found=1; harness=found; break; } ;;
       pi)
         [ "$dispatch_ladder" = opencode ] || continue
         fm_opencode_pi_go_enabled || continue
+        legacy_found=1
         harness=found
         break
         ;;
@@ -555,12 +590,13 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
   [ "$harness" = found ] || return 0
   fm_opencode_descent_due "$state_dir" "$now" || return 0
   printf '%s' "$now" > "$state_dir/.opencode-descent-last" 2>/dev/null || true
-  fm_opencode_ladder_quota_caps "$state_dir"
+  [ "$legacy_found" -eq 0 ] || fm_opencode_ladder_quota_caps "$state_dir"
 
   for meta in "$state_dir"/*.meta; do
     [ -e "$meta" ] || continue
     id=$(basename "$meta" .meta)
     case "$id" in ''|*[!A-Za-z0-9._-]*) continue ;; esac
+    [ ! -s "$state_dir/.dispatch-descent-$id" ] || continue
     # Parked and finished lanes are never candidates, even past a proven cap.
     if fm_opencode_descent_skip_lane "$state_dir" "$id"; then
       fm_opencode_descent_clear_task "$state_dir" "$id"
@@ -569,29 +605,41 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
     harness=$(fm_meta_get "$meta" harness 2>/dev/null) || continue
     model=$(fm_meta_get "$meta" model 2>/dev/null) || model=''
     dispatch_ladder=$(fm_meta_get "$meta" dispatch_ladder 2>/dev/null) || dispatch_ladder=''
-    case "$harness" in
-      opencode*) ;;
-      codex) [ "$model" = "$FM_OPENCODE_LADDER_PLUS_MODEL" ] || continue ;;
-      pi)
-        [ "$dispatch_ladder" = opencode ] || continue
-        fm_opencode_pi_go_enabled || continue
-        ;;
-      *) continue ;;
-    esac
+    unified=0
+    provider=''
+    if [ "$(fm_meta_get "$meta" dispatch_unified 2>/dev/null || true)" = 1 ]; then
+      unified=1
+      provider=$(fm_meta_get "$meta" dispatch_route_provider 2>/dev/null) || provider=''
+      case "$provider" in opencode|opencode-go) ;; *) continue ;; esac
+    else
+      case "$harness" in
+        opencode*) ;;
+        codex) [ "$model" = "$FM_OPENCODE_LADDER_PLUS_MODEL" ] || continue ;;
+        pi)
+          [ "$dispatch_ladder" = opencode ] || continue
+          fm_opencode_pi_go_enabled || continue
+          ;;
+        *) continue ;;
+      esac
+    fi
     kind=$(fm_meta_get "$meta" kind 2>/dev/null) || kind=''
     model_bare=$(fm_opencode_ladder_bare_model "$model")
-    case "$model_bare" in
-      "$plus_bare"|"$go_bare") ;;
-      # An empty record stays governed (it is refused loudly below, never
-      # moved blind); anything else bare or prefixed outside the pair stays
-      # silent as off-ladder.
-      '') [ -z "$model" ] || { fm_opencode_descent_clear_task "$state_dir" "$id"; continue; } ;;
-      *) fm_opencode_descent_clear_task "$state_dir" "$id"; continue ;;
-    esac
+    if [ "$unified" -eq 0 ]; then
+      case "$model_bare" in
+        "$plus_bare"|"$go_bare") ;;
+        '') [ -z "$model" ] || { fm_opencode_descent_clear_task "$state_dir" "$id"; continue; } ;;
+        *) fm_opencode_descent_clear_task "$state_dir" "$id"; continue ;;
+      esac
+    fi
 
     # The trigger: a quota-scale cap on the supervision-grade verdict. A lane
     # that does not meet it ends whatever episode it was in.
-    if [ "$model_bare" = "$plus_bare" ]; then
+    if [ "$unified" -eq 1 ]; then
+      if ! cap=$(fm_opencode_descent_cap "$state_dir" "$id"); then
+        fm_opencode_descent_clear_task "$state_dir" "$id"
+        continue
+      fi
+    elif [ "$model_bare" = "$plus_bare" ]; then
       fm_opencode_descent_codex_limit_cap "$state_dir" "$id" || true
       cap=$("$_FM_OPENCODE_DESCENT_RETRY" check-cap "$state_dir" "$FM_OPENCODE_LADDER_PLUS_RUNG" 2>/dev/null) || cap=
       case "$cap" in *'status=blocked'*) horizon=${cap##*horizon_s=} ;;
@@ -620,16 +668,37 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
     case "$horizon" in
       ''|*[!0-9]*) : ;;
       *)
-        case "$bound" in
-          go|unbound)
-            if [ "$(fm_opencode_lane_workspace "$state_dir" "$id" 2>/dev/null)" = "$FM_OPENCODE_WORKSPACE_SECOND" ]; then
-              "$_FM_OPENCODE_DESCENT_RETRY" record-cap "$state_dir" "$FM_OPENCODE_LADDER_GO_SECOND_RUNG" "$next" 2>/dev/null || true
-            else
-              "$_FM_OPENCODE_DESCENT_RETRY" record-cap "$state_dir" go "$next" 2>/dev/null || true
-            fi ;;
-        esac
+        if [ "$unified" -eq 0 ]; then
+          case "$bound" in
+            go|unbound)
+              if [ "$(fm_opencode_lane_workspace "$state_dir" "$id" 2>/dev/null)" = "$FM_OPENCODE_WORKSPACE_SECOND" ]; then
+                "$_FM_OPENCODE_DESCENT_RETRY" record-cap "$state_dir" "$FM_OPENCODE_LADDER_GO_SECOND_RUNG" "$next" 2>/dev/null || true
+              else
+                "$_FM_OPENCODE_DESCENT_RETRY" record-cap "$state_dir" go "$next" 2>/dev/null || true
+              fi ;;
+          esac
+        fi
+        fm_opencode_descent_record_dispatch_reset "$state_dir" "$id" "$next"
         ;;
     esac
+
+    if [ "$unified" -eq 1 ]; then
+      if [ -z "$horizon" ] || [[ "$horizon" == *[!0-9]* ]]; then
+        policy=${FM_CONFIG_OVERRIDE:-${FM_HOME:-.}/config}/dispatch-policy.json
+        workspace=$(fm_meta_get "$meta" opencode_workspace 2>/dev/null) || workspace=''
+        [ -n "$workspace" ] || workspace=$(fm_meta_get "$meta" dispatch_route_workspace 2>/dev/null) || workspace=''
+        [ -n "$workspace" ] || workspace=default
+        cap_file=$(fm_opencode_ladder_pane_file "$state_dir" "$id" 2>/dev/null) || cap_file=''
+        if [ -n "$cap_file" ]; then
+          "$_FM_OPENCODE_DESCENT_LIB_DIR/fm-dispatch-reset.sh" observe-file "$state_dir" "$policy" "$provider" "$model" "$workspace" - "$cap_file" >/dev/null 2>&1 || true
+          rm -f "$cap_file"
+        fi
+      fi
+      unified_out=$(FM_HOME="${FM_HOME:-}" FM_CONFIG_OVERRIDE="${FM_CONFIG_OVERRIDE:-}" \
+        "$_FM_OPENCODE_DESCENT_LIB_DIR/fm-dispatch-descent.sh" "$state_dir" "$id" 2>/dev/null || true)
+      [ -z "$unified_out" ] || printf '%s\n' "$unified_out"
+      continue
+    fi
 
     # One automatic attempt per cap episode. A failed move is not retried
     # here - each attempt stops a live worker, so the refusal wake hands the

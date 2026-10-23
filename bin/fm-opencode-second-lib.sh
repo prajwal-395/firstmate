@@ -148,13 +148,18 @@ fm_opencode_pi_go_enabled() {  # [config-dir]
   case "$value" in on) return 0 ;; off) return 1 ;; *) return 2 ;; esac
 }
 
-# Workspace file infixes. The secondary workspace keeps its historic `second`
-# infix (config/opencode-second-org); the main workspace uses `main`.
+# Workspace file infixes. Existing workspace labels retain their historic
+# filenames. Any additional configured account uses an isolated account-
+# <label> suffix, so adding a workspace is a config and policy change.
 fm_opencode_workspace_infix() {  # <workspace>
+  local workspace=${1:-}
   case "${1:-}" in
     "$FM_OPENCODE_WORKSPACE_SECOND") printf 'second\n' ;;
     "$FM_OPENCODE_WORKSPACE_MAIN") printf 'main\n' ;;
-    *) return 1 ;;
+    *)
+      case "$workspace" in ''|*[!A-Za-z0-9_-]*) return 1 ;; esac
+      printf 'account-%s\n' "$workspace"
+      ;;
   esac
 }
 
@@ -163,7 +168,7 @@ fm_opencode_workspace_label() {  # <workspace>
   case "${1:-}" in
     "$FM_OPENCODE_WORKSPACE_SECOND") printf 'second\n' ;;
     "$FM_OPENCODE_WORKSPACE_MAIN") printf 'main\n' ;;
-    *) return 1 ;;
+    *) [ -n "${1:-}" ] || return 1; printf '%s\n' "$1" ;;
   esac
 }
 

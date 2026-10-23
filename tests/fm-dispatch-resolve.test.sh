@@ -89,12 +89,13 @@ assert_equals 2 "$?" "an unknown declaration id is rejected"
 assert_contains "$out" 'unshaped' "the refusal names the actual declaration trigger"
 pass "an unknown declaration id fails closed with the actual trigger named"
 
-jq 'del(.rules)' "$HOME_DIR/config/dispatch-policy.json" > "$TMP_ROOT/default.json"
+jq '{version:2,rules:[],default_ladder:.default_ladder,constraints:[],providers:[]}' "$HOME_DIR/config/dispatch-policy.json" > "$TMP_ROOT/default.json"
 cp "$TMP_ROOT/default.json" "$HOME_DIR/config/dispatch-policy.json"
 out=$(run_resolver)
 assert_equals default "$(jq -r .source <<<"$out")" "default route resolves"
-assert_equals codex "$(jq -r .profile.harness <<<"$out")" "the Codex Plus rung is first"
-assert_equals opencode "$(jq -r .profile.dispatch_ladder <<<"$out")" "the internal ladder gate is present"
+assert_equals opencode "$(jq -r .profile.harness <<<"$out")" "the first configured policy rung is selected"
+assert_equals true "$(jq -r .profile.dispatch_unified <<<"$out")" "the unified policy route is marked for generic enforcement"
+assert_equals null "$(jq -r .profile.dispatch_ladder <<<"$out")" "the v2 route does not enter the legacy OpenCode ladder gate"
 pass "default ladder derives its route from the declared policy"
 
 out=$(run_resolver --declare unshaped 2>&1)
@@ -105,18 +106,78 @@ pass "declaring against a policy with no declaration trigger fails closed"
 cat > "$HOME_DIR/config/model-catalog.json" <<'JSON'
 {"models":[{"id":"opencode/deepseek-v4.1-flash-free","status":"active"},{"id":"opencode/glm-5.3-flash-free","status":"active"},{"id":"opencode/mimo-v2.6-flash-free","status":"active"},{"id":"opencode-go/muse-spark-1.3-contributor","status":"active"},{"id":"gpt-6-luna","status":"active"},{"id":"retired-model","status":"retired","replaced_by":"replacement-model"}]}
 JSON
-jq '.default[0].model="retired-model"' "$HOME_DIR/config/dispatch-policy.json" > "$TMP_ROOT/retired.json"
+jq '.default_ladder[0].model="retired-model"' "$HOME_DIR/config/dispatch-policy.json" > "$TMP_ROOT/retired.json"
 cp "$TMP_ROOT/retired.json" "$HOME_DIR/config/dispatch-policy.json"
 out=$(run_resolver)
-assert_equals error "$(jq -r .status <<<"$out")" "retired rung refuses dispatch"
-assert_contains "$(jq -r .reason <<<"$out")" 'retired-model' "retired model is named"
-assert_contains "$(jq -r .reason <<<"$out")" 'replacement-model' "replacement is named"
-pass "retired model IDs are refused before spawn with their replacement"
+assert_equals glm "$(jq -r .explanation.chosen.profile.id <<<"$out")" "a retired rung falls through to the next eligible rung"
+assert_contains "$(jq -r '.explanation.candidates[0].reason' <<<"$out")" 'retired-model' "retired model is named in its candidate explanation"
+assert_contains "$(jq -r '.explanation.candidates[0].reason' <<<"$out")" 'replacement-model' "replacement is named in its candidate explanation"
+pass "a retired model rung is explained and skipped in favor of the next eligible rung"
+
+cat > "$HOME_DIR/config/model-catalog.json" <<'JSON'
+{"models":[{"id":"vendor/free-model","status":"active","harnesses":["codex"]},{"id":"gpt-6-luna","status":"active","harnesses":["codex"]}]}
+JSON
+cat > "$HOME_DIR/config/dispatch-policy.json" <<'JSON'
+{"version":2,"rules":[],"default_ladder":[{"id":"pi-free","harness":"pi","model":"vendor/free-model","provider":"vendor"},{"id":"codex-next","harness":"codex","model":"gpt-6-luna","provider":"codex","effort":"medium"}],"constraints":[],"providers":[]}
+JSON
+out=$(run_resolver)
+assert_equals codex-next "$(jq -r .explanation.chosen.profile.id <<<"$out")" "an unsupported model/harness pair falls through to the next rung"
+assert_contains "$(jq -r '.explanation.candidates[0].reason' <<<"$out")" 'not verified for harness pi' "the fallback explanation names the unsupported harness"
+pass "a rung whose model is not verified for its harness is skipped with an explanation"
+cat > "$HOME_DIR/config/model-catalog.json" <<'JSON'
+{"models":[{"id":"opencode/deepseek-v4.1-flash-free","status":"active"},{"id":"opencode/glm-5.3-flash-free","status":"active"},{"id":"opencode/mimo-v2.6-flash-free","status":"active"},{"id":"opencode-go/muse-spark-1.3-contributor","status":"active"},{"id":"gpt-6-luna","status":"active"},{"id":"retired-model","status":"retired","replaced_by":"replacement-model"}]}
+JSON
 
 jq '. + {exhausted_ladder_fallback:{use:{"harness":"opencode"}}}' "$TMP_ROOT/default.json" > "$HOME_DIR/config/dispatch-policy.json"
 out=$(run_resolver 2>&1)
 assert_equals 2 "$?" "retired fallback declaration is rejected"
 assert_contains "$out" 'exhausted_ladder_fallback has been retired' "fallback refusal is actionable"
 pass "the exhausted-ladder fallback cannot be re-enabled by policy"
+
+cp "$ROOT/docs/examples/dispatch-policy.json" "$HOME_DIR/config/dispatch-policy.json"
+out=$(run_resolver)
+assert_equals default "$(jq -r .status <<<"$out")" "the unified policy chooses from its default ladder"
+assert_equals deepseek-free "$(jq -r .explanation.chosen.profile.id <<<"$out")" "an arbitrary-length ladder starts at its first eligible rung"
+assert_equals secondary "$(jq -r .profile.workspace <<<"$out")" "the first configured workspace is preserved in the selected route"
+pass "version 2 resolves the first eligible rung and retains its configured workspace"
+
+now_ms=$(( $(date +%s) * 1000 ))
+reset_ms=$((now_ms + 60000))
+"$ROOT/bin/fm-dispatch-reset.sh" record "$HOME_DIR/state" opencode opencode/deepseek-v4.1-flash-free secondary "$reset_ms" test
+out=$(run_resolver)
+assert_equals main "$(jq -r .profile.workspace <<<"$out")" "an active reset skips only its provider/model/workspace tuple"
+"$ROOT/bin/fm-dispatch-reset.sh" record "$HOME_DIR/state" opencode opencode/deepseek-v4.1-flash-free main "$reset_ms" test
+out=$(run_resolver)
+assert_equals glm-free "$(jq -r .explanation.chosen.profile.id <<<"$out")" "both accounts for a rung precede the next model"
+pass "generic exhaustion records affect launch selection by provider, model, and workspace"
+
+for model in opencode/deepseek-v4.1-flash-free opencode/glm-5.3-flash-free opencode/mimo-v2.6-flash-free; do
+  for workspace in secondary main; do
+    "$ROOT/bin/fm-dispatch-reset.sh" record "$HOME_DIR/state" opencode "$model" "$workspace" "$reset_ms" test
+  done
+done
+cat > "$TMP_ROOT/account-quota.json" <<'JSON'
+{"schemaVersion":6,"providers":[
+  {"provider":"codex","accountKey":"default","quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":0,"runway":{"status":"exhausted_now"},"resetsAt":"2099-01-01T00:00:00Z"}]}},
+  {"provider":"opencode-go","accountKey":"main","quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":80,"runway":{"status":"through_reset"},"resetsAt":"2099-02-01T00:00:00Z"}]}},
+  {"provider":"opencode-go","accountKey":"secondary","quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":80,"runway":{"status":"through_reset"},"resetsAt":"2099-01-01T00:00:00Z"}]}}
+]}
+JSON
+export FM_TEST_QUOTA="$TMP_ROOT/account-quota.json"
+out=$(run_resolver)
+unset FM_TEST_QUOTA
+assert_equals muse-go "$(jq -r .explanation.chosen.profile.id <<<"$out")" "exhausted earlier rungs fall through to the configured Go rung"
+assert_equals secondary "$(jq -r .profile.workspace <<<"$out")" "reset-soonest strategy orders account choices from quota-axi"
+pass "the configured reset-soonest account strategy selects from quota reset evidence"
+
+out=$(run_resolver --declare open-ended)
+assert_equals escalate "$(jq -r .status <<<"$out")" "Opus requires affirmative captain approval"
+out=$(PATH="$FAKEBIN:$PATH" FM_HOME="$HOME_DIR" FM_TEST_CURL_LOG="$LOG" "$TOOL" --json "$BRIEF" --declare open-ended --captain-approved)
+assert_equals claude-opus-5-5 "$(jq -r .profile.model <<<"$out")" "explicit approval enables the declared open-ended Opus route"
+mkdir -p "$HOME_DIR/data"
+printf '%s\n' 'Research charter: this home cannot use Claude.' > "$HOME_DIR/data/charter.md"
+out=$(run_resolver --declare open-ended --captain-approved)
+assert_equals escalate "$(jq -r .status <<<"$out")" "a research home cannot route to Anthropic even with captain approval"
+pass "captain approval and research-home provider constraints are enforced at resolution"
 
 printf '# all fm-dispatch-resolve tests passed\n'

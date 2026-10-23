@@ -75,11 +75,13 @@ usage() {
 
 BRIEF='' PROJECT='' DECLARE='' RULES_PATH="$CONFIG/dispatch-policy.json" RULES=''
 STATIC_HARNESS_DEFAULT=0
+CAPTAIN_APPROVED=0
 JSON_MODE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --project) [ $# -ge 2 ] || die "--project needs a value"; PROJECT=$2; shift 2 ;;
     --declare) [ $# -ge 2 ] || die "--declare needs a rule id"; DECLARE=$2; shift 2 ;;
+    --captain-approved) CAPTAIN_APPROVED=1; shift ;;
     --json) JSON_MODE=1; shift ;;
     -h|--help) usage; exit 0 ;;
     -*) die "unknown flag $1" ;;
@@ -101,6 +103,38 @@ else
 fi
 if ! jq -e . "$RULES" >/dev/null 2>&1; then
   die "malformed rules file: $RULES_PATH (not JSON)"
+fi
+if [ "$(jq -r '.version // 1' "$RULES" 2>/dev/null)" = 2 ]; then
+  "$SCRIPT_DIR/fm-dispatch-policy-validate.sh" "$RULES" >/dev/null 2>&1 || die "malformed version 2 dispatch policy: $RULES_PATH"
+  home_role=worker
+  if [ -r "$FM_HOME/data/charter.md" ] && grep -qi research "$FM_HOME/data/charter.md"; then
+    home_role=research
+  fi
+  NORMALIZED="$RULES.v1"
+  jq --arg home_role "$home_role" '
+    def profiles($v): if ($v | type) == "array" then $v elif ($v | type) == "object" then [$v] else [] end;
+    def constrain($p; $constraints):
+      ($p.provider // "") as $provider
+      | ([$constraints[]? | select((.when.scope // "worker") == "worker" and (.when.provider // $provider) == $provider)
+          | select((.when.home_role == null) or (.when.home_role == $home_role))]) as $matches
+      | $p + {
+          _dispatch_unified: true,
+          _dispatch_denied: any($matches[]; .deny == true),
+          _dispatch_approval: ($p.approval == "captain" or any($matches[]; .approval == "captain"))
+        };
+    def expand($items; $constraints):
+      [($items[]?) as $r
+        | (if ($r.accounts | type) == "array" and ($r.accounts | length) > 0
+           then ($r.accounts[] | $r + {workspace:.} | del(.accounts))
+           else $r end)
+        | constrain(.; $constraints)];
+    . as $cfg
+    | .version = 1
+    | .rules = [($cfg.rules // [])[] | . as $rule | . + {use: expand(profiles($rule.ladder); $cfg.constraints)} | del(.ladder)]
+    | .default = expand(($cfg.default_ladder // []); $cfg.constraints)
+    | del(.default_ladder, .constraints, .providers)
+  ' "$RULES" > "$NORMALIZED" || die "version 2 policy normalization failed"
+  mv "$NORMALIZED" "$RULES" || die "could not install normalized policy snapshot"
 fi
 if ! jq -e 'has("default")' "$RULES" >/dev/null 2>&1; then
   DEFAULT_HARNESS=$(FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-harness.sh" crew 2>/dev/null) || die "could not resolve the static crew harness for the default route"
@@ -124,7 +158,7 @@ rules_err=$(jq -r --argjson verified_harnesses "$VERIFIED_HARNESSES" --argjson s
     elif ($e | type) != "string" then false
     elif $e == "ultra" then (($h == "pi" or $h == "pi-signed") and (($m | type) == "string") and ($m | startswith("codex-native/")) and ($m | length) > 13)
     elif $h == "claude" then (["low","medium","high","xhigh","max"] | index($e)) != null
-    elif $h == "codex" then ((["low","medium","high","xhigh"] | index($e)) != null or ($e == "max" and ($m == "gpt-5.6-luna" or $m == "gpt-6-luna")))
+    elif $h == "codex" then (["low","medium","high","xhigh","max"] | index($e)) != null
     elif $h == "grok" or $h == "agy" then (["low","medium","high"] | index($e)) != null
     elif $h == "pi" or $h == "pi-signed" or $h == "omp" or $h == "muse" then (["low","medium","high","xhigh","max"] | index($e)) != null
     elif $h == "rovo" then (["low","medium","high","max"] | index($e)) != null
@@ -147,7 +181,7 @@ rules_err=$(jq -r --argjson verified_harnesses "$VERIFIED_HARNESSES" --argjson s
     or ($p | has("provider") and (provider_id(.provider) | not))
     or ($p | has("floor") and floor_bad(.floor; false));
   def duplicate_profiles($items):
-    ($items | map([.harness, (.model // null), (.effort // null)] | @json)) as $keys
+    ($items | map([.harness, (.model // null), (.effort // null), (.workspace // null)] | @json)) as $keys
     | ($keys | length) != ($keys | unique | length);
   if type != "object" then "top-level value must be an object"
   elif has("version") and .version != 1 then "version must be 1"
@@ -177,9 +211,9 @@ rules_err=$(jq -r --argjson verified_harnesses "$VERIFIED_HARNESSES" --argjson s
   elif has("default") and duplicate_profiles(profiles(.default)) then "default must not contain duplicate harness, model, and effort profiles"
   elif has("default") and any(profiles(.default)[]; (verified(.harness) | not) and ($static_harness_default != 1)) then "each default profile must name a verified harness"
   elif has("default") and any(profiles(.default)[]; (effort_ok(.harness; .model; .effort) | not)) then "each default profile effort must be supported by its harness and model"
-  elif has("default_ladder") and ((.default_ladder | type) != "array" or ((.default_ladder | length) != 2 and (.default_ladder | length) != 5)) then "default_ladder must declare plus and go, with optional deepseek, glm, and mimo rungs"
-  elif has("default_ladder") and any(.default_ladder[]; (.id != "deepseek" and .id != "glm" and .id != "mimo" and .id != "plus" and .id != "go") or profile_bad(.)) then "default_ladder rungs need unique free-model/plus/go ids and valid profiles"
-  elif has("default_ladder") and (([.default_ladder[].id] | unique | sort) != ["go","plus"] and ([.default_ladder[].id] | unique | sort) != ["deepseek","glm","go","mimo","plus"]) then "default_ladder must declare plus and go, with each free-model rung either all present or all absent"
+  elif has("default_ladder") and ((.default_ladder | type) != "array" or (.default_ladder | length) == 0) then "default_ladder must be a non-empty array"
+  elif has("default_ladder") and any(.default_ladder[]; (.id | type) != "string" or (.id | length) == 0 or profile_bad(.)) then "default_ladder rungs need non-empty ids and valid profiles"
+  elif has("default_ladder") and ([.default_ladder[].id] | length) != ([.default_ladder[].id] | unique | length) then "default_ladder rung ids must be unique"
   elif has("default_ladder") and any(.default_ladder[]; (verified(.harness) | not) or (effort_ok(.harness; .model; .effort) | not)) then "default_ladder rungs must use verified harnesses and supported effort"
   elif has("exhausted_ladder_fallback") then "exhausted_ladder_fallback has been retired; remove it"
   else empty end
@@ -230,7 +264,15 @@ emit_error() {
 
 RESP_FILE=$(mktemp) || die "mktemp failed"
 QUOTA=$(mktemp) || { rm -f "$RESP_FILE"; die "mktemp failed"; }
-trap 'rm -f "$RULES" "$RESP_FILE" "$QUOTA"' EXIT
+RESET_ROWS=$(mktemp) || { rm -f "$RESP_FILE" "$QUOTA"; die "mktemp failed"; }
+CATALOG_ROWS=$(mktemp) || { rm -f "$RESP_FILE" "$QUOTA" "$RESET_ROWS"; die "mktemp failed"; }
+trap 'rm -f "$RULES" "$RESP_FILE" "$QUOTA" "$RESET_ROWS" "$CATALOG_ROWS"' EXIT
+fm_model_catalog_check __validate__ "$CONFIG" >/dev/null 2>&1 || emit_error "malformed model catalog"
+if [ -f "$CONFIG/model-catalog.json" ]; then
+  cp "$CONFIG/model-catalog.json" "$CATALOG_ROWS" || die "could not snapshot model catalog"
+else
+  printf '{"models":[]}\n' > "$CATALOG_ROWS" || die "could not prepare empty model catalog"
+fi
 LAT_MS=null
 RUNG=deterministic
 DEFAULT_REASON=''
@@ -266,31 +308,68 @@ make_response "$RESOLUTION_CHOICE"
 command -v quota-axi >/dev/null 2>&1 || emit_error "quota-axi not installed"
 quota-axi --json > "$QUOTA" 2>/dev/null || emit_error "quota-axi --json failed"
 fm_quota_json_valid < "$QUOTA" || emit_error "quota-axi --json returned an invalid snapshot"
+if [ "$(jq -r '.version // 1' "$RULES_PATH" 2>/dev/null)" = 2 ]; then
+  jq --slurpfile quota "$QUOTA" '
+    def reset_at($p):
+      [$quota[0].providers[]? | select(.provider == $p.provider and (.accountKey // "default") == ($p.workspace // "default"))
+        | .quotaSemantics.effectiveAvailability[]? | .resetsAt // empty] | first // "9999";
+    def order_accounts($items):
+      [$items | to_entries[] | .value + {_dispatch_order:.key}] as $entries
+      | [$entries | group_by(.id)[] | {
+          order:(map(._dispatch_order) | min),
+          items:(if .[0].account_strategy == "reset-soonest-yield-shorter-reset"
+                 then sort_by(reset_at(.) , ._dispatch_order)
+                 else sort_by(._dispatch_order) end)
+        }]
+      | sort_by(.order) | map(.items[]) | map(del(._dispatch_order));
+    .default = order_accounts(.default)
+    | .rules |= map(.use = order_accounts(.use))
+  ' "$RULES" > "$RULES.ordered" || emit_error "could not apply configured account selection strategy"
+  mv "$RULES.ordered" "$RULES" || emit_error "could not install account-ordered policy snapshot"
+  "$SCRIPT_DIR/fm-dispatch-reset.sh" sync-quota "$STATE" "$RULES_PATH" "$QUOTA" >/dev/null 2>&1 \
+    || emit_error "could not synchronize quota-axi exhaustion evidence"
+fi
+if [ -f "$STATE/dispatch-exhaustions.jsonl" ]; then
+  jq -s 'if all(.[]; .version == 1 and (.provider|type)=="string" and (.model|type)=="string" and (.workspace|type)=="string" and (.reset_ms|type)=="number") then . else error("invalid reset record") end' \
+    "$STATE/dispatch-exhaustions.jsonl" > "$RESET_ROWS" 2>/dev/null || emit_error "dispatch exhaustion store is malformed"
+else
+  printf '[]\n' > "$RESET_ROWS"
+fi
 
 # ---- resolution: declared gates + quota evidence + declared rung order, all in jq -
 RESULT=$(jq -n --argjson lat "$LAT_MS" --arg rung "$RUNG" --arg none_criterion "$DEFAULT_WHEN" \
-  --arg default_reason "$DEFAULT_REASON" --argjson pmap "$PMAP" \
-  --argjson static_default "$STATIC_HARNESS_DEFAULT" \
-  --slurpfile resp "$RESP_FILE" --slurpfile rules "$RULES" --slurpfile quota "$QUOTA" '
-  ($resp[0]) as $r | ($rules[0]) as $cfg | ($quota[0]) as $q | ($r.answers.rule) as $a |
+  --arg default_reason "$DEFAULT_REASON" --argjson pmap "$PMAP" --argjson captain_approved "$CAPTAIN_APPROVED" \
+  --argjson static_default "$STATIC_HARNESS_DEFAULT" --argjson now_ms "$(($(date +%s) * 1000))" \
+  --slurpfile resp "$RESP_FILE" --slurpfile rules "$RULES" --slurpfile quota "$QUOTA" --slurpfile resets "$RESET_ROWS" --slurpfile catalog "$CATALOG_ROWS" '
+  ($resp[0]) as $r | ($rules[0]) as $cfg | ($quota[0]) as $q | ($resets[0]) as $reset_rows | ($catalog[0]) as $catalog_data | ($r.answers.rule) as $a |
   def profiles($v): if ($v | type) == "array" then $v elif ($v | type) == "object" then [$v] else [] end;
-  def prov($p): ([$q.providers[] | select(.provider == $p)] | first) // null;
-  def rows($p): if prov($p) == null then [] else (prov($p).quotaSemantics.effectiveAvailability // []) end;
+  def prov($p; $c):
+    ([$q.providers[] | select(.provider == $p)]) as $all
+    | (if ($c.workspace | type) == "string" then ([$all[] | select(.accountKey == $c.workspace)] | first) else null end)
+      // ([$all[] | select(.accountKey == "default")] | first)
+      // ([$all[] | select(has("accountKey") | not)] | first)
+      // ($all | first) // null;
+  def rows($p; $c): if prov($p; $c) == null then [] else (prov($p; $c).quotaSemantics.effectiveAvailability // []) end;
   def bare($m): ($m | split("/") | last);
   def provider_of($c): ($c.provider // $pmap[$c.harness] // null);
-  def measured($p):
-    if prov($p) == null then false
-    else (["known", "partial"] | index(prov($p).quotaSemantics.status)) != null end;
-  def applicable($p; $m):
+  def reset_for($c; $p):
+    ($c.workspace // "default") as $workspace
+    | [$reset_rows[] | select(.provider == $p and .model == $c.model and .workspace == $workspace and .reset_ms > $now_ms)]
+    | max_by(.observed_ms) // null;
+  def catalog_item($model): [$catalog_data.models[]? | select(.id == $model)] | first // null;
+  def measured($p; $c):
+    if prov($p; $c) == null then false
+    else (["known", "partial"] | index(prov($p; $c).quotaSemantics.status)) != null end;
+  def applicable($p; $m; $c):
     (bare($m)) as $bare |
-    [rows($p)[] | select(
+    [rows($p; $c)[] | select(
       .scope == "all_models" or .scope == "all_products" or
       ($m != "" and (.scope == ("model:" + $bare) or .scope == ("product:" + $bare)))
     )];
-  def floor_state($f; $p):
+  def floor_state($f; $p; $c):
     if $f == null then "none"
-    elif prov($p) == null or (measured($p) | not) then "unknown"
-    else [rows($p)[] | select(.scope == $f.scope)] as $matches
+    elif prov($p; $c) == null or (measured($p; $c) | not) then "unknown"
+    else [rows($p; $c)[] | select(.scope == $f.scope)] as $matches
       | if ($matches | length) == 0 or any($matches[]; .status != "known") then "unknown"
         elif any($matches[]; .effectivePercentRemaining < $f.min_percent) then "below"
         else "ok"
@@ -299,15 +378,27 @@ RESULT=$(jq -n --argjson lat "$LAT_MS" --arg rung "$RUNG" --arg none_criterion "
   def evidence($rows):
     $rows | map({scope, status, pct: (.effectivePercentRemaining // null), runway: (.runway.status // null), spendPriority: (.selection.spendPriority // null)});
   def evaluate($c; $allow_static_default):
-    (provider_of($c)) as $p |
-    if $p == null and $allow_static_default then
+    (provider_of($c)) as $p | (catalog_item($c.model // "")) as $catalog_item |
+    if ($c._dispatch_denied // false) then
+      {profile: $c, provider: $p, eligible: false, reason: "policy constraint denies this home and provider"}
+    elif ($c._dispatch_approval // false) and $captain_approved != 1 then
+      {profile: $c, provider: $p, eligible: false, reason: "captain approval required for this provider"}
+    elif $catalog_item.status == "retired" then
+      {profile: $c, provider: $p, eligible: false, reason: "model \($c.model) is retired" + (if ($catalog_item.replaced_by | type) == "string" and ($catalog_item.replaced_by | length) > 0 then "; replacement: \($catalog_item.replaced_by)" else "; no replacement listed" end)}
+    elif ($catalog_item.harnesses | type) == "array" and ($catalog_item.harnesses | index($c.harness)) == null then
+      {profile: $c, provider: $p, eligible: false, reason: "model \($c.model) is not verified for harness \($c.harness)"}
+    elif $p != null and reset_for($c; $p) != null then
+      (reset_for($c; $p)) as $reset |
+      {profile: $c, provider: $p, bounds: [], scope: $c.workspace, reset_ms: $reset.reset_ms, eligible: false,
+       reason: "provider/model/workspace is exhausted until ($reset.reset_ms)"}
+    elif $p == null and $allow_static_default then
       {profile: $c, eligible: true, unranked: true, unknown: true, reason: "static crew harness has no declared provider or model for quota measurement"}
     elif $p == null then {profile: $c, eligible: false, reason: "no provider family for harness \($c.harness); declare provider on the profile"}
-    elif prov($p) == null then {profile: $c, provider: $p, eligible: true, unranked: true, reason: "provider \($p) not in the quota snapshot"}
+    elif prov($p; $c) == null then {profile: $c, provider: $p, eligible: true, unranked: true, reason: "provider \($p) not in the quota snapshot"}
     else
-      (applicable($p; ($c.model // ""))) as $rows |
+      (applicable($p; ($c.model // ""); $c)) as $rows |
       (evidence($rows)) as $bounds |
-      (floor_state($c.floor; $p)) as $profile_floor_state |
+      (floor_state($c.floor; $p; $c)) as $profile_floor_state |
       if any($rows[]; (.runway.status // "") == "exhausted_now") then
         ($rows | map(select((.runway.status // "") == "exhausted_now")) | first) as $bad |
         {profile: $c, provider: $p, bounds: $bounds, scope: $bad.scope, pct: ($bad.effectivePercentRemaining // null), runway: $bad.runway.status, eligible: false, reason: "runway exhausted_now at \($bad.scope)"}
@@ -315,18 +406,18 @@ RESULT=$(jq -n --argjson lat "$LAT_MS" --arg rung "$RUNG" --arg none_criterion "
         ($rows | map(select(.status == "known" and (.effectivePercentRemaining | type) == "number" and .effectivePercentRemaining <= 0)) | first) as $bad |
         {profile: $c, provider: $p, bounds: $bounds, scope: $bad.scope, pct: $bad.effectivePercentRemaining, runway: $bad.runway.status, eligible: false, reason: "0% remaining at \($bad.scope)"}
       elif $profile_floor_state == "below" then
-        ([rows($p)[] | select(
+        ([rows($p; $c)[] | select(
           .scope == $c.floor.scope and
           .effectivePercentRemaining < $c.floor.min_percent
         )] | first) as $floor_row |
         {profile: $c, provider: $p, bounds: $bounds, scope: ($floor_row.scope // $c.floor.scope), pct: ($floor_row.effectivePercentRemaining // null), runway: ($floor_row.runway.status // null), eligible: false, reason: "profile floor \($c.floor.scope) below \($c.floor.min_percent)%"}
-      elif (measured($p) | not) then
+      elif (measured($p; $c) | not) then
         ($rows | first) as $row |
-        {profile: $c, provider: $p, bounds: $bounds, scope: ($row.scope // null), pct: ($row.effectivePercentRemaining // null), runway: ($row.runway.status // null), eligible: true, unranked: true, unknown: true, reason: "provider \($p) unmeasured (\(prov($p).quotaSemantics.status))"}
+        {profile: $c, provider: $p, bounds: $bounds, scope: ($row.scope // null), pct: ($row.effectivePercentRemaining // null), runway: ($row.runway.status // null), eligible: true, unranked: true, unknown: true, reason: "provider \($p) unmeasured (\(prov($p; $c).quotaSemantics.status))"}
       elif ($rows | length) == 0 then
         {profile: $c, provider: $p, bounds: $bounds, eligible: true, unranked: true, unknown: true, reason: "no applicable quota row for provider \($p)"}
       elif $profile_floor_state == "unknown" then
-        ([rows($p)[] | select(.scope == $c.floor.scope)] | first) as $floor_row |
+        ([rows($p; $c)[] | select(.scope == $c.floor.scope)] | first) as $floor_row |
         {profile: $c, provider: $p, bounds: $bounds, scope: $c.floor.scope, pct: ($floor_row.effectivePercentRemaining // null), runway: ($floor_row.runway.status // null), eligible: true, unranked: true, unknown: true, reason: "profile floor \($c.floor.scope) is unverifiable: not rankable"}
       elif any($rows[]; .status != "known") then
         ($rows | map(select(.status != "known")) | first) as $bad |
@@ -347,7 +438,7 @@ RESULT=$(jq -n --argjson lat "$LAT_MS" --arg rung "$RUNG" --arg none_criterion "
   (if $choice == "default" then null
    elif $rule_number != null and $rule_number <= (($cfg.rules // []) | length) then $cfg.rules[$rule_number - 1]
    else null end) as $rule |
-  (if $rule == null then "none" else floor_state($rule.floor; $rule.floor.provider) end) as $rule_floor_state |
+  (if $rule == null then "none" else floor_state($rule.floor; $rule.floor.provider; {}) end) as $rule_floor_state |
   (if $choice != "default" and $rule == null then []
    elif $rule == null then profiles($cfg.default // null)
    else profiles($rule.use)
@@ -382,25 +473,6 @@ RESULT=$(jq -n --argjson lat "$LAT_MS" --arg rung "$RUNG" --arg none_criterion "
      end
   end') || emit_error "resolution failed"
 
-# A retired model must be caught before any worker launch. Check every
-# concrete candidate in the selected route; the ladder gate checks its
-# configured rung before selecting it, so one retired free rung cannot strand
-# otherwise eligible models.
-fm_model_catalog_check __validate__ "$CONFIG" >/dev/null 2>&1 || emit_error "malformed model catalog"
-while IFS= read -r candidate_model; do
-  [ -n "$candidate_model" ] || continue
-  if catalog_message=$(fm_model_catalog_check "$candidate_model" "$CONFIG" 2>&1); then
-    :
-  else
-    catalog_status=$?
-    if [ "$catalog_status" -eq 1 ]; then
-      emit_error "$catalog_message"
-    else
-      emit_error "model catalog validation failed: $catalog_message"
-    fi
-  fi
-done < <(jq -r '.candidates[]?.profile.model // empty' <<<"$RESULT")
-
 TEXT=$(jq -r '
   def flat: tostring | gsub("[\t\r\n]"; " ");
   def show($value): ($value // "-") | flat;
@@ -417,6 +489,7 @@ TEXT=$(jq -r '
   (if .unranked_note then "  note: \(.unranked_note | flat)" else empty end),
   (.candidates[]? | "  candidate: \(.profile.harness | flat):\(show(.profile.model))"
       + (if .provider then "  provider=\(.provider | flat)" else "" end)
+      + (if .profile.workspace then "  workspace=\(.profile.workspace | flat)" else "" end)
       + (if .scope then "  scope=\(.scope | flat)  remaining=\(show(.pct))%  spendPriority=\(show(.spendPriority))  runway=\(show(.runway))" else "" end)
       + (if (.bounds // [] | length) > 1 then "  bounds=" + ([.bounds[] | "\(.scope | flat):\(show(.pct))%/\((.runway // .status) | flat)"] | join(",")) else "" end)
       + "  -> " + (if .unranked then "eligible, unranked: \(.reason | flat): disclosed uncertainty" elif .eligible then "eligible" else "not eligible: \(.reason | flat)" end)),
@@ -443,7 +516,11 @@ if [ "$JSON_MODE" -eq 1 ]; then
         harness: .chosen.profile.harness,
         model: (.chosen.profile.model // null),
         effort: (.chosen.profile.effort // null),
-        dispatch_ladder: (if ladder_route then "opencode" else null end)
+        provider: (.chosen.provider // .chosen.profile.provider // null),
+        workspace: (.chosen.profile.workspace // null),
+        account_strategy: (.chosen.profile.account_strategy // null),
+        dispatch_unified: (.chosen.profile._dispatch_unified // false),
+        dispatch_ladder: (if .chosen.profile._dispatch_unified then null elif ladder_route then "opencode" else null end)
       } else null end)
     }
   ' <<<"$RESULT" || emit_error "JSON output rendering failed"

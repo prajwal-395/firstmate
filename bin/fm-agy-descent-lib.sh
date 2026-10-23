@@ -959,6 +959,8 @@ _fm_agy_descent_tick_locked() {  # <state-dir> <now>
   for meta in "$state_dir"/*.meta; do
     [ -e "$meta" ] || continue
     id=$(basename "$meta" .meta)
+    [ ! -s "$state_dir/.dispatch-descent-$id" ] || continue
+    [ "$(fm_meta_get "$meta" dispatch_unified 2>/dev/null || true)" != 1 ] || continue
     harness=$(fm_meta_get "$meta" harness)
     case "$harness" in agy*) ;; *) continue ;; esac
     model=$(fm_meta_get "$meta" model)

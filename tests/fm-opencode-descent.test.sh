@@ -74,6 +74,9 @@ mkdir -p "$FAKEHOME/config"
 FM_HOME="$FAKEHOME"
 export FM_HOME
 unset FM_CONFIG_OVERRIDE
+cat > "$FAKEHOME/config/dispatch-policy.json" <<'JSON'
+{"default_ladder":[{"id":"go-test","harness":"opencode","model":"opencode-go/muse-spark-1.3-contributor","provider":"opencode-go"}],"providers":[{"id":"opencode-go","refusal_patterns":[{"pattern":"free usage exceeded|subscribe to go","reset":"retry-after-iso8601-or-next-utc-day"}]}]}
+JSON
 
 RETRY="$ROOT/bin/fm-opencode-retry.sh"
 BUSY="$ROOT/bin/fm-busy-event.sh"

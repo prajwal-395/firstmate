@@ -1,14 +1,15 @@
 {
   "models": [
-    { "id": "opencode/deepseek-v4.1-flash-free", "status": "active", "bills": "none", "last_verified": "2026-10-22", "source": "opencode models" },
-    { "id": "opencode/glm-5.3-flash-free", "status": "active", "bills": "none", "last_verified": "2026-10-22", "source": "opencode models" },
-    { "id": "opencode/mimo-v2.6-flash-free", "status": "active", "bills": "none", "last_verified": "2026-10-22", "source": "opencode models" },
+    { "id": "opencode/deepseek-v4.1-flash-free", "status": "active", "bills": "none", "last_verified": "2026-10-22", "source": "opencode models", "harnesses": ["opencode"] },
+    { "id": "opencode/glm-5.3-flash-free", "status": "active", "bills": "none", "last_verified": "2026-10-22", "source": "opencode models", "harnesses": ["opencode"] },
+    { "id": "opencode/mimo-v2.6-flash-free", "status": "active", "bills": "none", "last_verified": "2026-10-22", "source": "opencode models", "harnesses": ["opencode"] },
     {
       "id": "opencode-go/muse-spark-1.3-contributor",
       "status": "active",
       "bills": "go",
       "last_verified": "2026-10-22",
-      "source": "opencode models"
+      "source": "opencode models",
+      "harnesses": ["opencode"]
     },
     {
       "id": "opencode-go/minimax-m3.1-flash-free",
@@ -16,14 +17,16 @@
       "replaced_by": "opencode-go/muse-spark-1.3-contributor",
       "bills": "none",
       "last_verified": "2026-10-22",
-      "source": "opencode models"
+      "source": "opencode models",
+      "harnesses": ["opencode"]
     },
     {
       "id": "gpt-6-luna",
       "status": "active",
       "bills": "none",
       "last_verified": "2026-10-22",
-      "source": "codex debug models"
+      "source": "codex debug models",
+      "harnesses": ["codex"]
     }
   ]
 }

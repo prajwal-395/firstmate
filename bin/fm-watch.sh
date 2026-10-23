@@ -3071,6 +3071,18 @@ while :; do
   # No conversation scraping; unresolved records are never silently expired.
   fm_pending_reply_tick "$STATE" || true
 
+  # The unified dispatch owner consumes the shared provider/model/workspace
+  # reset store and re-resolves the original route. Legacy provider adapters
+  # below remain available for tasks created before a home is migrated; a
+  # unified task's reset episode is claimed here before any adapter can act.
+  while IFS= read -r dispatch_line; do
+    [ -n "$dispatch_line" ] || continue
+    dispatch_reason="check: dispatch descent $dispatch_line"
+    fm_wake_append check dispatch-descent "$dispatch_reason" || exit 1
+    wake "$dispatch_reason"
+  done < <(FM_HOME="$FM_HOME" FM_CONFIG_OVERRIDE="$CONFIG" FM_STATE_OVERRIDE="$STATE" \
+    "$SCRIPT_DIR/fm-dispatch-descent.sh" "$STATE" 2>/dev/null || true)
+
   # Live agy ladder enforcement. Silent and free unless this home is running an
   # agy worker on a ladder rung, rate-limited to FM_AGY_DESCENT_INTERVAL, and
   # queued rather than acted on here: the descent has already happened (or

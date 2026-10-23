@@ -796,7 +796,12 @@ DISPATCH_REASON=
 DISPATCH_ROUTE_HARNESS=
 DISPATCH_ROUTE_MODEL=
 DISPATCH_ROUTE_EFFORT=
+DISPATCH_ROUTE_PROVIDER=
+DISPATCH_ROUTE_WORKSPACE=
+DISPATCH_ROUTE_PROJECT=
+DISPATCH_ROUTE_APPROVED=0
 DISPATCH_ROUTE_LADDER=
+DISPATCH_UNIFIED_RESOLVED=0
 DISPATCH_FALLBACK_SELECTED=
 DISPATCH_META_OVERRIDE_REASON=
 DISPATCH_EXPLANATION=
@@ -804,6 +809,7 @@ DISPATCH_LADDER_EXPLANATION=
 unset FM_CAPTAIN_OVERRIDE_REASON
 PI_OPENCODE_GO=0
 PI_OPENCODE_REROUTE=0
+PI_OPENCODE_WORKSPACE_REQUIRED=0
 PI_OPENCODE_ORG=
 PI_OPENCODE_SESSION=
 OPENCODE_WORKSPACE_ARG=
@@ -892,10 +898,10 @@ done
 [ "$BASE_BRANCH_SET" -eq 0 ] || [ -n "$BASE_BRANCH" ] || { echo "error: --base-branch requires a non-empty value" >&2; exit 1; }
 [ "$TRACEPARENT_SET" -eq 0 ] || [ -n "$TRACEPARENT_ARG" ] || { echo "error: --traceparent requires a non-empty value" >&2; exit 1; }
 [ "$OPENCODE_WORKSPACE_SET" -eq 0 ] || [ -n "$OPENCODE_WORKSPACE_ARG" ] || { echo "error: --opencode-workspace requires a non-empty value" >&2; exit 1; }
-case "$OPENCODE_WORKSPACE_ARG" in
-  ''|main|secondary) ;;
-  *) echo "error: --opencode-workspace must be main or secondary (got '$OPENCODE_WORKSPACE_ARG')" >&2; exit 1 ;;
-esac
+if [ -n "$OPENCODE_WORKSPACE_ARG" ]; then
+  [[ "$OPENCODE_WORKSPACE_ARG" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] \
+    || { echo "error: invalid dispatch account/workspace '$OPENCODE_WORKSPACE_ARG'" >&2; exit 1; }
+fi
 if [ "$OPENCODE_WORKSPACE_SET" -eq 1 ] && [ "$RELAUNCH" -eq 0 ]; then
   echo "error: --opencode-workspace applies only to --relaunch; a fresh launch routes through the opencode ladder" >&2
   exit 1
@@ -1952,6 +1958,13 @@ if [ "$RELAUNCH" -eq 1 ]; then
   DISPATCH_ROUTE_HARNESS=$(fm_meta_get "$RELAUNCH_META" dispatch_route_harness)
   DISPATCH_ROUTE_MODEL=$(fm_meta_get "$RELAUNCH_META" dispatch_route_model)
   DISPATCH_ROUTE_EFFORT=$(fm_meta_get "$RELAUNCH_META" dispatch_route_effort)
+  DISPATCH_ROUTE_PROVIDER=$(fm_meta_get "$RELAUNCH_META" dispatch_route_provider)
+  DISPATCH_ROUTE_WORKSPACE=$(fm_meta_get "$RELAUNCH_META" dispatch_route_workspace)
+  DISPATCH_ROUTE_PROJECT=$(fm_meta_get "$RELAUNCH_META" dispatch_project)
+  DISPATCH_ROUTE_APPROVED=0
+  [ "$(fm_meta_get "$RELAUNCH_META" dispatch_approved)" = 1 ] && DISPATCH_ROUTE_APPROVED=1
+  DISPATCH_UNIFIED_RESOLVED=0
+  [ "$(fm_meta_get "$RELAUNCH_META" dispatch_unified)" = 1 ] && DISPATCH_UNIFIED_RESOLVED=1
   DISPATCH_ROUTE_LADDER=$(fm_meta_get "$RELAUNCH_META" dispatch_ladder)
   DISPATCH_FALLBACK_SELECTED=$(fm_meta_get "$RELAUNCH_META" dispatch_fallback)
   DISPATCH_META_OVERRIDE_REASON=$(fm_meta_get "$RELAUNCH_META" dispatch_override_reason)
@@ -2161,7 +2174,7 @@ dispatch_adopt_captain_route() {
 dispatch_apply_profile() {
   local dispatch_rules="$CONFIG/dispatch-policy.json" brief_file project_name note_file route_json route_status
   local requested_harness requested_raw mismatch=0 expected_profile
-  local declare_args=()
+  local declare_args=() approval_args=()
   if [ "$KIND" = secondmate ] || [ "$RELAUNCH" -eq 1 ]; then
     if [ "$CAPTAIN_ROUTE_SET" -eq 1 ]; then
       echo "error: --captain-route applies only to a fresh crewmate or scout dispatch" >&2
@@ -2198,7 +2211,8 @@ dispatch_apply_profile() {
     return 1
   }
   [ "$DECLARE_SET" -eq 0 ] || declare_args=(--declare "$DECLARE")
-  if route_json=$(FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-dispatch-resolve.sh" --json "$brief_file" --project "$project_name" "${declare_args[@]}" 2>"$note_file"); then
+  if [ "$CAPTAIN_ROUTE_SET" -eq 1 ] && [ -n "$CAPTAIN_SAID" ]; then approval_args=(--captain-approved); fi
+  if route_json=$(FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-dispatch-resolve.sh" --json "$brief_file" --project "$project_name" "${declare_args[@]}" "${approval_args[@]}" 2>"$note_file"); then
     :
   else
     route_status=$?
@@ -2218,6 +2232,36 @@ dispatch_apply_profile() {
   DISPATCH_ROUTE_HARNESS=$(jq -r '.profile.harness // ""' <<<"$route_json")
   DISPATCH_ROUTE_MODEL=$(jq -r '.profile.model // ""' <<<"$route_json")
   DISPATCH_ROUTE_EFFORT=$(jq -r '.profile.effort // ""' <<<"$route_json")
+  DISPATCH_ROUTE_PROVIDER=$(jq -r '.profile.provider // ""' <<<"$route_json")
+  DISPATCH_ROUTE_WORKSPACE=$(jq -r '.profile.workspace // ""' <<<"$route_json")
+  DISPATCH_ROUTE_PROJECT=$project_name
+  [ "$CAPTAIN_ROUTE_SET" -eq 0 ] || DISPATCH_ROUTE_APPROVED=1
+  requested_harness=${ARG3:-}
+  case "$requested_harness" in *' '*) requested_harness= ;; esac
+  if [ "$CAPTAIN_ROUTE_SET" -eq 0 ] && [ -n "$requested_harness" ]; then
+    explicit_candidate=$(jq -c --arg harness "$requested_harness" \
+      --arg model "${MODEL:-}" --argjson model_set "$MODEL_SET" \
+      --arg effort "${EFFORT:-}" --argjson effort_set "$EFFORT_SET" '
+        [.explanation.candidates[]? | select(.eligible)
+          | select(.profile.harness == $harness)
+          | select($model_set == 0 or .profile.model == $model)
+          | select($effort_set == 0 or .profile.effort == $effort)] | first // empty
+      ' <<<"$route_json" 2>/dev/null) || explicit_candidate=
+    if [ -n "$explicit_candidate" ]; then
+      DISPATCH_ROUTE_HARNESS=$(jq -r '.profile.harness' <<<"$explicit_candidate")
+      DISPATCH_ROUTE_MODEL=$(jq -r '.profile.model // ""' <<<"$explicit_candidate")
+      DISPATCH_ROUTE_EFFORT=$(jq -r '.profile.effort // ""' <<<"$explicit_candidate")
+      DISPATCH_ROUTE_PROVIDER=$(jq -r '.provider // .profile.provider // ""' <<<"$explicit_candidate")
+      DISPATCH_ROUTE_WORKSPACE=$(jq -r '.profile.workspace // ""' <<<"$explicit_candidate")
+      DISPATCH_REASON="explicitly requested the eligible ${DISPATCH_ROUTE_HARNESS} rung from the configured route"
+      DISPATCH_EXPLANATION=$(jq -c --argjson candidate "$explicit_candidate" --arg reason "$DISPATCH_REASON" \
+        '.explanation + {reason:$reason,chosen:$candidate,explicit_harness:true}' <<<"$route_json")
+    fi
+  fi
+  if [ "$(jq -r '.profile.dispatch_unified // false' <<<"$route_json")" = true ]; then
+    DISPATCH_UNIFIED_RESOLVED=1
+    DISPATCH_LADDER_RESOLVED=1
+  fi
   DISPATCH_ROUTE_LADDER=$(jq -r '.profile.dispatch_ladder // ""' <<<"$route_json")
   DISPATCH_EXPLANATION=$(jq -c '.explanation // {}' <<<"$route_json")
   route_status=$(jq -r '.status' <<<"$route_json")
@@ -2267,6 +2311,10 @@ dispatch_apply_profile() {
   if [ -z "$requested_harness" ] || [ "$requested_harness" = "$DISPATCH_ROUTE_HARNESS" ]; then
     [ "$MODEL_SET" -eq 1 ] || MODEL=$DISPATCH_ROUTE_MODEL
     [ "$EFFORT_SET" -eq 1 ] || EFFORT=$DISPATCH_ROUTE_EFFORT
+    if [ -n "$DISPATCH_ROUTE_WORKSPACE" ]; then
+      OPENCODE_WORKSPACE_ARG=$DISPATCH_ROUTE_WORKSPACE
+      OPENCODE_WORKSPACE_SET=1
+    fi
     if [ "$mismatch" -eq 0 ]; then
       DISPATCH_LADDER=$DISPATCH_ROUTE_LADDER
     fi
@@ -2755,7 +2803,7 @@ case "$HARNESS" in
     # launch instead, so it can never sit on a rung the current caps exclude.
     _FM_OPENCODE_RELAUNCH_WS=$RELAUNCH_PRIOR_WORKSPACE
     [ "$OPENCODE_WORKSPACE_SET" -eq 0 ] || _FM_OPENCODE_RELAUNCH_WS=$OPENCODE_WORKSPACE_ARG
-    if [ "$DISPATCH_LADDER_RESOLVED" -eq 0 ] && { [ "$RELAUNCH" -eq 0 ] || [ "$MODEL_SET" -eq 0 ] || [ "$_FM_OPENCODE_RELAUNCH_WS" != secondary ]; }; then
+    if [ "$DISPATCH_UNIFIED_RESOLVED" -eq 0 ] && [ "$DISPATCH_LADDER_RESOLVED" -eq 0 ] && { [ "$RELAUNCH" -eq 0 ] || [ "$MODEL_SET" -eq 0 ] || [ "$_FM_OPENCODE_RELAUNCH_WS" != secondary ]; }; then
       _FM_OPENCODE_LADDER_NOTE=$(mktemp "${TMPDIR:-/tmp}/fm-opencode-ladder.XXXXXX" 2>/dev/null) || _FM_OPENCODE_LADDER_NOTE=
       [ -n "$_FM_OPENCODE_LADDER_NOTE" ] || { echo "error: could not prepare opencode ladder decision" >&2; exit 1; }
       _FM_OPENCODE_LADDER_REQUEST=${MODEL:-}
@@ -2805,7 +2853,7 @@ case "$HARNESS" in
     # decision to stay on Codex Plus: it enters the shared rung gate from
     # Go exactly like a fresh typed-ladder launch, so a capped Plus rung
     # routes onward instead of relaunching onto the refusal that stopped it.
-    if { [ "$DISPATCH_LADDER" = opencode ] || { [ "$RELAUNCH" -eq 1 ] && [ "$MODEL_SET" -eq 0 ]; }; } && [ "$DISPATCH_LADDER_RESOLVED" -eq 0 ]; then
+    if [ "$DISPATCH_UNIFIED_RESOLVED" -eq 0 ] && { [ "$DISPATCH_LADDER" = opencode ] || { [ "$RELAUNCH" -eq 1 ] && [ "$MODEL_SET" -eq 0 ]; }; } && [ "$DISPATCH_LADDER_RESOLVED" -eq 0 ]; then
       _FM_OPENCODE_LADDER_NOTE=$(mktemp "${TMPDIR:-/tmp}/fm-opencode-ladder.XXXXXX" 2>/dev/null) || _FM_OPENCODE_LADDER_NOTE=
       [ -n "$_FM_OPENCODE_LADDER_NOTE" ] || { echo "error: could not prepare opencode ladder decision" >&2; exit 1; }
       _FM_OPENCODE_LADDER_MODEL=$(fm_opencode_ladder_model default "$STATE" 2>"$_FM_OPENCODE_LADDER_NOTE") || {
@@ -2866,12 +2914,16 @@ case "$HARNESS" in
     # already takes, so an ordinary dispatch has nowhere to route around it, and
     # ahead of the catalogue probe below so a launch the policy already refuses
     # never spends a network round-trip while holding the spawn locks.
-    AGY_LADDER_NOTE=$(fm_agy_ladder_gate "$MODEL" "$STATE") || {
+    if [ "$DISPATCH_UNIFIED_RESOLVED" -eq 1 ]; then
+      AGY_LADDER_NOTE=
+    else
+      AGY_LADDER_NOTE=$(fm_agy_ladder_gate "$MODEL" "$STATE") || {
       printf '%s\n' "$AGY_LADDER_NOTE" >&2
       exit 1
-    }
-    DISPATCH_LADDER_EXPLANATION=$AGY_LADDER_NOTE
-    [ -z "$AGY_LADDER_NOTE" ] || printf '%s\n' "$AGY_LADDER_NOTE" >&2
+      }
+      DISPATCH_LADDER_EXPLANATION=$AGY_LADDER_NOTE
+      [ -z "$AGY_LADDER_NOTE" ] || printf '%s\n' "$AGY_LADDER_NOTE" >&2
+    fi
     # This launch's headroom is already reserved: fm_agy_ladder_gate records it
     # under the same account-wide lock it decided on, so no launch can slip
     # between a decision and its reservation. Reserving it a second time here
@@ -2908,7 +2960,11 @@ esac
 # fallbacks, explicit harnesses, and recovery relaunches. Run after OpenCode's
 # model gate so a modelless default harness still resolves to its normal free
 # rung before the selected provider/model is checked for Pi.
-if [ "$PI_OPENCODE_GO_ENABLED" -eq 1 ] && [ "$KIND" != secondmate ] && [ "$HARNESS" = opencode ]; then
+if [ "$DISPATCH_UNIFIED_RESOLVED" -eq 1 ] && [ "$KIND" != secondmate ] \
+  && [[ "$DISPATCH_ROUTE_PROVIDER" == opencode* ]] && [ "$HARNESS" = pi ]; then
+  PI_OPENCODE_REROUTE=1
+  case "$DISPATCH_ROUTE_PROVIDER" in opencode-go*) PI_OPENCODE_GO=1 ;; esac
+elif [ "$DISPATCH_UNIFIED_RESOLVED" -eq 0 ] && [ "$PI_OPENCODE_GO_ENABLED" -eq 1 ] && [ "$KIND" != secondmate ] && [ "$HARNESS" = opencode ]; then
   case "$MODEL" in
     opencode-go/*) PI_OPENCODE_GO=1 ;;
     opencode/*) ;;
@@ -3017,6 +3073,8 @@ if [ "$HARNESS" = opencode ]; then
     else
       OPENCODE_WORKSPACE=$RELAUNCH_PRIOR_WORKSPACE
     fi
+  elif [ "$DISPATCH_UNIFIED_RESOLVED" -eq 1 ] && [ -n "$DISPATCH_ROUTE_WORKSPACE" ]; then
+    OPENCODE_WORKSPACE=$DISPATCH_ROUTE_WORKSPACE
   elif fm_opencode_model_workspace_scoped "$MODEL" 2>/dev/null; then
     if [ "$MODEL" = "$FM_OPENCODE_LADDER_GO" ]; then
       [ "$(fm_opencode_ladder_pick_go_workspace "$STATE" 2>/dev/null)" != "$FM_OPENCODE_WORKSPACE_SECOND" ] || OPENCODE_WORKSPACE=secondary
@@ -3025,24 +3083,30 @@ if [ "$HARNESS" = opencode ]; then
     fi
   fi
 fi
-if [ "$PI_OPENCODE_GO" -eq 1 ]; then
+if [ "$PI_OPENCODE_REROUTE" -eq 1 ]; then
   if [ "$RELAUNCH" -eq 1 ]; then
     if [ "$OPENCODE_WORKSPACE_SET" -eq 1 ]; then
       OPENCODE_WORKSPACE=$OPENCODE_WORKSPACE_ARG
     else
       OPENCODE_WORKSPACE=$RELAUNCH_PRIOR_WORKSPACE
     fi
+  elif [ "$DISPATCH_UNIFIED_RESOLVED" -eq 1 ] && [ -n "$DISPATCH_ROUTE_WORKSPACE" ]; then
+    OPENCODE_WORKSPACE=$DISPATCH_ROUTE_WORKSPACE
   elif [ "$MODEL" = "$FM_OPENCODE_LADDER_GO" ] \
     && [ "$(fm_opencode_ladder_pick_go_workspace "$STATE" 2>/dev/null)" = "$FM_OPENCODE_WORKSPACE_SECOND" ]; then
     OPENCODE_WORKSPACE=secondary
   fi
-  if [ "$OPENCODE_WORKSPACE" = secondary ]; then
-    PI_OPENCODE_ORG=$(fm_opencode_workspace_org secondary) || {
-      echo "error: the selected second OpenCode workspace is not configured" >&2
+  if [ "$PI_OPENCODE_GO" -eq 1 ] || { [ "$DISPATCH_UNIFIED_RESOLVED" -eq 1 ] && [ -n "$DISPATCH_ROUTE_WORKSPACE" ]; }; then
+    PI_OPENCODE_WORKSPACE_REQUIRED=1
+  fi
+  if [ "$OPENCODE_WORKSPACE" != main ] && [ "$PI_OPENCODE_WORKSPACE_REQUIRED" -eq 1 ]; then
+    PI_OPENCODE_ORG=$(fm_opencode_workspace_org "$OPENCODE_WORKSPACE") || {
+      echo "error: the selected OpenCode workspace '$OPENCODE_WORKSPACE' is not configured" >&2
       exit 1
     }
     OPENCODE_SECOND_ORG=$PI_OPENCODE_ORG
-  else
+  elif [ "$PI_OPENCODE_WORKSPACE_REQUIRED" -eq 1 ] \
+    || { [ "$PI_OPENCODE_GO" -eq 0 ] && fm_opencode_model_workspace_scoped "$MODEL" 2>/dev/null; }; then
     PI_OPENCODE_ORG=$(fm_opencode_main_org_ensure "$(fm_opencode_second_config_dir)") || exit 1
     OPENCODE_MAIN_ORG=$PI_OPENCODE_ORG
   fi
@@ -3087,9 +3151,9 @@ fi
 # proven refuses the launch rather than running unpinned. Without a
 # configured second workspace the main workspace still runs without a
 # workspace pin.
-if [ "$OPENCODE_WORKSPACE" = secondary ]; then
+if [ "$OPENCODE_WORKSPACE" != main ] && { [ "$HARNESS" = opencode ] || [ "$PI_OPENCODE_WORKSPACE_REQUIRED" -eq 1 ]; }; then
   OPENCODE_SECOND_ORG=$(fm_opencode_workspace_org "$OPENCODE_WORKSPACE") || exit 1
-elif { [ "$HARNESS" = opencode ] || [ "$PI_OPENCODE_GO" -eq 1 ]; } \
+elif { [ "$HARNESS" = opencode ] || [ "$PI_OPENCODE_WORKSPACE_REQUIRED" -eq 1 ]; } \
   && fm_opencode_model_workspace_scoped "$MODEL" 2>/dev/null \
   && fm_opencode_second_configured 2>/dev/null; then
   OPENCODE_MAIN_ORG=$(fm_opencode_main_org_ensure "$(fm_opencode_second_config_dir)") || exit 1
@@ -3103,7 +3167,7 @@ opencode_task_db() {
     OPENCODE_SECOND_DB=$(fm_opencode_workspace_db_for_task "$OPENCODE_WORKSPACE" "$OPENCODE_SECOND_ORG" "$(fm_opencode_second_config_dir)" "$ID" "$STATE") || return 1
   elif [ -n "$OPENCODE_MAIN_ORG" ]; then
     OPENCODE_MAIN_DB=$(fm_opencode_workspace_db_for_task "$OPENCODE_WORKSPACE" "$OPENCODE_MAIN_ORG" "$(fm_opencode_second_config_dir)" "$ID" "$STATE") || return 1
-  elif { [ "$HARNESS" = opencode ] || [ "$PI_OPENCODE_GO" -eq 1 ]; } && [ "$KIND" != secondmate ]; then
+  elif { [ "$HARNESS" = opencode ] || [ "$PI_OPENCODE_WORKSPACE_REQUIRED" -eq 1 ]; } && [ "$KIND" != secondmate ]; then
     # Unpinned standalone workers still need a task-private database so
     # OpenCode cannot grow its machine-wide event log. Keep an existing file
     # intact across relaunches; seed new files with the console account.
@@ -3116,10 +3180,10 @@ opencode_task_db() {
   fi
 }
 [ "$OPENCODE_SHARED_SERVER" -eq 1 ] || opencode_task_db || exit 1
-if [ "$PI_OPENCODE_GO" -eq 1 ]; then
+if [ "$PI_OPENCODE_WORKSPACE_REQUIRED" -eq 1 ]; then
   PI_OPENCODE_DB=${OPENCODE_SECOND_DB:-${OPENCODE_MAIN_DB:-$OPENCODE_TASK_DB}}
   fm_opencode_db_has_console_login "$PI_OPENCODE_DB" || {
-    echo "error: Pi OpenCode Go requires a console login in its task database" >&2
+    echo "error: the selected OpenCode provider requires a console login in its task database" >&2
     exit 1
   }
   # The pinned workspace databases have to stay current with the live console
@@ -6371,10 +6435,17 @@ else
   SPAWN_FRESH_COMMIT_PENDING=1
 fi
 SPAWN_META_PATH=$SPAWN_META_TMP
+if [ "$DISPATCH_UNIFIED_RESOLVED" -eq 1 ] && [ -n "$MODEL" ] && [ -r "$CONFIG/dispatch-policy.json" ]; then
+  _DISPATCH_CURRENT_PROVIDER=$(jq -r --arg model "$MODEL" '
+    ([.default_ladder[]?, .rules[]?.ladder[]? | select(.model == $model) | .provider] | unique | if length == 1 then .[0] else empty end)
+  ' "$CONFIG/dispatch-policy.json" 2>/dev/null) || _DISPATCH_CURRENT_PROVIDER=
+  [ -z "$_DISPATCH_CURRENT_PROVIDER" ] || DISPATCH_ROUTE_PROVIDER=$_DISPATCH_CURRENT_PROVIDER
+  unset _DISPATCH_CURRENT_PROVIDER
+fi
 preserve_relaunch_meta() {
   awk -F= '
     BEGIN {
-      split("window endpoint_task_id worktree project harness kind mode yolo branch tasktmp base_branch model effort account account_provider busy_gen spawn_gen spawned_at traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx dispatch_source dispatch_reason dispatch_route_harness dispatch_route_model dispatch_route_effort dispatch_ladder dispatch_fallback dispatch_override_reason dispatch_explanation opencode_workspace opencode_server opencode_server_session", keys, " ")
+      split("window endpoint_task_id worktree project harness kind mode yolo branch tasktmp base_branch model effort account account_provider busy_gen spawn_gen spawned_at traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx dispatch_source dispatch_reason dispatch_route_harness dispatch_route_model dispatch_route_effort dispatch_route_provider dispatch_route_workspace dispatch_ladder dispatch_fallback dispatch_override_reason dispatch_explanation dispatch_unified dispatch_declaration dispatch_project dispatch_approved opencode_workspace opencode_server opencode_server_session", keys, " ")
       for (i in keys) owned[keys[i]] = 1
     }
     !($1 in owned)
@@ -6416,6 +6487,12 @@ preserve_relaunch_meta() {
   [ -z "$DISPATCH_ROUTE_HARNESS" ] || echo "dispatch_route_harness=$DISPATCH_ROUTE_HARNESS"
   [ -z "$DISPATCH_ROUTE_MODEL" ] || echo "dispatch_route_model=$DISPATCH_ROUTE_MODEL"
   [ -z "$DISPATCH_ROUTE_EFFORT" ] || echo "dispatch_route_effort=$DISPATCH_ROUTE_EFFORT"
+  [ -z "$DISPATCH_ROUTE_PROVIDER" ] || echo "dispatch_route_provider=$DISPATCH_ROUTE_PROVIDER"
+  [ -z "$DISPATCH_ROUTE_WORKSPACE" ] || echo "dispatch_route_workspace=$DISPATCH_ROUTE_WORKSPACE"
+  [ "$DISPATCH_UNIFIED_RESOLVED" -ne 1 ] || echo 'dispatch_unified=1'
+  [ "$DECLARE_SET" -ne 1 ] || echo "dispatch_declaration=$DECLARE"
+  [ -z "$DISPATCH_ROUTE_PROJECT" ] || echo "dispatch_project=$DISPATCH_ROUTE_PROJECT"
+  [ "$DISPATCH_ROUTE_APPROVED" -ne 1 ] || echo 'dispatch_approved=1'
   [ -z "$DISPATCH_ROUTE_LADDER" ] || echo "dispatch_ladder=$DISPATCH_ROUTE_LADDER"
   [ -z "$DISPATCH_FALLBACK_SELECTED" ] || echo "dispatch_fallback=$DISPATCH_FALLBACK_SELECTED"
   [ -z "$DISPATCH_META_OVERRIDE_REASON" ] || echo "dispatch_override_reason=$DISPATCH_META_OVERRIDE_REASON"

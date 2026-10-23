@@ -1049,12 +1049,12 @@ test_the_captains_override_holds_a_worker_and_says_so() {
   local state out
   state=$(fresh_state tick-override)
   meta "$state" pinned "$RUNG1"
+  fm_agy_pin_task "$state" pinned 'captain: finish this run on opus'
   record "$state" "$RUNG1" 0.0 '3h 41m'
   record "$state" "$RUNG2" 94.6 '3h 37m'
   FAKE_PANE=$(ordinary_pane)
 
-  out=$(FM_AGY_LADDER_OVERRIDE='captain: finish this run on opus' \
-    fm_agy_descent_tick "$state" "$NOW")
+  out=$(fm_agy_descent_tick "$state" "$NOW")
   assert_contains "$out" "override pinned" "an overridden worker must be reported, not moved"
   assert_contains "$out" "captain: finish this run on opus" \
     "the override's stated reason must be printed, exactly as the launch gate prints it"

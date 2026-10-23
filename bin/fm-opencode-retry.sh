@@ -203,6 +203,7 @@
 # 2 usage. All plugin invocations swallow failures so supervision evidence can
 # never break the harness's own lifecycle.
 set -u
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
   cat >&2 <<'EOF'
@@ -227,16 +228,28 @@ case "$BLOCK_SECS" in ''|*[!0-9]*) BLOCK_SECS=600 ;; esac
 STALE_SECS=${FM_OPENCODE_RETRY_STALE_SECS:-600}
 case "$STALE_SECS" in ''|*[!0-9]*) STALE_SECS=600 ;; esac
 
-# Cap phrases, lowercase single-spaced: the matcher normalizes rendered text
-# into this shape before comparing, so a wrap can never split a match.
-# `Rate limit exceeded` is absent on purpose (see the header).
+SCAN_POLICY=${FM_CONFIG_OVERRIDE:+$FM_CONFIG_OVERRIDE/dispatch-policy.json}
+[ -n "$SCAN_POLICY" ] || [ -z "${FM_HOME:-}" ] || SCAN_POLICY="$FM_HOME/config/dispatch-policy.json"
+SCAN_MODEL=${FM_DISPATCH_MODEL:-}
+
+# Provider refusal wording belongs to dispatch-policy.json. A text match is
+# useful only when the configured model identifies the provider and one of
+# that provider's configured patterns matches the normalized capture.
 cap_phrase_slug() {  # <normalized-text> -> slug, or failure
-  case "$1" in
-    *'free usage exceeded'*) printf 'free-usage-exceeded'; return 0 ;;
-  esac
-  case "$1" in
-    *'subscribe to go'*) printf 'subscribe-to-go'; return 0 ;;
-  esac
+  local provider pattern reset slug
+  [ -r "$SCAN_POLICY" ] && [ -n "$SCAN_MODEL" ] || return 1
+  provider=$(jq -r --arg model "$SCAN_MODEL" '
+    ([.default_ladder[]?, .rules[]?.ladder[]? | select(.model == $model) | .provider] | first) // empty
+  ' "$SCAN_POLICY" 2>/dev/null) || provider=
+  [ -n "$provider" ] || return 1
+  while IFS=$'\t' read -r pattern reset; do
+    [ -n "$pattern" ] || continue
+    if printf '%s\n' "$1" | grep -Eiq -- "$pattern"; then
+      slug=$(printf '%s' "$pattern" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9][^a-z0-9]*/-/g;s/^-//;s/-$//')
+      printf '%s' "${slug:-configured-refusal}"
+      return 0
+    fi
+  done < <(jq -r --arg provider "$provider" '.providers[]? | select(.id == $provider) | .refusal_patterns[]? | [.pattern,.reset] | @tsv' "$SCAN_POLICY" 2>/dev/null)
   return 1
 }
 
@@ -267,31 +280,17 @@ CMD=${1:-}
 if [ "$CMD" = record-free ]; then
   FREE_STATE=${2:-}; FREE_MODEL=${3:-}; FREE_WORKSPACE=${4:-}; FREE_RESET=${5:--}; shift 5 || usage
   [ -n "$FREE_STATE" ] && [ -d "$FREE_STATE" ] && [ -n "$FREE_MODEL" ] && [ -n "$FREE_WORKSPACE" ] && [ "$#" -gt 0 ] || usage
-  case "$FREE_MODEL" in opencode/deepseek-v4.1-flash-free|opencode/glm-5.3-flash-free|opencode/mimo-v2.6-flash-free) ;; *) echo 'error: unrecognized free model' >&2; exit 1 ;; esac
-  case "$FREE_WORKSPACE" in main|secondary) ;; *) echo 'error: workspace must be main or secondary' >&2; exit 1 ;; esac
-  case "$FREE_RESET" in -) FREE_RESET_JSON=null ;; ''|*[!0-9]*) echo 'error: reset must be epoch milliseconds or -' >&2; exit 1 ;; *) FREE_RESET_JSON=$FREE_RESET ;; esac
+  case "$FREE_RESET" in -) : ;; ''|*[!0-9]*) echo 'error: reset must be epoch milliseconds or -' >&2; exit 1 ;; *) : ;; esac
   FREE_ERROR=$*
   [ -n "$FREE_ERROR" ] || usage
-  case "$FREE_MODEL:$FREE_WORKSPACE" in
-    opencode/deepseek-v4.1-flash-free:secondary) FREE_RUNG=deepseek-second ;;
-    opencode/deepseek-v4.1-flash-free:main) FREE_RUNG=deepseek-main ;;
-    opencode/glm-5.3-flash-free:secondary) FREE_RUNG=glm-second ;;
-    opencode/glm-5.3-flash-free:main) FREE_RUNG=glm-main ;;
-    opencode/mimo-v2.6-flash-free:secondary) FREE_RUNG=mimo-second ;;
-    opencode/mimo-v2.6-flash-free:main) FREE_RUNG=mimo-main ;;
-  esac
-  if [ "$FREE_RESET" = - ]; then
-    FREE_NOW=$(date +%s)
-    FREE_RESET=$(( (FREE_NOW / 86400 + 1) * 86400 * 1000 ))
-  fi
-  "${BASH_SOURCE[0]}" record-cap "$FREE_STATE" "$FREE_RUNG" "$FREE_RESET" >/dev/null || exit 1
-  FREE_LOG="$FREE_STATE/opencode-free-exhaustions.jsonl"
-  if [ -L "$FREE_LOG" ] || { [ -e "$FREE_LOG" ] && [ ! -f "$FREE_LOG" ]; }; then
-    echo 'error: refusing non-regular exhaustion log' >&2
-    exit 1
-  fi
-  FREE_ENTRY=$(jq -cn --arg model "$FREE_MODEL" --arg workspace "$FREE_WORKSPACE" --argjson reset "$FREE_RESET_JSON" --arg error "$FREE_ERROR" --argjson at "$(date +%s)" '{model:$model,workspace:$workspace,observed_at:$at,provider_error:$error,reset_at_ms:$reset}') || exit 1
-  (umask 077; printf '%s\n' "$FREE_ENTRY" >> "$FREE_LOG" && chmod 600 "$FREE_LOG") || exit 1
+  CONFIG_DIR=${FM_CONFIG_OVERRIDE:-}
+  [ -n "$CONFIG_DIR" ] || { [ -n "${FM_HOME:-}" ] && CONFIG_DIR="$FM_HOME/config"; }
+  [ -n "$CONFIG_DIR" ] && [ -f "$CONFIG_DIR/dispatch-policy.json" ] || { echo 'error: dispatch policy required to record provider refusal' >&2; exit 1; }
+  FREE_PROVIDER=$(jq -r --arg model "$FREE_MODEL" '
+    ([.default_ladder[]?, .rules[]?.ladder[]? | select(.model == $model) | .provider] | first) // empty
+  ' "$CONFIG_DIR/dispatch-policy.json" 2>/dev/null) || FREE_PROVIDER=
+  [ -n "$FREE_PROVIDER" ] || { echo 'error: model is not assigned to a provider in dispatch-policy.json' >&2; exit 1; }
+  "$SCRIPT_DIR/fm-dispatch-reset.sh" observe "$FREE_STATE" "$CONFIG_DIR/dispatch-policy.json" "$FREE_PROVIDER" "$FREE_MODEL" "$FREE_WORKSPACE" "$FREE_RESET" "$FREE_ERROR" || exit 1
   exit 0
 fi
 case "$CMD" in
@@ -301,9 +300,14 @@ esac
 
 if [ "$CMD" = scan-text ]; then
   TEXT_FILE=
+  SCAN_POLICY=${FM_CONFIG_OVERRIDE:+$FM_CONFIG_OVERRIDE/dispatch-policy.json}
+  [ -n "$SCAN_POLICY" ] || [ -z "${FM_HOME:-}" ] || SCAN_POLICY="$FM_HOME/config/dispatch-policy.json"
+  SCAN_MODEL=${FM_DISPATCH_MODEL:-}
   while [ $# -gt 0 ]; do
     case "$1" in
       --file) TEXT_FILE=${2:-}; shift 2 || usage ;;
+      --policy) SCAN_POLICY=${2:-}; shift 2 || usage ;;
+      --model) SCAN_MODEL=${2:-}; shift 2 || usage ;;
       *) usage ;;
     esac
   done
@@ -470,6 +474,8 @@ ID=${2:-}
 [ -n "$STATE" ] && [ -n "$ID" ] || usage
 case "$ID" in *[!A-Za-z0-9._-]*) echo "error: invalid task id" >&2; exit 1 ;; esac
 [ -d "$STATE" ] || { echo "error: state dir not found: $STATE" >&2; exit 1; }
+meta_model=$(awk -F= '$1 == "model" {sub(/^[^=]*=/, ""); print; exit}' "$STATE/$ID.meta" 2>/dev/null)
+[ -z "$meta_model" ] || SCAN_MODEL=$meta_model
 
 # --text-file is honored by check and verdict only; record and clear take no
 # flags, and anything else here is usage.

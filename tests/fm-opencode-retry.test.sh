@@ -29,6 +29,24 @@ set -u
 
 HELPER="$ROOT/bin/fm-opencode-retry.sh"
 TMP_ROOT=$(fm_test_tmproot fm-opencode-retry)
+mkdir -p "$TMP_ROOT/config"
+cat > "$TMP_ROOT/config/dispatch-policy.json" <<'JSON'
+{
+  "version": 2,
+  "rules": [],
+  "default_ladder": [
+    {"id":"free","harness":"pi","model":"opencode/deepseek-v4.1-flash-free","provider":"opencode"}
+  ],
+  "providers": [
+    {"id":"opencode","refusal_patterns":[
+      {"pattern":"free usage exceeded","reset":"retry-after-iso8601-or-next-utc-day"},
+      {"pattern":"subscribe to go","reset":"retry-after-iso8601-or-next-utc-day"}
+    ]}
+  ]
+}
+JSON
+export FM_CONFIG_OVERRIDE="$TMP_ROOT/config"
+export FM_DISPATCH_MODEL=opencode/deepseek-v4.1-flash-free
 
 [ -x "$HELPER" ] || fail "helper not executable: $HELPER"
 

@@ -498,6 +498,64 @@ test_active_dispatch_profile_resolves_default_for_scout() {
   pass "active crew-dispatch profile resolves a deterministic default for scout spawns"
 }
 
+test_unified_dispatch_enforces_and_records_captain_approval() {
+  local rec id out status
+  id=profile-unified-approval-z40
+  rec=$(make_spawn_case profile-unified-approval claude "$id")
+  read_case_record "$rec"
+  cat > "$HOME_DIR/config/dispatch-policy.json" <<'JSON'
+{"version":2,"rules":[{"id":"open-ended","when":"Genuinely open-ended work","trigger":{"kind":"declaration"},"ladder":[{"id":"opus","harness":"claude","model":"claude-opus-5-5","provider":"anthropic","effort":"medium","approval":"captain"}]}],"default_ladder":[{"id":"default","harness":"codex","model":"gpt-6-luna","provider":"codex","effort":"medium"}],"constraints":[{"id":"worker-anthropic-approval","when":{"scope":"worker","provider":"anthropic"},"approval":"captain"}],"providers":[]}
+JSON
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
+    "$id" "$PROJ_DIR" --declare open-ended)
+  status=$?
+  expect_code 1 "$status" "unapproved Claude route should refuse: $out"
+  [ ! -s "$LAUNCH_LOG" ] || fail "Claude route launched without captain approval"
+  assert_absent "$HOME_DIR/state/$id.meta" "unapproved route must refuse before task metadata"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
+    "$id" "$PROJ_DIR" --declare open-ended \
+    --captain-route claude/claude-opus-5-5/medium --captain-said "captain approved this route")
+  status=$?
+  expect_code 0 "$status" "captain-approved Claude route should launch: $out"
+  assert_contains "$out" "spawned $id harness=claude" "the approved policy route was not selected"
+  assert_grep 'dispatch_unified=1' "$HOME_DIR/state/$id.meta" "unified dispatch marker was not recorded"
+  assert_grep 'dispatch_approved=1' "$HOME_DIR/state/$id.meta" "captain approval was not recorded"
+  assert_grep 'dispatch_override_reason=captain approved this route' "$HOME_DIR/state/$id.meta" "verbatim captain approval was not preserved"
+  assert_grep 'dispatch_explanation=' "$HOME_DIR/state/$id.meta" "route explanation was not persisted"
+  pass "unified dispatch enforces Anthropic worker approval and records the captain's words"
+}
+
+test_unified_rung_harness_beats_global_pi_switch_and_explicit_harness_selects_its_rung() {
+  local rec id out status launch
+  id=profile-unified-harness-routing-z39
+  rec=$(make_spawn_case profile-unified-harness-routing opencode "$id" profile-unified-codex-routing-z39)
+  read_case_record "$rec"
+  cat > "$HOME_DIR/config/dispatch-policy.json" <<'JSON'
+{"version":2,"rules":[],"default_ladder":[{"id":"free","harness":"opencode","model":"opencode/deepseek-v4.1-flash-free","provider":"opencode","accounts":["main","secondary"]},{"id":"codex","harness":"codex","model":"gpt-6-luna","provider":"codex","effort":"medium"}],"constraints":[],"providers":[]}
+JSON
+  printf '%s\n' on > "$HOME_DIR/config/pi-opencode-go"
+  mkdir -p "$HOME_DIR/user-home/.pi/agent"
+  printf '%s\n' '{"providers":{"opencode":{"models":[{"id":"custom-only"}]}}}' > "$HOME_DIR/user-home/.pi/agent/models.json"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  expect_code 0 "$status" "a configured OpenCode rung must not be globally rerouted through Pi: $out"
+  assert_grep 'harness=opencode' "$HOME_DIR/state/$id.meta" "the configured rung harness was not retained"
+  launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" "opencode --model 'opencode/deepseek-v4.1-flash-free'" "the free rung did not launch through its configured harness"
+  assert_not_contains "$launch" "pi --model 'opencode/deepseek-v4.1-flash-free'" "the Pi switch overrode the rung harness"
+
+  id=profile-unified-codex-routing-z39
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --harness codex)
+  status=$?
+  expect_code 0 "$status" "an explicitly named eligible Codex rung must bypass the unrelated earlier rung: $out"
+  assert_meta_profile "$HOME_DIR/state/$id.meta" codex gpt-6-luna medium
+  assert_grep 'dispatch_explanation=' "$HOME_DIR/state/$id.meta" "explicit rung selection must retain its explanation"
+  pass "unified dispatch honors the configured harness and an explicit eligible rung"
+}
+
 test_symlinked_project_routes_by_registered_name() {
   local case_dir home real_target link_path wt wt_abs fakebin launchlog id_projects id_abs out status
   id_projects=profile-symlink-projects-form-z20
@@ -3230,6 +3288,8 @@ test_absolute_override_spelling_is_preserved_in_launch_paths
 test_unresolvable_relative_overrides_fail_loudly
 test_active_dispatch_profile_resolves_default_for_ship
 test_active_dispatch_profile_resolves_default_for_scout
+test_unified_dispatch_enforces_and_records_captain_approval
+test_unified_rung_harness_beats_global_pi_switch_and_explicit_harness_selects_its_rung
 test_symlinked_project_routes_by_registered_name
 test_off_rule_profile_requires_captain_override_reason
 test_matching_explicit_profile_needs_no_override

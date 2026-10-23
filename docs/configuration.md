@@ -1077,25 +1077,31 @@ Regression coverage is in [`tests/fm-git-stash-guard.test.sh`](../tests/fm-git-s
 
 ## Crew dispatch policy (config/dispatch-policy.json)
 
-`config/dispatch-policy.json` is an optional local, gitignored policy for fresh crewmate and scout spawns.
-The policy is deterministic: exact registered project names match first, one declared `declaration` trigger may match next only when the spawn names it with `--declare <rule-id>`, and the default route applies otherwise.
-A declaration rule never fires by itself, so a rationed profile such as the unshaped-work rule stays off unless the task explicitly declares it; an unknown id, or any id when the policy declares no declaration trigger, is an actionable configuration error.
-A rule has a stable `id`, an explanatory `when`, a `trigger`, and an ordered `use` profile or profile array.
-A project trigger uses `{"kind":"projects","names":["registered-project-name"]}`.
-The unshaped-work rule uses `{"kind":"declaration"}` and no Jev or other model judgment.
-`version` is `1` for this schema.
-Legacy `match`, `projects`, and exhausted-ladder fallback fields are rejected and must be migrated by the operator.
+`config/dispatch-policy.json` is the optional local, gitignored policy for fresh crewmate and scout spawns.
+Version 2 is the single dispatch schema: project triggers, explicitly declared rules, and the default each map to ordered ladders of rungs.
+An exact registered project name wins first, then a declaration named with `--declare <rule-id>`, then `default_ladder`.
+A declaration rule never fires by itself.
+Each rung names its id, harness, model, provider, optional ordered `accounts`, `account_strategy`, effort, and captain approval requirement.
+Rungs may be any length, and a workspace or account is an ordinary configured value.
+Account labels use letters, digits, underscores, or hyphens and begin with a letter or digit.
+`account_strategy` is `ordered` (the default) or `reset-soonest-yield-shorter-reset`, which ranks the configured account rows by their next known quota reset before testing eligibility.
+`constraints` can deny a provider for a home role or require captain approval for a worker route.
+`providers[].refusal_patterns` declares provider-specific refusal wording and reset policy.
+`reset` supports `next-utc-day`, `retry-after-iso8601`, `retry-after-iso8601-or-next-utc-day`, or `provider-reset-time-or-quota-axi`; reset timestamps found in refusal text are stored as absolute epochs.
+`bin/fm-dispatch-policy-validate.sh` owns structural validation, while the rest of this section owns the schema.
+Version 1 policies must be migrated with `FM_HOME=<home> bin/fm-migrate-unified-dispatch.sh --force`.
 
-The optional `default_ladder` declares the DeepSeek Flash Free, GLM Flash Free, MiMo Flash Free, Codex Plus, and OpenCode Go model fillings.
-The free models are tried in that model order, on the secondary workspace before the main workspace, before the Codex Plus and Go rungs.
-The free-pool reset records and exact provider refusals are retained in `state/opencode-free-exhaustions.jsonl` for the home that observed them.
-Each JSONL row records the model, workspace, observation epoch, exact provider error, and reset epoch in milliseconds when the error supplies an ISO-8601 reset.
-Without a provider reset, the cap expires at the next UTC day boundary.
-The Go workspace pick remains monthly-reset-soonest, yielding when its shorter cap is active.
-Quota rows continue to veto exhausted, known-zero, or below-floor profiles, while unknown evidence stays eligible and disclosed.
-The agy ladder remains ordered by `agy_ladder`, and the Claude Opus 4.6 reserve remains 25 percent.
-When every OpenCode rung is proven capped, the spawn is refused with each cap reset named.
-No exhausted-ladder fallback is available.
+The shipped example expresses the current routes: the three configured free OpenCode models, each across both Go workspaces before the next model, then Codex Luna, then Muse Go with the monthly-reset-soonest workspace strategy.
+Registered Lucie projects use Antigravity Gemini Flash followed by Claude Opus Thinking.
+The declared open-ended route uses Opus 5.5 only when named.
+The policy requires captain approval for Anthropic worker routes and denies Anthropic in a research-charter home.
+`no-mistakes` is not a dispatch mode and is selected only by an explicit captain request through its own command path.
+
+`bin/fm-dispatch-reset.sh` owns the generic exhaustion store at `state/dispatch-exhaustions.jsonl`.
+Each record is keyed by provider, model, and account/workspace and expires at its own reset timestamp.
+The typed resolver joins this state with quota-axi evidence and selects the first eligible rung, preserving the policy order.
+The complete candidate evidence and the chosen route explanation are recorded in task metadata.
+There is no exhausted-ladder fallback.
 
 A route override requires `--captain-route '<harness>[/<model>[/<effort>]]'` together with `--captain-said '<verbatim captain words>'`.
 The route accepts a provider-qualified model such as `pi/opencode-go/muse-spark-1.3-contributor/xhigh`.
@@ -1105,34 +1111,37 @@ Secondmate launches and relaunches do not resolve a new policy route.
 
 ## Model catalog (config/model-catalog.json)
 
-The local catalog records available and retired model IDs with billing family, verification date, source, and optional replacement.
+The local catalog records available and retired model IDs with billing family, verification date, source, optional replacement, and optional `harnesses` array.
+A populated `harnesses` array is an allowlist of runtimes verified to expose that model; a rung using another harness is skipped and explained before the next eligible rung is selected.
 A selected policy route that names a retired ID is refused before launch and names its replacement when one is recorded.
 Models absent from the catalog remain uncatalogued and do not gain quota or availability assumptions.
-Refresh once from the main home with `FM_HOME=<main-home> bin/fm-model-catalog-refresh.sh` after reviewing the main home's OpenCode and Codex accounts.
+Refresh once from the main home with `FM_HOME=<main-home> bin/fm-model-catalog-refresh.sh` after reviewing the main home's provider accounts.
 The refresh reads `opencode models` and `codex debug models`, marks previously listed IDs that disappeared as retired, and preserves recorded replacements.
-The three free model IDs are seeded by dispatch-policy migration and remain cataloged as OpenCode models when listed by `opencode models`.
+Policy rungs across providers are seeded by dispatch-policy migration.
 The primary propagates `config/model-catalog.json` to secondmate homes with the ordinary inheritance flow.
 Do not run the refresh in a secondmate home.
 See [`docs/examples/dispatch-policy.json`](examples/dispatch-policy.json) and [`docs/examples/model-catalog.json`](examples/model-catalog.json) for examples.
 
 ## Typed dispatch resolution
 
-`bin/fm-dispatch-resolve.sh` resolves one concrete profile from the written brief, the exact registered project name, and an optional `--declare <rule-id>` naming the policy's declaration trigger.
+`bin/fm-dispatch-resolve.sh` resolves one concrete rung from the written brief, the exact registered project name, and an optional `--declare <rule-id>` naming a declaration trigger.
 It uses no network model judgment.
 Quota eligibility and the first eligible profile in declared order are evaluated from one `quota-axi --json` snapshot.
 A retired model in the selected route is rejected before `fm-spawn.sh` launches a worker.
-The resolver's complete candidate evidence is returned to spawn and persisted in the task metadata alongside any ladder evidence.
+The resolver's complete candidate evidence, reset evidence, and human-readable explanation are returned to spawn and persisted in task metadata.
 
 Rules come from the effective home's `config/dispatch-policy.json`.
 `FM_CONFIG_OVERRIDE` selects the policy directory for tests and specialized setup.
 The resolver is invoked after Firstmate writes the task brief and receives the registered project name, not the symlink target basename.
 A malformed or unreadable policy remains an actionable configuration error.
 Bootstrap validates the policy and reports malformed configuration before dispatch.
+Captain-required rungs are eligible only when the dispatch carries an explicit `--captain-route` and `--captain-said` approval.
+Research homes are detected from their local charter and cannot select Anthropic-provider rungs.
 
-Operators migrating a private home must move `config/crew-dispatch.json` to `config/dispatch-policy.json`, add `version: 1`, give each rule an `id` and explicit `trigger`, move the OpenCode rung models into `default_ladder`, remove Jev and exhausted-fallback fields, and create `config/model-catalog.json` with `bin/fm-model-catalog-refresh.sh`.
-After upgrading, run `FM_HOME=<home> bin/fm-migrate-dispatch-policy.sh --force` only when the current policy was generated by the migration tool and may be regenerated; hand-edited policies should add the three free profiles and rung entries manually.
-`FM_HOME=<home> bin/fm-migrate-dispatch-policy.sh` performs that move mechanically: it writes both files from the legacy policy without deleting it, refuses rather than clobbering a hand edit unless `--force` is given, and merges the catalog without un-retiring a model.
-No script edits a home's live configuration during this migration.
+`FM_HOME=<home> bin/fm-migrate-unified-dispatch.sh --force` converts a version 1 policy to version 2 while retaining every existing route and rung order.
+It preserves that home's model catalog and adds the shipped provider refusal data and mandatory approval constraints.
+Run it independently in each home with a version 1 policy so home-specific routes and catalog status remain intact.
+The migration command never edits a home unless that home is explicitly named by `FM_HOME`.
 
 ## Mail plane (.env)
 

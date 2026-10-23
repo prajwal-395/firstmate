@@ -42,9 +42,9 @@ jq -e '.models | type == "array" and all(.[]; (.slug | type) == "string")' "$cod
   exit 1
 }
 jq -n --rawfile listing "$listing" --slurpfile codex "$codex_models" '
-  (($listing | split("\n") | map(gsub("^[[:space:]]+|[[:space:]]+$"; "")) | map(select(test("^[a-z0-9][a-z0-9-]*/[^[:space:]]+$"))) | map({id:.,source:"opencode models"}))
-   + ($codex[0].models | map({id:.slug,source:"codex debug models"})))
-  | unique_by(.id) | sort_by(.id)
+  (($listing | split("\n") | map(gsub("^[[:space:]]+|[[:space:]]+$"; "")) | map(select(test("^[a-z0-9][a-z0-9-]*/[^[:space:]]+$"))) | map({id:.,source:"opencode models",harnesses:["opencode"]}))
+   + ($codex[0].models | map({id:.slug,source:"codex debug models",harnesses:["codex"]})))
+  | group_by(.id) | map({id:.[0].id,source:(map(.source) | unique | join(", ")),harnesses:(map(.harnesses[]) | unique | sort)}) | sort_by(.id)
 ' > "$ids_file" || exit 1
 if [ "$(jq 'length' "$ids_file")" -eq 0 ]; then
   echo 'error: opencode models returned no parseable provider/model ids; catalog was not changed' >&2
@@ -54,7 +54,7 @@ jq --slurpfile old "$old" --slurpfile ids "$ids_file" --arg date "$(date +%F)" '
   ($ids[0]) as $listed |
   ($listed | map(.id)) as $available |
   ($old[0].models // []) as $previous |
-  (([$listed[] | {id:.id,status:"active",bills:(if (.id|startswith("opencode-go/")) then "go" else "none" end),last_verified:$date,source:.source}])
+  (([$listed[] | {id:.id,status:"active",bills:(if (.id|startswith("opencode-go/")) then "go" else "none" end),last_verified:$date,source:.source,harnesses:.harnesses}])
    + [$previous[] | select(.id as $id | ($available | index($id)) == null) |
       .status="retired" | .last_verified=$date])
   | group_by(.id) | map(.[-1]) | sort_by(.id) | {models:.}

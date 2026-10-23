@@ -1092,6 +1092,22 @@ crew_dispatch_validate() {
     echo "CREW_DISPATCH: invalid config/dispatch-policy.json - malformed JSON"
     return 0
   fi
+  if [ "$(jq -r '.version // 1' "$file" 2>/dev/null)" = 2 ]; then
+    if ! "$SCRIPT_DIR/fm-dispatch-policy-validate.sh" "$file" 2>/dev/null; then
+      err=$("$SCRIPT_DIR/fm-dispatch-policy-validate.sh" "$file" 2>&1 | sed -n 's/^error: malformed dispatch policy: //p')
+      echo "CREW_DISPATCH: invalid config/dispatch-policy.json - ${err:-version 2 schema validation failed}"
+      return 0
+    fi
+    missing_provider=$(jq -r '[.rules[].ladder[], .default_ladder[]] | .[].harness' "$file" | while IFS= read -r harness; do
+      if ! fm_control_harness_supported "$harness"; then printf '%s\n' "$harness"; break; fi
+    done)
+    if [ -n "$missing_provider" ]; then
+      echo "CREW_DISPATCH: invalid config/dispatch-policy.json - unverified harness: $missing_provider"
+      return 0
+    fi
+    [ "${FM_BOOTSTRAP_VERBOSE_FACTS:-0}" = 1 ] && echo "BOOTSTRAP_INFO: crew dispatch active config/dispatch-policy.json (version 2 unified policy)"
+    return 0
+  fi
   # fm-spawn always consumes the resolver's deterministic route, so resolver fields and its full verified adapter set are active
   # for every crew-dispatch file.
   verified_harnesses=$(fm_control_harnesses | jq -Rsc 'split("\n") | map(select(length > 0))')
@@ -1103,7 +1119,7 @@ crew_dispatch_validate() {
       elif ($e | type) != "string" then false
       elif $e == "ultra" then (($h == "pi" or $h == "pi-signed") and (($m | type) == "string") and ($m | startswith("codex-native/")) and ($m | length) > 13)
       elif $h == "claude" then (["low","medium","high","xhigh","max"] | index($e))
-      elif $h == "codex" then ((["low","medium","high","xhigh"] | index($e)) != null or ($e == "max" and ($m == "gpt-5.6-luna" or $m == "gpt-6-luna")))
+      elif $h == "codex" then ((["low","medium","high","xhigh","max"] | index($e)) != null)
       elif $h == "grok" then (["low","medium","high"] | index($e))
       elif $h == "agy" then (["low","medium","high"] | index($e))
       elif $h == "pi" or $h == "pi-signed" or $h == "omp" then (["low","medium","high","xhigh","max"] | index($e))

@@ -352,10 +352,9 @@ case "$NEW_EFFORT" in
   ''|default|low|medium|high|xhigh|max|ultra) ;;
   *) die "--effort must be one of default, low, medium, high, xhigh, max, ultra" ;;
 esac
-case "$NEW_WORKSPACE" in
-  ''|main|secondary) ;;
-  *) die "--opencode-workspace must be main or secondary (got '$NEW_WORKSPACE')" ;;
-esac
+if [ -n "$NEW_WORKSPACE" ] && [[ ! "$NEW_WORKSPACE" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]]; then
+  die "--opencode-workspace must be a configured workspace label (got '$NEW_WORKSPACE')"
+fi
 
 # --- exact task-id resolution ----------------------------------------------
 

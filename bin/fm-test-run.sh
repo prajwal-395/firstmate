@@ -383,6 +383,8 @@ fm-cursor-harness.test.sh standalone
 fm-cursor-primary-live-e2e.test.sh live-harness-optin
 fm-cursor-primary.test.sh watcher-wake-lock
 fm-daemon.test.sh watcher-wake-lock
+fm-dispatch-descent.test.sh pure-contract-unit
+fm-dispatch-reset.test.sh pure-contract-unit
 fm-dispatch-resolve.test.sh standalone
 fm-documentation-audiences.test.sh pure-contract-unit
 fm-drain-triage.test.sh standalone
@@ -418,6 +420,7 @@ fm-live-gate.test.sh standalone
 fm-mail-check.test.sh watcher-wake-lock
 fm-mail.test.sh watcher-wake-lock
 fm-mate-route.test.sh standalone
+fm-migrate-unified-dispatch.test.sh standalone
 fm-muse-harness.test.sh pure-contract-unit
 fm-muse-signals-live-e2e.test.sh live-harness-optin
 fm-no-mistakes-required.test.sh standalone
@@ -862,6 +865,7 @@ tests/fm-decision-replacement.test.sh 1806
 tests/fm-devin-harness.test.sh 3725
 tests/fm-devin-signals-live-e2e.test.sh 49
 tests/fm-direct-merge-record.test.sh 6035
+tests/fm-dispatch-descent.test.sh 2000
 tests/fm-dispatch-resolve.test.sh 6194
 tests/fm-documentation-audiences.test.sh 912
 tests/fm-dod-lib.test.sh 2035
@@ -1704,6 +1708,7 @@ families_for_changed_path() {
     bin/fm-watch*|bin/fm-wake*|bin/fm-inactive-reconcile.sh|\
     bin/fm-classify-lib.sh|bin/fm-daemon*|bin/fm-turnend-guard*|bin/fm-guard.sh)
       printf '%s\n' watcher-wake-lock
+      printf '%s\n' "__script__:fm-dispatch-descent.test.sh"
       ;;
     bin/fm-afk*)
       printf '%s\n' afk
@@ -1758,6 +1763,25 @@ families_for_changed_path() {
       printf '%s\n' "__script__:fm-quota-choose.test.sh"
       ;;
     bin/fm-dispatch-resolve.sh)
+      printf '%s\n' "__script__:fm-dispatch-resolve.test.sh"
+      ;;
+    bin/fm-dispatch-descent.sh)
+      printf '%s\n' "__script__:fm-dispatch-descent.test.sh"
+      ;;
+    bin/fm-dispatch-reset.sh)
+      printf '%s\n' "__script__:fm-dispatch-reset.test.sh"
+      printf '%s\n' "__script__:fm-dispatch-resolve.test.sh"
+      ;;
+    bin/fm-dispatch-policy-validate.sh|bin/fm-migrate-unified-dispatch.sh)
+      printf '%s\n' "__script__:fm-migrate-unified-dispatch.test.sh"
+      printf '%s\n' "__script__:fm-dispatch-resolve.test.sh"
+      ;;
+    bin/fm-opencode-retry.sh)
+      printf '%s\n' "__script__:fm-opencode-retry.test.sh"
+      printf '%s\n' "__script__:fm-dispatch-reset.test.sh"
+      ;;
+    bin/fm-opencode-descent-lib.sh)
+      printf '%s\n' "__script__:fm-opencode-descent.test.sh"
       printf '%s\n' "__script__:fm-dispatch-resolve.test.sh"
       ;;
     bin/fm-drain-triage.sh)
