@@ -15,6 +15,11 @@ assert_equals 1 "$("$TOOL" check "$TMP_ROOT/state" new-provider vendor/model-x a
 assert_equals 1 "$("$TOOL" check "$TMP_ROOT/state" other-provider vendor/model-x acct-west >/dev/null 2>&1; echo $?)" "a different provider must remain available"
 pass "exhaustion is keyed by provider, model, and configured account value"
 
+"$TOOL" record "$TMP_ROOT/state" opencode deepseek-v4.1-flash-free secondary "$reset_ms" provider-refusal
+out=$("$TOOL" check "$TMP_ROOT/state" opencode opencode/deepseek-v4.1-flash-free secondary)
+assert_contains "$out" "reset_ms=$reset_ms" "the metadata model id finds a refusal recorded with OpenCode's bare model id"
+pass "OpenCode refusal lookup accepts the provider-qualified metadata model id"
+
 "$TOOL" clear "$TMP_ROOT/state" new-provider vendor/model-x acct-west
 assert_equals 1 "$("$TOOL" check "$TMP_ROOT/state" new-provider vendor/model-x acct-west >/dev/null 2>&1; echo $?)" "clearing one tuple must retire its active reset"
 pass "clearing one provider/model/account tuple leaves no active exhaustion"

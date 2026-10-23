@@ -18,6 +18,16 @@ require_key() {
     exit 2
   fi
 }
+# OpenCode reports a refusal with the bare model id, while dispatch metadata
+# stores the provider-qualified id. Keep one key form in the store and accept
+# either spelling at every public key boundary.
+normalize_model() {
+  if [ "$1" = opencode ] && [[ ${2:-} == opencode/* && ${2#opencode/} != '' ]]; then
+    printf '%s' "${2#opencode/}"
+  else
+    printf '%s' "${2:-}"
+  fi
+}
 lock_acquire() {
   local i=0
   until mkdir "$lock" 2>/dev/null; do
@@ -104,6 +114,7 @@ case "$cmd" in
     [ "$#" -eq 5 ] || { echo 'usage: fm-dispatch-reset.sh record <state-dir> <provider> <model> <workspace> <reset-ms> <evidence>' >&2; exit 2; }
     provider=$1 model=$2 workspace=$3 reset=$4 evidence=$5
     require_key "$provider" "$model" "$workspace"
+    model=$(normalize_model "$provider" "$model")
     [[ $reset =~ ^[0-9]+$ ]] || { echo 'error: reset-ms must be a non-negative integer' >&2; exit 2; }
     valid_store || { echo "error: malformed exhaustion store $file" >&2; exit 1; }
     lock_acquire || exit 1
@@ -111,7 +122,8 @@ case "$cmd" in
     tmp="$file.tmp.$$"
     if [ -e "$file" ]; then
       jq -c --arg provider "$provider" --arg model "$model" --arg workspace "$workspace" \
-        'select(.provider != $provider or .model != $model or .workspace != $workspace)' "$file" > "$tmp" || exit 1
+        'def model_key($p; $m): if $p == "opencode" then ($m | sub("^opencode/"; "")) else $m end;
+         select(.provider != $provider or model_key(.provider; .model) != model_key($provider; $model) or .workspace != $workspace)' "$file" > "$tmp" || exit 1
     else
       : > "$tmp" || exit 1
     fi
@@ -126,20 +138,26 @@ case "$cmd" in
     [ "$#" -eq 3 ] || { echo 'usage: fm-dispatch-reset.sh clear <state-dir> <provider> <model> <workspace>' >&2; exit 2; }
     provider=$1 model=$2 workspace=$3
     require_key "$provider" "$model" "$workspace"
+    model=$(normalize_model "$provider" "$model")
     valid_store || { echo "error: malformed exhaustion store $file" >&2; exit 1; }
     lock_acquire || exit 1
-    [ ! -e "$file" ] || jq -c --arg provider "$provider" --arg model "$model" --arg workspace "$workspace" 'select(.provider != $provider or .model != $model or .workspace != $workspace)' "$file" > "$file.tmp.$$" || exit 1
+    [ ! -e "$file" ] || jq -c --arg provider "$provider" --arg model "$model" --arg workspace "$workspace" '
+      def model_key($p; $m): if $p == "opencode" then ($m | sub("^opencode/"; "")) else $m end;
+      select(.provider != $provider or model_key(.provider; .model) != model_key($provider; $model) or .workspace != $workspace)
+    ' "$file" > "$file.tmp.$$" || exit 1
     [ ! -e "$file" ] || mv "$file.tmp.$$" "$file"
     ;;
   check)
     [ "$#" -eq 3 ] || { echo 'usage: fm-dispatch-reset.sh check <state-dir> <provider> <model> <workspace>' >&2; exit 2; }
     provider=$1 model=$2 workspace=$3
     require_key "$provider" "$model" "$workspace"
+    model=$(normalize_model "$provider" "$model")
     valid_store || { echo "error: malformed exhaustion store $file" >&2; exit 1; }
     [ -e "$file" ] || exit 1
     now=$(now_ms)
     jq -er -s --arg provider "$provider" --arg model "$model" --arg workspace "$workspace" --argjson now "$now" '
-      [.[] | select(.provider == $provider and .model == $model and .workspace == $workspace and .reset_ms > $now)]
+      def model_key($p; $m): if $p == "opencode" then ($m | sub("^opencode/"; "")) else $m end;
+      [.[] | select(.provider == $provider and model_key(.provider; .model) == model_key($provider; $model) and .workspace == $workspace and .reset_ms > $now)]
       | if length == 0 then false else max_by(.observed_ms) | "reset_ms=\(.reset_ms) observed_ms=\(.observed_ms) evidence=\(.evidence // "unknown")" end' "$file"
     ;;
   prune)

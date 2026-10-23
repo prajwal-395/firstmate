@@ -337,7 +337,8 @@ RESULT=$(jq -n --argjson lat "$LAT_MS" --arg rung "$RUNG" --arg none_criterion "
   def provider_of($c): ($c.provider // $pmap[$c.harness] // null);
   def reset_for($c; $p):
     ($c.workspace // "default") as $workspace
-    | [$reset_rows[] | select(.provider == $p and .model == $c.model and .workspace == $workspace and .reset_ms > $now_ms)]
+    | ($c.model | if $p == "opencode" then sub("^opencode/"; "") else . end) as $reset_model
+    | [$reset_rows[] | select(.provider == $p and ((.model | if $p == "opencode" then sub("^opencode/"; "") else . end) == $reset_model) and .workspace == $workspace and .reset_ms > $now_ms)]
     | max_by(.observed_ms) // null;
   def catalog_item($model): [$catalog_data.models[]? | select(.id == $model)] | first // null;
   def measured($p; $c):
