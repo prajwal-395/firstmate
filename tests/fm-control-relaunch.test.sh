@@ -582,9 +582,11 @@ test_disabled_relaunch_clears_prior_trace_context() {
   expect_code 0 "$rc" "disabled relaunch should succeed"$'\n'"$out"
   [ -z "$(meta_field "$dir" rl33 traceparent)" ] \
     || fail "disabled relaunch must remove the prior trace carrier from metadata"
-  grep -q '^unset TRACEPARENT; .*claude' "$dir/fake/literal" \
+  # The launch rides the `nice -n 10 /bin/sh -c '...'` wrapper, so the pane
+  # carrier assertions match the command stream, never the line start.
+  grep -q 'unset TRACEPARENT; .*claude' "$dir/fake/literal" \
     || fail "disabled relaunch must clear the pane carrier before replacement launch"
-  ! grep -q '^export TRACEPARENT=' "$dir/fake/literal" \
+  ! grep -q 'export TRACEPARENT=' "$dir/fake/literal" \
     || fail "disabled relaunch must not export a replacement trace carrier"
   pass "fm-control relaunch: disabling tracing clears metadata and pane context"
 }
@@ -762,8 +764,8 @@ test_native_ultra_relaunch_preserves_profile_and_rejects_before_stop() {
   expect_code 0 "$rc" "native Ultra relaunch failed: $out"
   [ "$(meta_field "$dir" "$id" effort)" = ultra ] || fail "relaunch lost Ultra metadata"
   [ "$(meta_field "$dir" "$id" model)" = codex-native/gpt-6-astra ] || fail "relaunch lost native model"
-  assert_contains "$(cat "$dir/fake/literal")" "--codex-effort 'ultra'" "relaunch lost native flag"
-  assert_not_contains "$(cat "$dir/fake/literal")" "--thinking 'ultra'" "relaunch used an invalid Pi level"
+  assert_contains "$(cat "$dir/fake/literal")" "--codex-effort '\\''ultra" "relaunch lost native flag"
+  assert_not_contains "$(cat "$dir/fake/literal")" "--thinking '\\''ultra" "relaunch used an invalid Pi level"
   pass "native Ultra relaunch preserves its profile and rejects an unsupported model before stopping"
 }
 
@@ -807,7 +809,7 @@ test_worker_account_pin_follows_the_relaunch() {
   out=$(run_control "$dir" "$id" relaunch --note "pinned account"); rc=$?
   expect_code 0 "$rc" "a relaunch under a signed-in account pin should succeed"$'\n'"$out"
   [ "$(meta_field "$dir" "$id" account)" = "$dir/work" ] || fail "the relaunched record should carry the pinned account"
-  assert_contains "$(cat "$dir/fake/literal")" "CLAUDE_CONFIG_DIR='$dir/work'" \
+  assert_contains "$(cat "$dir/fake/literal")" "CLAUDE_CONFIG_DIR='\\''$dir/work" \
     "the replacement should launch under the pinned root"
   rm "$dir/home/config/claude-account"
   : > "$dir/fake/literal"
@@ -831,7 +833,7 @@ test_pi_exclude_tools_follow_the_relaunch() {
   printf '%s\n' '# hide writes' 'mcp__srv__writeTool' 'mcp__srv__adminTool' > "$dir/home/config/crew-exclude-tools"
   out=$(run_control "$dir" "$id" relaunch --note "keep exclusions"); rc=$?
   expect_code 0 "$rc" "a Pi relaunch with exclusions should succeed"$'\n'"$out"
-  assert_contains "$(cat "$dir/fake/literal")" "--exclude-tools 'mcp__srv__writeTool,mcp__srv__adminTool'" \
+  assert_contains "$(cat "$dir/fake/literal")" "--exclude-tools '\\''mcp__srv__writeTool,mcp__srv__adminTool" \
     "the relaunched Pi worker must keep the home's tool exclusions"
   rm "$dir/home/config/crew-exclude-tools"
   : > "$dir/fake/literal"
