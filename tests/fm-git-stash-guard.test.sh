@@ -95,6 +95,23 @@ test_guard_refuses_stash_and_keeps_git_working() {
   pass "the guard refuses git stash and leaves every ordinary git command working"
 }
 
+# Relaunch installs the guard over the read-only copy left by the prior
+# spawn. The installer must replace it successfully and leave the refusal
+# active afterward.
+test_guard_install_is_idempotent() {
+  local guard="$TMP_ROOT/reinstall/guard" out rc
+  mkdir -p "$TMP_ROOT/reinstall"
+  install_guard "$guard"
+  bash "$GUARD_INSTALL" install "$guard" \
+    || fail "a second install must replace the read-only guard"
+  run_bounded 30 "$TMP_ROOT/reinstall/stash.out" env PATH="$guard:$PATH" git stash
+  rc=$?
+  [ "$rc" -ne 0 ] || fail "the reinstalled guard did not refuse git stash"
+  assert_contains "$(cat "$TMP_ROOT/reinstall/stash.out")" "'git stash' is disabled" \
+    "the reinstalled guard must retain the stash refusal"
+  pass "a second install replaces the read-only guard and keeps protection active"
+}
+
 # The refusal keys on the git subcommand, not on the word: a commit message
 # that mentions a stash is an ordinary commit, and the stash command behind a
 # global option is still the stash command.
@@ -147,6 +164,7 @@ test_guard_never_hands_off_to_itself() {
 }
 
 test_guard_refuses_stash_and_keeps_git_working
+test_guard_install_is_idempotent
 test_guard_reads_the_subcommand_not_the_word
 test_guard_never_hands_off_to_itself
 
