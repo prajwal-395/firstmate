@@ -187,7 +187,7 @@ fm_agy_list_models() {  # <agy-binary>
 
 # fm_agy_catalog_has_model: 0 when <model> is a model the account can select.
 # BOTH accepted spellings are checked, because agy accepts either: the kebab id
-# in column 1 (gemini-3.8-flash-high) and the display name in column 2
+# in column 1 and the display name in column 2
 # ("Gemini 3.8 Flash (High)"). Reads the catalogue on stdin.
 fm_agy_catalog_has_model() {  # <model>
   local want=$1 line id display
@@ -215,10 +215,9 @@ fm_agy_config_path() {
 # run unless the plugin is recorded enabled (verified live, agy 1.1.27: an
 # entry-less plugin's PreInvocation, PostInvocation, and Stop never fired;
 # after `agy plugin enable` each fired exactly once per event -
-# docs/verification/agy-spend-gate.md). Without this call the Stop-driven
-# ladder evaluation, the semantic busy push, and the spend gate below all sit
-# behind a hook that never fires, while the watcher-side polling keeps working
-# and nothing says anything is missing.
+# docs/verification/agy-spend-gate.md). Without this call the semantic busy
+# push below sits behind a hook that never fires, while the watcher-side
+# polling keeps working and nothing says anything is missing.
 #
 # The merge preserves every existing key: only
 # .plugins["fm-turn-end"].enabled is set. A symlink is replaced with a real
@@ -254,8 +253,8 @@ fm_agy_ensure_plugin_enabled() {
 #
 # agy accepts either spelling of every model, so firstmate's durable record can
 # name a model one way while the worker's own footer draws it the other:
-# `--model gemini-3.8-flash-high` launches a worker that reports "Gemini 3.8 Flash
-# (High)". A byte comparison of those two reads as a disagreement, and a caller
+# one spelling can launch a worker that reports its display name. A byte
+# comparison of those two reads as a disagreement, and a caller
 # that refuses on a disagreement then refuses on a pair that never disagreed.
 #
 # THE PAIRING IS NEVER DERIVED HERE. The catalogue already states it: every row

@@ -582,9 +582,11 @@ test_disabled_relaunch_clears_prior_trace_context() {
   expect_code 0 "$rc" "disabled relaunch should succeed"$'\n'"$out"
   [ -z "$(meta_field "$dir" rl33 traceparent)" ] \
     || fail "disabled relaunch must remove the prior trace carrier from metadata"
-  grep -q '^unset TRACEPARENT; .*claude' "$dir/fake/literal" \
+  # The launch rides the `nice -n 10 /bin/sh -c '...'` wrapper, so the pane
+  # carrier assertions match the command stream, never the line start.
+  grep -q 'unset TRACEPARENT; .*claude' "$dir/fake/literal" \
     || fail "disabled relaunch must clear the pane carrier before replacement launch"
-  ! grep -q '^export TRACEPARENT=' "$dir/fake/literal" \
+  ! grep -q 'export TRACEPARENT=' "$dir/fake/literal" \
     || fail "disabled relaunch must not export a replacement trace carrier"
   pass "fm-control relaunch: disabling tracing clears metadata and pane context"
 }
@@ -762,8 +764,8 @@ test_native_ultra_relaunch_preserves_profile_and_rejects_before_stop() {
   expect_code 0 "$rc" "native Ultra relaunch failed: $out"
   [ "$(meta_field "$dir" "$id" effort)" = ultra ] || fail "relaunch lost Ultra metadata"
   [ "$(meta_field "$dir" "$id" model)" = codex-native/gpt-6-astra ] || fail "relaunch lost native model"
-  assert_contains "$(cat "$dir/fake/literal")" "--codex-effort 'ultra'" "relaunch lost native flag"
-  assert_not_contains "$(cat "$dir/fake/literal")" "--thinking 'ultra'" "relaunch used an invalid Pi level"
+  assert_contains "$(cat "$dir/fake/literal")" "--codex-effort '\\''ultra" "relaunch lost native flag"
+  assert_not_contains "$(cat "$dir/fake/literal")" "--thinking '\\''ultra" "relaunch used an invalid Pi level"
   pass "native Ultra relaunch preserves its profile and rejects an unsupported model before stopping"
 }
 
@@ -807,7 +809,7 @@ test_worker_account_pin_follows_the_relaunch() {
   out=$(run_control "$dir" "$id" relaunch --note "pinned account"); rc=$?
   expect_code 0 "$rc" "a relaunch under a signed-in account pin should succeed"$'\n'"$out"
   [ "$(meta_field "$dir" "$id" account)" = "$dir/work" ] || fail "the relaunched record should carry the pinned account"
-  assert_contains "$(cat "$dir/fake/literal")" "CLAUDE_CONFIG_DIR='$dir/work'" \
+  assert_contains "$(cat "$dir/fake/literal")" "CLAUDE_CONFIG_DIR='\\''$dir/work" \
     "the replacement should launch under the pinned root"
   rm "$dir/home/config/claude-account"
   : > "$dir/fake/literal"
@@ -831,7 +833,7 @@ test_pi_exclude_tools_follow_the_relaunch() {
   printf '%s\n' '# hide writes' 'mcp__srv__writeTool' 'mcp__srv__adminTool' > "$dir/home/config/crew-exclude-tools"
   out=$(run_control "$dir" "$id" relaunch --note "keep exclusions"); rc=$?
   expect_code 0 "$rc" "a Pi relaunch with exclusions should succeed"$'\n'"$out"
-  assert_contains "$(cat "$dir/fake/literal")" "--exclude-tools 'mcp__srv__writeTool,mcp__srv__adminTool'" \
+  assert_contains "$(cat "$dir/fake/literal")" "--exclude-tools '\\''mcp__srv__writeTool,mcp__srv__adminTool" \
     "the relaunched Pi worker must keep the home's tool exclusions"
   rm "$dir/home/config/crew-exclude-tools"
   : > "$dir/fake/literal"
@@ -2190,7 +2192,7 @@ test_herdr_relaunch_resumes_only_the_registered_pi_session() {
     expect_code 0 "$rc" "Herdr Pi relaunch should complete ($registered registration)"$'\n'"$out"
     command=$(cat "$dir/fake/launched-command")
     if [ "$registered" = pi ]; then
-      assert_contains "$command" "--session '/tmp/pi-bound-session.jsonl'" \
+      assert_contains "$command" "--session '\\''/tmp/pi-bound-session.jsonl'" \
         "the replacement Pi must resume the session that owns Herdr status authority"
     else
       assert_not_contains "$command" "--session" \
@@ -2554,8 +2556,14 @@ SH
   expect_code 0 "$rc" "a workspace move should relaunch"$'\n'"$out"
   [ "$(meta_field "$dir" wq1 opencode_workspace)" = secondary ] \
     || fail "the move must be written to the durable record"
-  assert_grep "OPENCODE_DB='$dir/home/config/opencode-second.db'" "$dir/fake/literal" \
-    "the replacement launch must carry the pinned database"
+  # Launches ride the task's private copy of the proven pin, never the
+  # shared pin itself (a refresh inside a shared copy would rotate the
+  # console token server-side and revoke the live login), so the move is
+  # proven by the copy's path plus the workspace it was verified against.
+  assert_grep "OPENCODE_DB='\\''$dir/home/state/wq1.opencode.db" "$dir/fake/literal" \
+    "the replacement launch must carry the task's private workspace copy"
+  [ "$(sqlite3 "$dir/home/state/wq1.opencode.db" 'SELECT active_org_id FROM account_state WHERE id=1;')" = org_01FIXTURESECONDARY00 ] \
+    || fail "the replacement copy must be pinned to the second workspace"
   unset FM_FAKE_OPENCODE_DATA
 
   export FM_FAKE_OPENCODE_DATA="$datadir"
@@ -2575,8 +2583,10 @@ SH
   unset FM_FAKE_OPENCODE_DATA
   [ "$(meta_field "$dir" wq1 opencode_workspace)" = "" ] \
     || fail "moving back to main must clear the marker"
-  assert_grep "OPENCODE_DB='$dir/home/config/opencode-main.db'" "$dir/fake/literal" \
-    "the main-workspace replacement must carry the main pinned database, never the machine-wide active workspace"
+  assert_grep "OPENCODE_DB='\\''$dir/home/state/wq1.opencode.db" "$dir/fake/literal" \
+    "the main-workspace replacement must carry the task's private copy, never the machine-wide active workspace"
+  [ "$(sqlite3 "$dir/home/state/wq1.opencode.db" 'SELECT active_org_id FROM account_state WHERE id=1;')" = org_01FIXTUREMAIN00000 ] \
+    || fail "the replacement copy must be pinned back to the main workspace"
   pass "fm-control relaunch: --opencode-workspace moves the pin and its absence preserves it"
 }
 

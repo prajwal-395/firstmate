@@ -13,8 +13,8 @@ metadata:
 # quota-array-dispatch
 
 This skill owns completion-aware profile-array selection only when `fm-spawn` is not resolving an active `config/dispatch-policy.json` route.
-For a fresh crewmate or scout with that file present, `fm-spawn.sh` calls `fm-dispatch-resolve.sh` after the brief is written and enforces its result. Do not select or rank a competing profile in firstmate's prose: the resolver applies quota eligibility and chooses the first eligible candidate in declared order, while the spawn-time ladder gates own the actual rung.
-`AGENTS.md` section 4 owns the always-loaded intake boundary and override rule; `docs/configuration.md` owns the resolver, malformed-config refusal, project match, captain override, and ladder contracts.
+For a fresh crewmate or scout with that file present, `fm-spawn.sh` calls `fm-dispatch-resolve.sh` after the brief is written and enforces its result. Do not select or rank a competing profile in firstmate's prose: the resolver applies quota eligibility and chooses the first eligible candidate in declared order, while the resolver's declared rung order and the generic mid-run descent own the actual rung.
+`AGENTS.md` section 4 owns the always-loaded intake boundary and override rule; `docs/configuration.md` owns the resolver, malformed-config refusal, project match, captain override, and exhaustion and descent contracts.
 `harness-adapters` owns harness verification, model/provider discovery, and effort fallback.
 `quota-axi` remains data-only: it publishes `spendPriority` as a comparable scalar and never recommends, selects, ranks, or infers a route.
 Do not add a daemon, opaque composite score, routing wrapper, hard-coded model-specific policy, or producer-side route recommendation.
@@ -34,7 +34,7 @@ Authoritative multi-provider routing - including provider discovery from the har
 Use it only when the brief already fixed the candidate order and every candidate's provider is the harness's primary family.
 It does not replace the reasoning-class, runway-feasibility, or authentication gates above.
 Firstmate can optionally arm `bin/fm-procevent-quota.sh` for a recurring mid-task check that wakes when the tracked provider drops below its configured threshold or its runway becomes `exhausted_now`.
-`bin/fm-dispatch-resolve.sh` (`docs/configuration.md` "Typed dispatch resolution") is not an opt-in advisory for active crew-dispatch files: `fm-spawn.sh` invokes it even without Jev keys. Jev is used only for judgment rules; when Jev is off, unavailable, invalid, or below confidence, the resolver chooses the deterministic default. `escalate` and `error` remain hard outcomes. This skill applies only outside that enforced route.
+`bin/fm-dispatch-resolve.sh` (`docs/configuration.md` "Typed dispatch resolution") is not an opt-in advisory for active crew-dispatch files: `fm-spawn.sh` invokes it for every fresh crewmate or scout dispatch. Network model judgment is not a dispatch input; exact project triggers, explicit declarations, and the deterministic default are the only selection paths. `escalate` and `error` remain hard outcomes. This skill applies only outside that enforced route.
 
 ## Read the default TOON
 

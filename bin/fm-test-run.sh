@@ -319,13 +319,7 @@ fm-afk-launch.test.sh real-herdr-gated
 fm-afk-pi-herdr-return-e2e.test.sh live-harness-optin
 fm-afk-return.test.sh afk
 fm-agy-harness.test.sh pure-contract-unit
-fm-agy-ladder-enforcement.test.sh backend-dispatch
-fm-agy-live-descent.test.sh backend-dispatch
-fm-agy-model-switch-live-e2e.test.sh live-harness-optin
-fm-agy-quota-lib.test.sh pure-contract-unit
 fm-agy-signals-live-e2e.test.sh live-harness-optin
-fm-agy-spend-gate-live-e2e.test.sh live-harness-optin
-fm-agy-spend-gate.test.sh backend-dispatch
 fm-agy-survey-suppress.test.sh pure-contract-unit
 fm-arm-pretool-check.test.sh pure-contract-unit
 fm-ask-user-authority.test.sh pure-contract-unit
@@ -383,6 +377,8 @@ fm-cursor-harness.test.sh standalone
 fm-cursor-primary-live-e2e.test.sh live-harness-optin
 fm-cursor-primary.test.sh watcher-wake-lock
 fm-daemon.test.sh watcher-wake-lock
+fm-dispatch-descent.test.sh pure-contract-unit
+fm-dispatch-reset.test.sh pure-contract-unit
 fm-dispatch-resolve.test.sh standalone
 fm-documentation-audiences.test.sh pure-contract-unit
 fm-drain-triage.test.sh standalone
@@ -418,6 +414,7 @@ fm-live-gate.test.sh standalone
 fm-mail-check.test.sh watcher-wake-lock
 fm-mail.test.sh watcher-wake-lock
 fm-mate-route.test.sh standalone
+fm-migrate-unified-dispatch.test.sh standalone
 fm-muse-harness.test.sh pure-contract-unit
 fm-muse-signals-live-e2e.test.sh live-harness-optin
 fm-no-mistakes-required.test.sh standalone
@@ -425,7 +422,6 @@ fm-omp-harness.test.sh pure-contract-unit
 fm-omp-primary-live-e2e.test.sh live-harness-optin
 fm-on.test.sh secondmate
 fm-opencode-primary-live-e2e.test.sh live-harness-optin
-fm-opencode-retry.test.sh pure-contract-unit
 fm-opencode-server.test.sh backend-dispatch
 fm-opencode-shared-server-live-e2e.test.sh live-harness-optin
 fm-operational-input.test.sh pure-contract-unit
@@ -435,7 +431,6 @@ fm-pi-branch-extension.test.sh standalone
 fm-pi-branch-live-e2e.test.sh live-harness-optin
 fm-pi-branch-responsiveness-live-e2e.test.sh live-harness-optin
 fm-pi-codex-native.test.sh live-harness-optin
-fm-pi-opencode-go.test.sh pure-contract-unit
 fm-pi-primary-live-e2e.test.sh live-harness-optin
 fm-pi-primary-types.test.sh pure-contract-unit
 fm-pi-watch-extension.test.sh watcher-wake-lock
@@ -805,13 +800,7 @@ tests/fm-afk-inject-e2e.test.sh 35986
 tests/fm-afk-pi-herdr-return-e2e.test.sh 103
 tests/fm-afk-return.test.sh 22109
 tests/fm-agy-harness.test.sh 36683
-tests/fm-agy-ladder-enforcement.test.sh 11489
-tests/fm-agy-live-descent.test.sh 83992
-tests/fm-agy-model-switch-live-e2e.test.sh 103
-tests/fm-agy-quota-lib.test.sh 700
 tests/fm-agy-signals-live-e2e.test.sh 100
-tests/fm-agy-spend-gate-live-e2e.test.sh 103
-tests/fm-agy-spend-gate.test.sh 6746
 tests/fm-agy-survey-suppress.test.sh 141
 tests/fm-ask-user-authority.test.sh 159
 tests/fm-backend-cmux-smoke.test.sh 42
@@ -862,6 +851,7 @@ tests/fm-decision-replacement.test.sh 1806
 tests/fm-devin-harness.test.sh 3725
 tests/fm-devin-signals-live-e2e.test.sh 49
 tests/fm-direct-merge-record.test.sh 6035
+tests/fm-dispatch-descent.test.sh 2000
 tests/fm-dispatch-resolve.test.sh 6194
 tests/fm-documentation-audiences.test.sh 912
 tests/fm-dod-lib.test.sh 2035
@@ -914,10 +904,7 @@ tests/fm-no-mistakes-required.test.sh 292
 tests/fm-omp-harness.test.sh 48351
 tests/fm-omp-primary-live-e2e.test.sh 164
 tests/fm-on.test.sh 33044
-tests/fm-opencode-descent.test.sh 1892
-tests/fm-opencode-ladder.test.sh 5044
 tests/fm-opencode-primary-live-e2e.test.sh 48
-tests/fm-opencode-retry.test.sh 393
 tests/fm-opencode-server.test.sh 5035
 tests/fm-opencode-shared-server-live-e2e.test.sh 48
 tests/fm-operational-input.test.sh 275
@@ -928,7 +915,6 @@ tests/fm-pi-branch-extension.test.sh 63703
 tests/fm-pi-branch-live-e2e.test.sh 52
 tests/fm-pi-branch-responsiveness-live-e2e.test.sh 13241
 tests/fm-pi-codex-native.test.sh 120
-tests/fm-pi-opencode-go.test.sh 700
 tests/fm-pi-primary-live-e2e.test.sh 49
 tests/fm-pi-seeded-home-trust-live-e2e.test.sh 45
 tests/fm-pi-watch-extension.test.sh 98956
@@ -1673,6 +1659,9 @@ families_for_changed_path() {
       printf '%s\n' backend-dispatch
       printf '%s\n' pure-contract-unit
       ;;
+    .opencode/plugins/fm-primary-herdr-metadata.js|bin/fm-herdr-opencode-metadata.sh)
+      printf '%s\n' "__script__:fm-herdr-opencode-metadata.test.sh"
+      ;;
     bin/fm-herdr-session-cleanup.sh)
       printf '%s\n' session-bootstrap
       printf '%s\n' real-herdr-gated
@@ -1704,6 +1693,7 @@ families_for_changed_path() {
     bin/fm-watch*|bin/fm-wake*|bin/fm-inactive-reconcile.sh|\
     bin/fm-classify-lib.sh|bin/fm-daemon*|bin/fm-turnend-guard*|bin/fm-guard.sh)
       printf '%s\n' watcher-wake-lock
+      printf '%s\n' "__script__:fm-dispatch-descent.test.sh"
       ;;
     bin/fm-afk*)
       printf '%s\n' afk
@@ -1758,6 +1748,18 @@ families_for_changed_path() {
       printf '%s\n' "__script__:fm-quota-choose.test.sh"
       ;;
     bin/fm-dispatch-resolve.sh)
+      printf '%s\n' "__script__:fm-dispatch-resolve.test.sh"
+      ;;
+    bin/fm-dispatch-descent.sh)
+      printf '%s\n' "__script__:fm-dispatch-descent.test.sh"
+      ;;
+    bin/fm-dispatch-reset.sh)
+      printf '%s\n' "__script__:fm-dispatch-reset.test.sh"
+      printf '%s\n' "__script__:fm-dispatch-resolve.test.sh"
+      printf '%s\n' "__script__:fm-crew-state.test.sh"
+      ;;
+    bin/fm-dispatch-policy-validate.sh|bin/fm-migrate-unified-dispatch.sh)
+      printf '%s\n' "__script__:fm-migrate-unified-dispatch.test.sh"
       printf '%s\n' "__script__:fm-dispatch-resolve.test.sh"
       ;;
     bin/fm-drain-triage.sh)

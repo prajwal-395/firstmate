@@ -15,13 +15,10 @@
 # interactive client and each task keeps its own session; the server runs the
 # sessions, so the per-worker cost is the thin client.
 #
-# ONE SERVER PER PROFILE. The server owns the session database and ignores a
+# ONE SERVER PER ACCOUNT. The server owns the session database and ignores a
 # client's OPENCODE_DB, so workspace billing holds only with one server per
-# database. <profile> is one of:
-#   main       the main Go workspace pin, when a second workspace is configured
-#   secondary  the second Go workspace pin
-#   default    everything unpinned (free and non-Go models), on the machine's
-#              own console database exactly as a standalone launch uses it
+# database. <profile> is the configured account label, or `default` for an
+# unpinned launch.
 # A pinned server never opens the shared pin itself: it runs on its own private
 # copy, state/opencode-server-<profile>.opencode.db, built and proven against
 # its workspace by fm_opencode_workspace_db_for_task (bin/fm-opencode-second-lib.sh
@@ -69,8 +66,8 @@ FM_OPENCODE_SERVER_USER=opencode
 START_ATTEMPTS=${FM_OPENCODE_SERVER_START_POLLS:-240}
 
 valid_profile() {
-  case "${1:-}" in main|secondary|default) return 0 ;; esac
-  return 1
+  case "${1:-}" in default) return 0 ;; esac
+  [[ "${1:-}" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]]
 }
 
 valid_id() {

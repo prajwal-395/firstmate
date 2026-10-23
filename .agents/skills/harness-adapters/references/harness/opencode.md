@@ -8,7 +8,7 @@ Verified on 2026-06-11 across versions 1.15.7 through 1.17.6, with busy-queue be
 |---|---|
 | Launch | Uses its interactive `--prompt` argument with a fixed pointer to the absolute brief path; task instructions remain in the file. |
 | Busy state | The Firstmate-owned plugin's semantic `session.status`: `busy` and `retry` are active, `idle` is inactive, latched to the worker's own session. |
-| Usage-cap visibility | A capped lane stays in `retry` with an hours-long backoff instead of failing; the plugin records the vendor's `attempt`/`next` horizon and a quota-scale horizon reads `blocked` in supervision. Contract: `../../../bin/fm-opencode-retry.sh`. |
+| Usage-cap visibility | A capped lane still reads busy while the vendor holds the session; a configured provider refusal is recorded in the shared provider/model/workspace reset store and reads `blocked` in supervision. Contract: `../../../../../bin/fm-dispatch-reset.sh` plus `../../../../../bin/fm-crew-state.sh`. |
 | Exit command | `/exit`. |
 | Interrupt | Double Escape; it is known to be flaky while a long shell command runs, so use `../../../bin/fm-control.sh <task-id> relaunch` for a wedged pane. |
 | Skill invocation | No separate verified form beyond normal slash-command behavior; use natural language when the exact command is uncertain. |
@@ -23,7 +23,7 @@ OpenCode can auto-upgrade in the background, and the running TUI can exit mid-ta
 That behavior was observed live during an upgrade from 1.15.7 to 1.17.3.
 If the pane shows the exit banner, use the verified resume path above.
 
-The managed model ladder routes free, Codex Plus, then Go, with shared reset records and cross-harness descent owned by `../../../bin/fm-opencode-ladder-lib.sh` and `../../../bin/fm-opencode-descent-lib.sh`.
+The configured policy ladder orders the rungs, with shared provider/model/workspace reset records and generic cross-harness descent owned by `config/dispatch-policy.json`, `../../../../../bin/fm-dispatch-resolve.sh`, `../../../../../bin/fm-dispatch-reset.sh`, and `../../../../../bin/fm-dispatch-descent.sh`.
 
 ## Shared-server launch (experiment)
 

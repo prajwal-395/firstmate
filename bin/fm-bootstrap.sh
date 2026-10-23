@@ -204,12 +204,6 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-startup-memory-budget-lib.sh"
 # shellcheck source=bin/fm-x-lib.sh disable=SC1091
 . "$SCRIPT_DIR/fm-x-lib.sh"
-# The agy ladder, for one question only: can the rung order this home's
-# config/dispatch-policy.json states actually be enforced? That library falls back
-# to its built-in order rather than refusing, which is right at dispatch time
-# and silent, so the loud half belongs here where a person reads it once.
-# shellcheck source=bin/fm-agy-ladder-lib.sh disable=SC1091
-. "$SCRIPT_DIR/fm-agy-ladder-lib.sh"
 # shellcheck source=bin/fm-backend.sh disable=SC1091
 . "$SCRIPT_DIR/fm-backend.sh"
 # shellcheck source=bin/fm-remote-readiness-lib.sh disable=SC1091
@@ -1081,191 +1075,35 @@ EOF
 }
 
 crew_dispatch_validate() {
-  local file err verified_harnesses typed_active=true legacy_notice missing_provider location harness
+  local file version err missing_harness
   file="$CONFIG/dispatch-policy.json"
   [ -f "$file" ] || return 0
   if ! command -v jq >/dev/null 2>&1; then
     echo "MISSING: jq (install: $(install_cmd jq))"
     return 0
   fi
-  if ! jq -e . "$file" >/dev/null 2>&1; then
+  if ! jq empty "$file" >/dev/null 2>&1; then
     echo "CREW_DISPATCH: invalid config/dispatch-policy.json - malformed JSON"
     return 0
   fi
-  # fm-spawn always consumes the resolver's deterministic route, so resolver fields and its full verified adapter set are active
-  # for every crew-dispatch file.
-  verified_harnesses=$(fm_control_harnesses | jq -Rsc 'split("\n") | map(select(length > 0))')
-  err=$(jq -r --argjson typed "$typed_active" --argjson verified_harnesses "$verified_harnesses" --arg provider_re "$FM_QUOTA_PROVIDER_ID_RE" '
-    def verified($h): $verified_harnesses | index($h);
-    def provider_id($p): ($p | type) == "string" and ($p | test($provider_re));
-    def effort_ok($h; $m; $e):
-      if $e == null then true
-      elif ($e | type) != "string" then false
-      elif $e == "ultra" then (($h == "pi" or $h == "pi-signed") and (($m | type) == "string") and ($m | startswith("codex-native/")) and ($m | length) > 13)
-      elif $h == "claude" then (["low","medium","high","xhigh","max"] | index($e))
-      elif $h == "codex" then ((["low","medium","high","xhigh"] | index($e)) != null or ($e == "max" and ($m == "gpt-5.6-luna" or $m == "gpt-6-luna")))
-      elif $h == "grok" then (["low","medium","high"] | index($e))
-      elif $h == "agy" then (["low","medium","high"] | index($e))
-      elif $h == "pi" or $h == "pi-signed" or $h == "omp" then (["low","medium","high","xhigh","max"] | index($e))
-      elif $h == "muse" then (["low","medium","high","xhigh","max"] | index($e))
-      elif $h == "rovo" then (["low","medium","high","max"] | index($e))
-      elif $h == "opencode" or $h == "kimi" or $h == "cursor" then false
-      else true
-      end;
-    def profiles($value):
-      if ($value | type) == "array" then $value
-      elif ($value | type) == "object" then [$value]
-      else []
-      end;
-    def configured_profiles:
-      ([(.rules // [])[]? | profiles(.use?)[]?]
-        + (if has("default") then [profiles(.default)[]?] else [] end)
-        + (.default_ladder // []));
-    def malformed_optional_fields($items):
-      ($items | any(has("model") and (((.model | type) != "string") or (.model | length) == 0)))
-      or ($items | any(has("effort") and (((.effort | type) != "string") or (.effort | length) == 0)))
-      or ($typed and ($items | any(has("provider") and (provider_id(.provider) | not))));
-    # A quota floor, on a rule or a profile: bin/fm-dispatch-resolve.sh applies
-    # it in code against one quota-axi row, so scope and min_percent must be
-    # concrete; a rule floor also names the provider whose row it reads.
-    def floor_bad($f; $need_provider):
-      ($f | type) != "object"
-      or (($f.scope | type) != "string") or (($f.scope | length) == 0)
-      or (($f.min_percent | type) != "number") or ($f.min_percent < 0) or ($f.min_percent > 100)
-      or (if $need_provider
-          then (provider_id($f.provider) | not)
-          else ($f | has("provider"))
-          end);
-    def malformed_profile_floors($items):
-      ($items | any(has("floor") and floor_bad(.floor; false)));
-    def bad_efforts:
-      configured_profiles
-      | map({h: .harness, m: .model, e: .effort})
-      | map(select(.e != null))
-      | map(select((.h | type) == "string" and verified(.h)))
-      | map(select(. as $p | effort_ok($p.h; $p.m; $p.e) | not))
-      | map("\(.h):\(.e)")
-      | unique;
-    if type != "object" then "top-level value must be an object"
-    elif has("version") and .version != 1 then "version must be 1"
-    elif has("rules") and (.rules | type) != "array" then "rules must be an array"
-    elif [(.rules // [])[]? | select(type != "object")] | length > 0 then "each rule must be an object"
-    elif [(.rules // [])[]? | select((.when? | type) != "string" or (.when | length) == 0)] | length > 0 then "each rule needs non-empty when"
-    elif [(.rules // [])[]? | select(has("match") or has("projects"))] | length > 0 then "legacy match/projects selectors are retired; use trigger"
-    elif [(.rules // [])[]? | select((.id? | type) != "string" or (.id | length) == 0)] | length > 0 then "each rule needs a non-empty id"
-    elif ([.rules[]?.id] | length) != ([.rules[]?.id] | unique | length) then "rule ids must be unique"
-    elif [(.rules // [])[]? | select((.trigger? | type) != "object" or (.trigger.kind != "declaration" and .trigger.kind != "projects"))] | length > 0 then "each rule needs trigger.kind declaration or projects"
-    elif [(.rules // [])[]? | select(.trigger.kind == "projects" and ((.trigger.names | type) != "array" or (.trigger.names | length) == 0 or any(.trigger.names[]; if type != "string" then true else length == 0 or contains("\\n") or contains("\\r") end)))] | length > 0 then "trigger.names must be a non-empty array of single-line registered project names"
-    elif ([.rules[]?.trigger.names[]?] | length) != ([.rules[]?.trigger.names[]?] | unique | length) then "a project name may appear in only one dispatch rule"
-    elif ([.rules[]? | select(.trigger.kind == "declaration")] | length) > 1 then "only one declaration trigger may be configured"
-    elif [(.rules // [])[]? | select((.use? | type) != "object" and (.use? | type) != "array")] | length > 0 then "each rule needs use"
-    elif [(.rules // [])[]? | select((.use? | type) == "array" and (.use | length) == 0)] | length > 0 then "each rule needs at least one use profile"
-    elif [(.rules // [])[]? | profiles(.use?)[]? | select(type != "object")] | length > 0 then "each use profile must be an object"
-    elif [(.rules // [])[]? | profiles(.use?)[]? | select((.harness? | type) != "string" or (.harness | length) == 0)] | length > 0 then "each use profile needs harness"
-    elif malformed_optional_fields([(.rules // [])[]? | profiles(.use?)[]?]) then
-      if $typed then "use profile model and effort must be non-empty strings, and provider must match ^[a-z0-9]+(-[a-z0-9]+)*\\z when present"
-      else "use profile model and effort must be non-empty strings when present"
-      end
-    elif $typed and malformed_profile_floors([(.rules // [])[]? | profiles(.use?)[]?]) then "use profile floor needs scope and min_percent 0..100"
-    elif $typed and ([(.rules // [])[]? | select(has("approval") and .approval != "captain")] | length > 0) then "approval must be \"captain\" when present"
-    elif $typed and ([(.rules // [])[]? | select(has("floor") and floor_bad(.floor; true))] | length > 0) then "rule floor needs scope, min_percent 0..100, and provider matching ^[a-z0-9]+(-[a-z0-9]+)*\\z"
-    elif [(.rules // [])[]? | select(has("select") and ((.select? | type) != "string" or (.select | length) == 0))] | length > 0 then "select must be a non-empty string"
-    elif [(.rules // [])[]? | .select? // empty | select(. != "quota-balanced")] | length > 0 then
-      "unknown select: " + ([ (.rules // [])[]? | .select? // empty | select(. != "quota-balanced") ] | unique | join(", "))
-    elif has("default") and ((.default | type) != "object" and (.default | type) != "array") then "default must be a profile object or non-empty profile array"
-    elif has("default") and ((.default | type) == "array" and (.default | length) == 0) then "default needs at least one profile"
-    elif has("default") and ([profiles(.default)[]? | select(type != "object")] | length) > 0 then "each default profile must be an object"
-    elif has("default") and ([profiles(.default)[]? | select((.harness? | type) != "string" or (.harness | length) == 0)] | length) > 0 then "each default profile needs harness"
-    elif has("default") and malformed_optional_fields([profiles(.default)[]?]) then
-      if $typed then "default profile model and effort must be non-empty strings, and provider must match ^[a-z0-9]+(-[a-z0-9]+)*\\z when present"
-      else "default profile model and effort must be non-empty strings when present"
-      end
-    elif $typed and has("default") and malformed_profile_floors([profiles(.default)[]?]) then "default profile floor needs scope and min_percent 0..100"
-    elif has("default_ladder") and ((.default_ladder | type) != "array" or (.default_ladder | length) != 2) then "default_ladder must declare exactly the plus and go rungs"
-    elif has("default_ladder") and any(.default_ladder[]; (.id != "plus" and .id != "go") or type != "object" or ((.harness | type) != "string" or (.model | type) != "string" or (.model | length) == 0)) then "default_ladder rungs need unique plus/go ids and valid profiles"
-    elif has("default_ladder") and ([.default_ladder[].id] | unique | sort) != ["go","plus"] then "default_ladder must declare plus and go exactly once"
-    elif has("exhausted_ladder_fallback") then "exhausted_ladder_fallback has been retired; remove it"
-    else
-      (configured_profiles
-        | map(.harness)
-        | map(select(. != null))
-        | map(select(. as $h | verified($h) | not))
-        | unique) as $bad_harnesses
-      | if ($bad_harnesses | length) > 0 then "unverified harness: " + ($bad_harnesses | join(", "))
-        elif (bad_efforts | length) > 0 then "invalid effort: " + (bad_efforts | join(", "))
-        else empty
-        end
-    end
-  ' "$file" 2>/dev/null || true)
-  if [ -n "$err" ]; then
-    echo "CREW_DISPATCH: invalid config/dispatch-policy.json - $err"
+  version=$(jq -r '.version // 1' "$file" 2>/dev/null) || version=
+  if [ "$version" != 2 ]; then
+    echo "CREW_DISPATCH: legacy config/dispatch-policy.json requires migration: FM_HOME=<home> bin/fm-migrate-unified-dispatch.sh --force"
     return 0
   fi
-  missing_provider=$(jq -r '
-    def profiles($value): if ($value | type) == "array" then $value elif ($value | type) == "object" then [$value] else [] end;
-    ([((.rules // [])[] | profiles(.use)[] | select(has("provider") | not) | {where:"rule", harness:.harness}),
-      (profiles(.default // null)[] | select(has("provider") | not) | {where:"default", harness:.harness}),
-      (.default_ladder[]? | select(has("provider") | not) | {where:"default_ladder", harness:.harness})][]
-      | "\(.where)\t\(.harness)")
-  ' "$file" | while IFS=$'\t' read -r location harness; do
-    [ -n "$harness" ] || continue
-    if ! fm_control_harness_supported "$harness"; then
-      printf 'unverified\t%s\n' "$harness"
-      break
-    elif ! fm_quota_single_provider_for_harness "$harness" >/dev/null; then
-      printf '%s\t%s\n' "$location" "$harness"
-      break
-    fi
+  if ! "$SCRIPT_DIR/fm-dispatch-policy-validate.sh" "$file" >/dev/null 2>&1; then
+    err=$("$SCRIPT_DIR/fm-dispatch-policy-validate.sh" "$file" 2>&1 | sed -n 's/^error: malformed dispatch policy: //p')
+    echo "CREW_DISPATCH: invalid config/dispatch-policy.json - ${err:-version 2 schema validation failed}"
+    return 0
+  fi
+  missing_harness=$(jq -r '[.rules[].ladder[], .default_ladder[]] | .[].harness' "$file" | while IFS= read -r harness; do
+    if ! fm_control_harness_supported "$harness"; then printf '%s\n' "$harness"; break; fi
   done)
-  if [ -n "$missing_provider" ]; then
-    IFS=$'\t' read -r location harness <<< "$missing_provider"
-    if [ "$location" = unverified ]; then
-      echo "CREW_DISPATCH: invalid config/dispatch-policy.json - unverified harness: $harness"
-    else
-      echo "CREW_DISPATCH: invalid config/dispatch-policy.json - $location profiles whose harness lacks one authoritative provider family require provider: $harness"
-    fi
+  if [ -n "$missing_harness" ]; then
+    echo "CREW_DISPATCH: invalid config/dispatch-policy.json - unverified harness: $missing_harness"
     return 0
   fi
-  # The checks above validate dispatch PROFILES. This one validates the agy
-  # LADDER order the same file also defines: a model the gate cannot rank
-  # is skipped while the remaining rungs still enforce, and nothing at dispatch
-  # time says so. A file that states its order only through the legacy default
-  # field keeps resolving, and is named
-  # as legacy so the coupled read is reported rather than silent.
-  if err=$(fm_agy_ladder_config_problem "$file"); then
-    if legacy_notice=$(fm_agy_ladder_legacy_notice "$file"); then
-      [ -n "$legacy_notice" ] && echo "CREW_DISPATCH: legacy config/dispatch-policy.json - $legacy_notice"
-    fi
-  else
-    case "$err" in
-      *"those rungs are skipped and the remaining order is enforced")
-        echo "CREW_DISPATCH: agy ladder notice - $err"
-        ;;
-      *)
-        echo "CREW_DISPATCH: invalid config/dispatch-policy.json - $err"
-        return 0
-        ;;
-    esac
-  fi
-  if [ "${FM_BOOTSTRAP_VERBOSE_FACTS:-0}" = 1 ]; then
-    jq -r '
-    def profile($p):
-      ($p.harness | tostring)
-      + (if ($p.model? != null) then "/" + ($p.model | tostring)
-         elif ($p.effort? != null) then "/default"
-         else "" end)
-      + (if ($p.effort? != null) then "/" + ($p.effort | tostring) else "" end);
-    def profile_set($value; $selector):
-      if ($value | type) == "array" then
-        (($selector // "quota-balanced") + "[" + ([$value[] | profile(.)] | join(", ")) + "]")
-      else profile($value)
-      end;
-    (["BOOTSTRAP_INFO: crew dispatch active config/dispatch-policy.json"]
-      + [(.rules // [])[]? | "BOOTSTRAP_INFO: crew dispatch rule: " + (.when | tostring) + " -> " + profile_set(.use; .select?)]
-      + (if has("default") then ["BOOTSTRAP_INFO: crew dispatch default: " + profile_set(.default; null)] else [] end))
-    | .[]
-  ' "$file"
-  fi
+  [ "${FM_BOOTSTRAP_VERBOSE_FACTS:-0}" = 1 ] && echo "BOOTSTRAP_INFO: crew dispatch active config/dispatch-policy.json (version 2 unified policy)"
 }
 
 # Same-home record reconciliation. Every ordinary dispatch and completion now

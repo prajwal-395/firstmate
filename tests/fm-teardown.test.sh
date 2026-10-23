@@ -737,29 +737,6 @@ test_local_only_fork_remote_allows() {
   pass "local-only worktree with HEAD on a fork remote is torn down and the home summary is refreshed"
 }
 
-test_teardown_removes_opencode_retry_sidecar() {
-  local case_dir rc
-  case_dir=$(make_case retry-cleanup)
-  write_meta "$case_dir" local-only ship
-  wt_commit "$case_dir" "fix the thing"
-  add_fork_with_pushed_branch "$case_dir"
-  # The sidecar the spawn-installed plugin maintains: left behind, it would
-  # brand the next lane capped on its first evaluation once this record is gone.
-  "$ROOT/bin/fm-opencode-retry.sh" record "$case_dir/state" task-x1 3 \
-    "$(( ($(date +%s) + 78840) * 1000 ))" muse-spark-1.3-contributor ses_task-x1 \
-    || fail "retry-cleanup: record refused the sidecar observation"
-  [ -f "$case_dir/state/task-x1.opencode-retry" ] \
-    || fail "retry-cleanup: record wrote no sidecar"
-  set +e
-  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
-  rc=$?
-  set -e
-  expect_code 0 "$rc" "retry-cleanup: teardown should succeed when the work has landed"
-  [ ! -e "$case_dir/state/task-x1.opencode-retry" ] \
-    || fail "retry-cleanup: teardown left the task's retry sidecar behind to brand the next lane"
-  pass "teardown removes the task's retry sidecar with the rest of its volatile state"
-}
-
 test_teardown_closes_the_backlog_item_itself() {
   local case_dir out
   case_dir=$(make_case tasks-axi-close)
@@ -4775,7 +4752,6 @@ test_post_return_turnend_auth_failure_is_loud_and_wakes() {
 }
 
 test_local_only_fork_remote_allows
-test_teardown_removes_opencode_retry_sidecar
 test_post_return_failure_is_loud_and_wakes
 test_post_return_turnend_auth_failure_is_loud_and_wakes
 test_teardown_closes_the_backlog_item_itself

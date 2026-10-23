@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # fm-opencode-second-lib.sh - the OpenCode Go workspace pins.
 # Usage: . bin/fm-opencode-second-lib.sh
-# Sourced by bin/fm-spawn.sh, bin/fm-opencode-ladder-lib.sh, and
-# bin/fm-opencode-descent-lib.sh. Sourcing has no side effects beyond the
+# Sourced by bin/fm-spawn.sh and bin/fm-opencode-server.sh. Sourcing has no side effects beyond the
 # constants and functions below.
 #
 # THE PROBLEM. One OpenCode account can hold two workspaces with separate Go
@@ -13,10 +12,8 @@
 # OPENCODE_DB points one launch at a different file. A pinned database holds
 # only the migrated schema plus the account rows, with its own active
 # workspace id, so the pinned launch fetches that workspace's console config
-# and attributes its inference there. The paid Go model is
-# `opencode-go/muse-spark-1.3-contributor`. The
-# workspace a paid Go lane runs on is recorded per task as
-# `opencode_workspace=secondary` in its meta, absent meaning main.
+# and attributes its inference there. The selected workspace is recorded per
+# task and resolved through the policy account value.
 #
 # BOTH WORKSPACES ARE PINNED. A main-workspace Go launch that rides no pin
 # inherits the machine-wide active workspace, so the moment that active
@@ -24,9 +21,8 @@
 # plan while its record still reads main. Every Go launch in a home with a
 # configured second workspace therefore rides its own pin, main and secondary
 # alike, and a Go launch that cannot prove its pin is refused rather than run
-# unpinned. The pin applies only to launches that actually bill a Go
-# workspace (bin/fm-opencode-ladder-lib.sh fm_opencode_model_bills_go owns
-# that test): every non-Go model launches outside the
+# unpinned. The policy selects which launches use an account pin; every other
+# launch remains outside the
 # workspace pin flow, so discovering or requiring a workspace never blocks
 # them. Unpinned standalone launches start with an empty task
 # database. A home with no second workspace
@@ -105,12 +101,7 @@
 # use when no file holds it, so pinning main needs no hand setup; a login
 # that names no main workspace refuses the launch instead.
 #
-# QUOTA. quota-axi exposes one `opencode-go` row with no workspace dimension,
-# so it cannot see the second workspace separately. The second workspace
-# therefore uses reactive vendor evidence only, contributes no window timing
-# to the tier pick, and reads as unknown while uncapped; predictive
-# zero-availability rows keep feeding the main Go rung exactly as today.
-# bin/fm-opencode-ladder-lib.sh owns the tier comparison.
+# QUOTA. The generic dispatch reset store and quota-axi own account eligibility.
 
 _FM_OPENCODE_SECOND_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd 2>/dev/null)" || _FM_OPENCODE_SECOND_LIB_DIR="."
 # fm_meta_get lives in the backend library; dispatch-path callers load it
@@ -136,25 +127,18 @@ fm_opencode_second_config_dir() {  # [config-dir]
   printf '%s\n' "$config_dir"
 }
 
-# fm_opencode_pi_go_enabled [config-dir]: 0 for the opt-in, 1 when absent or
-# off, and 2 for malformed content. Spawn and descent share this one reader.
-fm_opencode_pi_go_enabled() {  # [config-dir]
-  local config_dir=${1:-} file value=
-  config_dir=$(fm_opencode_second_config_dir "$config_dir") || return 1
-  file="$config_dir/pi-opencode-go"
-  [ -f "$file" ] || [ -L "$file" ] || return 1
-  [ "$(awk 'END { print NR }' "$file" 2>/dev/null)" = 1 ] \
-    && IFS= read -r value < "$file" || return 2
-  case "$value" in on) return 0 ;; off) return 1 ;; *) return 2 ;; esac
-}
-
-# Workspace file infixes. The secondary workspace keeps its historic `second`
-# infix (config/opencode-second-org); the main workspace uses `main`.
+# Workspace file infixes. Existing workspace labels retain their historic
+# filenames. Any additional configured account uses an isolated account-
+# <label> suffix, so adding a workspace is a config and policy change.
 fm_opencode_workspace_infix() {  # <workspace>
+  local workspace=${1:-}
   case "${1:-}" in
     "$FM_OPENCODE_WORKSPACE_SECOND") printf 'second\n' ;;
     "$FM_OPENCODE_WORKSPACE_MAIN") printf 'main\n' ;;
-    *) return 1 ;;
+    *)
+      case "$workspace" in ''|*[!A-Za-z0-9_-]*) return 1 ;; esac
+      printf 'account-%s\n' "$workspace"
+      ;;
   esac
 }
 
@@ -163,7 +147,7 @@ fm_opencode_workspace_label() {  # <workspace>
   case "${1:-}" in
     "$FM_OPENCODE_WORKSPACE_SECOND") printf 'second\n' ;;
     "$FM_OPENCODE_WORKSPACE_MAIN") printf 'main\n' ;;
-    *) return 1 ;;
+    *) [ -n "${1:-}" ] || return 1; printf '%s\n' "$1" ;;
   esac
 }
 

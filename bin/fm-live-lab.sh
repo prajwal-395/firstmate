@@ -65,8 +65,8 @@
 #                    <lab-root>/home/data/<worker-id>/gate until that file
 #                    exists; touch the gate and message the worker to resume.
 #   primary          window main: claude --setting-sources project,local
-#                    (default sonnet, medium, permission mode auto) or pi
-#                    (default openai-codex/gpt-6-luna, medium), launched
+#                    or pi, launched with the harness default unless an
+#                    explicit --model was supplied.
 #                    after the mate and worker so its first turn end arms
 #                    supervision. up then sends one harmless probe prompt.
 #
@@ -442,7 +442,7 @@ open(path, "w", encoding="utf-8").write(text)
 PY
   (cd "$LAB" && lab_run FM_HOME="$LAB" "$LAB/bin/fm-tasks-axi.sh" add "$WORKER_ID" "lab gated worker" --kind ship --repo notes) >/dev/null || return 1
   (cd "$LAB" && lab_run FM_HOME="$LAB" "$LAB/bin/fm-spawn.sh" "$WORKER_ID" "$LAB/projects/notes" \
-    --mode local-only --yolo on --harness claude --model sonnet --effort low)
+    --mode local-only --yolo on --harness claude --effort low)
 }
 
 spawn_mate() {
@@ -480,7 +480,6 @@ cmd_up() {
   [ "$host_line" != __default__ ] || { [ "$harness" = claude ] && host_line=claude || host_line=none; }
   HOST_OFF=no
   [ "$host_line" != off ] || HOST_OFF=yes
-  [ -n "$model" ] || { [ "$harness" = claude ] && model=sonnet || model=openai-codex/gpt-6-luna; }
   CLAUDE_DIR=${CLAUDE_CONFIG_DIR:-}
   case "$CLAUDE_DIR" in ''|/*) ;; *) die "CLAUDE_CONFIG_DIR must be an absolute path" ;; esac
   CLAUDE_STORE="${CLAUDE_DIR:-$HOME}/.claude.json"
@@ -530,7 +529,7 @@ cmd_up() {
   mkdir -p "$LAB/state" "$LAB/data" "$LAB/config" "$LAB/projects" "$ROOT/treehouse"
   printf 'tmux\n' > "$LAB/config/backend"
   printf 'claude\n' > "$LAB/config/crew-harness"
-  printf 'claude sonnet low\n' > "$LAB/config/secondmate-harness"
+  printf 'claude low\n' > "$LAB/config/secondmate-harness"
   printf 'auto\n' > "$LAB/config/claude-permission-mode"
   case "$host_line" in
     none) ;;
@@ -567,9 +566,13 @@ cmd_up() {
       lab_trust_present && break
     done
     lab_trust_present || die "the lab home's Claude trust keeps disappearing from $CLAUDE_STORE"
-    primary=(claude --setting-sources "project,local" --model "$model" --effort "$effort" --permission-mode auto)
+    primary=(claude --setting-sources "project,local")
+    [ -z "$model" ] || primary+=(--model "$model")
+    primary+=(--effort "$effort" --permission-mode auto)
   else
-    primary=(pi --approve --session-dir "$ROOT/pi-sessions" --model "$model" --thinking "$effort")
+    primary=(pi --approve --session-dir "$ROOT/pi-sessions")
+    [ -z "$model" ] || primary+=(--model "$model")
+    primary+=(--thinking "$effort")
   fi
   lab_tmux new-window -d -t firstmate: -n main -c "$LAB" \
     env FM_HOME="$LAB" CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false "${primary[@]}" \

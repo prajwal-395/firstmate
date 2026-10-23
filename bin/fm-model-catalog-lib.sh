@@ -16,7 +16,7 @@ fm_model_catalog_check() {
   path=$(fm_model_catalog_path "${2:-}")
   [ -e "$path" ] || return 0
   command -v jq >/dev/null 2>&1 || { printf 'error: jq required to read model catalog %s\n' "$path" >&2; return 2; }
-  jq -e '.models | type == "array" and all(.[]; (.id | type) == "string" and (.status == "active" or .status == "retired") and ((has("replaced_by") | not) or (.replaced_by | type) == "string"))' "$path" >/dev/null 2>&1 || {
+  jq -e '.models | type == "array" and all(.[]; (.id | type) == "string" and (.status == "active" or .status == "retired") and ((has("replaced_by") | not) or (.replaced_by | type) == "string") and ((has("harnesses") | not) or (.harnesses | type == "array" and all(.[]; type == "string" and length > 0))))' "$path" >/dev/null 2>&1 || {
     printf 'error: malformed model catalog %s\n' "$path" >&2
     return 2
   }
