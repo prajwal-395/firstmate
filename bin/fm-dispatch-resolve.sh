@@ -44,12 +44,6 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if ! declare -f fm_opencode_second_configured >/dev/null 2>&1; then
-  # The second-workspace predicate for the fallback cap listing below;
-  # guarded like every other shared source.
-  # shellcheck source=/dev/null
-  . "$SCRIPT_DIR/fm-opencode-second-lib.sh"
-fi
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-$FM_ROOT}"
 CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
@@ -74,7 +68,6 @@ usage() {
 }
 
 BRIEF='' PROJECT='' DECLARE='' RULES_PATH="$CONFIG/dispatch-policy.json" RULES=''
-STATIC_HARNESS_DEFAULT=0
 CAPTAIN_APPROVED=0
 JSON_MODE=0
 while [ $# -gt 0 ]; do
@@ -104,7 +97,10 @@ fi
 if ! jq -e . "$RULES" >/dev/null 2>&1; then
   die "malformed rules file: $RULES_PATH (not JSON)"
 fi
-if [ "$(jq -r '.version // 1' "$RULES" 2>/dev/null)" = 2 ]; then
+if [ "$(jq -r '.version // empty' "$RULES" 2>/dev/null)" != 2 ]; then
+  die "dispatch policy must use version 2; migrate this home with bin/fm-migrate-unified-dispatch.sh"
+fi
+if [ -e "$RULES_PATH" ] || [ -L "$RULES_PATH" ]; then
   "$SCRIPT_DIR/fm-dispatch-policy-validate.sh" "$RULES" >/dev/null 2>&1 || die "malformed version 2 dispatch policy: $RULES_PATH"
   home_role=worker
   if [ -r "$FM_HOME/data/charter.md" ] && grep -qi research "$FM_HOME/data/charter.md"; then
@@ -136,21 +132,12 @@ if [ "$(jq -r '.version // 1' "$RULES" 2>/dev/null)" = 2 ]; then
   ' "$RULES" > "$NORMALIZED" || die "version 2 policy normalization failed"
   mv "$NORMALIZED" "$RULES" || die "could not install normalized policy snapshot"
 fi
-if ! jq -e 'has("default")' "$RULES" >/dev/null 2>&1; then
-  DEFAULT_HARNESS=$(FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-harness.sh" crew 2>/dev/null) || die "could not resolve the static crew harness for the default route"
-  [ -n "$DEFAULT_HARNESS" ] || die "static crew harness resolved empty"
-  STATIC_HARNESS_DEFAULT=1
-  DEFAULT_RULES="$RULES.default"
-  jq --arg harness "$DEFAULT_HARNESS" '. + {default:{harness:$harness}}' "$RULES" > "$DEFAULT_RULES" \
-    || die "could not add the static crew harness to the rules snapshot"
-  mv "$DEFAULT_RULES" "$RULES" || die "could not install the default rules snapshot"
-fi
 chmod 400 "$RULES" || die "could not protect rules snapshot"
 VERIFIED_HARNESSES=$(fm_control_harnesses | jq -Rsc 'split("\n") | map(select(length > 0))')
 
 # The fields this tool consumes must be well formed; bootstrap owns the wider
 # schema diagnostic, but an intake never selects around a malformed file.
-rules_err=$(jq -r --argjson verified_harnesses "$VERIFIED_HARNESSES" --argjson static_harness_default "$STATIC_HARNESS_DEFAULT" --arg provider_re "$FM_QUOTA_PROVIDER_ID_RE" '
+rules_err=$(jq -r --argjson verified_harnesses "$VERIFIED_HARNESSES" --arg provider_re "$FM_QUOTA_PROVIDER_ID_RE" '
   def verified($h): $verified_harnesses | index($h);
   def provider_id($p): ($p | type) == "string" and ($p | test($provider_re));
   def effort_ok($h; $m; $e):
@@ -209,13 +196,12 @@ rules_err=$(jq -r --argjson verified_harnesses "$VERIFIED_HARNESSES" --argjson s
   elif has("default") and (profiles(.default) | length) == 0 then "default must be a profile object or non-empty profile array"
   elif has("default") and any(profiles(.default)[]; profile_bad(.)) then "each default profile needs harness; model, effort, and floor must be well formed, and provider must match ^[a-z0-9]+(-[a-z0-9]+)*\\z when present"
   elif has("default") and duplicate_profiles(profiles(.default)) then "default must not contain duplicate harness, model, and effort profiles"
-  elif has("default") and any(profiles(.default)[]; (verified(.harness) | not) and ($static_harness_default != 1)) then "each default profile must name a verified harness"
+  elif has("default") and any(profiles(.default)[]; verified(.harness) | not) then "each default profile must name a verified harness"
   elif has("default") and any(profiles(.default)[]; (effort_ok(.harness; .model; .effort) | not)) then "each default profile effort must be supported by its harness and model"
   elif has("default_ladder") and ((.default_ladder | type) != "array" or (.default_ladder | length) == 0) then "default_ladder must be a non-empty array"
   elif has("default_ladder") and any(.default_ladder[]; (.id | type) != "string" or (.id | length) == 0 or profile_bad(.)) then "default_ladder rungs need non-empty ids and valid profiles"
   elif has("default_ladder") and ([.default_ladder[].id] | length) != ([.default_ladder[].id] | unique | length) then "default_ladder rung ids must be unique"
   elif has("default_ladder") and any(.default_ladder[]; (verified(.harness) | not) or (effort_ok(.harness; .model; .effort) | not)) then "default_ladder rungs must use verified harnesses and supported effort"
-  elif has("exhausted_ladder_fallback") then "exhausted_ladder_fallback has been retired; remove it"
   else empty end
 ' "$RULES" 2>/dev/null) || die "malformed rules file: $RULES_PATH (not JSON)"
 [ -z "$rules_err" ] || die "malformed rules file: $RULES_PATH - $rules_err"
@@ -226,9 +212,6 @@ missing_provider=$(jq -r '
   (profiles(.default // null)[] | select(has("provider") | not) | "default\t\(.harness)"),
   ((.default_ladder // [])[] | select(has("provider") | not) | "default_ladder\t\(.harness)")
 ' "$RULES" | while IFS=$'\t' read -r location harness; do
-  if [ "$location" = default ] && [ "$STATIC_HARNESS_DEFAULT" = 1 ]; then
-    continue
-  fi
   if ! fm_quota_single_provider_for_harness "$harness" >/dev/null; then
     printf '%s\t%s\n' "$location" "$harness"
     break
@@ -339,7 +322,7 @@ fi
 # ---- resolution: declared gates + quota evidence + declared rung order, all in jq -
 RESULT=$(jq -n --argjson lat "$LAT_MS" --arg rung "$RUNG" --arg none_criterion "$DEFAULT_WHEN" \
   --arg default_reason "$DEFAULT_REASON" --argjson pmap "$PMAP" --argjson captain_approved "$CAPTAIN_APPROVED" \
-  --argjson static_default "$STATIC_HARNESS_DEFAULT" --argjson now_ms "$(($(date +%s) * 1000))" \
+  --argjson now_ms "$(($(date +%s) * 1000))" \
   --slurpfile resp "$RESP_FILE" --slurpfile rules "$RULES" --slurpfile quota "$QUOTA" --slurpfile resets "$RESET_ROWS" --slurpfile catalog "$CATALOG_ROWS" '
   ($resp[0]) as $r | ($rules[0]) as $cfg | ($quota[0]) as $q | ($resets[0]) as $reset_rows | ($catalog[0]) as $catalog_data | ($r.answers.rule) as $a |
   def profiles($v): if ($v | type) == "array" then $v elif ($v | type) == "object" then [$v] else [] end;
@@ -377,7 +360,7 @@ RESULT=$(jq -n --argjson lat "$LAT_MS" --arg rung "$RUNG" --arg none_criterion "
     end;
   def evidence($rows):
     $rows | map({scope, status, pct: (.effectivePercentRemaining // null), runway: (.runway.status // null), spendPriority: (.selection.spendPriority // null)});
-  def evaluate($c; $allow_static_default):
+  def evaluate($c):
     (provider_of($c)) as $p | (catalog_item($c.model // "")) as $catalog_item |
     if ($c._dispatch_denied // false) then
       {profile: $c, provider: $p, eligible: false, reason: "policy constraint denies this home and provider"}
@@ -391,8 +374,6 @@ RESULT=$(jq -n --argjson lat "$LAT_MS" --arg rung "$RUNG" --arg none_criterion "
       (reset_for($c; $p)) as $reset |
       {profile: $c, provider: $p, bounds: [], scope: $c.workspace, reset_ms: $reset.reset_ms, eligible: false,
        reason: "provider/model/workspace is exhausted until ($reset.reset_ms)"}
-    elif $p == null and $allow_static_default then
-      {profile: $c, eligible: true, unranked: true, unknown: true, reason: "static crew harness has no declared provider or model for quota measurement"}
     elif $p == null then {profile: $c, eligible: false, reason: "no provider family for harness \($c.harness); declare provider on the profile"}
     elif prov($p; $c) == null then {profile: $c, provider: $p, eligible: true, unranked: true, reason: "provider \($p) not in the quota snapshot"}
     else
@@ -452,17 +433,16 @@ RESULT=$(jq -n --argjson lat "$LAT_MS" --arg rung "$RUNG" --arg none_criterion "
    else {source: $choice, use: profiles($rule.use), note: "rule matched"} end) as $sel |
   {
     model: $r.model, latency_ms: $lat, rung: $rung, tokens: ($r.usage // null),
-    ladder_models: ([($cfg.default_ladder // [])[]?.model] | map(select(type == "string"))),
     rule: $choice, source: $sel.source,
     rule_when: (if $rule == null then $none_criterion else $rule.when end | .[0:60]),
     confidence: $a.confidence, probabilities: $a.probabilities
   } as $ev |
   if $sel.invalid then $ev + {status: "error", reason: $sel.invalid}
   elif $sel.escalate then
-    $ev + {status: "escalate", reason: $sel.escalate, candidates: ($answer_use | map(evaluate(.; ($static_default == 1 and $sel.source == "default"))))}
+    $ev + {status: "escalate", reason: $sel.escalate, candidates: ($answer_use | map(evaluate(.)))}
   elif ($sel.use | length) == 0 then $ev + {status: "escalate", reason: "no profiles configured for \($sel.source)", note: $sel.note, candidates: []}
   else
-     ($sel.use | map(evaluate(.; ($static_default == 1 and $sel.source == "default")))) as $cands |
+     ($sel.use | map(evaluate(.))) as $cands |
      ([$cands[] | select(.eligible)]) as $usable |
      ([$cands[] | select(.unranked)]) as $unranked |
      if ($usable | length) == 0 then $ev + {status: "escalate", reason: "no eligible candidate", note: $sel.note, candidates: $cands}
@@ -498,8 +478,6 @@ TEXT=$(jq -r '
       + (if .chosen.profile.effort then " --effort \(.chosen.profile.effort | shell_arg)" else "" end) else empty end)' <<<"$RESULT") || emit_error "output rendering failed"
 if [ "$JSON_MODE" -eq 1 ]; then
   jq -c '
-    def ladder_route:
-      .source == "default" and (.chosen.profile.model as $model | any(.ladder_models[]?; . == $model));
     {
       status,
       source: (if (.source // "") | startswith("rule_") then (.source | sub("^rule_"; "rule:")) else .source end),
@@ -520,34 +498,10 @@ if [ "$JSON_MODE" -eq 1 ]; then
         workspace: (.chosen.profile.workspace // null),
         account_strategy: (.chosen.profile.account_strategy // null),
         dispatch_unified: (.chosen.profile._dispatch_unified // false),
-        dispatch_ladder: (if .chosen.profile._dispatch_unified then null elif ladder_route then "opencode" else null end)
       } else null end)
     }
   ' <<<"$RESULT" || emit_error "JSON output rendering failed"
   exit 0
 fi
 printf '%s\n' "$TEXT"
-for rung in plus go; do
-  case "$rung" in plus) label='Codex Plus' ;; go) label='OpenCode Go' ;; esac
-  cap=$("$SCRIPT_DIR/fm-opencode-retry.sh" check-cap "$STATE" "$rung" 2>/dev/null) || cap=
-  case "$cap" in
-    *'status=blocked'*)
-      reset_at=$(printf '%s\n' "$cap" | sed -n 's/.*reset_at=//p')
-      reset_iso=$(jq -nr --arg reset "$reset_at" 'try ($reset | tonumber | gmtime | strftime("%Y-%m-%dT%H:%M:%SZ")) catch "unknown"' 2>/dev/null)
-      printf '  cap: %s capped until %s\n' "$label" "${reset_iso:-unknown}"
-      ;;
-  esac
-done
-# The fourth rung reports only when it exists: without a configured second
-# workspace the listing above is the whole ladder, exactly as before.
-if fm_opencode_second_configured "$CONFIG" 2>/dev/null; then
-  cap=$("$SCRIPT_DIR/fm-opencode-retry.sh" check-cap "$STATE" go-second 2>/dev/null) || cap=
-  case "$cap" in
-    *'status=blocked'*)
-      reset_at=$(printf '%s\n' "$cap" | sed -n 's/.*reset_at=//p')
-      reset_iso=$(jq -nr --arg reset "$reset_at" 'try ($reset | tonumber | gmtime | strftime("%Y-%m-%dT%H:%M:%SZ")) catch "unknown"' 2>/dev/null)
-      printf '  cap: %s capped until %s\n' 'OpenCode Go (second workspace)' "${reset_iso:-unknown}"
-      ;;
-  esac
-fi
 exit 0

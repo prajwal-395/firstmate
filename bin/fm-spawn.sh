@@ -52,7 +52,7 @@
 #   first in the private launch-brief overlay, including the exact task-owned
 #   steering inbox. This never rewrites a project's instruction files or a
 #   secondmate's charter.
-#        fm-spawn.sh <task-id> --relaunch [--harness <name>] [--model <name>] [--effort <level>] [--opencode-workspace <main|secondary>]
+#        fm-spawn.sh <task-id> --relaunch [--harness <name>] [--model <name>] [--effort <level>] [--opencode-workspace <label>]
 #   --relaunch launches a replacement agent for an EXISTING task into that
 #   task's own recorded worktree, reusing its recorded endpoint when that
 #   endpoint still exists, instead of creating either from scratch. It is
@@ -97,9 +97,9 @@
 #   from that harness's launch rather than guessed. Ultra is the explicit
 #   exception: bin/fm-harness.sh validate-native-effort owns its model scope;
 #   supported Pi launches receive --codex-effort ultra, never --thinking ultra.
-#   The resolver's internal dispatch-ladder provenance marks a Codex Plus
-#   default-array selection; the shared rung gate resolves the actual
-#   model and harness so dispatch cannot route around a capped earlier rung.
+#   On --relaunch, an explicit profile moves the recorded dispatch route with
+#   it: the generic descent's rung change is a new dispatch decision, not a
+#   silent override, and the recorded route, account pin, and database follow.
 #   OpenCode has no interactive effort flag, so its effort is written as the
 #   build agent's variant, keyed to the resolved model, inside the
 #   OPENCODE_CONFIG_CONTENT JSON its launch already carries (config schema
@@ -596,7 +596,6 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 PROJECTS="${FM_PROJECTS_OVERRIDE:-$FM_HOME/projects}"
 CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
-PI_OPENCODE_GO_ENABLED=0
 # shellcheck source=bin/fm-config-inherit-lib.sh
 . "$SCRIPT_DIR/fm-config-inherit-lib.sh"
 # shellcheck source=bin/fm-exclude-tools-lib.sh
@@ -706,40 +705,12 @@ fm_backlog_directory_present "$STATE" "state directory" || {
 . "$SCRIPT_DIR/fm-cursor-lib.sh"
 # shellcheck source=bin/fm-agy-lib.sh
 . "$SCRIPT_DIR/fm-agy-lib.sh"
-# shellcheck source=bin/fm-agy-quota-lib.sh
-. "$SCRIPT_DIR/fm-agy-quota-lib.sh"
-# shellcheck source=bin/fm-agy-ladder-lib.sh
-. "$SCRIPT_DIR/fm-agy-ladder-lib.sh"
-if ! declare -f fm_agy_pin_task >/dev/null 2>&1; then
-  # The per-task ladder pin this file records below; guarded like every other
-  # shared source here. The descent library is a canonical lint root in its
-  # own right: keep it an analysis boundary for the same reason as the wake
-  # and PR owners above and below.
-  # shellcheck source=/dev/null
-  . "$SCRIPT_DIR/fm-agy-descent-lib.sh"
-fi
-# shellcheck source=bin/fm-opencode-ladder-lib.sh
-. "$SCRIPT_DIR/fm-opencode-ladder-lib.sh"
-if ! declare -f fm_opencode_pin_task >/dev/null 2>&1; then
-  # The per-task ladder pin this file records below; guarded like every other
-  # shared source here. The descent library is a canonical lint root in its
-  # own right: keep it an analysis boundary for the same reason as the wake
-  # and PR owners above and below.
-  # shellcheck source=/dev/null
-  . "$SCRIPT_DIR/fm-opencode-descent-lib.sh"
-fi
 if ! declare -f fm_opencode_second_org >/dev/null 2>&1; then
   # The second Go workspace pin (workspace config, pinned database, lane
   # markers); guarded like every other shared source here.
   # shellcheck source=/dev/null
   . "$SCRIPT_DIR/fm-opencode-second-lib.sh"
 fi
-fm_opencode_pi_go_enabled "$CONFIG" && PI_OPENCODE_GO_ENABLED=1
-PI_OPENCODE_GO_STATUS=$?
-[ "$PI_OPENCODE_GO_STATUS" -ne 2 ] || {
-  echo "error: $CONFIG/pi-opencode-go must hold exactly one line, 'on' or 'off'" >&2
-  exit 1
-}
 # fm-pr-lib.sh is a canonical lint root in its own right. Keep it an analysis
 # boundary here: following its graph from this large runtime exceeds the
 # bounded CI lint worker while adding no uncovered file.
@@ -781,7 +752,6 @@ BRANCH_PREFIX_SET=0
 BASE_BRANCH=
 BASE_BRANCH_SET=0
 TRACEPARENT_SET=0
-DISPATCH_LADDER=
 CAPTAIN_ROUTE=
 CAPTAIN_ROUTE_SET=0
 CAPTAIN_SAID=
@@ -790,7 +760,6 @@ DECLARE=
 DECLARE_SET=0
 DISPATCH_PROFILE_ACTIVE=0
 DISPATCH_OVERRIDE_APPLIED=0
-DISPATCH_LADDER_RESOLVED=0
 DISPATCH_SOURCE=
 DISPATCH_REASON=
 DISPATCH_ROUTE_HARNESS=
@@ -800,17 +769,11 @@ DISPATCH_ROUTE_PROVIDER=
 DISPATCH_ROUTE_WORKSPACE=
 DISPATCH_ROUTE_PROJECT=
 DISPATCH_ROUTE_APPROVED=0
-DISPATCH_ROUTE_LADDER=
 DISPATCH_UNIFIED_RESOLVED=0
 DISPATCH_FALLBACK_SELECTED=
 DISPATCH_META_OVERRIDE_REASON=
 DISPATCH_EXPLANATION=
-DISPATCH_LADDER_EXPLANATION=
 unset FM_CAPTAIN_OVERRIDE_REASON
-PI_OPENCODE_GO=0
-PI_OPENCODE_REROUTE=0
-PI_OPENCODE_WORKSPACE_REQUIRED=0
-PI_OPENCODE_ORG=
 PI_OPENCODE_SESSION=
 OPENCODE_WORKSPACE_ARG=
 OPENCODE_WORKSPACE_SET=0
@@ -886,6 +849,13 @@ done
 [ "$MODEL_SET" -eq 0 ] || [ -n "$MODEL" ] || { echo "error: --model requires a non-empty value" >&2; exit 1; }
 [ "$EFFORT_SET" -eq 0 ] || [ -n "$EFFORT" ] || { echo "error: --effort requires a non-empty value" >&2; exit 1; }
 [ "$CAPTAIN_ROUTE_SET" -eq "$CAPTAIN_SAID_SET" ] || { echo 'error: --captain-route and --captain-said must be supplied together' >&2; exit 1; }
+[ "$OPENCODE_WORKSPACE_SET" -eq 0 ] || [ -n "$OPENCODE_WORKSPACE_ARG" ] || { echo "error: --opencode-workspace requires a non-empty value" >&2; exit 1; }
+if [ "$OPENCODE_WORKSPACE_SET" -eq 1 ]; then
+  [[ "$OPENCODE_WORKSPACE_ARG" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] \
+    || { echo "error: invalid dispatch account '$OPENCODE_WORKSPACE_ARG'" >&2; exit 1; }
+  [ "$RELAUNCH" -eq 1 ] \
+    || { echo "error: --opencode-workspace applies only to --relaunch; a fresh launch routes through the policy ladder" >&2; exit 1; }
+fi
 [ "$CAPTAIN_ROUTE_SET" -eq 0 ] || [ -n "$CAPTAIN_ROUTE" ] || { echo 'error: --captain-route requires a non-empty route' >&2; exit 1; }
 [ "$CAPTAIN_SAID_SET" -eq 0 ] || [ -n "$CAPTAIN_SAID" ] || { echo 'error: --captain-said requires the captain'"'"'s verbatim words' >&2; exit 1; }
 [ "$CAPTAIN_SAID_SET" -eq 0 ] || ! printf '%s' "$CAPTAIN_SAID" | LC_ALL=C grep -q '[[:cntrl:]]' || { echo 'error: --captain-said must be one printable line' >&2; exit 1; }
@@ -897,15 +867,6 @@ done
 [ "$BRANCH_PREFIX_SET" -eq 0 ] || [ -n "$BRANCH_PREFIX" ] || { echo "error: --branch-prefix requires a non-empty value" >&2; exit 1; }
 [ "$BASE_BRANCH_SET" -eq 0 ] || [ -n "$BASE_BRANCH" ] || { echo "error: --base-branch requires a non-empty value" >&2; exit 1; }
 [ "$TRACEPARENT_SET" -eq 0 ] || [ -n "$TRACEPARENT_ARG" ] || { echo "error: --traceparent requires a non-empty value" >&2; exit 1; }
-[ "$OPENCODE_WORKSPACE_SET" -eq 0 ] || [ -n "$OPENCODE_WORKSPACE_ARG" ] || { echo "error: --opencode-workspace requires a non-empty value" >&2; exit 1; }
-if [ -n "$OPENCODE_WORKSPACE_ARG" ]; then
-  [[ "$OPENCODE_WORKSPACE_ARG" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] \
-    || { echo "error: invalid dispatch account/workspace '$OPENCODE_WORKSPACE_ARG'" >&2; exit 1; }
-fi
-if [ "$OPENCODE_WORKSPACE_SET" -eq 1 ] && [ "$RELAUNCH" -eq 0 ]; then
-  echo "error: --opencode-workspace applies only to --relaunch; a fresh launch routes through the opencode ladder" >&2
-  exit 1
-fi
 # A parent-delivered carrier replaces this home's own resolution, so it is
 # refused unless it is a secondmate spawn carrying a strictly valid W3C value.
 # Nothing else may reach the pane's TRACEPARENT export.
@@ -1965,10 +1926,16 @@ if [ "$RELAUNCH" -eq 1 ]; then
   [ "$(fm_meta_get "$RELAUNCH_META" dispatch_approved)" = 1 ] && DISPATCH_ROUTE_APPROVED=1
   DISPATCH_UNIFIED_RESOLVED=0
   [ "$(fm_meta_get "$RELAUNCH_META" dispatch_unified)" = 1 ] && DISPATCH_UNIFIED_RESOLVED=1
-  DISPATCH_ROUTE_LADDER=$(fm_meta_get "$RELAUNCH_META" dispatch_ladder)
   DISPATCH_FALLBACK_SELECTED=$(fm_meta_get "$RELAUNCH_META" dispatch_fallback)
   DISPATCH_META_OVERRIDE_REASON=$(fm_meta_get "$RELAUNCH_META" dispatch_override_reason)
   DISPATCH_EXPLANATION=$(fm_meta_get "$RELAUNCH_META" dispatch_explanation)
+  # A control-driven relaunch onto a new rung carries the new profile
+  # explicitly; the recorded route follows the move, so the generic descent,
+  # the exhaustion detail, and the next recovery all read the enacted route.
+  [ "$HARNESS_SET" -eq 0 ] || DISPATCH_ROUTE_HARNESS=$HARNESS_ARG
+  [ "$MODEL_SET" -eq 0 ] || DISPATCH_ROUTE_MODEL=$MODEL
+  [ "$EFFORT_SET" -eq 0 ] || DISPATCH_ROUTE_EFFORT=$EFFORT
+  [ "$OPENCODE_WORKSPACE_SET" -eq 0 ] || DISPATCH_ROUTE_WORKSPACE=$OPENCODE_WORKSPACE_ARG
   MODE=$(fm_meta_get "$RELAUNCH_META" mode)
   YOLO=$(fm_meta_get "$RELAUNCH_META" yolo)
   if [ "$KIND" = ship ]; then
@@ -1986,11 +1953,11 @@ if [ "$RELAUNCH" -eq 1 ]; then
   }
   # The workspace pin survives a relaunch without flags: recovery and routine
   # respawns keep the workspace already recorded for the task, while an
-  # explicit --opencode-workspace moves it (the descent's fourth-rung move).
-  # Anything but an explicit secondary marker reads as the main workspace,
+  # explicit --opencode-workspace moves it (the generic descent's account move).
+  # Anything but a recorded account marker reads as the main workspace,
   # which is also what every record written before markers existed carries.
   RELAUNCH_PRIOR_WORKSPACE=$(fm_meta_get "$RELAUNCH_META" opencode_workspace)
-  [ "$RELAUNCH_PRIOR_WORKSPACE" = secondary ] || RELAUNCH_PRIOR_WORKSPACE=main
+  [[ "$RELAUNCH_PRIOR_WORKSPACE" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || RELAUNCH_PRIOR_WORKSPACE=main
   # A shared-server incarnation's session is retired once its replacement is
   # set up (bin/fm-opencode-server.sh owns the lease and session lifecycle).
   RELAUNCH_PRIOR_OPENCODE_SERVER=$(fm_meta_get "$RELAUNCH_META" opencode_server)
@@ -2260,9 +2227,7 @@ dispatch_apply_profile() {
   fi
   if [ "$(jq -r '.profile.dispatch_unified // false' <<<"$route_json")" = true ]; then
     DISPATCH_UNIFIED_RESOLVED=1
-    DISPATCH_LADDER_RESOLVED=1
   fi
-  DISPATCH_ROUTE_LADDER=$(jq -r '.profile.dispatch_ladder // ""' <<<"$route_json")
   DISPATCH_EXPLANATION=$(jq -c '.explanation // {}' <<<"$route_json")
   route_status=$(jq -r '.status' <<<"$route_json")
   expected_profile=$(jq -r '
@@ -2311,13 +2276,6 @@ dispatch_apply_profile() {
   if [ -z "$requested_harness" ] || [ "$requested_harness" = "$DISPATCH_ROUTE_HARNESS" ]; then
     [ "$MODEL_SET" -eq 1 ] || MODEL=$DISPATCH_ROUTE_MODEL
     [ "$EFFORT_SET" -eq 1 ] || EFFORT=$DISPATCH_ROUTE_EFFORT
-    if [ -n "$DISPATCH_ROUTE_WORKSPACE" ]; then
-      OPENCODE_WORKSPACE_ARG=$DISPATCH_ROUTE_WORKSPACE
-      OPENCODE_WORKSPACE_SET=1
-    fi
-    if [ "$mismatch" -eq 0 ]; then
-      DISPATCH_LADDER=$DISPATCH_ROUTE_LADDER
-    fi
   fi
   if [ "$mismatch" -eq 0 ]; then
     [ -n "$DISPATCH_ROUTE_HARNESS" ] || {
@@ -2498,8 +2456,7 @@ launch_template() {
       ;;
     # agy (Antigravity CLI): --prompt-interactive starts the supervised
     # interactive session and auto-submits a fixed pointer to the brief
-    # (verified on agy 1.2.0). --model takes the bare catalog id from `agy models`
-    # (gemini-3.8-flash-high, never the unlisted bare gemini-3.8-flash).
+    # (verified on agy 1.2.0). --model takes a catalog id from `agy models`.
     # --effort takes low|medium|high. --dangerously-skip-permissions
     # auto-approves every tool call, which an unattended crewmate needs.
     # Every task worktree is a fresh path, so agy would show a folder-trust
@@ -2686,43 +2643,6 @@ case "$ARG3" in
   ;;
 esac
 
-dispatch_opencode_ladder_apply() {
-  local note_file model rc
-  [ "$DISPATCH_LADDER" = opencode ] || return 0
-  case "$HARNESS" in opencode|codex) ;; *) return 0 ;; esac
-  note_file=$(mktemp "${TMPDIR:-/tmp}/fm-opencode-ladder.XXXXXX") || {
-    echo "error: could not prepare opencode ladder decision" >&2
-    return 1
-  }
-  if model=$(fm_opencode_ladder_model default "$STATE" 2>"$note_file"); then
-    :
-  else
-    rc=$?
-    cat "$note_file" >&2
-    rm -f "$note_file"
-    if [ "$rc" -eq 3 ]; then
-      echo "error: OpenCode default ladder exhausted; no exhausted-ladder fallback is available" >&2
-    fi
-    return 1
-  fi
-  [ ! -s "$note_file" ] || cat "$note_file" >&2
-  DISPATCH_LADDER_EXPLANATION=$(cat "$note_file" 2>/dev/null || true)
-  rm -f "$note_file"
-  MODEL=${model:-$FM_OPENCODE_LADDER_GO}
-  if [ "$MODEL" = "$FM_OPENCODE_LADDER_PLUS_MODEL" ]; then
-    HARNESS=codex
-    EFFORT=$(fm_opencode_ladder_plus_effort "$CONFIG")
-  else
-    HARNESS=opencode
-  fi
-  LAUNCH=$(launch_template "$HARNESS" "$KIND") || {
-    echo "error: OpenCode ladder launch template is unavailable" >&2
-    return 1
-  }
-  DISPATCH_LADDER_RESOLVED=1
-  return 0
-}
-dispatch_opencode_ladder_apply || exit 1
 
 # muse, gemini, agy, and devin are verified as CREWMATE/SCOUT adapters only. A secondmate is
 # a firstmate instance, so it needs a primary supervision protocol.
@@ -2788,92 +2708,8 @@ case "$HARNESS" in
     LAUNCH="FM_PI_HARNESS=$HARNESS $LAUNCH"
     ;;
   opencode)
-    # The Go-then-Codex Plus ladder, enforced rather than remembered
-    # (bin/fm-opencode-ladder-lib.sh owns the rungs and cap records). It runs here
-    # because this case is on the one path every opencode crewmate and scout
-    # launch already takes, so an ordinary dispatch has nowhere to route
-    # around it. A cap routes to the first uncapped rung, and exhaustion of all
-    # rungs refuses the new spawn. MODEL_SET is left as it was: the
-    # meta record below reads MODEL itself, so the routed tier is what
-    # recovery relaunches on. A relaunch already pinned to the second
-    # workspace with an explicit model skips the gate: the descent decided
-    # that move against the fourth rung's own cap, and the main Go rung's
-    # proven cap would refuse a request naming the same model id. A relaunch
-    # without an explicit model takes the same gate as a fresh modelless
-    # launch instead, so it can never sit on a rung the current caps exclude.
-    _FM_OPENCODE_RELAUNCH_WS=$RELAUNCH_PRIOR_WORKSPACE
-    [ "$OPENCODE_WORKSPACE_SET" -eq 0 ] || _FM_OPENCODE_RELAUNCH_WS=$OPENCODE_WORKSPACE_ARG
-    if [ "$DISPATCH_UNIFIED_RESOLVED" -eq 0 ] && [ "$DISPATCH_LADDER_RESOLVED" -eq 0 ] && { [ "$RELAUNCH" -eq 0 ] || [ "$MODEL_SET" -eq 0 ] || [ "$_FM_OPENCODE_RELAUNCH_WS" != secondary ]; }; then
-      _FM_OPENCODE_LADDER_NOTE=$(mktemp "${TMPDIR:-/tmp}/fm-opencode-ladder.XXXXXX" 2>/dev/null) || _FM_OPENCODE_LADDER_NOTE=
-      [ -n "$_FM_OPENCODE_LADDER_NOTE" ] || { echo "error: could not prepare opencode ladder decision" >&2; exit 1; }
-      _FM_OPENCODE_LADDER_REQUEST=${MODEL:-}
-      [ "$DISPATCH_LADDER" != opencode ] || _FM_OPENCODE_LADDER_REQUEST=default
-      _FM_OPENCODE_LADDER_MODEL=$(fm_opencode_ladder_model "$_FM_OPENCODE_LADDER_REQUEST" "$STATE" 2>"$_FM_OPENCODE_LADDER_NOTE") || {
-        [ -s "$_FM_OPENCODE_LADDER_NOTE" ] && cat "$_FM_OPENCODE_LADDER_NOTE" >&2 || true
-        rm -f "$_FM_OPENCODE_LADDER_NOTE"
-        exit 1
-      }
-      [ -n "$_FM_OPENCODE_LADDER_MODEL" ] || _FM_OPENCODE_LADDER_MODEL=${MODEL:-}
-      MODEL=$_FM_OPENCODE_LADDER_MODEL
-      if [ "$MODEL" = "$FM_OPENCODE_LADDER_PLUS_MODEL" ]; then
-        EFFORT=$(fm_opencode_ladder_plus_effort "$CONFIG")
-        HARNESS=codex
-        LAUNCH=$(launch_template "$HARNESS" "$KIND") || {
-          echo "error: Codex Plus launch template is unavailable" >&2
-          exit 1
-        }
-      fi
-      [ -s "$_FM_OPENCODE_LADDER_NOTE" ] && cat "$_FM_OPENCODE_LADDER_NOTE" >&2 || true
-      rm -f "$_FM_OPENCODE_LADDER_NOTE"
-      unset _FM_OPENCODE_LADDER_NOTE _FM_OPENCODE_LADDER_MODEL _FM_OPENCODE_LADDER_REQUEST
-    fi
-    if [ "$PI_OPENCODE_GO_ENABLED" -eq 1 ] && [ "$KIND" != secondmate ] \
-      && [ "$MODEL" = "$FM_OPENCODE_LADDER_GO" ]; then
-      HARNESS=pi
-      PI_OPENCODE_GO=1
-      DISPATCH_LADDER=opencode
-      DISPATCH_ROUTE_LADDER=opencode
-      LAUNCH=$(launch_template "$HARNESS" "$KIND") || { echo "error: Pi launch template is unavailable for OpenCode Go" >&2; exit 1; }
-      printf 'notice: OpenCode ladder rung Go routed to Pi by config/pi-opencode-go\n' >&2
-    fi
-    unset _FM_OPENCODE_RELAUNCH_WS
-    # The descent tick cannot see this launch's captain words where it runs -
-    # the watcher is a long-lived process that predates the instruction - so
-    # a launch held on Go on the captain's word is recorded per task where
-    # the tick reads it back, and a launch under the ordinary rules clears
-    # any earlier pin (bin/fm-opencode-descent-lib.sh owns both).
-    if [ "$CAPTAIN_ROUTE_SET" -eq 1 ]; then
-      fm_opencode_pin_task "$STATE" "$ID" "$CAPTAIN_SAID" || true
-    else
-      fm_opencode_pin_clear "$STATE" "$ID" || true
-    fi
     ;;
   codex)
-    # A relaunch without an explicit model is a modelless dispatch, not a
-    # decision to stay on Codex Plus: it enters the shared rung gate from
-    # Go exactly like a fresh typed-ladder launch, so a capped Plus rung
-    # routes onward instead of relaunching onto the refusal that stopped it.
-    if [ "$DISPATCH_UNIFIED_RESOLVED" -eq 0 ] && { [ "$DISPATCH_LADDER" = opencode ] || { [ "$RELAUNCH" -eq 1 ] && [ "$MODEL_SET" -eq 0 ]; }; } && [ "$DISPATCH_LADDER_RESOLVED" -eq 0 ]; then
-      _FM_OPENCODE_LADDER_NOTE=$(mktemp "${TMPDIR:-/tmp}/fm-opencode-ladder.XXXXXX" 2>/dev/null) || _FM_OPENCODE_LADDER_NOTE=
-      [ -n "$_FM_OPENCODE_LADDER_NOTE" ] || { echo "error: could not prepare opencode ladder decision" >&2; exit 1; }
-      _FM_OPENCODE_LADDER_MODEL=$(fm_opencode_ladder_model default "$STATE" 2>"$_FM_OPENCODE_LADDER_NOTE") || {
-        [ -s "$_FM_OPENCODE_LADDER_NOTE" ] && cat "$_FM_OPENCODE_LADDER_NOTE" >&2 || true
-        rm -f "$_FM_OPENCODE_LADDER_NOTE"
-        exit 1
-      }
-      [ -s "$_FM_OPENCODE_LADDER_NOTE" ] && cat "$_FM_OPENCODE_LADDER_NOTE" >&2 || true
-      rm -f "$_FM_OPENCODE_LADDER_NOTE"
-      MODEL=$_FM_OPENCODE_LADDER_MODEL
-      if [ "$MODEL" = "$FM_OPENCODE_LADDER_PLUS_MODEL" ]; then
-        EFFORT=$(fm_opencode_ladder_plus_effort "$CONFIG")
-        HARNESS=codex
-      else
-        HARNESS=opencode
-        EFFORT=
-      fi
-      LAUNCH=$(launch_template "$HARNESS" "$KIND") || { echo "error: opencode ladder launch template is unavailable" >&2; exit 1; }
-      unset _FM_OPENCODE_LADDER_NOTE _FM_OPENCODE_LADDER_MODEL
-    fi
     ;;
   cursor)
     # `cursor` is not the CLI name, and the legacy alias `agent` is far too
@@ -2907,27 +2743,6 @@ case "$HARNESS" in
       echo "error: agy executable not found on PATH; install Antigravity CLI or select a different verified harness" >&2
       exit 1
     }
-    # The captain's strict-exhaustion ladder, enforced rather than remembered
-    # (bin/fm-agy-ladder-lib.sh owns the rungs, the floors, and why an absent
-    # reading blocks a DESCENT but never a launch at the top). It runs here
-    # because this case is on the one path every agy crewmate and scout launch
-    # already takes, so an ordinary dispatch has nowhere to route around it, and
-    # ahead of the catalogue probe below so a launch the policy already refuses
-    # never spends a network round-trip while holding the spawn locks.
-    if [ "$DISPATCH_UNIFIED_RESOLVED" -eq 1 ]; then
-      AGY_LADDER_NOTE=
-    else
-      AGY_LADDER_NOTE=$(fm_agy_ladder_gate "$MODEL" "$STATE") || {
-      printf '%s\n' "$AGY_LADDER_NOTE" >&2
-      exit 1
-      }
-      DISPATCH_LADDER_EXPLANATION=$AGY_LADDER_NOTE
-      [ -z "$AGY_LADDER_NOTE" ] || printf '%s\n' "$AGY_LADDER_NOTE" >&2
-    fi
-    # This launch's headroom is already reserved: fm_agy_ladder_gate records it
-    # under the same account-wide lock it decided on, so no launch can slip
-    # between a decision and its reservation. Reserving it a second time here
-    # would double-count it.
     if [ -n "$MODEL" ] && [ "$MODEL" != default ]; then
       # Validated against the account's own live catalogue: agy exits 1 on an
       # unrecognized model, so an unchecked typo would present as a dead pane.
@@ -2955,97 +2770,17 @@ case "$HARNESS" in
     ;;
 esac
 
-# The home switch applies to every ordinary crew/scout route that resolves to
-# OpenCode, including configured defaults, dispatch profiles, exhausted-ladder
-# fallbacks, explicit harnesses, and recovery relaunches. Run after OpenCode's
-# model gate so a modelless default harness still resolves to its normal free
-# rung before the selected provider/model is checked for Pi.
-if [ "$DISPATCH_UNIFIED_RESOLVED" -eq 1 ] && [ "$KIND" != secondmate ] \
-  && [[ "$DISPATCH_ROUTE_PROVIDER" == opencode* ]] && [ "$HARNESS" = pi ]; then
-  PI_OPENCODE_REROUTE=1
-  case "$DISPATCH_ROUTE_PROVIDER" in opencode-go*) PI_OPENCODE_GO=1 ;; esac
-elif [ "$DISPATCH_UNIFIED_RESOLVED" -eq 0 ] && [ "$PI_OPENCODE_GO_ENABLED" -eq 1 ] && [ "$KIND" != secondmate ] && [ "$HARNESS" = opencode ]; then
-  case "$MODEL" in
-    opencode-go/*) PI_OPENCODE_GO=1 ;;
-    opencode/*) ;;
-    *)
-      echo "error: config/pi-opencode-go is on, but OpenCode route model '${MODEL:-<default>}' has no explicit Pi provider/model mapping; refusing to launch OpenCode or silently change models" >&2
-      exit 1
-      ;;
-  esac
-  PI_OPENCODE_REROUTE=1
-  HARNESS=pi
-  LAUNCH=$(launch_template "$HARNESS" "$KIND") || {
-    echo "error: Pi launch template is unavailable for the selected OpenCode model" >&2
-    exit 1
-  }
-  printf 'notice: OpenCode route %s routed to Pi by config/pi-opencode-go\n' "$MODEL" >&2
-elif [ "$PI_OPENCODE_GO_ENABLED" -eq 1 ] && [ "$KIND" != secondmate ] \
-  && [ "$HARNESS" = pi ] && [[ "$MODEL" == opencode-go/* ]]; then
-  # Converted tasks are durably recorded as Pi. Re-enabling the switch on a
-  # later relaunch must restore their OpenCode Go provider and workspace path.
-  PI_OPENCODE_GO=1
-  PI_OPENCODE_REROUTE=1
-fi
-
-# The OpenCode ladder case can resolve a model onto Pi after the ordinary Pi
-# setup branch above has already run; finish the same Pi launch preparation.
-if [ "$PI_OPENCODE_REROUTE" -eq 1 ]; then
-  PI_BIN=$(resolve_pi_executable pi) || {
-    echo "error: pi executable not found on PATH; install it or select a different verified harness" >&2
-    exit 1
-  }
-  PI_TUI_MODE=
-  if pi_supports_tui_mode "$PI_BIN"; then PI_TUI_MODE=' --tui-mode regular'; fi
-  LAUNCH=${LAUNCH//__PITUIMODE__/$PI_TUI_MODE}
-  # This route is only used for ordinary ship/scout workers, so the seeded
-  # secondmate approval option is always empty. Still resolve the template
-  # placeholder before the launch reaches Pi.
-  LAUNCH=${LAUNCH//__PIAPPROVE__/}
-  PI_EXCLUDE=
-  EXCLUDE_TOOLS=$(fm_exclude_tools_check pi "$RAW_LAUNCH" "$CONFIG") || exit 1
-  [ -z "$EXCLUDE_TOOLS" ] || PI_EXCLUDE=" --exclude-tools $(shell_quote "$EXCLUDE_TOOLS")"
-  LAUNCH=${LAUNCH//__PIEXCLUDE__/$PI_EXCLUDE}
-  LAUNCH="FM_PI_HARNESS=pi $LAUNCH"
-fi
-
-# Validate the resolved provider before workspace database setup, endpoint
-# provisioning, or task publication. In particular, never let an unsupported
-# custom OpenCode model fall back to an OpenCode launch when Pi is selected.
-if [ "$PI_OPENCODE_REROUTE" -eq 1 ]; then
-  PI_ACCOUNT_PRE=$(fm_worker_account_resolve pi "$CONFIG") || exit 1
-  PI_AGENT_DIR_PRE=${PI_ACCOUNT_PRE#*$'\t'}
-  PI_AGENT_DIR_PRE=${PI_AGENT_DIR_PRE%%$'\t'*}
-  PI_AGENT_DIR_PRE=${PI_AGENT_DIR_PRE:-${HOME:?}/.pi/agent}
-  if [ "$PI_OPENCODE_GO" -eq 1 ]; then
-    "$SCRIPT_DIR/fm-pi-opencode-go.sh" install "$PI_AGENT_DIR_PRE" || exit 1
-  fi
-  PI_MODEL_PROVIDER_PRE=${MODEL%%/*}
-  PI_MODEL_ID_PRE=${MODEL#*/}
-  if ! jq -e --arg provider "$PI_MODEL_PROVIDER_PRE" --arg model "$PI_MODEL_ID_PRE" \
-    'any(.providers[$provider].models[]?; .id == $model)' "$PI_AGENT_DIR_PRE/models.json" >/dev/null 2>&1; then
-    echo "error: Pi provider configuration in $PI_AGENT_DIR_PRE/models.json does not define model '$MODEL'; refusing to launch OpenCode or substitute a model" >&2
-    exit 1
-  fi
-fi
-
-# The Go workspace lane (bin/fm-opencode-second-lib.sh owns the pins,
-# bin/fm-opencode-ladder-lib.sh fm_opencode_ladder_pick_go_workspace owns
-# the tier pick). A fresh ladder-routed Go launch rides the second workspace
-# exactly when the tier pick says so: the monthly-soonest plan serves while
-# uncapped, and a plan under a shorter cap yields to the other until that
-# limit resets; an explicit Go request keeps the main workspace (with a
-# proven main-Go cap the gate above already refused it). A relaunch keeps
-# the recorded workspace unless --opencode-workspace moves it, and a harness
-# switch away from opencode drops the pin. The databases themselves are
-# ensured below, after the secondmate-harness tokens resolve the final
-# MODEL, so the pin decision reads the model the launch will run.
-OPENCODE_WORKSPACE=main
+# The selected policy rung supplies its workspace/account value; the
+# OpenCode runtime helper below builds and verifies the private task database.
+OPENCODE_WORKSPACE=
+if [ "$KIND" = secondmate ]; then OPENCODE_WORKSPACE=main; fi
 OPENCODE_SECOND_DB=
 OPENCODE_MAIN_DB=
+OPENCODE_ROUTE_DB=
 OPENCODE_TASK_DB=
 OPENCODE_SECOND_ORG=
 OPENCODE_MAIN_ORG=
+OPENCODE_ROUTE_ORG=
 # The shared-server experiment (docs/configuration.md "Shared OpenCode
 # servers"): `on` in config/opencode-shared-server lets an OpenCode worker
 # attach to a firstmate-managed `opencode serve`; absent or `off` keeps the
@@ -3067,52 +2802,14 @@ if [ -f "$CONFIG/opencode-shared-server" ] || [ -L "$CONFIG/opencode-shared-serv
 fi
 [ "$HARNESS" = opencode ] && [ "$KIND" != secondmate ] || OPENCODE_SHARED_SERVER=0
 if [ "$HARNESS" = opencode ]; then
-  if [ "$RELAUNCH" -eq 1 ]; then
-    if [ "$OPENCODE_WORKSPACE_SET" -eq 1 ]; then
-      OPENCODE_WORKSPACE=$OPENCODE_WORKSPACE_ARG
-    else
-      OPENCODE_WORKSPACE=$RELAUNCH_PRIOR_WORKSPACE
-    fi
+  if [ "$RELAUNCH" -eq 1 ] && [ -n "$DISPATCH_ROUTE_WORKSPACE" ]; then
+    OPENCODE_WORKSPACE=$DISPATCH_ROUTE_WORKSPACE
+  elif [ "$RELAUNCH" -eq 1 ]; then
+    OPENCODE_WORKSPACE=$RELAUNCH_PRIOR_WORKSPACE
   elif [ "$DISPATCH_UNIFIED_RESOLVED" -eq 1 ] && [ -n "$DISPATCH_ROUTE_WORKSPACE" ]; then
     OPENCODE_WORKSPACE=$DISPATCH_ROUTE_WORKSPACE
-  elif fm_opencode_model_workspace_scoped "$MODEL" 2>/dev/null; then
-    if [ "$MODEL" = "$FM_OPENCODE_LADDER_GO" ]; then
-      [ "$(fm_opencode_ladder_pick_go_workspace "$STATE" 2>/dev/null)" != "$FM_OPENCODE_WORKSPACE_SECOND" ] || OPENCODE_WORKSPACE=secondary
-    else
-      [ "$(fm_opencode_ladder_free_workspace "$STATE" "$MODEL" 2>/dev/null)" != "$FM_OPENCODE_WORKSPACE_SECOND" ] || OPENCODE_WORKSPACE=secondary
-    fi
   fi
 fi
-if [ "$PI_OPENCODE_REROUTE" -eq 1 ]; then
-  if [ "$RELAUNCH" -eq 1 ]; then
-    if [ "$OPENCODE_WORKSPACE_SET" -eq 1 ]; then
-      OPENCODE_WORKSPACE=$OPENCODE_WORKSPACE_ARG
-    else
-      OPENCODE_WORKSPACE=$RELAUNCH_PRIOR_WORKSPACE
-    fi
-  elif [ "$DISPATCH_UNIFIED_RESOLVED" -eq 1 ] && [ -n "$DISPATCH_ROUTE_WORKSPACE" ]; then
-    OPENCODE_WORKSPACE=$DISPATCH_ROUTE_WORKSPACE
-  elif [ "$MODEL" = "$FM_OPENCODE_LADDER_GO" ] \
-    && [ "$(fm_opencode_ladder_pick_go_workspace "$STATE" 2>/dev/null)" = "$FM_OPENCODE_WORKSPACE_SECOND" ]; then
-    OPENCODE_WORKSPACE=secondary
-  fi
-  if [ "$PI_OPENCODE_GO" -eq 1 ] || { [ "$DISPATCH_UNIFIED_RESOLVED" -eq 1 ] && [ -n "$DISPATCH_ROUTE_WORKSPACE" ]; }; then
-    PI_OPENCODE_WORKSPACE_REQUIRED=1
-  fi
-  if [ "$OPENCODE_WORKSPACE" != main ] && [ "$PI_OPENCODE_WORKSPACE_REQUIRED" -eq 1 ]; then
-    PI_OPENCODE_ORG=$(fm_opencode_workspace_org "$OPENCODE_WORKSPACE") || {
-      echo "error: the selected OpenCode workspace '$OPENCODE_WORKSPACE' is not configured" >&2
-      exit 1
-    }
-    OPENCODE_SECOND_ORG=$PI_OPENCODE_ORG
-  elif [ "$PI_OPENCODE_WORKSPACE_REQUIRED" -eq 1 ] \
-    || { [ "$PI_OPENCODE_GO" -eq 0 ] && fm_opencode_model_workspace_scoped "$MODEL" 2>/dev/null; }; then
-    PI_OPENCODE_ORG=$(fm_opencode_main_org_ensure "$(fm_opencode_second_config_dir)") || exit 1
-    OPENCODE_MAIN_ORG=$PI_OPENCODE_ORG
-  fi
-  PI_OPENCODE_SESSION="fm-$ID"
-fi
-
 # config/secondmate-harness may carry optional model/effort tokens alongside the
 # harness ("<harness> [<model>] [<effort>]"). They apply only when this is a
 # --secondmate spawn and no explicit per-spawn harness/raw launch was supplied, so
@@ -3134,27 +2831,18 @@ if [ "$KIND" = secondmate ] && [ -z "$ARG3" ]; then
     fi
   fi
 fi
-# The Go workspace pin databases (bin/fm-opencode-second-lib.sh owns the
-# mechanism; bin/fm-opencode-ladder-lib.sh fm_opencode_model_bills_go owns
-# which models bill a Go workspace). This runs after the secondmate-harness
-# tokens above so the pin decision reads the final MODEL. A pin applies only
-# to a launch that actually bills a Go workspace: every
-# other non-Go model remains outside the workspace pin flow, so discovering or
-# requiring a workspace never blocks them. Unpinned standalone launches
-# seed a private per-task database from a verified main pin or a consistent
-# machine-database backup. An explicit
-# secondary workspace keeps its pin whatever the model. In a home with a
-# configured second workspace every Go
-# launch rides its own pin, main and secondary alike: an unpinned main launch
-# would inherit the machine-wide active workspace and bill the capped
-# secondary plan while its record reads main, so a main pin that cannot be
-# proven refuses the launch rather than running unpinned. Without a
-# configured second workspace the main workspace still runs without a
-# workspace pin.
-if [ "$OPENCODE_WORKSPACE" != main ] && { [ "$HARNESS" = opencode ] || [ "$PI_OPENCODE_WORKSPACE_REQUIRED" -eq 1 ]; }; then
+# The OpenCode database helper builds a private database for a selected policy
+# account. A configured account must prove its workspace before launch; an
+# unpinned route gets a private task database without selecting an account.
+if [ "$HARNESS" = opencode ] && [ -n "$DISPATCH_ROUTE_WORKSPACE" ]; then
+  OPENCODE_ROUTE_ORG=$(fm_opencode_workspace_org "$DISPATCH_ROUTE_WORKSPACE") || {
+    OPENCODE_ROUTE_FILE=$(fm_opencode_workspace_org_file "$DISPATCH_ROUTE_WORKSPACE" "$(fm_opencode_second_config_dir)") || exit 1
+    echo "error: selected OpenCode account '$DISPATCH_ROUTE_WORKSPACE' is missing or malformed in $OPENCODE_ROUTE_FILE" >&2
+    exit 1
+  }
+elif [ "$HARNESS" = opencode ] && [ "$KIND" = secondmate ] && [ "$OPENCODE_WORKSPACE" != main ]; then
   OPENCODE_SECOND_ORG=$(fm_opencode_workspace_org "$OPENCODE_WORKSPACE") || exit 1
-elif { [ "$HARNESS" = opencode ] || [ "$PI_OPENCODE_WORKSPACE_REQUIRED" -eq 1 ]; } \
-  && fm_opencode_model_workspace_scoped "$MODEL" 2>/dev/null \
+elif [ "$HARNESS" = opencode ] && [ "$KIND" = secondmate ] \
   && fm_opencode_second_configured 2>/dev/null; then
   OPENCODE_MAIN_ORG=$(fm_opencode_main_org_ensure "$(fm_opencode_second_config_dir)") || exit 1
 fi
@@ -3163,11 +2851,13 @@ fi
 # needs none: its server runs on that server's own proven copy
 # (bin/fm-opencode-server.sh).
 opencode_task_db() {
-  if [ -n "$OPENCODE_SECOND_ORG" ]; then
+  if [ -n "$OPENCODE_ROUTE_ORG" ]; then
+    OPENCODE_ROUTE_DB=$(fm_opencode_workspace_db_for_task "$DISPATCH_ROUTE_WORKSPACE" "$OPENCODE_ROUTE_ORG" "$(fm_opencode_second_config_dir)" "$ID" "$STATE") || return 1
+  elif [ -n "$OPENCODE_SECOND_ORG" ]; then
     OPENCODE_SECOND_DB=$(fm_opencode_workspace_db_for_task "$OPENCODE_WORKSPACE" "$OPENCODE_SECOND_ORG" "$(fm_opencode_second_config_dir)" "$ID" "$STATE") || return 1
   elif [ -n "$OPENCODE_MAIN_ORG" ]; then
     OPENCODE_MAIN_DB=$(fm_opencode_workspace_db_for_task "$OPENCODE_WORKSPACE" "$OPENCODE_MAIN_ORG" "$(fm_opencode_second_config_dir)" "$ID" "$STATE") || return 1
-  elif { [ "$HARNESS" = opencode ] || [ "$PI_OPENCODE_WORKSPACE_REQUIRED" -eq 1 ]; } && [ "$KIND" != secondmate ]; then
+  elif [ "$HARNESS" = opencode ] && [ "$KIND" != secondmate ]; then
     # Unpinned standalone workers still need a task-private database so
     # OpenCode cannot grow its machine-wide event log. Keep an existing file
     # intact across relaunches; seed new files with the console account.
@@ -3180,21 +2870,6 @@ opencode_task_db() {
   fi
 }
 [ "$OPENCODE_SHARED_SERVER" -eq 1 ] || opencode_task_db || exit 1
-if [ "$PI_OPENCODE_WORKSPACE_REQUIRED" -eq 1 ]; then
-  PI_OPENCODE_DB=${OPENCODE_SECOND_DB:-${OPENCODE_MAIN_DB:-$OPENCODE_TASK_DB}}
-  fm_opencode_db_has_console_login "$PI_OPENCODE_DB" || {
-    echo "error: the selected OpenCode provider requires a console login in its task database" >&2
-    exit 1
-  }
-  # The pinned workspace databases have to stay current with the live console
-  # login even though no OpenCode worker runs any more: the Pi route is the
-  # only route left, and a pin that carries a stale token reports a rejected
-  # provider to everything that reads it. The live login is refreshed through
-  # the live database and the fresh rows are copied outward into every pin.
-  # A pin that cannot be refreshed is reported and does not stop the launch:
-  # the pin this launch rides was already proved by the build above.
-  fm_opencode_pins_refresh "$(fm_opencode_second_config_dir)" || true
-fi
 # Ultra is an explicit native capability, never a Pi thinking-level alias.
 # Validate the fully resolved profile before worktree or endpoint provisioning.
 if [ "$EFFORT" = ultra ]; then
@@ -3216,36 +2891,15 @@ fi
 # trust registration below writes the store the worker will actually read.
 RAW_COMMAND=
 [ "$RAW_LAUNCH" = 0 ] || RAW_COMMAND=$ARG3
-if [ "$PI_OPENCODE_GO" -eq 1 ]; then
-  PI_ACCOUNT_RESOLVED=$(fm_worker_account_resolve pi "$CONFIG") || exit 1
-  if [ -n "$PI_ACCOUNT_RESOLVED" ]; then
-    WORKER_ACCOUNT_DECLARED=${PI_ACCOUNT_RESOLVED%%$'\t'*}
-    PI_ACCOUNT_REST=${PI_ACCOUNT_RESOLVED#*$'\t'}
-    WORKER_ACCOUNT_ROOT=${PI_ACCOUNT_REST%%$'\t'*}
-    WORKER_ACCOUNT_PROVIDER=${PI_ACCOUNT_REST#*$'\t'}
-    PI_MODEL_PROVIDER=$(fm_worker_account_pi_provider "$MODEL") || exit 1
-    case " $WORKER_ACCOUNT_PROVIDER " in
-      *" $PI_MODEL_PROVIDER "*) ;;
-      *) echo "error: config/pi-account does not authorize provider '$PI_MODEL_PROVIDER' for this OpenCode Go worker" >&2; exit 1 ;;
-    esac
-    WORKER_ACCOUNT="${WORKER_ACCOUNT_DECLARED}"$'\t'"${WORKER_ACCOUNT_ROOT}"$'\t'"${PI_MODEL_PROVIDER}"
-  else
-    WORKER_ACCOUNT=
-  fi
-else
-  WORKER_ACCOUNT=$(fm_worker_account_select "$HARNESS" "$CONFIG" "$MODEL" "${PI_BIN:-$HARNESS}" "$RAW_COMMAND") || exit 1
-fi
-WORKER_ACCOUNT_DECLARED=${WORKER_ACCOUNT%%$'\t'*}
-WORKER_ACCOUNT_ROOT=${WORKER_ACCOUNT#*$'\t'}
-WORKER_ACCOUNT_PROVIDER=${WORKER_ACCOUNT_ROOT#*$'\t'}
-WORKER_ACCOUNT_ROOT=${WORKER_ACCOUNT_ROOT%%$'\t'*}
-if [ "$PI_OPENCODE_GO" -eq 1 ]; then
-  PI_AGENT_DIR=${WORKER_ACCOUNT_ROOT:-${HOME:?}/.pi/agent}
-  "$SCRIPT_DIR/fm-pi-opencode-go.sh" install "$PI_AGENT_DIR" || exit 1
-  PI_OPENCODE_DB=${OPENCODE_SECOND_DB:-${OPENCODE_MAIN_DB:-$OPENCODE_TASK_DB}}
-  [ -n "$PI_OPENCODE_DB" ] || { echo "error: Pi OpenCode Go task database was not prepared" >&2; exit 1; }
-  LAUNCH="FM_OPENCODE_TASK_DB=$(shell_quote "$PI_OPENCODE_DB") FM_OPENCODE_ORG_ID=$(shell_quote "$PI_OPENCODE_ORG") FM_OPENCODE_CONFIG_DIR=$(shell_quote "$CONFIG") FM_OPENCODE_SESSION=$(shell_quote "$PI_OPENCODE_SESSION") $LAUNCH"
-  [ -n "$WORKER_ACCOUNT_ROOT" ] || LAUNCH="env -u PI_CODING_AGENT_DIR $LAUNCH"
+WORKER_ACCOUNT_ROOT=
+WORKER_ACCOUNT_DECLARED=
+WORKER_ACCOUNT_PROVIDER=
+WORKER_ACCOUNT=$(fm_worker_account_select "$HARNESS" "$CONFIG" "$MODEL" "${PI_BIN:-$HARNESS}" "$RAW_COMMAND") || exit 1
+if [ -n "$WORKER_ACCOUNT" ]; then
+  WORKER_ACCOUNT_DECLARED=${WORKER_ACCOUNT%%$'\t'*}
+  WORKER_ACCOUNT_ROOT=${WORKER_ACCOUNT#*$'\t'}
+  WORKER_ACCOUNT_PROVIDER=${WORKER_ACCOUNT_ROOT#*$'\t'}
+  WORKER_ACCOUNT_ROOT=${WORKER_ACCOUNT_ROOT%%$'\t'*}
 fi
 if [ -n "$WORKER_ACCOUNT" ] && [ "$HARNESS" = claude ]; then
   if [ -n "$WORKER_ACCOUNT_ROOT" ]; then
@@ -5600,18 +5254,22 @@ if [ "$RELAUNCH" -eq 1 ]; then
   RELAUNCH_REPLACEMENT_WT=$WT
 fi
 # Shared OpenCode server: pick this launch's server profile from its resolved
-# workspace and start or reuse that server, recording this task's lease. The
+# account and start or reuse that server, recording this task's lease. The
 # server is chosen here, before the busy plugin is written, because an attached
 # worker's plugin runs inside the server; a server that cannot be started
 # leaves the standalone launch and its private database in place.
 if [ "$OPENCODE_SHARED_SERVER" -eq 1 ]; then
-  if [ -n "$OPENCODE_SECOND_ORG" ]; then
-    OPENCODE_SERVER_PROFILE=secondary
-    OPENCODE_SERVER_ENSURE=$("$SCRIPT_DIR/fm-opencode-server.sh" ensure "$STATE_REAL" secondary "$ID" \
+  if [ -n "$OPENCODE_ROUTE_ORG" ]; then
+    OPENCODE_SERVER_PROFILE=account-$DISPATCH_ROUTE_WORKSPACE
+    OPENCODE_SERVER_ENSURE=$("$SCRIPT_DIR/fm-opencode-server.sh" ensure "$STATE_REAL" "$OPENCODE_SERVER_PROFILE" "$ID" \
+      "$OPENCODE_ROUTE_ORG" "$(fm_opencode_second_config_dir)") || OPENCODE_SERVER_ENSURE=
+  elif [ -n "$OPENCODE_SECOND_ORG" ]; then
+    OPENCODE_SERVER_PROFILE=$OPENCODE_WORKSPACE
+    OPENCODE_SERVER_ENSURE=$("$SCRIPT_DIR/fm-opencode-server.sh" ensure "$STATE_REAL" "$OPENCODE_SERVER_PROFILE" "$ID" \
       "$OPENCODE_SECOND_ORG" "$(fm_opencode_second_config_dir)") || OPENCODE_SERVER_ENSURE=
   elif [ -n "$OPENCODE_MAIN_ORG" ]; then
-    OPENCODE_SERVER_PROFILE=main
-    OPENCODE_SERVER_ENSURE=$("$SCRIPT_DIR/fm-opencode-server.sh" ensure "$STATE_REAL" main "$ID" \
+    OPENCODE_SERVER_PROFILE=$OPENCODE_WORKSPACE
+    OPENCODE_SERVER_ENSURE=$("$SCRIPT_DIR/fm-opencode-server.sh" ensure "$STATE_REAL" "$OPENCODE_SERVER_PROFILE" "$ID" \
       "$OPENCODE_MAIN_ORG" "$(fm_opencode_second_config_dir)") || OPENCODE_SERVER_ENSURE=
   else
     OPENCODE_SERVER_PROFILE=default
@@ -5744,6 +5402,7 @@ EOF
     ;;
   opencode*)
     mkdir -p "$WT/.opencode/plugins"
+    DISPATCH_POLICY_PATH=$(shell_quote "$CONFIG/dispatch-policy.json")
     cat > "$WT/.opencode/plugins/fm-busy-state.js" <<EOF
 // Firstmate semantic busy-state events + turn-end notification + herdr panel
 // metadata; written by fm-spawn under the contract owned by bin/fm-busy-lib.sh.
@@ -5762,10 +5421,8 @@ EOF
 // are not reported because OpenCode does not expose a context window size
 // and the Go plan has no public usage API.
 //
-// Retry evidence: on session.status retry, records the vendor's own
-// attempt/next backoff horizon via bin/fm-opencode-retry.sh (contract owned
-// there), so supervision can tell a quota-scale block from a transient
-// retry without reading rendered text. Cleared on idle.
+// Provider refusal evidence is matched against the configured dispatch policy
+// and recorded in the shared provider/model/workspace reset store.
 import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 // A shared server (bin/fm-opencode-server.sh) caches this module across a
@@ -5803,21 +5460,15 @@ const reportModel = (modelID) => {
   execFile("$FM_ROOT/bin/fm-herdr-opencode-metadata.sh",
     [HERDR_PANE, modelID], () => {});
 };
-const recordRetry = (status, sessionID) =>
+const recordDispatchRefusal = (status) =>
   enqueue(() => new Promise((resolve) => {
-    const attempt = status && status.attempt;
     const next = status && status.next;
-    if (typeof attempt !== "number" || typeof next !== "number") { resolve(); return; }
-    execFile("$FM_ROOT/bin/fm-opencode-retry.sh", [
-      "record", "$STATE_REAL", "$ID",
-      String(attempt), String(next), lastModel || "-", sessionID || "-",
-      (status && typeof status.message === "string") ? status.message : "",
+    const message = status && status.message;
+    if (!lastModel || typeof next !== "number" || typeof message !== "string") { resolve(); return; }
+    execFile("$FM_ROOT/bin/fm-dispatch-reset.sh", [
+      "observe", "$STATE_REAL", $DISPATCH_POLICY_PATH,
+      "$DISPATCH_ROUTE_PROVIDER", lastModel, "$OPENCODE_WORKSPACE", String(next), message,
     ], () => resolve());
-  }));
-const clearRetry = () =>
-  enqueue(() => new Promise((resolve) => {
-    execFile("$FM_ROOT/bin/fm-opencode-retry.sh",
-      ["clear", "$STATE_REAL", "$ID"], () => resolve());
   }));
 export const FmBusyState = async () => {
   let activeSession = null;
@@ -5851,7 +5502,7 @@ export const FmBusyState = async () => {
           activate(sessionID);
           if (isActive(sessionID)) {
             busyEvent("busy", sessionID, "session-" + statusType);
-            if (statusType === "retry") recordRetry(status, sessionID);
+            if (statusType === "retry") recordDispatchRefusal(status);
           }
           await writes;
           return;
@@ -5859,7 +5510,6 @@ export const FmBusyState = async () => {
         if (statusType === "idle" && isActive(sessionID)) {
           deactivate(sessionID);
           busyEvent("idle", sessionID, "session-status-idle");
-          clearRetry();
         }
         await writes;
         return;
@@ -5868,7 +5518,6 @@ export const FmBusyState = async () => {
         if (isActive(event.properties.sessionID)) {
           deactivate(event.properties.sessionID);
           busyEvent("idle", event.properties.sessionID, "session-idle");
-          clearRetry();
         }
         await enqueue(() => new Promise((resolve) => {
           if ("$OPENCODE_SHARED_SERVER" === "1") {
@@ -6087,35 +5736,6 @@ EOF
         printf 'id=%s\n' "$ID"
         printf 'gen=%s\n' "$BUSY_GEN"
         printf 'session=%s\n' "$STATE/$ID.agy-session"
-        # The ladder evaluation this worker's own turn end drives. It is the one
-        # driver firstmate's turn boundaries cannot starve, which is what keeps
-        # the captain's reserved quarter of rung 1 from depending on how long a
-        # firstmate turn happens to run (bin/fm-agy-ladder-tick.sh owns why).
-        printf 'ladder=%s\n' "$FM_ROOT/bin/fm-agy-ladder-tick.sh"
-        # The point-of-spend verdict this worker's own loop runs after every
-        # tool batch. It ends the turn the moment the worker's own rung is
-        # proven exhausted, which is the one thing the turn-end driver above
-        # cannot do for a worker inside a single long turn
-        # (bin/fm-agy-descent-lib.sh owns why only PostInvocation can carry
-        # this). Off while the captain's explicit override holds this worker
-        # past the ladder, exactly as the descent is.
-        printf 'gate=%s\n' "$FM_ROOT/bin/fm-agy-spend-gate.sh"
-        if [ "$CAPTAIN_ROUTE_SET" -eq 1 ]; then
-          printf 'spend_gate=%s\n' off
-        else
-          printf 'spend_gate=%s\n' on
-        fi
-        # The ladder tick cannot see this launch's captain words where it runs -
-        # neither the watcher nor the detached turn-end driver inherits it -
-        # so a launch past the ladder on the captain's word is recorded per
-        # task where the tick reads it back, and a launch under the ordinary
-        # rules clears any earlier pin (bin/fm-agy-descent-lib.sh owns both).
-        if [ "$CAPTAIN_ROUTE_SET" -eq 1 ]; then
-          fm_agy_pin_task "$STATE_REAL" "$ID" "$CAPTAIN_SAID" || true
-        else
-          fm_agy_pin_clear "$STATE_REAL" "$ID" || true
-        fi
-        printf 'home=%s\n' "$FM_HOME"
       } > "$auth_file"
       printf '%s\n' "${auth_file##*/}" > "$STATE/$ID.agy-turnend-token"
       sq_agy_auth_dir=$(shell_quote "$AGY_AUTH_DIR")
@@ -6142,7 +5762,6 @@ entry="\$auth_dir/\$token"
 field() { LC_ALL=C sed -n "s/^\$1=//p" "\$entry" 2>/dev/null | head -1; }
 turnend=\$(field turnend); busy=\$(field busy); state=\$(field state)
 id=\$(field id); gen=\$(field gen); session=\$(field session)
-ladder=\$(field ladder); home=\$(field home)
 case "\$event" in
   SessionStart)
     case "\$session" in /*) : ;; *) emit ;; esac
@@ -6158,57 +5777,10 @@ case "\$event" in
     case "\$busy" in /*) : ;; *) emit ;; esac
     "\$busy" apply "\$state" "\$id" busy --gen "\$gen" --source agy-hook --event pre-invocation >/dev/null 2>&1 || true
     ;;
-  PostInvocation)
-    # The point-of-spend gate: the worker's own loop asks, after every tool
-    # batch, whether its rung is proven exhausted, and ends the turn when it
-    # is. Synchronous, because the verdict has to land before the loop
-    # continues, and refused rather than guessed: anything but a terminate
-    # verdict, including a gate that cannot run, is an allow. An entry without
-    # a spend_gate line predates the gate and is passed through untouched.
-    gate=\$(field gate); spend=\$(field spend_gate)
-    case "\$spend/\$gate" in
-      on/?*) : ;;
-      *) emit ;;
-    esac
-    [ -x "\$gate" ] || emit
-    verdict=\$("\$gate" "\$state" "\$id" "\$spend" 2>/dev/null) || verdict=
-    case "\$verdict" in
-      '{"terminationBehavior":"terminate"'*) printf '%s\n' "\$verdict"; exit 0 ;;
-      *) emit ;;
-    esac
-    ;;
   Stop)
     case "\$turnend" in /*.turn-ended) touch "\$turnend" 2>/dev/null || true ;; esac
     case "\$busy" in /*) : ;; *) emit ;; esac
     "\$busy" apply "\$state" "\$id" idle --gen "\$gen" --source agy-hook --event stop >/dev/null 2>&1 || true
-    # The agy ladder evaluation, driven by the worker that just spent the quota
-    # (bin/fm-agy-ladder-tick.sh owns why this is the driver that matters).
-    # AFTER the idle record above, never before it: the evaluation refuses to
-    # touch a worker that is not provably idle, and this worker's own turn end is
-    # what makes it idle.
-    #
-    # Detached the same three ways bin/fm-startup-network.sh detaches its own
-    # deferred worker, because the same three things would break it:
-    #   - stdio to /dev/null, because agy reads this hook's stdout and a child
-    #     holding that pipe open would hold the worker's turn open with it;
-    #   - nohup, so the evaluation outlives the hook process;
-    #   - its OWN process group, because agy bounds this hook at 10s while the
-    #     evaluation runs a quota subprocess and may walk a model picker, and a
-    #     shared group would let that bound reap it - a fire-and-forget child
-    #     reaped by the harness that spawned it is a failure this fleet has met
-    #     before.
-    if [ -n "\$ladder" ] && [ -x "\$ladder" ]; then
-      case "\$ladder" in
-        /*)
-          ladder_monitor=0
-          case \$- in *m*) ladder_monitor=1 ;; esac
-          set -m 2>/dev/null || true
-          FM_HOME="\$home" FM_STATE_OVERRIDE="\$state" \
-            nohup "\$ladder" </dev/null >/dev/null 2>&1 &
-          [ "\$ladder_monitor" -eq 1 ] || set +m 2>/dev/null || true
-          ;;
-      esac
-    fi
     ;;
 esac
 emit
@@ -6217,13 +5789,12 @@ EOF
       printf '{"name":"fm-turn-end"}\n' > "$AGY_PLUGIN_DIR/plugin.json"
       agy_hook_command=$(json_escape "bash $(shell_quote "$AGY_PLUGIN_DIR/fm-turn-end.sh")")
       cat > "$AGY_PLUGIN_DIR/hooks.json" <<EOF
-{"fm-turn-end":{"SessionStart":[{"type":"command","command":"$agy_hook_command SessionStart","timeout":10}],"PreInvocation":[{"type":"command","command":"$agy_hook_command PreInvocation","timeout":10}],"PostInvocation":[{"type":"command","command":"$agy_hook_command PostInvocation","timeout":10}],"Stop":[{"type":"command","command":"$agy_hook_command Stop","timeout":10}]}}
+{"fm-turn-end":{"SessionStart":[{"type":"command","command":"$agy_hook_command SessionStart","timeout":10}],"PreInvocation":[{"type":"command","command":"$agy_hook_command PreInvocation","timeout":10}],"Stop":[{"type":"command","command":"$agy_hook_command Stop","timeout":10}]}}
 EOF
       # Record the plugin enabled in agy's own config.json. Discovery alone
       # does not run its hooks on agy 1.1.27 - an entry-less plugin never
-      # fires, which silently disables the Stop driver, the busy push, and
-      # the spend gate above alike (bin/fm-agy-lib.sh owns the merge and the
-      # evidence). A no-op without jq or on any write failure.
+      # fires, which silently disables the busy push above (bin/fm-agy-lib.sh
+      # owns the merge and the evidence). A no-op without jq or on any write failure.
       fm_agy_ensure_plugin_enabled
       printf 'token=%s\n' "${auth_file##*/}" > "$WT/.fm-agy-turnend"
       exclude_path '.fm-agy-turnend'
@@ -6445,7 +6016,7 @@ fi
 preserve_relaunch_meta() {
   awk -F= '
     BEGIN {
-      split("window endpoint_task_id worktree project harness kind mode yolo branch tasktmp base_branch model effort account account_provider busy_gen spawn_gen spawned_at traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx dispatch_source dispatch_reason dispatch_route_harness dispatch_route_model dispatch_route_effort dispatch_route_provider dispatch_route_workspace dispatch_ladder dispatch_fallback dispatch_override_reason dispatch_explanation dispatch_unified dispatch_declaration dispatch_project dispatch_approved opencode_workspace opencode_server opencode_server_session", keys, " ")
+      split("window endpoint_task_id worktree project harness kind mode yolo branch tasktmp base_branch model effort account account_provider busy_gen spawn_gen spawned_at traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx dispatch_source dispatch_reason dispatch_route_harness dispatch_route_model dispatch_route_effort dispatch_route_provider dispatch_route_workspace dispatch_fallback dispatch_override_reason dispatch_explanation dispatch_unified dispatch_declaration dispatch_project dispatch_approved opencode_workspace opencode_server opencode_server_session", keys, " ")
       for (i in keys) owned[keys[i]] = 1
     }
     !($1 in owned)
@@ -6469,12 +6040,12 @@ preserve_relaunch_meta() {
   # task record stays byte-identical.
   [ -z "$WORKER_ACCOUNT" ] || echo "account=$WORKER_ACCOUNT_DECLARED"
   [ -z "$WORKER_ACCOUNT_PROVIDER" ] || echo "account_provider=$WORKER_ACCOUNT_PROVIDER"
-  # The second-workspace pin, written only when it differs from the default:
+  # The account pin, written only when it differs from the default:
   # absence means the main workspace, exactly as every record written before
-  # markers existed reads.
-  if [ "$OPENCODE_WORKSPACE" = secondary ] \
-    && { [ "$HARNESS" = opencode ] || [ "$PI_OPENCODE_GO" -eq 1 ]; }; then
-    echo "opencode_workspace=secondary"
+  # markers existed reads. Any configured account label round-trips here, so
+  # a new account is a policy and config edit, never a code change.
+  if [ "$HARNESS" = opencode ] && [ -n "$OPENCODE_WORKSPACE" ] && [ "$OPENCODE_WORKSPACE" != main ]; then
+    echo "opencode_workspace=$OPENCODE_WORKSPACE"
   fi
   # An attached worker's server profile and session; absent for a standalone
   # launch, so its record stays byte-identical.
@@ -6493,11 +6064,10 @@ preserve_relaunch_meta() {
   [ "$DECLARE_SET" -ne 1 ] || echo "dispatch_declaration=$DECLARE"
   [ -z "$DISPATCH_ROUTE_PROJECT" ] || echo "dispatch_project=$DISPATCH_ROUTE_PROJECT"
   [ "$DISPATCH_ROUTE_APPROVED" -ne 1 ] || echo 'dispatch_approved=1'
-  [ -z "$DISPATCH_ROUTE_LADDER" ] || echo "dispatch_ladder=$DISPATCH_ROUTE_LADDER"
   [ -z "$DISPATCH_FALLBACK_SELECTED" ] || echo "dispatch_fallback=$DISPATCH_FALLBACK_SELECTED"
   [ -z "$DISPATCH_META_OVERRIDE_REASON" ] || echo "dispatch_override_reason=$DISPATCH_META_OVERRIDE_REASON"
   if [ -n "$DISPATCH_EXPLANATION" ]; then
-    echo "dispatch_explanation=$(jq -cn --argjson route "$DISPATCH_EXPLANATION" --arg ladder "$DISPATCH_LADDER_EXPLANATION" '{resolver:$route,ladder:$ladder}')"
+    echo "dispatch_explanation=$(jq -cn --argjson route "$DISPATCH_EXPLANATION" '{resolver:$route}')"
   fi
   [ -z "${BUSY_GEN:-}" ] || echo "busy_gen=$BUSY_GEN"
   echo "spawn_gen=$SPAWN_GEN"
@@ -6748,29 +6318,28 @@ if [ -n "$WORKER_ACCOUNT" ]; then
 elif [ "$HARNESS" = claude ] && [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
   LAUNCH="CLAUDE_CONFIG_DIR=$(shell_quote "$CLAUDE_CONFIG_DIR") $LAUNCH"
 fi
-# A pinned opencode launch rides its workspace's console database so the
-# vendor attributes the session to that workspace even though the
-# machine-wide active workspace is elsewhere. Each database was ensured where
-# the workspace resolved above, before any endpoint or record existed; a Go
-# launch whose resolved workspace the pin cannot prove is refused rather than
-# launched unpinned, so a Go launch never runs on a workspace the ladder did
-# not choose. A non-Go launch carries no workspace pin by construction.
+# An account-routed OpenCode launch rides the verified account database so the
+# vendor attributes the session to that account even when the machine-wide
+# active account is elsewhere. The route database is prepared before endpoint
+# publication; an account route that cannot be proven is never launched
+# unpinned. A route with no account uses its private task database.
 if [ -n "$OPENCODE_SERVER_SESSION" ]; then
   # The workspace pin rides the server's own proven database instead.
   :
-elif [ "$HARNESS" = opencode ] && [ "$OPENCODE_WORKSPACE" = secondary ]; then
-  [ -n "$OPENCODE_SECOND_DB" ] || {
-    echo "error: task $ID is pinned to the second OpenCode workspace but its database is missing; refusing to launch unpinned" >&2
+elif [ "$HARNESS" = opencode ] && [ -n "$OPENCODE_ROUTE_ORG" ]; then
+  [ -n "$OPENCODE_ROUTE_DB" ] || {
+    echo "error: task $ID's selected OpenCode account '$DISPATCH_ROUTE_WORKSPACE' has no verified private database; refusing to launch unpinned" >&2
     exit 1
   }
+  LAUNCH="OPENCODE_DB=$(shell_quote "$OPENCODE_ROUTE_DB") $LAUNCH"
+elif [ "$HARNESS" = opencode ] && [ -n "$OPENCODE_SECOND_DB" ]; then
   LAUNCH="OPENCODE_DB=$(shell_quote "$OPENCODE_SECOND_DB") $LAUNCH"
 elif [ "$HARNESS" = opencode ] && [ -n "$OPENCODE_MAIN_DB" ]; then
   LAUNCH="OPENCODE_DB=$(shell_quote "$OPENCODE_MAIN_DB") $LAUNCH"
 elif [ "$HARNESS" = opencode ] && [ -n "$OPENCODE_TASK_DB" ]; then
   LAUNCH="OPENCODE_DB=$(shell_quote "$OPENCODE_TASK_DB") $LAUNCH"
-elif [ "$HARNESS" = opencode ] && [ "$OPENCODE_WORKSPACE" = main ] \
-  && fm_opencode_model_workspace_scoped "$MODEL" 2>/dev/null && fm_opencode_second_configured 2>/dev/null; then
-  echo "error: task $ID is on the main OpenCode workspace but its pinned database is missing; refusing to launch unpinned" >&2
+elif [ "$HARNESS" = opencode ] && [ -n "$DISPATCH_ROUTE_WORKSPACE" ]; then
+  echo "error: task $ID's selected OpenCode account '$DISPATCH_ROUTE_WORKSPACE' has no verified private database; refusing to launch unpinned" >&2
   exit 1
 fi
 if [ "$KIND" = secondmate ]; then

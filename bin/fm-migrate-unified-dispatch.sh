@@ -38,11 +38,10 @@ fi
 jq -e '.models | type == "array"' "$tmp/catalog.json" >/dev/null 2>&1 \
   || { echo "error: malformed model catalog $CATALOG" >&2; exit 1; }
 
-if jq -e '.version == 2' "$tmp/source.json" >/dev/null; then
-  echo "already current: $POLICY"
-  exit 0
-fi
-
+SOURCE_VERSION=$(jq -r '.version' "$tmp/source.json")
+if [ "$SOURCE_VERSION" = 2 ]; then
+  cp "$tmp/source.json" "$tmp/policy.json" || exit 1
+else
 jq --slurpfile template "$EXAMPLE" '
   def profiles($v): if ($v | type) == "array" then $v elif ($v | type) == "object" then [$v] else [] end;
   def rung($i; $prefix): . as $r | $r + {
@@ -71,21 +70,59 @@ jq --slurpfile template "$EXAMPLE" '
     ]
   | .constraints |= unique_by(.id)
 ' "$tmp/source.json" > "$tmp/policy.json" || { echo 'error: policy conversion failed' >&2; exit 1; }
+fi
 jq -e '.version == 2 and (.rules | type == "array") and (.default_ladder | type == "array") and all(.default_ladder[]; (.id | type == "string") and (.harness | type == "string") and (.model | type == "string") and (.provider | type == "string"))' "$tmp/policy.json" >/dev/null 2>&1 \
   || { echo 'error: converted policy failed schema checks' >&2; exit 1; }
 "$SCRIPT_DIR/fm-dispatch-policy-validate.sh" "$tmp/policy.json" || exit 1
 
-if [ -e "$POLICY" ] && [ "$FORCE" -ne 1 ]; then
+# Translate every recorded worker onto the generic route representation before
+# replacing the policy. This preserves the task's actual model and account while
+# allowing the v2 descent path to own it immediately after migration.
+mkdir -p "$tmp/meta" || exit 1
+for meta in "$FM_HOME"/state/*.meta; do
+  [ -f "$meta" ] || continue
+  id=${meta##*/}; id=${id%.meta}
+  harness=$(sed -n 's/^harness=//p' "$meta" | tail -n 1)
+  model=$(sed -n 's/^model=//p' "$meta" | tail -n 1)
+  provider=$(jq -r --arg model "$model" --arg harness "$harness" '
+    ([.default_ladder[]?, .rules[]?.ladder[]? | select(.model == $model and .harness == $harness)] | first | .provider // empty)
+  ' "$tmp/policy.json" 2>/dev/null) || provider=
+  [ -n "$model" ] && [ -n "$harness" ] && [ -n "$provider" ] || continue
+  workspace=$(sed -n 's/^opencode_workspace=//p' "$meta" | tail -n 1)
+  [ -n "$workspace" ] || workspace=$(jq -r --arg model "$model" --arg harness "$harness" '
+    ([.default_ladder[]?, .rules[]?.ladder[]? | select(.model == $model and .harness == $harness)] | first | .workspace // (.accounts[0] // ""))
+  ' "$tmp/policy.json" 2>/dev/null) || workspace=
+  awk '!/^(dispatch_unified|dispatch_ladder|dispatch_route_provider|dispatch_route_workspace)=/' "$meta" > "$tmp/meta/$id.meta" || exit 1
+  {
+    printf 'dispatch_unified=1\ndispatch_route_provider=%s\n' "$provider"
+    [ -z "$workspace" ] || printf 'dispatch_route_workspace=%s\n' "$workspace"
+  } >> "$tmp/meta/$id.meta" || exit 1
+done
+
+if [ "$SOURCE_VERSION" = 1 ] && [ -e "$POLICY" ] && [ "$FORCE" -ne 1 ]; then
   echo "error: replacing the v1 policy requires --force; inspect the converted policy first" >&2
   cp "$tmp/policy.json" "$tmp/preview.json"
   echo "preview: $tmp/preview.json" >&2
   exit 1
 fi
 chmod 600 "$tmp/policy.json" || exit 1
-mv "$tmp/policy.json" "$POLICY" || exit 1
+if [ "$SOURCE_VERSION" = 1 ]; then
+  mv "$tmp/policy.json" "$POLICY" || exit 1
+else
+  rm -f "$tmp/policy.json"
+fi
+for migrated in "$tmp"/meta/*.meta; do
+  [ -f "$migrated" ] || continue
+  id=${migrated##*/}; id=${id%.meta}
+  mv "$migrated" "$FM_HOME/state/$id.meta" || exit 1
+done
 if [ ! -e "$CATALOG" ]; then
   chmod 600 "$tmp/catalog.json" || exit 1
   mv "$tmp/catalog.json" "$CATALOG" || exit 1
 fi
-echo "wrote: $POLICY (v2; existing route order retained)"
+if [ "$SOURCE_VERSION" = 2 ]; then
+  echo "already current: $POLICY (active task routes reconciled)"
+else
+  echo "migrated: $POLICY (v2 policy; active task routes translated)"
+fi
 echo "catalog preserved: $CATALOG"

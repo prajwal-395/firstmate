@@ -54,7 +54,8 @@ jq --slurpfile old "$old" --slurpfile ids "$ids_file" --arg date "$(date +%F)" '
   ($ids[0]) as $listed |
   ($listed | map(.id)) as $available |
   ($old[0].models // []) as $previous |
-  (([$listed[] | {id:.id,status:"active",bills:(if (.id|startswith("opencode-go/")) then "go" else "none" end),last_verified:$date,source:.source,harnesses:.harnesses}])
+  ($previous | map({key:.id,value:(.bills // "none")}) | from_entries) as $billing |
+  (([$listed[] | {id:.id,status:"active",bills:($billing[.id] // "none"),last_verified:$date,source:.source,harnesses:.harnesses}])
    + [$previous[] | select(.id as $id | ($available | index($id)) == null) |
       .status="retired" | .last_verified=$date])
   | group_by(.id) | map(.[-1]) | sort_by(.id) | {models:.}

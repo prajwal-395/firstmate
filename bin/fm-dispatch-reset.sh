@@ -5,13 +5,19 @@
 set -u
 
 cmd=${1:-}; state_dir=${2:-}
-shift 2 2>/dev/null || { echo 'usage: fm-dispatch-reset.sh <record|clear|check|prune> <state-dir> ...' >&2; exit 2; }
-[ -n "$cmd" ] && [ -n "$state_dir" ] || { echo 'usage: fm-dispatch-reset.sh <record|clear|check|prune> <state-dir> ...' >&2; exit 2; }
+shift 2 2>/dev/null || { echo 'usage: fm-dispatch-reset.sh <record|observe|observe-file|clear|check|prune|sync-quota> <state-dir> ...' >&2; exit 2; }
+[ -n "$cmd" ] && [ -n "$state_dir" ] || { echo 'usage: fm-dispatch-reset.sh <record|observe|observe-file|clear|check|prune|sync-quota> <state-dir> ...' >&2; exit 2; }
 command -v jq >/dev/null 2>&1 || { echo 'error: jq required' >&2; exit 2; }
 mkdir -p "$state_dir" || exit 1
 file="$state_dir/dispatch-exhaustions.jsonl"
 lock="$state_dir/.dispatch-exhaustions.lock"
 key_ok() { [[ ${1:-} =~ ^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,254}$ ]]; }
+require_key() {
+  if ! key_ok "$1" || ! key_ok "$2" || ! key_ok "$3"; then
+    echo 'error: invalid dispatch reset key' >&2
+    exit 2
+  fi
+}
 lock_acquire() {
   local i=0
   until mkdir "$lock" 2>/dev/null; do
@@ -29,16 +35,16 @@ case "$cmd" in
     [ "$#" -eq 6 ] || { echo 'usage: fm-dispatch-reset.sh observe <state-dir> <policy.json> <provider> <model> <workspace> <reset-ms|-> <error-text>; observe-file uses <error-file> in place of error-text' >&2; exit 2; }
     policy=$1 provider=$2 model=$3 workspace=$4 reset=$5 evidence=$6
     [ -r "$policy" ] || { echo 'error: dispatch policy must be readable' >&2; exit 2; }
-    key_ok "$provider" && key_ok "$model" && key_ok "$workspace" || { echo 'error: invalid dispatch reset key' >&2; exit 2; }
+    require_key "$provider" "$model" "$workspace"
     if [ "$cmd" = observe-file ]; then
       [ -r "$evidence" ] || { echo 'error: refusal evidence file must be readable' >&2; exit 2; }
       error_file=$evidence
-      evidence=provider-refusal
+      evidence='provider-refusal'
     else
       error_file=$(mktemp "${TMPDIR:-/tmp}/fm-dispatch-refusal.XXXXXX") || exit 1
       trap 'rm -f "$error_file"' EXIT
       printf '%s\n' "$evidence" > "$error_file" || exit 1
-      evidence=provider-refusal
+      evidence='provider-refusal'
     fi
     matched_reset=
     while IFS=$'\t' read -r pattern strategy; do
@@ -97,7 +103,7 @@ case "$cmd" in
   record)
     [ "$#" -eq 5 ] || { echo 'usage: fm-dispatch-reset.sh record <state-dir> <provider> <model> <workspace> <reset-ms> <evidence>' >&2; exit 2; }
     provider=$1 model=$2 workspace=$3 reset=$4 evidence=$5
-    key_ok "$provider" && key_ok "$model" && key_ok "$workspace" || { echo 'error: invalid dispatch reset key' >&2; exit 2; }
+    require_key "$provider" "$model" "$workspace"
     [[ $reset =~ ^[0-9]+$ ]] || { echo 'error: reset-ms must be a non-negative integer' >&2; exit 2; }
     valid_store || { echo "error: malformed exhaustion store $file" >&2; exit 1; }
     lock_acquire || exit 1
@@ -109,14 +115,17 @@ case "$cmd" in
     else
       : > "$tmp" || exit 1
     fi
-    jq -cn --arg provider "$provider" --arg model "$model" --arg workspace "$workspace" --argjson reset "$reset" --argjson now "$now" --arg evidence "$evidence" \
+    if ! jq -cn --arg provider "$provider" --arg model "$model" --arg workspace "$workspace" --argjson reset "$reset" --argjson now "$now" --arg evidence "$evidence" \
       '{version:1,provider:$provider,model:$model,workspace:$workspace,reset_ms:$reset,observed_ms:$now,evidence:$evidence}' >> "$tmp" \
-      && chmod 600 "$tmp" && mv "$tmp" "$file" || { rm -f "$tmp"; exit 1; }
+      || ! chmod 600 "$tmp" || ! mv "$tmp" "$file"; then
+      rm -f "$tmp"
+      exit 1
+    fi
     ;;
   clear)
     [ "$#" -eq 3 ] || { echo 'usage: fm-dispatch-reset.sh clear <state-dir> <provider> <model> <workspace>' >&2; exit 2; }
     provider=$1 model=$2 workspace=$3
-    key_ok "$provider" && key_ok "$model" && key_ok "$workspace" || { echo 'error: invalid dispatch reset key' >&2; exit 2; }
+    require_key "$provider" "$model" "$workspace"
     valid_store || { echo "error: malformed exhaustion store $file" >&2; exit 1; }
     lock_acquire || exit 1
     [ ! -e "$file" ] || jq -c --arg provider "$provider" --arg model "$model" --arg workspace "$workspace" 'select(.provider != $provider or .model != $model or .workspace != $workspace)' "$file" > "$file.tmp.$$" || exit 1
@@ -125,7 +134,7 @@ case "$cmd" in
   check)
     [ "$#" -eq 3 ] || { echo 'usage: fm-dispatch-reset.sh check <state-dir> <provider> <model> <workspace>' >&2; exit 2; }
     provider=$1 model=$2 workspace=$3
-    key_ok "$provider" && key_ok "$model" && key_ok "$workspace" || { echo 'error: invalid dispatch reset key' >&2; exit 2; }
+    require_key "$provider" "$model" "$workspace"
     valid_store || { echo "error: malformed exhaustion store $file" >&2; exit 1; }
     [ -e "$file" ] || exit 1
     now=$(now_ms)

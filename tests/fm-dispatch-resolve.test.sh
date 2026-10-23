@@ -33,14 +33,10 @@ chmod +x "$FAKEBIN/quota-axi" "$FAKEBIN/curl"
 write_policy() {
   cat > "$HOME_DIR/config/dispatch-policy.json" <<'JSON'
 {
-  "version": 1,
+  "version": 2,
   "rules": [
-    {"id":"lucie","when":"Lucie registered project work","trigger":{"kind":"projects","names":["starling-site"]},"use":{"harness":"grok","model":"grok-4","effort":"high"}},
-    {"id":"unshaped","when":"Work not shaped into another route","trigger":{"kind":"declaration"},"use":{"harness":"claude","model":"claude-opus-5-5","effort":"medium"}}
-  ],
-  "default":[
-    {"harness":"codex","model":"gpt-6-luna","effort":"medium","provider":"codex"},
-    {"harness":"opencode","model":"opencode-go/muse-spark-1.3-contributor","provider":"opencode-go"}
+    {"id":"lucie","when":"Lucie registered project work","trigger":{"kind":"projects","names":["starling-site"]},"ladder":[{"id":"lucie-grok","harness":"grok","model":"grok-4","provider":"grok","effort":"high"}]},
+    {"id":"unshaped","when":"Work not shaped into another route","trigger":{"kind":"declaration"},"ladder":[{"id":"unshaped-opus","harness":"claude","model":"claude-opus-5-5","provider":"anthropic","effort":"medium"}]}
   ],
   "default_ladder":[
     {"id":"deepseek","harness":"opencode","model":"opencode/deepseek-v4.1-flash-free","provider":"opencode"},
@@ -69,7 +65,7 @@ pass "exact registered project trigger resolves before the declaration trigger"
 out=$(run_resolver)
 assert_equals default "$(jq -r .status <<<"$out")" "an undeclared task takes the default"
 assert_equals default "$(jq -r .source <<<"$out")" "an existing declaration rule never fires by itself"
-assert_equals codex "$(jq -r .profile.harness <<<"$out")" "the default ladder starts at the Codex Plus rung"
+assert_equals opencode "$(jq -r .profile.harness <<<"$out")" "the default ladder starts at the first configured free OpenCode rung"
 [ ! -e "$LOG" ] || fail "deterministic resolution called curl"
 pass "an existing declaration rule never fires without an explicit declaration"
 
@@ -89,15 +85,15 @@ assert_equals 2 "$?" "an unknown declaration id is rejected"
 assert_contains "$out" 'unshaped' "the refusal names the actual declaration trigger"
 pass "an unknown declaration id fails closed with the actual trigger named"
 
-jq '{version:2,rules:[],default_ladder:.default_ladder,constraints:[],providers:[]}' "$HOME_DIR/config/dispatch-policy.json" > "$TMP_ROOT/default.json"
-cp "$TMP_ROOT/default.json" "$HOME_DIR/config/dispatch-policy.json"
 out=$(run_resolver)
 assert_equals default "$(jq -r .source <<<"$out")" "default route resolves"
 assert_equals opencode "$(jq -r .profile.harness <<<"$out")" "the first configured policy rung is selected"
 assert_equals true "$(jq -r .profile.dispatch_unified <<<"$out")" "the unified policy route is marked for generic enforcement"
-assert_equals null "$(jq -r .profile.dispatch_ladder <<<"$out")" "the v2 route does not enter the legacy OpenCode ladder gate"
-pass "default ladder derives its route from the declared policy"
+assert_equals false "$(jq -r '.profile | has("dispatch_ladder")' <<<"$out")" "the route contains no legacy ladder marker"
+pass "the v2 policy directly determines the route without legacy ladder state"
 
+jq '{version:2,rules:[],default_ladder:.default_ladder,constraints:[],providers:[]}' "$HOME_DIR/config/dispatch-policy.json" > "$TMP_ROOT/default.json"
+cp "$TMP_ROOT/default.json" "$HOME_DIR/config/dispatch-policy.json"
 out=$(run_resolver --declare unshaped 2>&1)
 assert_equals 2 "$?" "a declaration with no declaration trigger is rejected"
 assert_contains "$out" 'declares no declaration trigger' "the refusal states the policy has none"
@@ -128,11 +124,11 @@ cat > "$HOME_DIR/config/model-catalog.json" <<'JSON'
 {"models":[{"id":"opencode/deepseek-v4.1-flash-free","status":"active"},{"id":"opencode/glm-5.3-flash-free","status":"active"},{"id":"opencode/mimo-v2.6-flash-free","status":"active"},{"id":"opencode-go/muse-spark-1.3-contributor","status":"active"},{"id":"gpt-6-luna","status":"active"},{"id":"retired-model","status":"retired","replaced_by":"replacement-model"}]}
 JSON
 
-jq '. + {exhausted_ladder_fallback:{use:{"harness":"opencode"}}}' "$TMP_ROOT/default.json" > "$HOME_DIR/config/dispatch-policy.json"
-out=$(run_resolver 2>&1)
-assert_equals 2 "$?" "retired fallback declaration is rejected"
-assert_contains "$out" 'exhausted_ladder_fallback has been retired' "fallback refusal is actionable"
-pass "the exhausted-ladder fallback cannot be re-enabled by policy"
+jq '. + {unrecognized_route_switch:true}' "$TMP_ROOT/default.json" > "$HOME_DIR/config/dispatch-policy.json"
+out=$("$ROOT/bin/fm-dispatch-policy-validate.sh" "$HOME_DIR/config/dispatch-policy.json" 2>&1)
+assert_equals 1 "$?" "unknown policy fields are rejected"
+assert_contains "$out" 'unknown top-level policy fields' "schema refusal names the unknown field category"
+pass "the v2 policy schema rejects unsupported routing switches"
 
 cp "$ROOT/docs/examples/dispatch-policy.json" "$HOME_DIR/config/dispatch-policy.json"
 out=$(run_resolver)

@@ -13,6 +13,7 @@ reason=$(jq -r '
     and (.provider | type == "string" and test("^[a-z0-9]+(-[a-z0-9]+)*$"))
     and ((has("effort") | not) or (.effort | type == "string" and length > 0))
     and ((has("accounts") | not) or (.accounts | type == "array" and all(.[]; type == "string" and test("^[A-Za-z0-9][A-Za-z0-9_-]*$"))))
+    and ((has("workspace") | not) or (.workspace | type == "string" and test("^[A-Za-z0-9][A-Za-z0-9_-]*$")))
     and ((has("account_strategy") | not) or (.account_strategy as $strategy | (["ordered","reset-soonest-yield-shorter-reset"] | index($strategy) != null)))
     and ((has("approval") | not) or .approval == "captain");
   def valid_rule:
@@ -22,6 +23,7 @@ reason=$(jq -r '
     and ((.trigger.kind == "declaration") or (.trigger.kind == "projects" and (.trigger.names | type == "array" and length > 0 and all(.[]; type == "string" and length > 0))))
     and (.ladder | type == "array" and length > 0 and all(.[]; valid_rung));
   if type != "object" then "top-level value must be an object"
+  elif (keys - ["version", "rules", "default_ladder", "constraints", "providers"] | length) > 0 then "unknown top-level policy fields are not supported"
   elif .version != 2 then "version must be 2"
   elif (.rules | type) != "array" or (.default_ladder | type) != "array" or (.default_ladder | length) == 0 then "rules and non-empty default_ladder arrays are required"
   elif any([.default_ladder[]?, .rules[]?.ladder[]?][]; has("account_strategy") and (.account_strategy as $strategy | (["ordered","reset-soonest-yield-shorter-reset"] | index($strategy) == null))) then "account_strategy must be ordered or reset-soonest-yield-shorter-reset"

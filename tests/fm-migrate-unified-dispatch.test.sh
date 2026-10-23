@@ -24,6 +24,14 @@ cat > "$HOME_DIR/config/model-catalog.json" <<'JSON'
 {"models":[{"id":"vendor/free-a","status":"retired","replaced_by":"vendor/free-b"}]}
 JSON
 catalog_before=$(cksum "$HOME_DIR/config/model-catalog.json")
+mkdir -p "$HOME_DIR/state"
+cat > "$HOME_DIR/state/live-worker.meta" <<'META'
+harness=codex
+model=codex-model
+kind=ship
+opencode_workspace=
+dispatch_ladder=opencode
+META
 out=$(FM_HOME="$HOME_DIR" "$TOOL" --force 2>&1)
 assert_equals 0 "$?" "migration should succeed: $out"
 policy="$HOME_DIR/config/dispatch-policy.json"
@@ -35,7 +43,10 @@ assert_equals captain "$(jq -r '.constraints[] | select(.id == "worker-claude-ap
 assert_equals true "$(jq -r '.constraints[] | select(.id == "research-no-claude") | .deny' "$policy")" "research homes deny Anthropic"
 assert_equals 0 "$(jq -r '.providers[] | select(.id == "vendor") | .refusal_patterns | length' "$policy")" "custom providers are represented without invented refusal wording"
 assert_equals "$catalog_before" "$(cksum "$HOME_DIR/config/model-catalog.json")" "the existing model catalog is preserved byte-for-byte"
-pass "v1 migration retains routes and catalog while adding required worker constraints"
+assert_equals 1 "$(sed -n 's/^dispatch_unified=//p' "$HOME_DIR/state/live-worker.meta")" "active legacy tasks enter generic descent"
+assert_equals codex "$(sed -n 's/^dispatch_route_provider=//p' "$HOME_DIR/state/live-worker.meta")" "active legacy tasks retain provider identity"
+assert_equals '' "$(sed -n 's/^dispatch_ladder=//p' "$HOME_DIR/state/live-worker.meta")" "the legacy ladder marker is removed"
+pass "v1 migration retains routes and catalog, translates active tasks, and adds required constraints"
 
 out=$(FM_HOME="$HOME_DIR" "$TOOL" 2>&1)
 assert_equals 0 "$?" "re-running a v2 migration should succeed: $out"

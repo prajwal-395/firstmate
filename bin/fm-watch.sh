@@ -236,24 +236,6 @@ WATCH_HOME_EXISTED=0
 # the agent it describes.
 # shellcheck source=bin/fm-stopped-lib.sh
 . "$SCRIPT_DIR/fm-stopped-lib.sh"
-# shellcheck source=bin/fm-agy-quota-lib.sh
-. "$SCRIPT_DIR/fm-agy-quota-lib.sh"
-# Live agy ladder enforcement. The launch gate only covers a worker being
-# started; this is what moves one that is ALREADY RUNNING off a rung it has
-# spent, so the captain's reserved quarter of rung 1 survives the run and not
-# just the dispatch.
-# This library is a canonical lint root in its own right. Keep it an analysis
-# boundary here: following its graph from this large runtime exceeds the
-# bounded CI lint worker while adding no uncovered file.
-# shellcheck source=/dev/null
-. "$SCRIPT_DIR/fm-agy-descent-lib.sh"
-# Live opencode ladder enforcement. The dispatch gate only routes the next
-# spawn; this is what moves a lane that is ALREADY RUNNING off a free tier it
-# has exhausted, so a mid-run cap costs a relaunch onto Go and not a day-long
-# stall. bin/fm-opencode-descent-lib.sh owns the trigger, the move, and why
-# there is no climb-back and no point-of-spend gate.
-# shellcheck source=bin/fm-opencode-descent-lib.sh
-. "$SCRIPT_DIR/fm-opencode-descent-lib.sh"
 # Steering-inbox loss detection: bin/fm-task-inbox-lib.sh owns the record,
 # doorbell, re-ring ladder, and unavailable-endpoint contracts; this watcher
 # supplies their live endpoint and busy checks plus wake emission
@@ -3072,9 +3054,7 @@ while :; do
   fm_pending_reply_tick "$STATE" || true
 
   # The unified dispatch owner consumes the shared provider/model/workspace
-  # reset store and re-resolves the original route. Legacy provider adapters
-  # below remain available for tasks created before a home is migrated; a
-  # unified task's reset episode is claimed here before any adapter can act.
+  # reset store and re-resolves the original route.
   while IFS= read -r dispatch_line; do
     [ -n "$dispatch_line" ] || continue
     dispatch_reason="check: dispatch descent $dispatch_line"
@@ -3082,36 +3062,6 @@ while :; do
     wake "$dispatch_reason"
   done < <(FM_HOME="$FM_HOME" FM_CONFIG_OVERRIDE="$CONFIG" FM_STATE_OVERRIDE="$STATE" \
     "$SCRIPT_DIR/fm-dispatch-descent.sh" "$STATE" 2>/dev/null || true)
-
-  # Live agy ladder enforcement. Silent and free unless this home is running an
-  # agy worker on a ladder rung, rate-limited to FM_AGY_DESCENT_INTERVAL, and
-  # queued rather than acted on here: the descent has already happened (or
-  # already been refused) by the time a line comes back, and the wake is how the
-  # captain finds out about it.
-  #
-  # This is no longer the only driver, and it must not be: this loop runs
-  # between firstmate's turns, so on its own it made the captain's reserved
-  # quarter conditional on how long a turn lasts. Every agy worker's own turn end
-  # now drives the same evaluation through bin/fm-agy-ladder-tick.sh, and the
-  # evaluation is single-flight, so whichever driver gets there first pays for it.
-  while IFS= read -r agy_line; do
-    [ -n "$agy_line" ] || continue
-    agy_reason=$(fm_agy_descent_wake_reason "$agy_line")
-    fm_wake_append check agy-ladder "$agy_reason" || exit 1
-    wake "$agy_reason"
-  done < <(fm_agy_descent_tick "$STATE" 2>/dev/null || true)
-
-  # Live opencode ladder enforcement. Silent and local unless this home runs
-  # an opencode lane on a governed tier with a proven quota-scale cap,
-  # rate-limited to FM_OPENCODE_DESCENT_INTERVAL, and queued rather than
-  # acted on here: the descent has already moved the lane (or refused to) by
-  # the time a line comes back, and the wake is how the captain finds out.
-  while IFS= read -r opencode_line; do
-    [ -n "$opencode_line" ] || continue
-    opencode_reason=$(fm_opencode_descent_wake_reason "$opencode_line")
-    fm_wake_append check opencode-ladder "$opencode_reason" || exit 1
-    wake "$opencode_reason"
-  done < <(fm_opencode_descent_tick "$STATE" 2>/dev/null || true)
 
   # A live secondmate endpoint does not prove that its own wake loop is alive.
   # Observe the foreign queue before the rest of this cycle so an aged row wakes
@@ -3723,11 +3673,6 @@ EOF
     else
       printf '%s' "$h" > "$hf"
       echo 0 > "$cf"
-      # Quota memory extraction: an agy pane's new content may carry a fresh
-      # quota footer, which is what the ladder gate and the descent read when
-      # a live poll is stale or unreachable. Cheap text parse, silent no-op
-      # for non-agy panes (bin/fm-agy-quota-lib.sh).
-      fm_agy_quota_observe "$tail40" "$STATE"
       paused_bound=1
       if [ "$busy_now" -eq 0 ] && busy_turn_over_age "$task"; then
         busy_turn_bound_check "$w" "$task" "$h" "$ssf" "$ewf" && paused_bound=0

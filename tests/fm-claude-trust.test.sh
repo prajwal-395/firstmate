@@ -770,7 +770,9 @@ test_claude_spawn_pretrusts_its_worktree_and_reaches_the_brief() {
     "the launch command did not carry the brief the worker must read"
   # The worker must read the SAME store the registration wrote, or the trust
   # would land somewhere the pane never looks.
-  assert_grep "CLAUDE_CONFIG_DIR='$config'" "$launch_log" \
+  assert_grep 'CLAUDE_CONFIG_DIR=' "$launch_log" \
+    "the launch command did not set the Claude store that was trusted"
+  assert_grep "$config" "$launch_log" \
     "the launch command did not point the worker at the store that was trusted"
   pass "fm-spawn.sh: a claude spawn pre-trusts its worktree and launches with the brief"
 }
@@ -796,7 +798,9 @@ test_secondmate_standalone_clone_home_is_trusted() {
     "the launch command did not carry the charter the secondmate must read"
   # The pane must read the SAME store the registration wrote, or the trust would
   # land somewhere it never looks and the dialog would appear anyway.
-  assert_grep "CLAUDE_CONFIG_DIR='$case_dir/claude-config'" "$case_dir/launch.log" \
+  assert_grep 'CLAUDE_CONFIG_DIR=' "$case_dir/launch.log" \
+    "the secondmate launch did not set the Claude store that was trusted"
+  assert_grep "$case_dir/claude-config" "$case_dir/launch.log" \
     "the launch command did not point the secondmate at the store that was trusted"
   pass "fm-spawn.sh: a claude secondmate spawn pre-trusts a standalone-clone home"
 }

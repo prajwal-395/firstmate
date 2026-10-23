@@ -100,7 +100,7 @@ make_spawn_case() {
 
 enable_dispatch_profile() {
   local home=$1
-  printf '%s\n' '{"version":1,"rules":[],"default":{"harness":"codex","model":"gpt-5","effort":"high"}}' \
+  printf '%s\n' '{"version":2,"rules":[],"default_ladder":[{"id":"default-codex","harness":"codex","model":"gpt-5","provider":"codex","effort":"high"}],"constraints":[],"providers":[]}' \
     > "$home/config/dispatch-policy.json"
 }
 
@@ -527,15 +527,14 @@ JSON
   pass "unified dispatch enforces Anthropic worker approval and records the captain's words"
 }
 
-test_unified_rung_harness_beats_global_pi_switch_and_explicit_harness_selects_its_rung() {
+test_policy_rung_harness_is_preserved_and_explicit_harness_selects_its_rung() {
   local rec id out status launch
   id=profile-unified-harness-routing-z39
   rec=$(make_spawn_case profile-unified-harness-routing opencode "$id" profile-unified-codex-routing-z39)
   read_case_record "$rec"
   cat > "$HOME_DIR/config/dispatch-policy.json" <<'JSON'
-{"version":2,"rules":[],"default_ladder":[{"id":"free","harness":"opencode","model":"opencode/deepseek-v4.1-flash-free","provider":"opencode","accounts":["main","secondary"]},{"id":"codex","harness":"codex","model":"gpt-6-luna","provider":"codex","effort":"medium"}],"constraints":[],"providers":[]}
+{"version":2,"rules":[],"default_ladder":[{"id":"free","harness":"opencode","model":"opencode/deepseek-v4.1-flash-free","provider":"opencode"},{"id":"codex","harness":"codex","model":"gpt-6-luna","provider":"codex","effort":"medium"}],"constraints":[],"providers":[]}
 JSON
-  printf '%s\n' on > "$HOME_DIR/config/pi-opencode-go"
   mkdir -p "$HOME_DIR/user-home/.pi/agent"
   printf '%s\n' '{"providers":{"opencode":{"models":[{"id":"custom-only"}]}}}' > "$HOME_DIR/user-home/.pi/agent/models.json"
 
@@ -573,7 +572,7 @@ test_symlinked_project_routes_by_registered_name() {
   fm_test_spawn_home "$home" claude
   fm_test_spawn_brief "$home" "$id_projects"
   fm_test_spawn_brief "$home" "$id_abs"
-  printf '%s\n' '{"version":1,"rules":[{"id":"lucie-site","when":"Lucie site work","trigger":{"kind":"projects","names":["starling-site"]},"use":{"harness":"grok","model":"grok-4","effort":"high"}}],"default":{"harness":"codex","model":"gpt-5","effort":"high"}}' \
+  printf '%s\n' '{"version":2,"rules":[{"id":"lucie-site","when":"Lucie site work","trigger":{"kind":"projects","names":["starling-site"]},"ladder":[{"id":"lucie-grok","harness":"grok","model":"grok-4","provider":"grok","effort":"high"}]}],"default_ladder":[{"id":"default-codex","harness":"codex","model":"gpt-5","provider":"codex","effort":"high"}],"constraints":[],"providers":[]}' \
     > "$home/config/dispatch-policy.json"
   mkdir -p "$case_dir/real"
   fm_git_worktree "$real_target" "$wt" "wt-symlink"
@@ -636,11 +635,11 @@ test_matching_explicit_profile_needs_no_override() {
 }
 
 test_declared_unshaped_work_routes_to_its_rule() {
-  local rec id out status
+  local rec id out status before launch_before
   id=profile-declare-z13d
   rec=$(make_spawn_case profile-declare claude "$id")
   read_case_record "$rec"
-  printf '%s\n' '{"version":1,"rules":[{"id":"unshaped","when":"genuinely unshaped work","trigger":{"kind":"declaration"},"use":{"harness":"claude","model":"claude-opus-5-5","effort":"medium"}}],"default":[{"harness":"codex","model":"gpt-6-luna","effort":"medium","provider":"codex"},{"harness":"opencode","model":"opencode-go/muse-spark-1.3-contributor","provider":"opencode-go"}],"default_ladder":[{"id":"plus","harness":"codex","model":"gpt-6-luna","effort":"medium","provider":"codex"},{"id":"go","harness":"opencode","model":"opencode-go/muse-spark-1.3-contributor","provider":"opencode-go"}]}' \
+  printf '%s\n' '{"version":2,"rules":[{"id":"unshaped","when":"genuinely unshaped work","trigger":{"kind":"declaration"},"ladder":[{"id":"unshaped-opus","harness":"claude","model":"claude-opus-5-5","provider":"anthropic","effort":"medium","approval":"captain"}]}],"default_ladder":[{"id":"plus","harness":"codex","model":"gpt-6-luna","effort":"medium","provider":"codex"},{"id":"go","harness":"opencode","model":"opencode-go/muse-spark-1.3-contributor","provider":"opencode-go"}],"constraints":[{"id":"worker-anthropic-approval","when":{"scope":"worker","provider":"anthropic"},"approval":"captain"}],"providers":[]}' \
     > "$HOME_DIR/config/dispatch-policy.json"
 
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
@@ -650,10 +649,20 @@ test_declared_unshaped_work_routes_to_its_rule() {
   assert_contains "$out" "spawned $id harness=codex" "an undeclared task left the default ladder"
   assert_meta_profile "$HOME_DIR/state/$id.meta" codex gpt-6-luna medium
 
+  before=$(cat "$HOME_DIR/state/$id.meta")
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
     "$id" "$PROJ_DIR" --declare unshaped)
   status=$?
-  expect_code 0 "$status" "a declared task should reach its rule: $out"
+  expect_code 1 "$status" "an unapproved declaration should be refused: $out"
+  assert_equals "$before" "$(cat "$HOME_DIR/state/$id.meta")" "an unapproved declaration changed existing task metadata"
+  assert_equals 0 "$(wc -c < "$LAUNCH_LOG" | tr -d '[:space:]')" "an unapproved declaration started a new agent"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
+    "$id" "$PROJ_DIR" --declare unshaped \
+    --captain-route claude/claude-opus-5-5/medium \
+    --captain-said "captain approved this declared route")
+  status=$?
+  expect_code 0 "$status" "a captain-approved declared task should reach its rule: $out"
   assert_contains "$out" "spawned $id harness=claude" "a declared task did not reach its rule"
   assert_meta_profile "$HOME_DIR/state/$id.meta" claude claude-opus-5-5 medium
   assert_grep 'dispatch_source=rule:1' "$HOME_DIR/state/$id.meta" "meta did not record the declaration rule"
@@ -2586,425 +2595,6 @@ SH
   printf '%s\n' "$datadir"
 }
 
-record_rung_cap() {  # <home> <rung>: proven unexpired rung cap in the home state
-  local ms
-  ms=$(( ($(date +%s) + 78840) * 1000 ))
-  "$ROOT/bin/fm-opencode-retry.sh" record-cap "$1/state" "$2" "$ms"
-}
-
-test_opencode_second_workspace_pins_launch() {
-  local rec id out status launch datadir
-  command -v sqlite3 >/dev/null 2>&1 || {
-    pass "second-workspace pin needs sqlite3 (absent here; live proof covers the real path)"
-    return 0
-  }
-  id=profile-second-workspace-z30
-  rec=$(make_spawn_case profile-second-workspace opencode "$id")
-  read_case_record "$rec"
-  printf '%s' 'org_01FIXTURESECONDARY00' > "$HOME_DIR/config/opencode-second-org"
-  record_rung_cap "$HOME_DIR" plus || fail "record refused Plus cap"
-  record_rung_cap "$HOME_DIR" go || fail "record refused Go cap"
-  datadir=$(make_second_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") \
-    || fail "the fixture login could not be built"
-
-  # Exported, not prefixed: the fixture opencode reads it in the spawn's own
-  # process, which a command-prefix assignment cannot reach. Unset right
-  # after so no later case inherits it.
-  export FM_FAKE_OPENCODE_DATA="$datadir"
-  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
-  status=$?
-  unset FM_FAKE_OPENCODE_DATA
-  expect_code 0 "$status" "a capped Go rung with a live fourth rung should spawn: $out"  assert_grep 'model=opencode-go/muse-spark-1.3-contributor' "$HOME_DIR/state/$id.meta" "the routed Go model was not recorded"
-  assert_grep 'opencode_workspace=secondary' "$HOME_DIR/state/$id.meta" "the workspace pin was not recorded"
-  launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "OPENCODE_DB='$HOME_DIR/state/$id.opencode.db'" \
-    "the launch did not carry its task-private workspace database"
-  [ -f "$HOME_DIR/state/$id.opencode.db" ] \
-    || fail "the task-private workspace database was not seeded"
-  assert_contains "$launch" "--model 'opencode-go/muse-spark-1.3-contributor'" \
-    "the launch did not carry the Go model id"
-  pass "a capped Go rung pins the launch to the second workspace"
-}
-
-test_opencode_main_workspace_launch_uses_task_db_without_second() {
-  local rec id out status launch
-  id=profile-main-workspace-z31
-  rec=$(make_spawn_case profile-main-workspace opencode "$id")
-  read_case_record "$rec"
-  record_rung_cap "$HOME_DIR" plus || fail "record refused Plus cap"
-
-  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
-  status=$?
-  expect_code 0 "$status" "an uncapped Go rung should spawn on the main workspace: $out"
-  assert_grep 'model=opencode-go/muse-spark-1.3-contributor' "$HOME_DIR/state/$id.meta" "the routed Go model was not recorded"
-  assert_not_contains "$(cat "$HOME_DIR/state/$id.meta")" "opencode_workspace" "a main-workspace launch must record no marker"
-  launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "OPENCODE_DB='$HOME_DIR/state/$id.opencode.db'" \
-    "a single-workspace main launch must keep its sessions in the per-task database"
-  [ -f "$HOME_DIR/state/$id.opencode.db" ] || fail "the single-workspace task database was not created"
-  pass "an uncapped Go rung without a second workspace uses its per-task database"
-}
-
-test_opencode_main_workspace_pins_launch_when_second_configured() {
-  local rec id out status launch datadir
-  command -v sqlite3 >/dev/null 2>&1 || {
-    pass "main-workspace pin needs sqlite3 (absent here; live proof covers the real path)"
-    return 0
-  }
-  id=profile-main-pinned-z33
-  rec=$(make_spawn_case profile-main-pinned opencode "$id")
-  read_case_record "$rec"
-  printf '%s' "$DUAL_SECOND_ORG_ID" > "$HOME_DIR/config/opencode-second-org"
-  record_rung_cap "$HOME_DIR" plus || fail "record refused Plus cap"
-  datadir=$(make_dual_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") \
-    || fail "the fixture login could not be built"
-
-  # Exported, not prefixed: the fixture opencode reads it in the spawn's own
-  # process, which a command-prefix assignment cannot reach. Unset right
-  # after so no later case inherits it.
-  export FM_FAKE_OPENCODE_DATA="$datadir"
-  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
-  status=$?
-  unset FM_FAKE_OPENCODE_DATA
-  expect_code 0 "$status" "an uncapped Go rung with a second workspace should spawn pinned on main: $out"
-  assert_grep 'model=opencode-go/muse-spark-1.3-contributor' "$HOME_DIR/state/$id.meta" "the routed Go model was not recorded"
-  assert_not_contains "$(cat "$HOME_DIR/state/$id.meta")" "opencode_workspace" "a main-workspace launch must record no marker"
-  launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "OPENCODE_DB='$HOME_DIR/state/$id.opencode.db'" \
-    "the main launch did not carry its task-private workspace database"
-  [ "$(cat "$HOME_DIR/config/opencode-main-org")" = "$DUAL_MAIN_ORG_ID" ] \
-    || fail "the main launch did not record the discovered workspace id"
-  pass "a two-workspace main launch rides its own pin, never the machine-wide active workspace"
-}
-
-test_pi_opencode_go_routes_main_and_secondary_ladder_rungs() {
-  local rec id out status launch datadir
-  command -v sqlite3 >/dev/null 2>&1 || {
-    pass "Pi OpenCode Go spawn routing needs sqlite3 (live credential-flow tests cover the provider helper)"
-    return 0
-  }
-
-  id=pi-go-main-z35
-  rec=$(make_spawn_case pi-go-main opencode "$id")
-  read_case_record "$rec"
-  printf '%s\n' on > "$HOME_DIR/config/pi-opencode-go"
-  printf '%s' "$DUAL_SECOND_ORG_ID" > "$HOME_DIR/config/opencode-second-org"
-  mkdir -p "$HOME_DIR/pinned-pi"
-  printf '%s\nopencode-go\n' "$HOME_DIR/pinned-pi" > "$HOME_DIR/config/pi-account"
-  record_rung_cap "$HOME_DIR" plus || fail "record refused Plus cap"
-  datadir=$(make_dual_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") || fail "main fixture login could not be built"
-  export FM_FAKE_OPENCODE_DATA="$datadir"
-  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
-  status=$?
-  unset FM_FAKE_OPENCODE_DATA
-  expect_code 0 "$status" "the main Go rung should spawn through Pi: $out"
-  assert_grep 'harness=pi' "$HOME_DIR/state/$id.meta" "the main Go rung did not record Pi"
-  assert_grep 'model=opencode-go/muse-spark-1.3-contributor' "$HOME_DIR/state/$id.meta" "the main Go model changed"
-  assert_grep 'dispatch_ladder=opencode' "$HOME_DIR/state/$id.meta" "the Pi worker lost its ladder provenance"
-  assert_not_contains "$(cat "$HOME_DIR/state/$id.meta")" "opencode_workspace" "main workspace must remain the implicit workspace"
-  launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "FM_OPENCODE_ORG_ID='$DUAL_MAIN_ORG_ID'" "main workspace id did not reach Pi"
-  assert_contains "$launch" "FM_OPENCODE_SESSION='fm-$id'" "main Pi worker has no task-scoped session"
-  assert_contains "$launch" "FM_OPENCODE_TASK_DB='$HOME_DIR/state/$id.opencode.db'" "main Pi worker did not receive its task-private db"
-  assert_contains "$launch" "PI_CODING_AGENT_DIR='$HOME_DIR/pinned-pi'" "the pinned Pi agent directory did not reach the launch"
-  assert_not_contains "$launch" "env -u PI_CODING_AGENT_DIR" "the pinned Pi agent directory was unset before Pi started"
-  assert_not_contains "$launch" "__PIAPPROVE__" "main Pi worker retained a launch-template placeholder"
-  assert_contains "$(cat "$HOME_DIR/pinned-pi/models.json")" "muse-spark-1.3-contributor" "the pinned Pi directory lacks the Go models"
-  pass "the main paid Go rung keeps its model and workspace in the pinned Pi directory"
-
-  id=pi-go-secondary-z36
-  rec=$(make_spawn_case pi-go-secondary opencode "$id")
-  read_case_record "$rec"
-  printf '%s\n' on > "$HOME_DIR/config/pi-opencode-go"
-  printf '%s' "$DUAL_SECOND_ORG_ID" > "$HOME_DIR/config/opencode-second-org"
-  record_rung_cap "$HOME_DIR" plus || fail "record refused Plus cap"
-  record_rung_cap "$HOME_DIR" go || fail "record refused main Go cap"
-  datadir=$(make_dual_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") || fail "secondary fixture login could not be built"
-  export FM_FAKE_OPENCODE_DATA="$datadir"
-  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
-  status=$?
-  unset FM_FAKE_OPENCODE_DATA
-  expect_code 0 "$status" "the secondary Go rung should spawn through Pi: $out"
-  assert_grep 'harness=pi' "$HOME_DIR/state/$id.meta" "the secondary Go rung did not record Pi"
-  assert_grep 'model=opencode-go/muse-spark-1.3-contributor' "$HOME_DIR/state/$id.meta" "the secondary Go model changed"
-  assert_grep 'opencode_workspace=secondary' "$HOME_DIR/state/$id.meta" "the second workspace marker was lost"
-  launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "FM_OPENCODE_ORG_ID='$DUAL_SECOND_ORG_ID'" "secondary workspace id did not reach Pi"
-  assert_contains "$launch" "FM_OPENCODE_SESSION='fm-$id'" "secondary Pi worker has no task-scoped session"
-  assert_contains "$launch" "FM_OPENCODE_TASK_DB='$HOME_DIR/state/$id.opencode.db'" "secondary Pi worker did not receive its task-private db"
-  assert_contains "$launch" "env -u PI_CODING_AGENT_DIR" "an unpinned Pi worker must use the default agent directory"
-  assert_not_contains "$launch" "__PIAPPROVE__" "secondary Pi worker retained a launch-template placeholder"
-  assert_contains "$(cat "$HOME_DIR/user-home/.pi/agent/models.json")" "muse-spark-1.3-contributor" "the default Pi directory lacks the Go models"
-  pass "the second paid Go rung keeps its model and workspace in Pi's default directory"
-}
-
-# A re-login refreshes the live console login. The pinned workspace database
-# has to carry that live token afterwards, and the refresh has to happen in
-# the live database: a refresh inside the pin would rotate the console
-# refresh token server-side and revoke the live login for every other
-# caller, which is what left the quota view reporting a rejected provider.
-test_pi_go_spawn_refreshes_the_pinned_database_from_the_live_login() {
-  local rec id out status datadir calls pin
-  command -v sqlite3 >/dev/null 2>&1 || {
-    pass "the Pi pin refresh needs sqlite3 (absent here; live proof covers the real path)"
-    return 0
-  }
-  id=pi-go-relogin-z37
-  rec=$(make_spawn_case pi-go-relogin opencode "$id")
-  read_case_record "$rec"
-  printf '%s\n' on > "$HOME_DIR/config/pi-opencode-go"
-  printf '%s' "$DUAL_SECOND_ORG_ID" > "$HOME_DIR/config/opencode-second-org"
-  record_rung_cap "$HOME_DIR" plus || fail "record refused Plus cap"
-  record_rung_cap "$HOME_DIR" go || fail "record refused Go cap"
-  datadir=$(make_dual_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") || fail "the fixture login could not be built"
-  # The captain re-logged in, so the live login holds a token that only
-  # OpenCode can refresh and the pin still holds the old one.
-  sqlite3 "$datadir/opencode.db" "UPDATE account SET access_token='expired-live-token', token_expiry=1;" \
-    || fail "the fixture login refused its expired token"
-  calls="$CASE_DIR/opencode-calls"
-  : > "$calls"
-  export FM_FAKE_OPENCODE_DATA="$datadir"
-  export FM_FAKE_OPENCODE_CALLS="$calls"
-  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
-  status=$?
-  unset FM_FAKE_OPENCODE_DATA
-  unset FM_FAKE_OPENCODE_CALLS
-  expect_code 0 "$status" "a Pi Go spawn after a re-login should succeed: $out"
-  pin="$HOME_DIR/config/opencode-second.db"
-  [ -f "$pin" ] || fail "the Pi Go spawn did not build the second workspace pin"
-  [ "$(sqlite3 "$pin" 'SELECT access_token FROM account LIMIT 1;')" = fixture-refreshed-token ] \
-    || fail "the pinned second database did not carry the live token after the re-login"
-  grep -q "^refresh $datadir/opencode.db\$" "$calls" \
-    || fail "the console token was never refreshed in the live database: $(tr '\n' ';' < "$calls")"
-  if grep -q "^refresh $pin\$" "$calls"; then
-    fail "the console token was refreshed inside the pinned database, which revokes the live login"
-  fi
-  pass "a Pi spawn leaves the pinned workspace database holding the live console token"
-}
-
-test_pi_opencode_go_switch_routes_explicit_dispatch_profile() {
-  local rec id out status launch datadir model=opencode-go/muse-spark-1.3-contributor
-  command -v sqlite3 >/dev/null 2>&1 || {
-    pass "Pi explicit-profile routing needs sqlite3 (live spawn proof covers provider setup)"
-    return 0
-  }
-  id=pi-profile-opencode-z38
-  rec=$(make_spawn_case pi-profile-opencode opencode "$id")
-  read_case_record "$rec"
-  printf '%s\n' on > "$HOME_DIR/config/pi-opencode-go"
-  printf '%s\n' "{\"default\":[{\"harness\":\"opencode\",\"model\":\"$model\",\"provider\":\"opencode-go\"}]}" > "$HOME_DIR/config/dispatch-policy.json"
-  printf '%s' "$DUAL_SECOND_ORG_ID" > "$HOME_DIR/config/opencode-second-org"
-  record_rung_cap "$HOME_DIR" plus || fail "record refused Plus cap"
-  datadir=$(make_dual_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") || fail "profile fixture login could not be built"
-  export FM_FAKE_OPENCODE_DATA="$datadir"
-  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
-  status=$?
-  unset FM_FAKE_OPENCODE_DATA
-  expect_code 0 "$status" "the enabled switch must route an explicit OpenCode profile to Pi: $out"
-  assert_grep 'harness=pi' "$HOME_DIR/state/$id.meta" "explicit OpenCode profile was recorded as OpenCode"
-  assert_grep "model=$model" "$HOME_DIR/state/$id.meta" "explicit profile model changed during routing"
-  launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "$FAKEBIN_DIR/pi" "explicit profile did not launch Pi"
-  assert_contains "$launch" "--model '$model'" "explicit profile model did not reach Pi"
-  assert_not_contains "$launch" "opencode --model" "regression: opencode launched while the switch is on for an explicit profile"
-  pass "config/pi-opencode-go routes explicit OpenCode dispatch profiles to Pi without changing the model"
-}
-
-test_pi_opencode_go_switch_routes_exact_project_rule() {
-  local rec id out status launch datadir model=opencode-go/muse-spark-1.3-contributor
-  command -v sqlite3 >/dev/null 2>&1 || {
-    pass "Pi project-rule routing needs sqlite3 (live spawn proof covers provider setup)"
-    return 0
-  }
-  id=pi-project-rule-opencode-z44
-  rec=$(make_spawn_case pi-project-rule-opencode opencode "$id")
-  read_case_record "$rec"
-  printf '%s\n' on > "$HOME_DIR/config/pi-opencode-go"
-  printf '%s\n' "{\"version\":1,\"rules\":[{\"id\":\"project-rule\",\"when\":\"project rule dispatch\",\"trigger\":{\"kind\":\"projects\",\"names\":[\"project\"]},\"use\":{\"harness\":\"opencode\",\"model\":\"$model\",\"provider\":\"opencode-go\"}}],\"default\":{\"harness\":\"codex\",\"model\":\"gpt-5\",\"effort\":\"high\"}}" \
-    > "$HOME_DIR/config/dispatch-policy.json"
-  printf '%s' "$DUAL_SECOND_ORG_ID" > "$HOME_DIR/config/opencode-second-org"
-  record_rung_cap "$HOME_DIR" plus || fail "record refused Plus cap"
-  datadir=$(make_dual_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") || fail "project-rule fixture login could not be built"
-  export FM_FAKE_OPENCODE_DATA="$datadir"
-  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
-  status=$?
-  unset FM_FAKE_OPENCODE_DATA
-  expect_code 0 "$status" "the enabled switch must route an exact project OpenCode rule to Pi: $out"
-  assert_grep 'harness=pi' "$HOME_DIR/state/$id.meta" "exact project rule was recorded as OpenCode"
-  assert_grep "model=$model" "$HOME_DIR/state/$id.meta" "exact project rule model changed during routing"
-  launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "$FAKEBIN_DIR/pi" "exact project rule did not launch Pi"
-  assert_contains "$launch" "--model '$model'" "exact project-rule model did not reach Pi"
-  assert_not_contains "$launch" "opencode --model" "regression: opencode launched while the switch is on for an exact project rule"
-  pass "config/pi-opencode-go routes exact project OpenCode rules to Pi with the selected model"
-}
-
-test_pi_opencode_go_switch_refuses_exhausted_ladder() {
-  local rec id out status datadir model=opencode-go/muse-spark-1.3-contributor
-  command -v sqlite3 >/dev/null 2>&1 || {
-    pass "Pi exhaustion refusal needs sqlite3 (live spawn proof covers provider setup)"
-    return 0
-  }
-  id=pi-fallback-opencode-z39
-  rec=$(make_spawn_case pi-fallback-opencode opencode "$id")
-  read_case_record "$rec"
-  printf '%s\n' on > "$HOME_DIR/config/pi-opencode-go"
-  printf '%s\n' "{\"version\":1,\"rules\":[],\"default\":[{\"harness\":\"codex\",\"model\":\"gpt-6-luna\",\"effort\":\"medium\",\"provider\":\"codex\"},{\"harness\":\"opencode\",\"model\":\"$model\",\"provider\":\"opencode-go\"}],\"default_ladder\":[{\"id\":\"plus\",\"harness\":\"codex\",\"model\":\"gpt-6-luna\",\"effort\":\"medium\",\"provider\":\"codex\"},{\"id\":\"go\",\"harness\":\"opencode\",\"model\":\"$model\",\"provider\":\"opencode-go\"}]}" > "$HOME_DIR/config/dispatch-policy.json"
-  record_rung_cap "$HOME_DIR" plus || fail "record refused Plus cap"
-  record_rung_cap "$HOME_DIR" go || fail "record refused Go cap"
-  datadir=$(make_dual_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") || fail "fallback fixture login could not be built"
-  export FM_FAKE_OPENCODE_DATA="$datadir"
-  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
-  status=$?
-  unset FM_FAKE_OPENCODE_DATA
-  expect_code 1 "$status" "an exhausted ladder must refuse even with the Pi switch on: $out"
-  assert_contains "$out" 'OpenCode default ladder exhausted; no exhausted-ladder fallback is available' \
-    "refusal must explain that exhaustion is terminal"
-  [ ! -s "$LAUNCH_LOG" ] || fail "an exhausted ladder launched despite the refusal"
-  assert_absent "$HOME_DIR/state/$id.meta" "a refused spawn must not publish task metadata"
-  pass "an exhausted OpenCode ladder refuses with the Pi switch on instead of falling back"
-}
-
-test_pi_opencode_go_switch_routes_configured_crew_harness() {
-  local rec id out status launch datadir model=opencode-go/muse-spark-1.3-contributor
-  command -v sqlite3 >/dev/null 2>&1 || {
-    pass "Pi configured-harness routing needs sqlite3 (live spawn proof covers provider setup)"
-    return 0
-  }
-  id=pi-configured-opencode-z40
-  rec=$(make_spawn_case pi-configured-opencode opencode "$id")
-  read_case_record "$rec"
-  printf '%s\n' on > "$HOME_DIR/config/pi-opencode-go"
-  printf '%s\n' opencode > "$HOME_DIR/config/crew-harness"
-  record_rung_cap "$HOME_DIR" plus || fail "record refused Plus cap"
-  datadir=$(make_dual_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") || fail "configured-harness fixture login could not be built"
-  export FM_FAKE_OPENCODE_DATA="$datadir"
-  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
-  status=$?
-  unset FM_FAKE_OPENCODE_DATA
-  expect_code 0 "$status" "the enabled switch must route config/crew-harness=opencode through Pi: $out"
-  assert_grep 'harness=pi' "$HOME_DIR/state/$id.meta" "configured OpenCode harness was recorded as OpenCode"
-  assert_grep "model=$model" "$HOME_DIR/state/$id.meta" "configured-harness ladder model changed during routing"
-  launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "$FAKEBIN_DIR/pi" "configured OpenCode harness did not launch Pi"
-  assert_contains "$launch" "--model '$model'" "configured-harness Go model did not reach Pi"
-  assert_not_contains "$launch" "opencode --model" "regression: opencode launched while the switch is on for config/crew-harness"
-  pass "config/pi-opencode-go routes the configured OpenCode crew harness to Pi on its normal Go rung"
-}
-
-test_pi_opencode_go_switch_routes_explicit_opencode_harness_model() {
-  local rec id out status launch model=opencode/custom-worker-model
-  id=pi-explicit-opencode-z41
-  rec=$(make_spawn_case pi-explicit-opencode opencode "$id")
-  read_case_record "$rec"
-  printf '%s\n' on > "$HOME_DIR/config/pi-opencode-go"
-  mkdir -p "$HOME_DIR/user-home/.pi/agent"
-  printf '%s\n' '{"providers":{"opencode":{"baseUrl":"https://opencode.ai/inference/v1","api":"openai-completions","apiKey":"test-key","models":[{"id":"custom-worker-model","name":"Custom worker model","reasoning":false,"input":["text"],"contextWindow":32768,"maxTokens":4096}]}}}' \
-    > "$HOME_DIR/user-home/.pi/agent/models.json"
-  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --harness opencode --model "$model")
-  status=$?
-  expect_code 0 "$status" "the enabled switch must route an explicit OpenCode harness/model to Pi: $out"
-  assert_grep 'harness=pi' "$HOME_DIR/state/$id.meta" "explicit OpenCode harness was recorded as OpenCode"
-  assert_grep "model=$model" "$HOME_DIR/state/$id.meta" "explicit OpenCode model changed during routing"
-  launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "$FAKEBIN_DIR/pi" "explicit OpenCode harness did not launch Pi"
-  assert_contains "$launch" "--model '$model'" "explicit configured model did not reach Pi"
-  assert_not_contains "$launch" "opencode --model" "regression: opencode launched while the switch is on for an explicit harness argument"
-  pass "config/pi-opencode-go routes an explicit opencode/* model to Pi when Pi defines that model"
-}
-
-test_pi_opencode_go_switch_refuses_model_missing_from_pi_provider_config() {
-  local rec id out status model=opencode-go/not-configured
-  id=pi-unconfigured-model-z42
-  rec=$(make_spawn_case pi-unconfigured-model opencode "$id")
-  read_case_record "$rec"
-  printf '%s\n' on > "$HOME_DIR/config/pi-opencode-go"
-  printf '%s\n' "{\"default\":{\"harness\":\"opencode\",\"model\":\"$model\",\"provider\":\"opencode-go\"}}" \
-    > "$HOME_DIR/config/dispatch-policy.json"
-  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" 2>&1)
-  status=$?
-  expect_code 1 "$status" "a model absent from Pi's provider config must refuse"
-  assert_contains "$out" "does not define model '$model'" "refusal did not name the missing Pi model"
-  assert_not_contains "$out" "spawned $id harness=opencode" "regression: opencode launched while the switch is on for an unsupported model"
-  [ ! -s "$LAUNCH_LOG" ] || fail "unsupported Pi model must not launch either harness"
-  pass "config/pi-opencode-go refuses an OpenCode route whose model Pi does not define"
-}
-
-test_pi_opencode_go_switch_preserves_tmux_relaunch_safety_boundary() {
-  local rec id out status datadir model=opencode-go/muse-spark-1.3-contributor
-  command -v sqlite3 >/dev/null 2>&1 || {
-    pass "Pi relaunch safety test needs sqlite3"
-    return 0
-  }
-  id=pi-recorded-opencode-z43
-  rec=$(make_spawn_case pi-recorded-opencode opencode "$id")
-  read_case_record "$rec"
-  printf '%s\n' on > "$HOME_DIR/config/pi-opencode-go"
-  datadir=$(make_dual_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") || fail "relaunch fixture login could not be built"
-  cat > "$HOME_DIR/state/$id.meta" <<META
-harness=opencode
-kind=ship
-project=$PROJ_DIR
-worktree=$WT_DIR
-branch=fm/$id
-model=$model
-mode=no-mistakes
-yolo=off
-window=fakesess:fm-$id
-META
-  export FM_FAKE_OPENCODE_DATA="$datadir"
-  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" --relaunch 2>&1)
-  status=$?
-  unset FM_FAKE_OPENCODE_DATA
-  expect_code 1 "$status" "tmux relaunch must refuse when absence cannot be proven: $out"
-  assert_contains "$out" "tmux absence cannot be proven" "refusal did not explain the endpoint proof boundary"
-  assert_grep 'harness=opencode' "$HOME_DIR/state/$id.meta" "refused relaunch changed the recorded harness"
-  [ ! -s "$LAUNCH_LOG" ] || fail "unproven tmux endpoint must not launch another agent"
-  pass "config/pi-opencode-go preserves the tmux relaunch refusal when endpoint absence is unproven"
-}
-
-test_pi_opencode_go_config_refuses_malformed_values() {
-  local rec id out status
-  id=pi-go-invalid-z37
-  rec=$(make_spawn_case pi-go-invalid opencode "$id")
-  read_case_record "$rec"
-  printf '%s\n' 'maybe' > "$HOME_DIR/config/pi-opencode-go"
-  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" 2>&1)
-  status=$?
-  expect_code 1 "$status" "malformed Pi OpenCode switch should refuse"
-  assert_contains "$out" "must hold exactly one line, 'on' or 'off'" "malformed switch refusal was not clear"
-  [ ! -e "$HOME_DIR/state/$id.meta" ] || fail "malformed switch left task metadata"
-  pass "a malformed Pi OpenCode Go switch refuses before task creation"
-}
-
-test_opencode_main_launch_refuses_when_pin_unprovable() {
-  local rec id out status
-  command -v sqlite3 >/dev/null 2>&1 || {
-    pass "main-workspace refusal needs sqlite3 (absent here; live proof covers the real path)"
-    return 0
-  }
-  id=profile-main-refuses-z34
-  rec=$(make_spawn_case profile-main-refuses opencode "$id")
-  read_case_record "$rec"
-  printf '%s' "$DUAL_SECOND_ORG_ID" > "$HOME_DIR/config/opencode-second-org"
-  record_rung_cap "$HOME_DIR" plus || fail "record refused Plus cap"
-  datadir=$(make_mainless_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") \
-    || fail "the fixture login could not be built"
-
-  export FM_FAKE_OPENCODE_DATA="$datadir"
-  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
-  status=$?
-  unset FM_FAKE_OPENCODE_DATA
-  expect_code 1 "$status" "a main launch with no provable pin must be refused: $out"
-  assert_contains "$out" "refusing" "the refusal must say it refuses rather than launching unpinned"
-  [ ! -s "$LAUNCH_LOG" ] || fail "a refused spawn must launch nothing"
-  pass "a main launch that cannot prove its pin is refused rather than run unpinned"
-}
-
-# make_nologin_workspace_fixture <case-dir> <fakebin>: a host with no console
-# login (the kimi-klaw shape): `console orgs` fails and `debug paths` points
-# at a datadir with no login database, so no workspace pin is provable while
-# a free-tier launch needs nothing from either.
 make_nologin_workspace_fixture() {  # <case-dir> <fakebin>
   local dir=$1 fakebin=$2 datadir
   datadir="$dir/opencode-data"
@@ -3061,34 +2651,6 @@ test_opencode_unpinned_launch_seeds_task_database_from_live_account() {
   pass "the unpinned OpenCode launch seeds a private per-task database with the console account"
 }
 
-test_opencode_go_launch_builds_workspace_pins() {
-  local rec id out status launch datadir
-  command -v sqlite3 >/dev/null 2>&1 || {
-    pass "workspace pin proof needs sqlite3 (absent here)"
-    return 0
-  }
-  id=profile-go-mainorg-z36
-  rec=$(make_spawn_case profile-go-mainorg opencode "$id")
-  read_case_record "$rec"
-  printf '%s' "$DUAL_SECOND_ORG_ID" > "$HOME_DIR/config/opencode-second-org"
-  printf '%s' "$DUAL_MAIN_ORG_ID" > "$HOME_DIR/config/opencode-main-org"
-  record_rung_cap "$HOME_DIR" plus || fail "record refused Plus cap"
-  datadir=$(make_dual_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") \
-    || fail "the fixture login could not be built"
-
-  export FM_FAKE_OPENCODE_DATA="$datadir"
-  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
-  status=$?
-  unset FM_FAKE_OPENCODE_DATA
-  expect_code 0 "$status" "a Go launch with a console login must succeed: $out"
-  assert_grep 'model=opencode-go/muse-spark-1.3-contributor' "$HOME_DIR/state/$id.meta" "the Go model was not recorded"
-  [ -f "$HOME_DIR/config/opencode-main.db" ] \
-    || fail "a Go launch must build its main pin database"
-  pass "a Go launch builds its workspace pins from the console login"
-}
-
-# The shared-server experiment (bin/fm-opencode-server.sh). The fake server
-# is a real process, so each case stops what it started.
 stop_case_servers() {  # <home>
   local record pid
   for record in "$1"/state/opencode-server-main "$1"/state/opencode-server-secondary "$1"/state/opencode-server-default; do
@@ -3178,43 +2740,6 @@ test_opencode_shared_server_session_failure_falls_back_to_standalone() {
   pass "a shared server that cannot open a session falls back to the standalone launch and drops its lease"
 }
 
-test_opencode_shared_servers_keep_each_workspace_on_its_own_database() {
-  local rec id_second id_main out status datadir
-  command -v sqlite3 >/dev/null 2>&1 || {
-    pass "shared-server workspace pins need sqlite3 (absent here; the live guard covers the real path)"
-    return 0
-  }
-  id_second=profile-shared-second-z42
-  id_main=profile-shared-main-z43
-  rec=$(make_spawn_case profile-shared-workspaces opencode "$id_second" "$id_main")
-  read_case_record "$rec"
-  printf 'on\n' > "$HOME_DIR/config/opencode-shared-server"
-  printf '%s' "$DUAL_SECOND_ORG_ID" > "$HOME_DIR/config/opencode-second-org"
-  datadir=$(make_dual_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") \
-    || fail "the fixture login could not be built"
-  fm_test_fake_opencode_server "$FAKEBIN_DIR" "$CASE_DIR/fake-server"
-  record_rung_cap "$HOME_DIR" plus || fail "record refused Plus cap"
-
-  export FM_FAKE_OPENCODE_DATA="$datadir"
-  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id_main" "$PROJ_DIR")
-  status=$?
-  expect_code 0 "$status" "a main-workspace attached spawn should succeed: $out"
-  record_rung_cap "$HOME_DIR" go || fail "record refused Go cap"
-  git -C "$PROJ_DIR" worktree add --quiet -b wt2-shared "$CASE_DIR/wt2" || fail "second worktree could not be created"
-  out=$(run_ship_spawn "$HOME_DIR" "$CASE_DIR/wt2" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id_second" "$PROJ_DIR")
-  status=$?
-  unset FM_FAKE_OPENCODE_DATA
-  expect_code 0 "$status" "a second-workspace attached spawn should succeed: $out"
-  assert_grep 'opencode_server=main' "$HOME_DIR/state/$id_main.meta" "the main task did not ride the main server"
-  assert_grep 'opencode_server=secondary' "$HOME_DIR/state/$id_second.meta" "the second task did not ride the second server"
-  [ "$(server_db_org "$HOME_DIR" main)" = "$DUAL_MAIN_ORG_ID" ] \
-    || { stop_case_servers "$HOME_DIR"; fail "the main server does not run on the main workspace database"; }
-  [ "$(server_db_org "$HOME_DIR" secondary)" = "$DUAL_SECOND_ORG_ID" ] \
-    || { stop_case_servers "$HOME_DIR"; fail "the second server does not run on the second workspace database"; }
-  stop_case_servers "$HOME_DIR"
-  pass "main and second workspace workers each attach to a server on their own workspace database"
-}
-
 test_opencode_workspace_flag_refuses_fresh_spawn() {
   local rec id out status
   id=profile-workspace-flag-z32
@@ -3224,9 +2749,9 @@ test_opencode_workspace_flag_refuses_fresh_spawn() {
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --opencode-workspace secondary)
   status=$?
   expect_code 1 "$status" "a fresh spawn must not accept an explicit workspace"
-  assert_contains "$out" "--opencode-workspace applies only to --relaunch" "the refusal must name the relaunch-only rule"
+  assert_contains "$out" "--opencode-workspace applies only to --relaunch" "the refusal must name the relaunch-only transport"
   [ ! -s "$LAUNCH_LOG" ] || fail "a refused spawn must launch nothing"
-  pass "a fresh spawn refuses an explicit workspace and routes through the ladder"
+  pass "a fresh spawn refuses the relaunch-only workspace transport and follows the selected policy route"
 }
 
 test_memory_pressure_defers_fresh_spawn_and_nice_is_applied() {
@@ -3260,26 +2785,10 @@ test_launch_brief_text_is_absent_from_recorded_argv
 test_memory_pressure_defers_fresh_spawn_and_nice_is_applied
 test_worker_launch_delivers_role_scope
 test_no_profile_keeps_claude_profile_defaults
-test_opencode_second_workspace_pins_launch
-test_opencode_main_workspace_launch_uses_task_db_without_second
-test_opencode_main_workspace_pins_launch_when_second_configured
-test_pi_opencode_go_routes_main_and_secondary_ladder_rungs
-test_pi_go_spawn_refreshes_the_pinned_database_from_the_live_login
-test_pi_opencode_go_switch_routes_explicit_dispatch_profile
-test_pi_opencode_go_switch_routes_exact_project_rule
-test_pi_opencode_go_switch_refuses_exhausted_ladder
-test_pi_opencode_go_switch_routes_configured_crew_harness
-test_pi_opencode_go_switch_routes_explicit_opencode_harness_model
-test_pi_opencode_go_switch_refuses_model_missing_from_pi_provider_config
-test_pi_opencode_go_switch_preserves_tmux_relaunch_safety_boundary
-test_pi_opencode_go_config_refuses_malformed_values
-test_opencode_main_launch_refuses_when_pin_unprovable
 test_opencode_shared_server_attaches_worker_to_its_own_session
 test_opencode_shared_server_falls_back_to_standalone
 test_opencode_shared_server_session_failure_falls_back_to_standalone
-test_opencode_shared_servers_keep_each_workspace_on_its_own_database
 test_opencode_unpinned_launch_seeds_task_database_from_live_account
-test_opencode_go_launch_builds_workspace_pins
 test_opencode_workspace_flag_refuses_fresh_spawn
 test_non_cursor_launch_clears_inherited_cursor_markers
 test_relative_home_overrides_launch_with_absolute_cross_process_paths
@@ -3289,7 +2798,7 @@ test_unresolvable_relative_overrides_fail_loudly
 test_active_dispatch_profile_resolves_default_for_ship
 test_active_dispatch_profile_resolves_default_for_scout
 test_unified_dispatch_enforces_and_records_captain_approval
-test_unified_rung_harness_beats_global_pi_switch_and_explicit_harness_selects_its_rung
+test_policy_rung_harness_is_preserved_and_explicit_harness_selects_its_rung
 test_symlinked_project_routes_by_registered_name
 test_off_rule_profile_requires_captain_override_reason
 test_matching_explicit_profile_needs_no_override

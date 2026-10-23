@@ -2554,8 +2554,14 @@ SH
   expect_code 0 "$rc" "a workspace move should relaunch"$'\n'"$out"
   [ "$(meta_field "$dir" wq1 opencode_workspace)" = secondary ] \
     || fail "the move must be written to the durable record"
-  assert_grep "OPENCODE_DB='$dir/home/config/opencode-second.db'" "$dir/fake/literal" \
-    "the replacement launch must carry the pinned database"
+  # Launches ride the task's private copy of the proven pin, never the
+  # shared pin itself (a refresh inside a shared copy would rotate the
+  # console token server-side and revoke the live login), so the move is
+  # proven by the copy's path plus the workspace it was verified against.
+  assert_grep "OPENCODE_DB='\\''$dir/home/state/wq1.opencode.db" "$dir/fake/literal" \
+    "the replacement launch must carry the task's private workspace copy"
+  [ "$(sqlite3 "$dir/home/state/wq1.opencode.db" 'SELECT active_org_id FROM account_state WHERE id=1;')" = org_01FIXTURESECONDARY00 ] \
+    || fail "the replacement copy must be pinned to the second workspace"
   unset FM_FAKE_OPENCODE_DATA
 
   export FM_FAKE_OPENCODE_DATA="$datadir"
@@ -2575,8 +2581,10 @@ SH
   unset FM_FAKE_OPENCODE_DATA
   [ "$(meta_field "$dir" wq1 opencode_workspace)" = "" ] \
     || fail "moving back to main must clear the marker"
-  assert_grep "OPENCODE_DB='$dir/home/config/opencode-main.db'" "$dir/fake/literal" \
-    "the main-workspace replacement must carry the main pinned database, never the machine-wide active workspace"
+  assert_grep "OPENCODE_DB='\\''$dir/home/state/wq1.opencode.db" "$dir/fake/literal" \
+    "the main-workspace replacement must carry the task's private copy, never the machine-wide active workspace"
+  [ "$(sqlite3 "$dir/home/state/wq1.opencode.db" 'SELECT active_org_id FROM account_state WHERE id=1;')" = org_01FIXTUREMAIN00000 ] \
+    || fail "the replacement copy must be pinned back to the main workspace"
   pass "fm-control relaunch: --opencode-workspace moves the pin and its absence preserves it"
 }
 

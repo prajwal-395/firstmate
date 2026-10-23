@@ -943,8 +943,6 @@ The refusal names the variable; remove that assignment from the raw command, or 
 
 Before any worker endpoint, local copy, or task record exists, and before a relaunch stops the running worker, Firstmate asks the runner itself whether the pinned account is signed in: `claude auth status` for Claude, and `pi auth check --provider <provider> --json --no-refresh` for Pi, falling back to `pi --list-models <provider>` for a provider an extension registers.
 The check runs with only `HOME`, `PATH`, `TMPDIR`, `USER`, `LOGNAME`, and the pinned root in its environment, so a credential variable in firstmate's own environment cannot answer for an empty root.
-For a Pi worker routed to OpenCode Go by `config/pi-opencode-go`, the provider uses OpenCode's console database instead of a Pi-stored API credential, so spawn validates the task database's console login and the request-time helper refreshes it before sending a token.
-
 A pinned Claude launch also unsets the environment credentials Claude ranks above a stored login, such as `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, and the Bedrock and Vertex switches ([authentication precedence](https://code.claude.com/docs/en/authentication#authentication-precedence)).
 Pi ranks a root's stored logins above environment variables, so a pinned Pi launch unsets nothing.
 
@@ -1089,7 +1087,7 @@ Account labels use letters, digits, underscores, or hyphens and begin with a let
 `providers[].refusal_patterns` declares provider-specific refusal wording and reset policy.
 `reset` supports `next-utc-day`, `retry-after-iso8601`, `retry-after-iso8601-or-next-utc-day`, or `provider-reset-time-or-quota-axi`; reset timestamps found in refusal text are stored as absolute epochs.
 `bin/fm-dispatch-policy-validate.sh` owns structural validation, while the rest of this section owns the schema.
-Version 1 policies must be migrated with `FM_HOME=<home> bin/fm-migrate-unified-dispatch.sh --force`.
+Every home must use version 2; migrate existing version 1 policies and active task routes with `FM_HOME=<home> bin/fm-migrate-unified-dispatch.sh --force`.
 
 The shipped example expresses the current routes: the three configured free OpenCode models, each across both Go workspaces before the next model, then Codex Luna, then Muse Go with the monthly-reset-soonest workspace strategy.
 Registered Lucie projects use Antigravity Gemini Flash followed by Claude Opus Thinking.
@@ -1138,9 +1136,9 @@ Bootstrap validates the policy and reports malformed configuration before dispat
 Captain-required rungs are eligible only when the dispatch carries an explicit `--captain-route` and `--captain-said` approval.
 Research homes are detected from their local charter and cannot select Anthropic-provider rungs.
 
-`FM_HOME=<home> bin/fm-migrate-unified-dispatch.sh --force` converts a version 1 policy to version 2 while retaining every existing route and rung order.
+`FM_HOME=<home> bin/fm-migrate-unified-dispatch.sh --force` converts a version 1 policy to version 2 while retaining every existing route and rung order, then translates active task metadata into the generic provider/model/account form.
 It preserves that home's model catalog and adds the shipped provider refusal data and mandatory approval constraints.
-Run it independently in each home with a version 1 policy so home-specific routes and catalog status remain intact.
+Run it once in every home before deploying version 2 dispatch so active tasks immediately use generic descent.
 The migration command never edits a home unless that home is explicitly named by `FM_HOME`.
 
 ## Mail plane (.env)
