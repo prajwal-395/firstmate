@@ -1325,7 +1325,10 @@ EOF
 # shared fold rule retires removes one.
 #
 # The cursor format is `version` (FM_OPEN_DECISIONS_FOLD_VERSION plus the task
-# kind, as `<n>:<kind>`), `offset`, `ident`, then the folded open set.
+# kind, as `<n>:<kind>`), `offset`, `ident`, the folded open set, then a
+# `--replacements--` marker and the folded replacement set. Keeping both folds
+# in this one atomic cursor makes both presentation surfaces incremental without
+# introducing a second cache or a split-commit failure window.
 # FM_OPEN_DECISIONS_FOLD_VERSION must be bumped whenever
 # _fm_decision_fold_line semantics change, so persisted state from an older
 # interpretation is discarded and rebuilt from byte 0; the kind suffix does the
@@ -1399,7 +1402,7 @@ _fm_open_decisions_cursor_path() {  # <status-file>
 # 8: that end position opens but never closes - a closing verb (resolved,
 # captain-held) with a trailing token folds as prose under "default", so a
 # summary merely quoting a key can no longer close a live decision.
-FM_OPEN_DECISIONS_FOLD_VERSION=9
+FM_OPEN_DECISIONS_FOLD_VERSION=10
 
 # Portable device:inode identity for the rotation/recreation check below.
 _fm_open_decisions_file_ident() {  # <file> -> strongest available identity
@@ -1472,8 +1475,11 @@ _fm_status_read_span() {  # <status-file> <start-offset> <byte-length>
 }
 
 status_open_decisions_incremental() {  # <status-file> [<captured-end-offset>]
-  local f=$1 captured_end=${2:-} cf offset ident open='' trusted_open='' cursor_data first rest offset_line ident_line
+  local f=$1 captured_end=${2:-} cf offset ident open='' trusted_open='' replacements='' trusted_replacements='' cursor_data first rest offset_line ident_line body
   local version='' size actual_size cur_ident resolve held chunk_file chunk_size line cursor_dirty=0
+  local verb key note old
+  FM_OPEN_DECISION_REPLACEMENTS=
+  FM_OPEN_DECISION_OFFSET=0
   local target_cursor kind fold_version
   [ -f "$f" ] && [ -r "$f" ] && [ ! -L "$f" ] || return 0
   kind=$(_fm_status_kind "$f")
@@ -1509,7 +1515,28 @@ status_open_decisions_incremental() {  # <status-file> [<captured-end-offset>]
                       case "$rest" in
                         *$'\n'*) open=${rest#*$'\n'} ;;
                       esac
-                      if [ -n "$version" ] && [ -n "$ident" ]; then trusted_open=$open; fi
+                      if [ -n "$version" ] && [ -n "$ident" ]; then
+                        body=$open
+                        case "$body" in
+                          *$'\n--replacements--\n'*)
+                            open=${body%%$'\n--replacements--\n'*}
+                            replacements=${body#*$'\n--replacements--\n'}
+                            trusted_open=$open
+                            trusted_replacements=$replacements
+                            ;;
+                          *$'\n--replacements--')
+                            open=${body%%$'\n--replacements--'}
+                            replacements=''
+                            trusted_open=$open
+                            trusted_replacements=''
+                            ;;
+                          *) open=''; replacements=''; version='' ;;
+                        esac
+                        if [ "$version" = "$fold_version" ] && [ -n "$ident" ]; then
+                          trusted_open=$open
+                          trusted_replacements=$replacements
+                        fi
+                      fi
                       ;;
                     *) offset=0; version='' ;;
                   esac
@@ -1525,17 +1552,17 @@ status_open_decisions_incremental() {  # <status-file> [<captured-end-offset>]
   # A stat/size-read failure is a genuine I/O error, not "the file is empty" -
   # report the already-trusted persisted set unchanged rather than risking a
   # silent invalidation that would wipe it.
-  cur_ident=$(_fm_open_decisions_file_ident "$f") || { printf '%s' "$trusted_open"; return 0; }
-  [ -n "$cur_ident" ] || { printf '%s' "$trusted_open"; return 0; }
+  cur_ident=$(_fm_open_decisions_file_ident "$f") || { FM_OPEN_DECISION_REPLACEMENTS=$trusted_replacements; FM_OPEN_DECISION_OFFSET=$offset; printf '%s' "$trusted_open"; return 0; }
+  [ -n "$cur_ident" ] || { FM_OPEN_DECISION_REPLACEMENTS=$trusted_replacements; FM_OPEN_DECISION_OFFSET=$offset; printf '%s' "$trusted_open"; return 0; }
   actual_size=$(_fm_status_file_size "$f") \
-    || { printf '%s' "$trusted_open"; return 0; }
+    || { FM_OPEN_DECISION_REPLACEMENTS=$trusted_replacements; FM_OPEN_DECISION_OFFSET=$offset; printf '%s' "$trusted_open"; return 0; }
   actual_size=${actual_size//[[:space:]]/}
-  case "$actual_size" in ''|*[!0-9]*) printf '%s' "$trusted_open"; return 0 ;; esac
+  case "$actual_size" in ''|*[!0-9]*) FM_OPEN_DECISION_REPLACEMENTS=$trusted_replacements; FM_OPEN_DECISION_OFFSET=$offset; printf '%s' "$trusted_open"; return 0 ;; esac
   if [ -n "$captured_end" ]; then
     case "$captured_end" in
-      ''|*[!0-9]*) printf '%s' "$trusted_open"; return 0 ;;
+      ''|*[!0-9]*) FM_OPEN_DECISION_REPLACEMENTS=$trusted_replacements; FM_OPEN_DECISION_OFFSET=$offset; printf '%s' "$trusted_open"; return 0 ;;
     esac
-    [ "$captured_end" -le "$actual_size" ] || { printf '%s' "$trusted_open"; return 0; }
+    [ "$captured_end" -le "$actual_size" ] || { FM_OPEN_DECISION_REPLACEMENTS=$trusted_replacements; FM_OPEN_DECISION_OFFSET=$offset; printf '%s' "$trusted_open"; return 0; }
     size=$captured_end
   else
     size=$actual_size
@@ -1544,19 +1571,21 @@ status_open_decisions_incremental() {  # <status-file> [<captured-end-offset>]
   if [ -z "$version" ] || [ -z "$ident" ] || [ "$ident" != "$cur_ident" ] || [ "$offset" -gt "$actual_size" ]; then
     offset=0
     open=''
+    replacements=''
     trusted_open=''
+    trusted_replacements=''
     cursor_dirty=1
   fi
 
   if [ "$offset" -lt "$size" ]; then
     chunk_file="$cf.read.$$"
     _fm_status_read_span "$f" "$offset" "$((size - offset))" > "$chunk_file" 2>/dev/null \
-      || { rm -f "$chunk_file"; printf '%s' "$trusted_open"; return 0; }
+      || { rm -f "$chunk_file"; FM_OPEN_DECISION_REPLACEMENTS=$trusted_replacements; FM_OPEN_DECISION_OFFSET=$offset; printf '%s' "$trusted_open"; return 0; }
     chunk_size=$(LC_ALL=C wc -c < "$chunk_file" 2>/dev/null) \
-      || { rm -f "$chunk_file"; printf '%s' "$trusted_open"; return 0; }
+      || { rm -f "$chunk_file"; FM_OPEN_DECISION_REPLACEMENTS=$trusted_replacements; FM_OPEN_DECISION_OFFSET=$offset; printf '%s' "$trusted_open"; return 0; }
     chunk_size=${chunk_size//[[:space:]]/}
     case "$chunk_size" in
-      ''|*[!0-9]*) rm -f "$chunk_file"; printf '%s' "$trusted_open"; return 0 ;;
+      ''|*[!0-9]*) rm -f "$chunk_file"; FM_OPEN_DECISION_REPLACEMENTS=$trusted_replacements; FM_OPEN_DECISION_OFFSET=$offset; printf '%s' "$trusted_open"; return 0 ;;
     esac
     # Test-only observability seam (off by default, no production behavior
     # change): when set, records exactly how many bytes THIS call folded, so a
@@ -1567,6 +1596,8 @@ status_open_decisions_incremental() {  # <status-file> [<captured-end-offset>]
     resolve=${FM_CLASSIFY_RESOLVE_VERB:-$FM_CLASSIFY_RESOLVE_VERB_DEFAULT}
     held=${FM_CLASSIFY_CAPTAIN_HELD_VERB:-$FM_CLASSIFY_CAPTAIN_HELD_VERB_DEFAULT}
     while IFS= read -r line || [ -n "$line" ]; do
+      replacements=$(_fm_decision_replacements_fold_line \
+        "$open" "$replacements" "$line" "$resolve" "$held")
       open=$(_fm_decision_fold_line "$open" "$line" "$resolve" "$held" "$kind")
     done < <(_fm_decision_candidate_lines < "$chunk_file")
     rm -f "$chunk_file"
@@ -1579,10 +1610,14 @@ status_open_decisions_incremental() {  # <status-file> [<captured-end-offset>]
       printf 'version=%s\n' "$fold_version"
       printf 'offset=%s\n' "$offset"
       printf 'ident=%s\n' "$cur_ident"
-      if [ -n "$open" ]; then printf '%s' "$open"; fi
+      printf '%s\n' "$open"
+      printf '%s\n' '--replacements--'
+      if [ -n "$replacements" ]; then printf '%s' "$replacements"; fi
     } > "$target_cursor" || return 1
     mv -f "$target_cursor" "$cf" || return 1
   fi
+  FM_OPEN_DECISION_REPLACEMENTS=$replacements
+  FM_OPEN_DECISION_OFFSET=$offset
   printf '%s' "$open"
 }
 
@@ -2110,10 +2145,9 @@ EOF
 # full history. Output is one TAB-separated
 # "<key>\t<survivor-verb>\t<discarded-note>\t<survivor-note>" line per
 # still-open replaced key, latest replacement wins; prints nothing when no open
-# key replaced another. Pure reads, no cursor state: the drain's snapshot
-# variant bounds its read to the captured endpoint for presentation consistency,
-# while the fleet-wide cost stays one bounded span per task with an open
-# decision rather than a second cursor to persist, version, and migrate.
+# key replaced another. The replacement set is stored beside the open set in
+# the existing atomic per-task cursor. Snapshot scans fold only through their
+# captured endpoint, so both presentation sections share one history boundary.
 
 # The note stored for <key> in a folded open set (empty when it has no record).
 _fm_open_set_note() {  # <open-set> <key>
@@ -2133,13 +2167,39 @@ EOF
   return 0
 }
 
-# Fold a status stream from stdin into its silenced replacements (see the block
-# contract above). The single replay every file and snapshot scanner below
-# shares, so open/replacement semantics can never drift between them.
+# Fold one eligible status event into the current replacement set, using the
+# current open set to detect a differing replacement before the open fold moves.
+_fm_decision_replacements_fold_line() {  # <open-set> <replacement-set> <line> <resolve> <held>
+  local open=$1 repl=$2 line=$3 resolve=$4 held=$5 verb key note old
+  status_line_verb "$line" verb
+  key=$(_fm_decision_key "$line") || { printf '%s' "$repl"; return 0; }
+  note=$(status_line_note "$line")
+  _fm_decision_key_transition_allowed "$key" "$note" || { printf '%s' "$repl"; return 0; }
+  case "$verb" in
+    needs-decision|blocked)
+      if _fm_open_set_has "$open" "$key"; then
+        old=$(_fm_open_set_note "$open" "$key")
+        if [ "$old" != "$note" ]; then
+          repl=$(_fm_decision_drop "$repl" "$key")
+          [ -n "$repl" ] && repl="${repl}"$'\n'
+          repl="${repl}${key}"$'\t'"${verb}"$'\t'"${old}"$'\t'"${note}"
+        fi
+      fi
+      ;;
+    "$resolve"|"$held")
+      repl=$(_fm_decision_drop "$repl" "$key")
+      ;;
+  esac
+  printf '%s' "$repl"
+}
+
+# Fold a full status stream from stdin into its silenced replacements (see the
+# block contract above). The replacement transition helper is also used by the
+# cursor-backed drain path, so both scanners share the same replacement rule.
 # The optional kind argument feeds the shared fold rule, whose done:/failed:
 # closings are kind-qualified; callers derive it from the task's own file.
 _fm_decision_replacements_stream() {  # [<kind>]
-  local line verb key note old resolve held open='' repl='' kind=${1:-}
+  local line resolve held open='' repl='' kind=${1:-}
   resolve=${FM_CLASSIFY_RESOLVE_VERB:-$FM_CLASSIFY_RESOLVE_VERB_DEFAULT}
   held=${FM_CLASSIFY_CAPTAIN_HELD_VERB:-$FM_CLASSIFY_CAPTAIN_HELD_VERB_DEFAULT}
   while IFS= read -r line || [ -n "$line" ]; do
@@ -2147,26 +2207,8 @@ _fm_decision_replacements_stream() {  # [<kind>]
       *[![:space:]]*) ;;
       *) continue ;;
     esac
-    verb=$(status_line_verb "$line")
-    key=$(_fm_decision_key "$line") || continue
-    note=$(status_line_note "$line")
-    _fm_decision_key_transition_allowed "$key" "$note" || continue
-    case "$verb" in
-      needs-decision|blocked)
-        if _fm_open_set_has "$open" "$key"; then
-          old=$(_fm_open_set_note "$open" "$key")
-          if [ "$old" != "$note" ]; then
-            repl=$(_fm_decision_drop "$repl" "$key")
-            [ -n "$repl" ] && repl="${repl}"$'\n'
-            repl="${repl}${key}"$'\t'"${verb}"$'\t'"${old}"$'\t'"${note}"
-          fi
-        fi
-        ;;
-      "$resolve"|"$held")
-        repl=$(_fm_decision_drop "$repl" "$key")
-        [ -n "$repl" ] && repl="${repl}"$'\n'
-        ;;
-    esac
+    repl=$(_fm_decision_replacements_fold_line \
+      "$open" "$repl" "$line" "$resolve" "$held")
     open=$(_fm_decision_fold_line "$open" "$line" "$resolve" "$held" "$kind")
   done
   printf '%s' "$repl"
@@ -2205,26 +2247,19 @@ EOF
   return 0
 }
 
-# Snapshot-bounded sibling of scan_decision_replacements: the same per-key
-# replay and output shape, but each task's stream is the bounded span from byte
-# 0 through its captured snapshot endpoint rather than the live file, so the
-# announcement agrees with the OPEN DECISIONS section drawn from that same
-# snapshot even when a worker appends mid-presentation. A task whose span
-# cannot be read is skipped: its replacement waits for the next drain rather
-# than blocking this one's presentation.
+# Snapshot-bounded sibling of scan_decision_replacements: it uses the shared
+# open-decision cursor and returns the replacement fold at each captured endpoint.
+# A task whose new span cannot be read is skipped until the next drain.
 scan_decision_replacements_snapshot() {  # <state> <task-and-endpoint-snapshot>
-  local state=$1 snapshot=$2 task endpoint ident f tmp repl line kind
+  local state=$1 snapshot=$2 task endpoint ident f repl line
   while IFS=$(printf '\t') read -r task endpoint ident; do
     [ -n "$task" ] || continue
     f="$state/$task.status"
     [ -f "$f" ] && [ -r "$f" ] && [ ! -L "$f" ] || continue
     case "$endpoint" in ''|*[!0-9]*) continue ;; esac
-    tmp="$f.repl.$$"
-    _fm_status_read_span "$f" 0 "$endpoint" > "$tmp" 2>/dev/null \
-      || { rm -f "$tmp"; continue; }
-    kind=$(_fm_status_kind "$f")
-    repl=$(_fm_decision_candidate_lines < "$tmp" | _fm_decision_replacements_stream "$kind")
-    rm -f "$tmp"
+    status_open_decisions_incremental "$f" "$endpoint" >/dev/null || continue
+    [ "$FM_OPEN_DECISION_OFFSET" = "$endpoint" ] || continue
+    repl=$FM_OPEN_DECISION_REPLACEMENTS
     [ -n "$repl" ] || continue
     while IFS= read -r line; do
       [ -n "$line" ] || continue
