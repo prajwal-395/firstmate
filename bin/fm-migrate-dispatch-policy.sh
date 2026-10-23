@@ -73,7 +73,10 @@ jq '
     default: (.default // null),
     default_ladder: (
       if has("default") then
-        [(plus_filling | select(. != null) | . + {id: "plus"}),
+        [ {id:"deepseek",harness:"opencode",model:"opencode/deepseek-v4.1-flash-free",provider:"opencode"},
+          {id:"glm",harness:"opencode",model:"opencode/glm-5.3-flash-free",provider:"opencode"},
+          {id:"mimo",harness:"opencode",model:"opencode/mimo-v2.6-flash-free",provider:"opencode"},
+         (plus_filling | select(. != null) | . + {id: "plus"}),
          (go_filling | select(. != null) | . + {id: "go"})]
       else [] end
     )
@@ -86,7 +89,7 @@ jq '
 # A policy whose default names no Codex Plus or Go filling cannot declare the
 # ladder: refuse rather than emit a policy the gates cannot enforce.
 if jq -e 'has("default")' "$SRC" >/dev/null 2>&1; then
-  jq -e '(.default_ladder // [] | map(.id) | sort) == ["go","plus"]' "$WORK/policy.json" >/dev/null 2>&1 || {
+  jq -e '(.default_ladder // [] | map(.id) | sort) == ["deepseek","glm","go","mimo","plus"]' "$WORK/policy.json" >/dev/null 2>&1 || {
     echo "error: $SRC default names no Codex Plus or Go filling for default_ladder; add one before migrating" >&2
     exit 1
   }

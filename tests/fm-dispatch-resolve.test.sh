@@ -43,6 +43,9 @@ write_policy() {
     {"harness":"opencode","model":"opencode-go/muse-spark-1.3-contributor","provider":"opencode-go"}
   ],
   "default_ladder":[
+    {"id":"deepseek","harness":"opencode","model":"opencode/deepseek-v4.1-flash-free","provider":"opencode"},
+    {"id":"glm","harness":"opencode","model":"opencode/glm-5.3-flash-free","provider":"opencode"},
+    {"id":"mimo","harness":"opencode","model":"opencode/mimo-v2.6-flash-free","provider":"opencode"},
     {"id":"plus","harness":"codex","model":"gpt-6-luna","effort":"medium","provider":"codex"},
     {"id":"go","harness":"opencode","model":"opencode-go/muse-spark-1.3-contributor","provider":"opencode-go"}
   ]
@@ -100,7 +103,7 @@ assert_contains "$out" 'declares no declaration trigger' "the refusal states the
 pass "declaring against a policy with no declaration trigger fails closed"
 
 cat > "$HOME_DIR/config/model-catalog.json" <<'JSON'
-{"models":[{"id":"opencode-go/muse-spark-1.3-contributor","status":"active"},{"id":"gpt-6-luna","status":"active"},{"id":"retired-model","status":"retired","replaced_by":"replacement-model"}]}
+{"models":[{"id":"opencode/deepseek-v4.1-flash-free","status":"active"},{"id":"opencode/glm-5.3-flash-free","status":"active"},{"id":"opencode/mimo-v2.6-flash-free","status":"active"},{"id":"opencode-go/muse-spark-1.3-contributor","status":"active"},{"id":"gpt-6-luna","status":"active"},{"id":"retired-model","status":"retired","replaced_by":"replacement-model"}]}
 JSON
 jq '.default[0].model="retired-model"' "$HOME_DIR/config/dispatch-policy.json" > "$TMP_ROOT/retired.json"
 cp "$TMP_ROOT/retired.json" "$HOME_DIR/config/dispatch-policy.json"

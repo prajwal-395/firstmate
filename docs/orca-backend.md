@@ -13,7 +13,7 @@ Prerequisites:
 
 - `/Applications/Orca.app` installed, running, and ready.
 - The `orca` CLI, installed with `brew install orca`.
-- The universal harness and toolchain requirements in [`configuration.md`](configuration.md#toolchain).
+- The universal harness and toolchain requirements in [`configuration.md`](configuration.md).
 
 Select Orca with local `config/backend` containing `orca`, `FM_BACKEND=orca` for one launch, or an explicit request to Firstmate.
 It is never auto-detected.

@@ -177,9 +177,9 @@ rules_err=$(jq -r --argjson verified_harnesses "$VERIFIED_HARNESSES" --argjson s
   elif has("default") and duplicate_profiles(profiles(.default)) then "default must not contain duplicate harness, model, and effort profiles"
   elif has("default") and any(profiles(.default)[]; (verified(.harness) | not) and ($static_harness_default != 1)) then "each default profile must name a verified harness"
   elif has("default") and any(profiles(.default)[]; (effort_ok(.harness; .model; .effort) | not)) then "each default profile effort must be supported by its harness and model"
-  elif has("default_ladder") and ((.default_ladder | type) != "array" or (.default_ladder | length) != 2) then "default_ladder must declare exactly the plus and go rungs"
-  elif has("default_ladder") and any(.default_ladder[]; (.id != "plus" and .id != "go") or profile_bad(.)) then "default_ladder rungs need unique plus/go ids and valid profiles"
-  elif has("default_ladder") and ([.default_ladder[].id] | unique | sort) != ["go","plus"] then "default_ladder must declare plus and go exactly once"
+  elif has("default_ladder") and ((.default_ladder | type) != "array" or ((.default_ladder | length) != 2 and (.default_ladder | length) != 5)) then "default_ladder must declare plus and go, with optional deepseek, glm, and mimo rungs"
+  elif has("default_ladder") and any(.default_ladder[]; (.id != "deepseek" and .id != "glm" and .id != "mimo" and .id != "plus" and .id != "go") or profile_bad(.)) then "default_ladder rungs need unique free-model/plus/go ids and valid profiles"
+  elif has("default_ladder") and (([.default_ladder[].id] | unique | sort) != ["go","plus"] and ([.default_ladder[].id] | unique | sort) != ["deepseek","glm","go","mimo","plus"]) then "default_ladder must declare plus and go, with each free-model rung either all present or all absent"
   elif has("default_ladder") and any(.default_ladder[]; (verified(.harness) | not) or (effort_ok(.harness; .model; .effort) | not)) then "default_ladder rungs must use verified harnesses and supported effort"
   elif has("exhausted_ladder_fallback") then "exhausted_ladder_fallback has been retired; remove it"
   else empty end
@@ -383,8 +383,9 @@ RESULT=$(jq -n --argjson lat "$LAT_MS" --arg rung "$RUNG" --arg none_criterion "
   end') || emit_error "resolution failed"
 
 # A retired model must be caught before any worker launch. Check every
-# candidate in the selected rule so a retired fallback cannot strand the next
-# lane when the preferred candidate becomes ineligible.
+# concrete candidate in the selected route; the ladder gate checks its
+# configured rung before selecting it, so one retired free rung cannot strand
+# otherwise eligible models.
 fm_model_catalog_check __validate__ "$CONFIG" >/dev/null 2>&1 || emit_error "malformed model catalog"
 while IFS= read -r candidate_model; do
   [ -n "$candidate_model" ] || continue
@@ -392,9 +393,13 @@ while IFS= read -r candidate_model; do
     :
   else
     catalog_status=$?
-    [ "$catalog_status" -eq 1 ] && emit_error "$catalog_message" || emit_error "model catalog validation failed: $catalog_message"
+    if [ "$catalog_status" -eq 1 ]; then
+      emit_error "$catalog_message"
+    else
+      emit_error "model catalog validation failed: $catalog_message"
+    fi
   fi
-done < <(jq -r '(.ladder_models[]? // empty),(.candidates[]?.profile.model // empty)' <<<"$RESULT")
+done < <(jq -r '.candidates[]?.profile.model // empty' <<<"$RESULT")
 
 TEXT=$(jq -r '
   def flat: tostring | gsub("[\t\r\n]"; " ");

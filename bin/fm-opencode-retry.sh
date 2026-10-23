@@ -116,14 +116,17 @@
 #       unreadable text still exits 1. Without the flag this is byte-for-byte
 #       the old sidecar-only contract.
 #
+#   record-free <state-dir> <model> <workspace> <reset-ms|-> <exact-error>
+#       Append one provider exhaustion to state/opencode-free-exhaustions.jsonl
+#       and preserve that model/workspace cap. A missing reset expires at the
+#       next UTC day boundary. The JSONL error is the unmodified provider text.
+#
 #   record-cap <state-dir> <rung> <reset-ms>
 #       Preserve a proven rung cap past the discovering task's own cleanup.
 #       Validates and atomically stores the source reset
 #       timestamp as state/.opencode-cap-<rung> (`v1 next=<ms> ts=<s>`).
 #       <rung> must be one of the ladder's own rung keys
-#       (FM_OPENCODE_LADDER_FREE_RUNG / FM_OPENCODE_LADDER_GO_RUNG /
-#       FM_OPENCODE_LADDER_PLUS_RUNG / FM_OPENCODE_LADDER_GO_SECOND_RUNG in
-#       bin/fm-opencode-ladder-lib.sh, read from that file - never retyped
+#       rung constants in bin/fm-opencode-ladder-lib.sh, read from that file - never retyped
 #       here): anything else is refused (exit 1) with the accepted names
 #       listed, so an unreadable record can never be written silently.
 #       Newer evidence wins (see above); a non-numeric next, or a rung
@@ -208,6 +211,7 @@ usage:
   fm-opencode-retry.sh clear <state-dir> <id>
   fm-opencode-retry.sh check <state-dir> <id> [--text-file <path>]
   fm-opencode-retry.sh record-cap <state-dir> <rung> <next-ms>
+  fm-opencode-retry.sh record-free <state-dir> <model> <workspace> <reset-ms|-> <exact-error>
   fm-opencode-retry.sh clear-cap <state-dir> <rung>
   fm-opencode-retry.sh check-cap <state-dir> <rung>
   fm-opencode-retry.sh verdict-cap <state-dir> <rung>
@@ -260,6 +264,36 @@ scan_stream() {
 }
 
 CMD=${1:-}
+if [ "$CMD" = record-free ]; then
+  FREE_STATE=${2:-}; FREE_MODEL=${3:-}; FREE_WORKSPACE=${4:-}; FREE_RESET=${5:--}; shift 5 || usage
+  [ -n "$FREE_STATE" ] && [ -d "$FREE_STATE" ] && [ -n "$FREE_MODEL" ] && [ -n "$FREE_WORKSPACE" ] && [ "$#" -gt 0 ] || usage
+  case "$FREE_MODEL" in opencode/deepseek-v4.1-flash-free|opencode/glm-5.3-flash-free|opencode/mimo-v2.6-flash-free) ;; *) echo 'error: unrecognized free model' >&2; exit 1 ;; esac
+  case "$FREE_WORKSPACE" in main|secondary) ;; *) echo 'error: workspace must be main or secondary' >&2; exit 1 ;; esac
+  case "$FREE_RESET" in -) FREE_RESET_JSON=null ;; ''|*[!0-9]*) echo 'error: reset must be epoch milliseconds or -' >&2; exit 1 ;; *) FREE_RESET_JSON=$FREE_RESET ;; esac
+  FREE_ERROR=$*
+  [ -n "$FREE_ERROR" ] || usage
+  case "$FREE_MODEL:$FREE_WORKSPACE" in
+    opencode/deepseek-v4.1-flash-free:secondary) FREE_RUNG=deepseek-second ;;
+    opencode/deepseek-v4.1-flash-free:main) FREE_RUNG=deepseek-main ;;
+    opencode/glm-5.3-flash-free:secondary) FREE_RUNG=glm-second ;;
+    opencode/glm-5.3-flash-free:main) FREE_RUNG=glm-main ;;
+    opencode/mimo-v2.6-flash-free:secondary) FREE_RUNG=mimo-second ;;
+    opencode/mimo-v2.6-flash-free:main) FREE_RUNG=mimo-main ;;
+  esac
+  if [ "$FREE_RESET" = - ]; then
+    FREE_NOW=$(date +%s)
+    FREE_RESET=$(( (FREE_NOW / 86400 + 1) * 86400 * 1000 ))
+  fi
+  "${BASH_SOURCE[0]}" record-cap "$FREE_STATE" "$FREE_RUNG" "$FREE_RESET" >/dev/null || exit 1
+  FREE_LOG="$FREE_STATE/opencode-free-exhaustions.jsonl"
+  if [ -L "$FREE_LOG" ] || { [ -e "$FREE_LOG" ] && [ ! -f "$FREE_LOG" ]; }; then
+    echo 'error: refusing non-regular exhaustion log' >&2
+    exit 1
+  fi
+  FREE_ENTRY=$(jq -cn --arg model "$FREE_MODEL" --arg workspace "$FREE_WORKSPACE" --argjson reset "$FREE_RESET_JSON" --arg error "$FREE_ERROR" --argjson at "$(date +%s)" '{model:$model,workspace:$workspace,observed_at:$at,provider_error:$error,reset_at_ms:$reset}') || exit 1
+  (umask 077; printf '%s\n' "$FREE_ENTRY" >> "$FREE_LOG" && chmod 600 "$FREE_LOG") || exit 1
+  exit 0
+fi
 case "$CMD" in
   record|clear|check|verdict|scan-text|record-cap|clear-cap|check-cap|verdict-cap) shift ;;
   *) usage ;;
@@ -291,8 +325,7 @@ if [ "$CMD" = record-cap ] || [ "$CMD" = clear-cap ] || [ "$CMD" = check-cap ] |
   CAP_RUNG=${2:-}
   [ -n "$CAP_STATE" ] && [ -n "$CAP_RUNG" ] || usage
   # The accepted rung names live in exactly ONE place:
-  # FM_OPENCODE_LADDER_FREE_RUNG / FM_OPENCODE_LADDER_GO_RUNG /
-  # FM_OPENCODE_LADDER_PLUS_RUNG / FM_OPENCODE_LADDER_GO_SECOND_RUNG in
+  # rung constants in
   # bin/fm-opencode-ladder-lib.sh. They are read from that file's assignment
   # lines only - the whole library is never sourced here, because sourcing it
   # would pull bin/fm-backend.sh (1211 lines) into this dependency-free
@@ -308,14 +341,16 @@ if [ "$CMD" = record-cap ] || [ "$CMD" = clear-cap ] || [ "$CMD" = check-cap ] |
   _CAP_GO_RUNG=$(sed -n 's/^FM_OPENCODE_LADDER_GO_RUNG=//p' "$_CAP_LADDER_LIB" 2>/dev/null | head -n 1 | tr -d "'\"")
   _CAP_PLUS_RUNG=$(sed -n 's/^FM_OPENCODE_LADDER_PLUS_RUNG=//p' "$_CAP_LADDER_LIB" 2>/dev/null | head -n 1 | tr -d "'\"")
   _CAP_GO_SECOND_RUNG=$(sed -n 's/^FM_OPENCODE_LADDER_GO_SECOND_RUNG=//p' "$_CAP_LADDER_LIB" 2>/dev/null | head -n 1 | tr -d "'\"")
+  _CAP_FREE_RUNGS=$(awk -F= '$1 ~ /^FM_OPENCODE_LADDER_(DEEPSEEK_SECOND|DEEPSEEK_MAIN|GLM_SECOND|GLM_MAIN|MIMO_SECOND|MIMO_MAIN)_RUNG$/ { print $2 }' "$_CAP_LADDER_LIB" 2>/dev/null | tr '\n' ' ' | tr -d "'\"")
   if [ -z "${_CAP_FREE_RUNG:-}" ] || [ -z "${_CAP_GO_RUNG:-}" ] || [ -z "${_CAP_PLUS_RUNG:-}" ] || [ -z "${_CAP_GO_SECOND_RUNG:-}" ]; then
     echo "error: rung catalogue unreadable: free, go, plus, or go-second rung missing from fm-opencode-ladder-lib.sh" >&2
     exit 1
   fi
-  if [ "$CAP_RUNG" != "$_CAP_FREE_RUNG" ] && [ "$CAP_RUNG" != "$_CAP_GO_RUNG" ] && [ "$CAP_RUNG" != "$_CAP_PLUS_RUNG" ] && [ "$CAP_RUNG" != "$_CAP_GO_SECOND_RUNG" ]; then
-    echo "error: invalid rung '$CAP_RUNG': accepted rungs are: $_CAP_FREE_RUNG, $_CAP_GO_RUNG, $_CAP_PLUS_RUNG, $_CAP_GO_SECOND_RUNG" >&2
+  _CAP_ACCEPTED="$_CAP_FREE_RUNG $_CAP_GO_RUNG $_CAP_PLUS_RUNG $_CAP_GO_SECOND_RUNG $_CAP_FREE_RUNGS"
+  case " $_CAP_ACCEPTED " in *" $CAP_RUNG "*) ;; *)
+    echo "error: invalid rung '$CAP_RUNG': accepted rungs are: $_CAP_ACCEPTED" >&2
     exit 1
-  fi
+    ;; esac
   case "$CAP_RUNG" in
     *[!A-Za-z0-9._-]*) echo "error: invalid rung key" >&2; exit 1 ;;
   esac
@@ -477,6 +512,7 @@ if [ "$CMD" = record ]; then
   NEXT_MS=${4:-}
   MODEL=${5:-}
   SESSION=${6:-}
+  PROVIDER_ERROR=${7:-}
   case "$ATTEMPT" in ''|*[!0-9]*) echo "error: invalid attempt: $ATTEMPT" >&2; exit 1 ;; esac
   case "$NEXT_MS" in ''|*[!0-9]*) echo "error: invalid next: $NEXT_MS" >&2; exit 1 ;; esac
   case "$MODEL" in ''|-) MODEL= ;; *) token_valid "$MODEL" || { echo "error: invalid model" >&2; exit 1; } ;; esac
@@ -492,6 +528,24 @@ if [ "$CMD" = record ]; then
   } > "$tmp" || { rm -f "$tmp"; umask "$old_umask"; echo "error: record write failed for $ID" >&2; exit 1; }
   mv -f "$tmp" "$REC" || { rm -f "$tmp"; umask "$old_umask"; echo "error: record write failed for $ID" >&2; exit 1; }
   umask "$old_umask"
+  case "$MODEL" in
+    deepseek-v4.1-flash-free|opencode/deepseek-v4.1-flash-free) FREE_MODEL=opencode/deepseek-v4.1-flash-free ;;
+    glm-5.3-flash-free|opencode/glm-5.3-flash-free) FREE_MODEL=opencode/glm-5.3-flash-free ;;
+    mimo-v2.6-flash-free|opencode/mimo-v2.6-flash-free) FREE_MODEL=opencode/mimo-v2.6-flash-free ;;
+    *) FREE_MODEL= ;;
+  esac
+  if [ -n "$FREE_MODEL" ] && [ -n "$PROVIDER_ERROR" ]; then
+    FREE_ERROR_LOWER=$(printf '%s' "$PROVIDER_ERROR" | tr '[:upper:]' '[:lower:]')
+    case "$FREE_ERROR_LOWER" in
+      *'free usage exceeded'*|*'free quota exceeded'*|*'free usage limit reached'*|*'free tier limit reached'*)
+        FREE_RESET=$(printf '%s\n' "$PROVIDER_ERROR" | grep -Eo '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z' | tail -n 1)
+        FREE_RESET_MS=$(jq -nr --arg value "$FREE_RESET" 'try (($value | fromdateiso8601) * 1000 | floor) catch "-"' 2>/dev/null) || FREE_RESET_MS=-
+        FREE_WORKSPACE=main
+        if [ "$(sed -n 's/^opencode_workspace=//p' "$STATE/$ID.meta" 2>/dev/null | head -n 1)" = secondary ]; then FREE_WORKSPACE=secondary; fi
+        "$0" record-free "$STATE" "$FREE_MODEL" "$FREE_WORKSPACE" "${FREE_RESET_MS:--}" "$PROVIDER_ERROR" >/dev/null 2>&1 || true
+        ;;
+    esac
+  fi
   exit 0
 fi
 
