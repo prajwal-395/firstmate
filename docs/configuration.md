@@ -12,7 +12,6 @@ Start with the directory layout, then use the setting reference for the behavior
 | Worker permissions, accounts, or environment | [Claude permission mode](#claude-permission-mode-configclaude-permission-mode), [worker account pin](#worker-account-pin-configclaude-account-configpi-account), [worker tool exclusions](#worker-tool-exclusions-configcrew-exclude-tools), and [worker launch environment](#worker-launch-environment-configlaunch-env-allowlist) |
 | Backlog, preferences, and memory | [Backlog backend](#backlog-backend-taskstoml--configbacklog-backend), [captain preferences](#captain-preferences-datacaptainmd--datacaptain-sharedmd), and [startup memory budget](#startup-memory-budget-configstartup-memory-budget) |
 | Supervision and presentation | [Pi supervision branch](#pi-supervision-branch), [supervision host](#supervision-host-configsupervision-host), and [Calm preference](#calm-preference-configcalm) |
-| OpenCode Go worker routing | [Pi on OpenCode Go](#pi-on-opencode-go-configpi-opencode-go) |
 | Persistent secondmates | [Secondmate routes](#secondmate-routes-datasecondmatesmd) |
 | Per-run overrides and tuning | [Environment variables](#environment-variables) |
 
@@ -669,7 +668,7 @@ The helper's header owns exact parsing, publication, and report output mechanics
 
 A home can arm a lightweight daily growth monitor with `bin/fm-startup-growth-check.sh arm`.
 It writes `state/startup-growth.check.sh` and binds it through the existing authenticated watcher-check mechanism, so no extra daemon or scheduler is installed.
-Registering it is a reason to watch on the same terms as the [watched-tool check](#watched-tool-updates-configwatched-toolsjson), so an armed home keeps needing a watcher after its last task is torn down.
+Registering it is a reason to watch on the same terms as the [watched-tool check](../bin/fm-tool-update-check.sh), so an armed home keeps needing a watcher after its last task is torn down.
 Use `bin/fm-startup-growth-check.sh disarm` to remove the check and its local report record.
 
 The check evaluates at most once per day and stays silent when nothing meaningful changed.
@@ -1087,8 +1086,11 @@ The unshaped-work rule uses `{"kind":"declaration"}` and no Jev or other model j
 `version` is `1` for this schema.
 Legacy `match`, `projects`, and exhausted-ladder fallback fields are rejected and must be migrated by the operator.
 
-The optional `default_ladder` declares the Codex Plus and Go rung model fillings.
-Its order remains Codex Plus first and OpenCode Go second, with the configured second workspace participating in the same Go tier.
+The optional `default_ladder` declares the DeepSeek Flash Free, GLM Flash Free, MiMo Flash Free, Codex Plus, and OpenCode Go model fillings.
+The free models are tried in that model order, on the secondary workspace before the main workspace, before the Codex Plus and Go rungs.
+The free-pool reset records and exact provider refusals are retained in `state/opencode-free-exhaustions.jsonl` for the home that observed them.
+Each JSONL row records the model, workspace, observation epoch, exact provider error, and reset epoch in milliseconds when the error supplies an ISO-8601 reset.
+Without a provider reset, the cap expires at the next UTC day boundary.
 The Go workspace pick remains monthly-reset-soonest, yielding when its shorter cap is active.
 Quota rows continue to veto exhausted, known-zero, or below-floor profiles, while unknown evidence stays eligible and disclosed.
 The agy ladder remains ordered by `agy_ladder`, and the Claude Opus 4.6 reserve remains 25 percent.
@@ -1108,6 +1110,7 @@ A selected policy route that names a retired ID is refused before launch and nam
 Models absent from the catalog remain uncatalogued and do not gain quota or availability assumptions.
 Refresh once from the main home with `FM_HOME=<main-home> bin/fm-model-catalog-refresh.sh` after reviewing the main home's OpenCode and Codex accounts.
 The refresh reads `opencode models` and `codex debug models`, marks previously listed IDs that disappeared as retired, and preserves recorded replacements.
+The three free model IDs are seeded by dispatch-policy migration and remain cataloged as OpenCode models when listed by `opencode models`.
 The primary propagates `config/model-catalog.json` to secondmate homes with the ordinary inheritance flow.
 Do not run the refresh in a secondmate home.
 See [`docs/examples/dispatch-policy.json`](examples/dispatch-policy.json) and [`docs/examples/model-catalog.json`](examples/model-catalog.json) for examples.
@@ -1127,6 +1130,7 @@ A malformed or unreadable policy remains an actionable configuration error.
 Bootstrap validates the policy and reports malformed configuration before dispatch.
 
 Operators migrating a private home must move `config/crew-dispatch.json` to `config/dispatch-policy.json`, add `version: 1`, give each rule an `id` and explicit `trigger`, move the OpenCode rung models into `default_ladder`, remove Jev and exhausted-fallback fields, and create `config/model-catalog.json` with `bin/fm-model-catalog-refresh.sh`.
+After upgrading, run `FM_HOME=<home> bin/fm-migrate-dispatch-policy.sh --force` only when the current policy was generated by the migration tool and may be regenerated; hand-edited policies should add the three free profiles and rung entries manually.
 `FM_HOME=<home> bin/fm-migrate-dispatch-policy.sh` performs that move mechanically: it writes both files from the legacy policy without deleting it, refuses rather than clobbering a hand edit unless `--force` is given, and merges the catalog without un-retiring a model.
 No script edits a home's live configuration during this migration.
 

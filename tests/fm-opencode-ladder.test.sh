@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Behavior tests for bin/fm-opencode-ladder-lib.sh - the Codex Plus-then-Go ladder.
+# Behavior tests for bin/fm-opencode-ladder-lib.sh - the free-model, Codex Plus, and Go ladder.
 #
-# The dispatch rule: spend Codex Plus
+# Legacy two-rung fixtures retain the Codex Plus
 # (gpt-6-luna at the configured Codex profile effort, or xhigh by default)
 # first, then the paid Go tier
 # (opencode-go/muse-spark-1.3-contributor, on Pi). New spawns climb back when
 # the preceding tier becomes available again.
 #
-# The retired free rung (opencode-go/minimax-m3.1-flash-free, deprecated by
-# OpenCode on 2026-10-22) is governed no more and names no rung.
+# Migrated policies additionally declare DeepSeek, GLM, and MiMo free models;
+# the dedicated regression below proves model-first workspace exhaustion.
 #
 # Codex Plus and Go use fresh exhausted readings (runway exhausted_now, then a
 # known zero reading); Go also accepts reactive vendor-cap evidence.
@@ -83,6 +83,7 @@ SPAWN="$ROOT/bin/fm-spawn.sh"
 # spawn cases below build their own homes per launch.
 FAKEHOME="$TMP_ROOT/fakehome"
 mkdir -p "$FAKEHOME/config"
+rm -f "$FAKEHOME/config/dispatch-policy.json" "$FAKEHOME/config/model-catalog.json" "$FAKEHOME/config/opencode-second-org"
 FM_HOME="$FAKEHOME"
 export FM_HOME
 unset FM_CONFIG_OVERRIDE
@@ -676,6 +677,35 @@ test_spawn_refuses_exhausted_default_ladder_without_fallback() {
     "refusal must explain that exhaustion is terminal"
   assert_absent "$home/state/task-no-fallback.meta" "refusal must not publish task metadata"
   pass "an exhausted default OpenCode ladder refuses when no fallback is declared"
+}
+
+test_free_models_drain_by_model_then_workspace() {
+  local state out
+  cat > "$FM_HOME/config/dispatch-policy.json" <<'JSON'
+{"default_ladder":[{"id":"deepseek","model":"opencode/deepseek-v4.1-flash-free"},{"id":"glm","model":"opencode/glm-5.3-flash-free"},{"id":"mimo","model":"opencode/mimo-v2.6-flash-free"},{"id":"plus","model":"gpt-6-luna"},{"id":"go","model":"opencode-go/muse-spark-1.3-contributor"}]}
+JSON
+  cat > "$FM_HOME/config/model-catalog.json" <<'JSON'
+{"models":[{"id":"opencode/deepseek-v4.1-flash-free","status":"active"},{"id":"opencode/glm-5.3-flash-free","status":"active"},{"id":"opencode/mimo-v2.6-flash-free","status":"active"}]}
+JSON
+  printf '%s\n' org_secondary_1234567890 > "$FM_HOME/config/opencode-second-org"
+  state=$(fresh_state free-pairs)
+  write_lane_meta "$state" deepseek-launch opencode/deepseek-v4.1-flash-free
+  printf 'opencode_workspace=secondary\n' >> "$state/deepseek-launch.meta"
+  printf 'Provider refusal: Free usage exceeded for DeepSeek; resets at 2099-01-01T00:00:00Z\n' > "$FM_PANE_FIXTURES/pane-deepseek-launch.txt"
+  out=$(run_gate "$state" '') || fail "free-model gate refused an open candidate"
+  split_gate "$out"
+  [ "$GOT" = opencode/deepseek-v4.1-flash-free ] || fail "highest free model should lead, got $GOT"
+  # The provider refusal from the already-running secondary worker is found
+  # from its pane before the next selection, keeping the main pool available.
+  [ "$(fm_opencode_ladder_free_workspace "$state" "$GOT")" = main ] || fail "a secondary refusal should leave the main pool available"
+  printf 'harness=opencode\nmodel=opencode/deepseek-v4.1-flash-free\n' > "$state/deepseek-main.meta"
+  "$HELPER" record "$state" deepseek-main 3 "$(ms_from_now 72000)" deepseek-v4.1-flash-free ses_main 'Free usage exceeded for DeepSeek' || fail "main DeepSeek refusal was not recorded"
+  out=$(run_gate "$state" '') || fail "next free model was not selected"
+  split_gate "$out"
+  [ "$GOT" = opencode/glm-5.3-flash-free ] || fail "GLM should follow only after both DeepSeek pools cap, got $GOT"
+  jq -se 'length == 2 and all(.[]; .model == "opencode/deepseek-v4.1-flash-free" and (.provider_error | contains("Free usage exceeded"))) and .[0].reset_at_ms != null and .[1].reset_at_ms == null' "$state/opencode-free-exhaustions.jsonl" >/dev/null || fail "free exhaustion log omitted exact observations or provider reset"
+  rm -f "$FM_HOME/config/dispatch-policy.json" "$FM_HOME/config/model-catalog.json" "$FM_HOME/config/opencode-second-org"
+  pass "free-model ordering exhausts both workspaces before descending and records provider errors"
 }
 
 test_explicit_dispatch_override_keeps_its_profile() {
@@ -1285,7 +1315,9 @@ test_bills_go_names_only_the_go_tier() {
   fm_opencode_model_bills_go "default" \
     && fail "the default model must bill no Go workspace"
   fm_opencode_model_requires_console_login "$GO" \
-    && fail "the retired free-model login gate must stay silent for the Go model"
+    && fail "the free-model login gate must stay silent for the paid Go model"
+  fm_opencode_model_requires_console_login "$FM_OPENCODE_LADDER_DEEPSEEK" \
+    || fail "a free OpenCode model must require its console login"
   pass "only the Go tier bills a Go workspace, in either id form"
 }
 
@@ -1504,6 +1536,7 @@ test_spawn_uses_configured_codex_plus_effort
 test_codex_dispatch_branch_uses_configured_max_effort
 test_spawn_refuses_policy_declaring_the_retired_fallback
 test_spawn_refuses_exhausted_default_ladder_without_fallback
+test_free_models_drain_by_model_then_workspace
 test_explicit_dispatch_override_keeps_its_profile
 test_spawn_routes_to_go_when_plus_is_capped
 test_spawn_defaults_to_plus

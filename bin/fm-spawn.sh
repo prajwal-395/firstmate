@@ -3017,9 +3017,12 @@ if [ "$HARNESS" = opencode ]; then
     else
       OPENCODE_WORKSPACE=$RELAUNCH_PRIOR_WORKSPACE
     fi
-  elif [ "$MODEL" = "$FM_OPENCODE_LADDER_GO" ] \
-    && [ "$(fm_opencode_ladder_pick_go_workspace "$STATE" 2>/dev/null)" = "$FM_OPENCODE_WORKSPACE_SECOND" ]; then
-    OPENCODE_WORKSPACE=secondary
+  elif fm_opencode_model_workspace_scoped "$MODEL" 2>/dev/null; then
+    if [ "$MODEL" = "$FM_OPENCODE_LADDER_GO" ]; then
+      [ "$(fm_opencode_ladder_pick_go_workspace "$STATE" 2>/dev/null)" != "$FM_OPENCODE_WORKSPACE_SECOND" ] || OPENCODE_WORKSPACE=secondary
+    else
+      [ "$(fm_opencode_ladder_free_workspace "$STATE" "$MODEL" 2>/dev/null)" != "$FM_OPENCODE_WORKSPACE_SECOND" ] || OPENCODE_WORKSPACE=secondary
+    fi
   fi
 fi
 if [ "$PI_OPENCODE_GO" -eq 1 ]; then
@@ -3087,7 +3090,7 @@ fi
 if [ "$OPENCODE_WORKSPACE" = secondary ]; then
   OPENCODE_SECOND_ORG=$(fm_opencode_workspace_org "$OPENCODE_WORKSPACE") || exit 1
 elif { [ "$HARNESS" = opencode ] || [ "$PI_OPENCODE_GO" -eq 1 ]; } \
-  && fm_opencode_model_bills_go "$MODEL" 2>/dev/null \
+  && fm_opencode_model_workspace_scoped "$MODEL" 2>/dev/null \
   && fm_opencode_second_configured 2>/dev/null; then
   OPENCODE_MAIN_ORG=$(fm_opencode_main_org_ensure "$(fm_opencode_second_config_dir)") || exit 1
 fi
@@ -5744,6 +5747,7 @@ const recordRetry = (status, sessionID) =>
     execFile("$FM_ROOT/bin/fm-opencode-retry.sh", [
       "record", "$STATE_REAL", "$ID",
       String(attempt), String(next), lastModel || "-", sessionID || "-",
+      (status && typeof status.message === "string") ? status.message : "",
     ], () => resolve());
   }));
 const clearRetry = () =>
@@ -6688,7 +6692,7 @@ elif [ "$HARNESS" = opencode ] && [ -n "$OPENCODE_MAIN_DB" ]; then
 elif [ "$HARNESS" = opencode ] && [ -n "$OPENCODE_TASK_DB" ]; then
   LAUNCH="OPENCODE_DB=$(shell_quote "$OPENCODE_TASK_DB") $LAUNCH"
 elif [ "$HARNESS" = opencode ] && [ "$OPENCODE_WORKSPACE" = main ] \
-  && fm_opencode_model_bills_go "$MODEL" 2>/dev/null && fm_opencode_second_configured 2>/dev/null; then
+  && fm_opencode_model_workspace_scoped "$MODEL" 2>/dev/null && fm_opencode_second_configured 2>/dev/null; then
   echo "error: task $ID is on the main OpenCode workspace but its pinned database is missing; refusing to launch unpinned" >&2
   exit 1
 fi

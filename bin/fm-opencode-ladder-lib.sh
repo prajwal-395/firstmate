@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
-# fm-opencode-ladder-lib.sh - the opencode Go-then-Codex Plus ladder.
+# fm-opencode-ladder-lib.sh - the opencode free-model, Codex Plus, and Go ladder.
 # Usage: . bin/fm-opencode-ladder-lib.sh
 # Sourced by bin/fm-spawn.sh. Sourcing has no side effects beyond the rung
 # constants below.
 #
-# THE POLICY. The standing rule for opencode dispatch is Codex Plus
+# THE POLICY. The standing rule for opencode dispatch is DeepSeek Flash Free,
+# GLM Flash Free, MiMo Flash Free, Codex Plus
 # (gpt-6-luna at the configured Codex profile effort, falling back to
-# xhigh) first, then the paid Go tier
+# xhigh), then the paid Go tier
 # (muse-spark-1.3-contributor, on Pi, at the configured workspace pin).
-# Work runs on Codex Plus first; new spawns fall
-# through only when the preceding rung is exhausted. Order is exhaustion,
+# Work runs on DeepSeek first, then GLM, MiMo, Codex Plus, and the paid Go
+# tier; new spawns fall through only when the preceding free model is exhausted
+# on both workspaces. Order is exhaustion,
 # not load balancing. The Go tier has one member per configured workspace:
 # the main workspace always, plus the second workspace named in
 # config/opencode-second-org when one is configured
@@ -80,9 +82,11 @@
 # act at the command line. No kill-switch bypass exists: nothing launches
 # past the gate without the captain's recorded words.
 
-# The governed OpenCode model and Codex Plus model. The retired free rung
-# (opencode-go/minimax-m3.1-flash-free, deprecated by OpenCode on 2026-10-22)
-# is intentionally absent: no rung names it.
+# The free models and governed paid OpenCode and Codex Plus models.
+# The former OpenCode Go Minimax free rung remains retired and is not listed.
+FM_OPENCODE_LADDER_DEEPSEEK='opencode/deepseek-v4.1-flash-free'
+FM_OPENCODE_LADDER_GLM='opencode/glm-5.3-flash-free'
+FM_OPENCODE_LADDER_MIMO='opencode/mimo-v2.6-flash-free'
 FM_OPENCODE_LADDER_GO='opencode-go/muse-spark-1.3-contributor'
 FM_OPENCODE_LADDER_PLUS_MODEL='gpt-6-luna'
 
@@ -137,6 +141,12 @@ FM_OPENCODE_LADDER_PLUS_RUNG='plus'
 # reads this line as part of the accepted set - that static read is the use.
 # shellcheck disable=SC2034
 FM_OPENCODE_LADDER_GO_SECOND_RUNG='go-second'
+FM_OPENCODE_LADDER_DEEPSEEK_SECOND_RUNG='deepseek-second'
+FM_OPENCODE_LADDER_DEEPSEEK_MAIN_RUNG='deepseek-main'
+FM_OPENCODE_LADDER_GLM_SECOND_RUNG='glm-second'
+FM_OPENCODE_LADDER_GLM_MAIN_RUNG='glm-main'
+FM_OPENCODE_LADDER_MIMO_SECOND_RUNG='mimo-second'
+FM_OPENCODE_LADDER_MIMO_MAIN_RUNG='mimo-main'
 
 # quota-axi availability is deliberately strict: a fresh exhausted reading
 # (runway exhausted_now first, then a fresh known zero reading, mirroring the
@@ -581,20 +591,97 @@ fm_opencode_model_bills_go() {  # <model>
   [ -n "$bare" ] && [ "$bare" = "$go_bare" ]
 }
 
-# fm_opencode_model_requires_console_login <model>: retired with the free
-# Minimax rung on 2026-10-22. The free model needed console sign-in without
-# billing Go; every governed model now bills Go and carries its login through
-# the workspace pin instead. Kept as a predicate so callers need no branch:
-# it answers 1 for every model.
+fm_opencode_model_workspace_scoped() {  # <model>
+  fm_opencode_model_bills_go "$1" && return 0
+  case "${1:-}" in
+    "$FM_OPENCODE_LADDER_DEEPSEEK"|"$FM_OPENCODE_LADDER_GLM"|"$FM_OPENCODE_LADDER_MIMO") return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# fm_opencode_model_requires_console_login <model>: true for free OpenCode
+# models, which use the console login while remaining outside the paid Go tier.
 fm_opencode_model_requires_console_login() {  # <model>
+  case "${1:-}" in
+    "$FM_OPENCODE_LADDER_DEEPSEEK"|"$FM_OPENCODE_LADDER_GLM"|"$FM_OPENCODE_LADDER_MIMO") return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# fm_opencode_ladder_free_capped: 0 when every configured model/workspace free
+# pool is capped; absent secondary workspace candidates are excluded.
+fm_opencode_ladder_free_capped() {  # <state-dir>
+  local state_dir=$1 second
+  for second in "$FM_OPENCODE_LADDER_DEEPSEEK_SECOND_RUNG:$FM_OPENCODE_LADDER_DEEPSEEK_MAIN_RUNG" \
+    "$FM_OPENCODE_LADDER_GLM_SECOND_RUNG:$FM_OPENCODE_LADDER_GLM_MAIN_RUNG" \
+    "$FM_OPENCODE_LADDER_MIMO_SECOND_RUNG:$FM_OPENCODE_LADDER_MIMO_MAIN_RUNG"; do
+    if fm_opencode_second_configured; then
+      "$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" "${second%%:*}" 2>/dev/null | grep -q 'status=blocked' || return 1
+    fi
+    "$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" "${second#*:}" 2>/dev/null | grep -q 'status=blocked' || return 1
+  done
+  return 0
+}
+
+# Free models consume one workspace at a time, in model priority order and
+# secondary-before-main order. A missing secondary workspace removes only its
+# candidate; each reset is retained in the home-local rung record.
+fm_opencode_ladder_free_workspace() {  # <state-dir> <model>
+  local state_dir=$1 model=$2 second_rung main_rung
+  case "$model" in
+    "$FM_OPENCODE_LADDER_DEEPSEEK") second_rung=$FM_OPENCODE_LADDER_DEEPSEEK_SECOND_RUNG; main_rung=$FM_OPENCODE_LADDER_DEEPSEEK_MAIN_RUNG ;;
+    "$FM_OPENCODE_LADDER_GLM") second_rung=$FM_OPENCODE_LADDER_GLM_SECOND_RUNG; main_rung=$FM_OPENCODE_LADDER_GLM_MAIN_RUNG ;;
+    "$FM_OPENCODE_LADDER_MIMO") second_rung=$FM_OPENCODE_LADDER_MIMO_SECOND_RUNG; main_rung=$FM_OPENCODE_LADDER_MIMO_MAIN_RUNG ;;
+    *) return 1 ;;
+  esac
+  if fm_opencode_second_configured \
+    && ! "$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" "$second_rung" >/dev/null 2>&1; then
+    printf '%s\n' secondary; return 0
+  fi
+  if ! "$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" "$main_rung" >/dev/null 2>&1; then
+    printf '%s\n' main; return 0
+  fi
   return 1
 }
 
-# fm_opencode_ladder_free_capped: retired with the free rung on 2026-10-22.
-# The free tier no longer exists, so no evidence can prove it exhausted.
-# Kept as a predicate so out-of-tree callers fail closed: it always answers 1.
-fm_opencode_ladder_free_capped() {  # <state-dir>
-  return 1
+fm_opencode_ladder_free_enabled() {  # <model>
+  local model=$1 config_dir=${FM_CONFIG_OVERRIDE:-} config_file catalog_file
+  [ -n "$config_dir" ] || config_dir="${FM_HOME:-.}/config"
+  config_file="$config_dir/dispatch-policy.json"
+  catalog_file="$config_dir/model-catalog.json"
+  jq -e --arg model "$model" 'any((.default_ladder // [])[]?; .model == $model)' "$config_file" >/dev/null 2>&1 || return 1
+  [ -f "$catalog_file" ] || return 1
+  jq -e --arg model "$model" 'any(.models[]?; .id == $model and .status == "active")' "$catalog_file" >/dev/null 2>&1
+}
+
+fm_opencode_ladder_free_capture_caps() {  # <state-dir>
+  local state_dir=$1 meta id model workspace capture error reset_iso reset_ms rung
+  [ -d "$state_dir" ] || return 0
+  for meta in "$state_dir"/*.meta; do
+    [ -f "$meta" ] || continue
+    id=${meta##*/}; id=${id%.meta}
+    case "$id" in ''|*[!A-Za-z0-9._-]*) continue ;; esac
+    model=$(fm_meta_get "$meta" model 2>/dev/null) || continue
+    case "$model" in "$FM_OPENCODE_LADDER_DEEPSEEK"|"$FM_OPENCODE_LADDER_GLM"|"$FM_OPENCODE_LADDER_MIMO") ;; *) continue ;; esac
+    workspace=$(fm_opencode_lane_workspace "$state_dir" "$id" 2>/dev/null) || workspace=main
+    case "$model:$workspace" in
+      "$FM_OPENCODE_LADDER_DEEPSEEK:secondary") rung=$FM_OPENCODE_LADDER_DEEPSEEK_SECOND_RUNG ;;
+      "$FM_OPENCODE_LADDER_DEEPSEEK:main") rung=$FM_OPENCODE_LADDER_DEEPSEEK_MAIN_RUNG ;;
+      "$FM_OPENCODE_LADDER_GLM:secondary") rung=$FM_OPENCODE_LADDER_GLM_SECOND_RUNG ;;
+      "$FM_OPENCODE_LADDER_GLM:main") rung=$FM_OPENCODE_LADDER_GLM_MAIN_RUNG ;;
+      "$FM_OPENCODE_LADDER_MIMO:secondary") rung=$FM_OPENCODE_LADDER_MIMO_SECOND_RUNG ;;
+      "$FM_OPENCODE_LADDER_MIMO:main") rung=$FM_OPENCODE_LADDER_MIMO_MAIN_RUNG ;;
+    esac
+    if "$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" "$rung" >/dev/null 2>&1; then continue; fi
+    capture=$(fm_opencode_ladder_pane_file "$state_dir" "$id" 2>/dev/null) || continue
+    error=$(grep -Ei 'free usage exceeded|free quota exceeded|free usage limit reached|free tier limit reached' "$capture" 2>/dev/null | tail -n 1) || error=
+    if [ -n "$error" ]; then
+      reset_iso=$(printf '%s\n' "$error" | grep -Eo '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z' | tail -n 1)
+      reset_ms=$(jq -nr --arg value "$reset_iso" 'try (($value | fromdateiso8601) * 1000 | floor) catch "-"' 2>/dev/null) || reset_ms=-
+      "$_FM_OPENCODE_LADDER_RETRY" record-free "$state_dir" "$model" "$workspace" "${reset_ms:--}" "$error" >/dev/null 2>&1 || true
+    fi
+    rm -f "$capture"
+  done
 }
 
 # fm_opencode_ladder_model: the model id a launch with <requested> should run.
@@ -604,7 +691,7 @@ fm_opencode_ladder_free_capped() {  # <state-dir>
 # every ladder rung is proven capped; callers refuse, naming every reset.
 # Other refusals return 1.
 fm_opencode_ladder_model() {  # <requested> <state-dir>
-  local requested=${1:-} state_dir=${2:-} explicit=1
+  local requested=${1:-} state_dir=${2:-} explicit=1 free_model free_workspace
   local plus_capped=0 go_capped=0 second_ready=0
   fm_opencode_ladder_policy_load
   # The entire declared ladder is checked before launch, so a retired rung is
@@ -616,6 +703,12 @@ fm_opencode_ladder_model() {  # <requested> <state-dir>
   if [ -z "$requested" ] || [ "$requested" = default ]; then
     requested=$FM_OPENCODE_LADDER_PLUS_MODEL
     explicit=0
+    for free_model in "$FM_OPENCODE_LADDER_DEEPSEEK" "$FM_OPENCODE_LADDER_GLM" "$FM_OPENCODE_LADDER_MIMO"; do
+      if fm_opencode_ladder_free_enabled "$free_model"; then
+        requested=$free_model
+        break
+      fi
+    done
   fi
   if [ -n "${FM_CAPTAIN_OVERRIDE_REASON:-}" ]; then
     printf '%s\n' "$requested"
@@ -624,13 +717,25 @@ fm_opencode_ladder_model() {  # <requested> <state-dir>
     return 0
   fi
   case "$requested" in
-    "$FM_OPENCODE_LADDER_GO"|"$FM_OPENCODE_LADDER_PLUS_MODEL") ;;
+    "$FM_OPENCODE_LADDER_DEEPSEEK"|"$FM_OPENCODE_LADDER_GLM"|"$FM_OPENCODE_LADDER_MIMO"|"$FM_OPENCODE_LADDER_GO"|"$FM_OPENCODE_LADDER_PLUS_MODEL") ;;
     *)
       printf '%s\n' "$requested"
       printf 'notice: opencode ladder not applied: model %s is outside the governed ladder (%s, %s)\n' \
         "$requested" "$FM_OPENCODE_LADDER_PLUS_MODEL" "$FM_OPENCODE_LADDER_GO" >&2
       return 0 ;;
   esac
+  fm_opencode_ladder_free_capture_caps "$state_dir"
+  if [ "$explicit" -eq 0 ] || [ "$requested" = "$FM_OPENCODE_LADDER_DEEPSEEK" ] \
+    || [ "$requested" = "$FM_OPENCODE_LADDER_GLM" ] || [ "$requested" = "$FM_OPENCODE_LADDER_MIMO" ]; then
+    for free_model in "$FM_OPENCODE_LADDER_DEEPSEEK" "$FM_OPENCODE_LADDER_GLM" "$FM_OPENCODE_LADDER_MIMO"; do
+      fm_opencode_ladder_free_enabled "$free_model" || continue
+      free_workspace=$(fm_opencode_ladder_free_workspace "$state_dir" "$free_model" 2>/dev/null) || free_workspace=
+      if [ -n "$free_workspace" ]; then
+        printf '%s\n' "$free_model"
+        return 0
+      fi
+    done
+  fi
   fm_opencode_ladder_quota_caps "$state_dir"
   if [ "$explicit" -eq 1 ] && [ "$requested" = "$FM_OPENCODE_LADDER_GO" ]; then
     # An explicit Go request always stands, even past a proven cap: the
