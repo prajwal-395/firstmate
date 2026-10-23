@@ -15,6 +15,19 @@ assert_equals 1 "$("$TOOL" check "$TMP_ROOT/state" new-provider vendor/model-x a
 assert_equals 1 "$("$TOOL" check "$TMP_ROOT/state" other-provider vendor/model-x acct-west >/dev/null 2>&1; echo $?)" "a different provider must remain available"
 pass "exhaustion is keyed by provider, model, and configured account value"
 
+# A local secondmate resolves the same machine-local quota pool through its
+# durable parent binding, so records created in either home are visible in both.
+mkdir -p "$TMP_ROOT/shared-parent/state" "$TMP_ROOT/shared-mate/state"
+printf 'schema=fm-secondmate-parent.v1\nroute=local\nparent_home=%s\n' "$TMP_ROOT/shared-parent" \
+  > "$TMP_ROOT/shared-mate/.fm-secondmate-parent"
+FM_HOME="$TMP_ROOT/shared-mate" "$TOOL" record "$TMP_ROOT/shared-mate/state" new-provider vendor/shared-model shared-account "$reset_ms" mate
+out=$(FM_HOME="$TMP_ROOT/shared-parent" "$TOOL" check "$TMP_ROOT/shared-parent/state" new-provider vendor/shared-model shared-account)
+assert_contains "$out" "reset_ms=$reset_ms" "the parent sees a refusal written by its local secondmate"
+FM_HOME="$TMP_ROOT/shared-parent" "$TOOL" record "$TMP_ROOT/shared-parent/state" new-provider vendor/parent-model shared-account "$reset_ms" parent
+out=$(FM_HOME="$TMP_ROOT/shared-mate" "$TOOL" check "$TMP_ROOT/shared-mate/state" new-provider vendor/parent-model shared-account)
+assert_contains "$out" "reset_ms=$reset_ms" "the local secondmate sees a refusal written by its parent"
+pass "local secondmate and parent homes share provider refusal records through the parent binding"
+
 "$TOOL" record "$TMP_ROOT/state" opencode deepseek-v4.1-flash-free secondary "$reset_ms" provider-refusal
 out=$("$TOOL" check "$TMP_ROOT/state" opencode opencode/deepseek-v4.1-flash-free secondary)
 assert_contains "$out" "reset_ms=$reset_ms" "the metadata model id finds a refusal recorded with OpenCode's bare model id"

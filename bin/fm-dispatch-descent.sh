@@ -45,6 +45,7 @@ for meta in "$STATE"/*.meta; do
   model=$(sed -n 's/^model=//p' "$meta" | tail -n 1)
   harness=$(sed -n 's/^harness=//p' "$meta" | tail -n 1)
   workspace=$(sed -n 's/^opencode_workspace=//p' "$meta" | tail -n 1)
+  [ -n "$workspace" ] || workspace=$(sed -n 's/^dispatch_route_workspace=//p' "$meta" | tail -n 1)
   if [ -z "$workspace" ]; then
     workspace=$(jq -r --arg model "$model" '
       ([.default_ladder[]?, .rules[]?.ladder[]? | select(.model == $model)] | first) as $r

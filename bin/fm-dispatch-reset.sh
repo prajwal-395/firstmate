@@ -9,6 +9,19 @@ shift 2 2>/dev/null || { echo 'usage: fm-dispatch-reset.sh <record|observe|obser
 [ -n "$cmd" ] && [ -n "$state_dir" ] || { echo 'usage: fm-dispatch-reset.sh <record|observe|observe-file|clear|check|prune|sync-quota> <state-dir> ...' >&2; exit 2; }
 command -v jq >/dev/null 2>&1 || { echo 'error: jq required' >&2; exit 2; }
 mkdir -p "$state_dir" || exit 1
+# Local secondmate homes share quota exhaustion with their parent. Resolve the
+# durable parent binding rather than trusting an inherited environment value.
+home=${FM_HOME:-$(cd "$(dirname "$state_dir")" && pwd)}
+if [ "$(cd "$state_dir" 2>/dev/null && pwd -P)" = "$(cd "$home/state" 2>/dev/null && pwd -P)" ] \
+  && [ -f "$home/.fm-secondmate-parent" ] && [ ! -L "$home/.fm-secondmate-parent" ]; then
+  # shellcheck source=bin/fm-secondmate-parent-lib.sh
+  . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fm-secondmate-parent-lib.sh"
+  if fm_secondmate_parent_record_parse "$home/.fm-secondmate-parent" \
+    && [ "$FM_SECONDMATE_PARENT_ROUTE" = local ]; then
+    state_dir="$FM_SECONDMATE_PARENT_HOME/state"
+  fi
+fi
+mkdir -p "$state_dir" || exit 1
 file="$state_dir/dispatch-exhaustions.jsonl"
 lock="$state_dir/.dispatch-exhaustions.lock"
 key_ok() { [[ ${1:-} =~ ^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,254}$ ]]; }

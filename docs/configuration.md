@@ -1097,6 +1097,7 @@ The policy requires captain approval for Anthropic worker routes and denies Anth
 
 `bin/fm-dispatch-reset.sh` owns the generic exhaustion store at `state/dispatch-exhaustions.jsonl`.
 Each record is keyed by provider, model, and account/workspace and expires at its own reset timestamp.
+Local secondmate homes resolve this store through their durable parent binding, so quota refusals for a shared account/workspace are visible to every home on the machine.
 The typed resolver joins this state with quota-axi evidence and selects the first eligible rung, preserving the policy order.
 The complete candidate evidence and the chosen route explanation are recorded in task metadata.
 There is no exhausted-ladder fallback.
