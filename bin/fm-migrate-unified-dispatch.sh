@@ -22,6 +22,13 @@ for arg in "$@"; do
   esac
 done
 command -v jq >/dev/null 2>&1 || { echo 'error: jq is required' >&2; exit 1; }
+# The single-provider family table is the one owner of the harness default
+# a v1 profile without a provider resolves to; a rung whose harness names no
+# single family keeps no provider and fails the v2 schema with its name.
+# shellcheck source=bin/fm-quota-axi-lib.sh
+. "$SCRIPT_DIR/fm-quota-axi-lib.sh"
+PROVIDER_MAP=$(fm_quota_single_provider_table | jq -Rn '[inputs | split(" ") | select(length == 2) | {(.[0]): .[1]}] | add // {}') \
+  || { echo 'error: could not read the single-provider family table' >&2; exit 1; }
 [ -f "$POLICY" ] && [ ! -L "$POLICY" ] || { echo "error: no regular policy at $POLICY" >&2; exit 1; }
 jq -e 'type == "object" and (.version == 1 or .version == 2)' "$POLICY" >/dev/null 2>&1 \
   || { echo "error: expected a version 1 or 2 policy at $POLICY" >&2; exit 1; }
@@ -42,20 +49,28 @@ SOURCE_VERSION=$(jq -r '.version' "$tmp/source.json")
 if [ "$SOURCE_VERSION" = 2 ]; then
   cp "$tmp/source.json" "$tmp/policy.json" || exit 1
 else
-jq --slurpfile template "$EXAMPLE" '
+jq --slurpfile template "$EXAMPLE" --argjson pmap "$PROVIDER_MAP" '
   def profiles($v): if ($v | type) == "array" then $v elif ($v | type) == "object" then [$v] else [] end;
-  def rung($i; $prefix): . as $r | $r + {
+  def fill_provider: if (.provider | type) == "string" then . else .provider = ($pmap[.harness] // null) end;
+  def rung($i; $prefix): fill_provider | . as $r | $r + {
     id: ($r.id // "\($prefix)-rung-\($i)"),
     accounts: ($r.accounts // $r.workspaces // []),
     account_strategy: ($r.account_strategy // $r.pick // "ordered")
   } | del(.workspaces, .pick);
   def ladder($v; $prefix): [profiles($v) | to_entries[] | . as $entry | .value | rung($entry.key + 1; $prefix)];
+  def prof_key: {harness, model, effort, provider};
   . as $source
+  | ((if ($source.default | type) == "array" or ($source.default | type) == "object"
+      then [profiles($source.default)[] | fill_provider | prof_key] else null end) as $default_seq
+    | (if ($source.default_ladder | type) == "array"
+      then [$source.default_ladder[] | fill_provider | prof_key] else null end) as $ladder_seq
+    | if $ladder_seq != null and $ladder_seq == $default_seq then $source.default_ladder
+      else ($source.default // $source.default_ladder) end) as $default_src
   | {
       version: 2,
       rules: [($source.rules // []) | to_entries[] | . as $entry | .value
-        | . + {ladder: ladder(.ladder // .use; .id)} | del(.use)],
-      default_ladder: ladder($source.default_ladder // $source.default; "default"),
+        | . + {ladder: ladder(.ladder // .use; .id)} | del(.use, .agy_ladder)],
+      default_ladder: ladder($default_src; "default"),
       constraints: ($source.constraints // []),
       providers: (
         ([$source.providers[]?]
@@ -69,6 +84,9 @@ jq --slurpfile template "$EXAMPLE" '
       {id:"research-no-claude",when:{home_role:"research",provider:"anthropic"},deny:true}
     ]
   | .constraints |= unique_by(.id)
+  | (if ([.default_ladder[]?, .rules[]?.ladder[]? | select((.provider | type) != "string")] | length) > 0
+    then error("v1 rung names no single provider family: " + ([.default_ladder[]?, .rules[]?.ladder[]? | select((.provider | type) != "string") | "\(.harness)/\(.model // "-")"] | unique | join(", ")) + "; declare provider on the v1 profile")
+    else . end)
 ' "$tmp/source.json" > "$tmp/policy.json" || { echo 'error: policy conversion failed' >&2; exit 1; }
 fi
 jq -e '.version == 2 and (.rules | type == "array") and (.default_ladder | type == "array") and all(.default_ladder[]; (.id | type == "string") and (.harness | type == "string") and (.model | type == "string") and (.provider | type == "string"))' "$tmp/policy.json" >/dev/null 2>&1 \
