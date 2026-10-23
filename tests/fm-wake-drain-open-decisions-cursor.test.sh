@@ -408,6 +408,56 @@ test_kind_changes_invalidate_folded_decisions() {
   pass "folded decisions are rebuilt when task-kind evidence changes"
 }
 
+test_replacement_fold_reuses_the_open_decision_history_cursor() {
+  local dir state status out probe reader size i
+  dir=$(make_case replacement-cursor)
+  state="$dir/state"; status="$state/task.status"; out="$dir/drain.out"
+  probe="$dir/span-reads.tsv"; reader="$dir/span-reader"
+  cat > "$reader" <<'EOF'
+#!/usr/bin/env bash
+set -u
+file=$1 start=$2 length=$3
+printf '%s\t%s\t%s\n' "$file" "$start" "$length" >> "$FM_STATUS_SPAN_READ_PROBE"
+perl -MFcntl=:DEFAULT -e '
+  my ($path, $start, $length) = @ARGV;
+  sysopen(my $file, $path, O_RDONLY | O_NOFOLLOW) or exit 1;
+  sysseek($file, $start, 0) == $start or exit 1;
+  while ($length > 0) {
+    my $want = $length > 65536 ? 65536 : $length;
+    my $read = sysread($file, my $chunk, $want);
+    defined($read) && $read > 0 or exit 1;
+    print $chunk or exit 1;
+    $length -= $read;
+  }
+' "$file" "$start" "$length"
+EOF
+  chmod +x "$reader"
+
+  printf 'needs-decision [key=api-shape]: pick REST\n' > "$status"
+  for i in $(seq 1 5200); do
+    printf 'working: routine progress line %04d with enough padding to exceed the bounded latest-event window\n' "$i" >> "$status"
+  done
+  printf 'blocked [key=creds]: waiting on a token\nresolved [key=creds]: token arrived\n' >> "$status"
+  size=$(LC_ALL=C wc -c < "$status" | tr -d '[:space:]')
+  [ "$size" -gt 65536 ] || fail "test setup error: history size $size did not exceed the bounded latest-event window"
+  : > "$probe"
+  bash -c '. "$1"; status_open_decisions_incremental "$2" >/dev/null; status_commit_presentation_snapshot "$3" "$(status_presentation_snapshot "$3")"' \
+    _ "$ROOT/bin/fm-classify-lib.sh" "$status" "$state" \
+    || fail "test setup error: could not seed the existing fold and presentation cursors"
+
+  printf 'needs-decision [key=api-shape]: pick RPC\n' >> "$status"
+  FM_STATE_OVERRIDE="$state" FM_STATUS_SPAN_READER="$reader" \
+    FM_STATUS_SPAN_READ_PROBE="$probe" "$DRAIN" > "$out" \
+    || fail "incremental drain after a replacement failed"
+  assert_contains "$(cat "$out")" 'task [key=api-shape] needs-decision: pick RPC (replaced unread: pick REST)' \
+    "incremental drain lost the replacement announcement"
+  if awk -F '\t' -v status="$status" -v size="$size" \
+    '$1 == status && $2 == 0 && $3 >= size { found=1 } END { exit !found }' "$probe"; then
+    fail "replacement presentation reread the entire $size-byte status history from byte 0"
+  fi
+  pass "replacement presentation reuses the durable cursor over a 5,200-line status history"
+}
+
 test_terminal_supersession_reaches_cached_drains
 test_kind_changes_invalidate_folded_decisions
 test_truncated_log_falls_back_to_a_full_refold_not_a_dropped_decision
@@ -417,3 +467,4 @@ test_cursor_cache_read_failure_refolds_without_replaying_unread_status
 test_pre_fix_cursor_refolds_corr_tagged_decision
 test_previous_fold_cache_is_refolded_under_current_semantics
 test_buried_decision_survives_many_growing_drains_and_resolution_clears_it
+test_replacement_fold_reuses_the_open_decision_history_cursor
