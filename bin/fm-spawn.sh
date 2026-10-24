@@ -758,8 +758,6 @@ CAPTAIN_SAID=
 CAPTAIN_SAID_SET=0
 DECLARE=
 DECLARE_SET=0
-DISPATCH_PROFILE_ACTIVE=0
-DISPATCH_OVERRIDE_APPLIED=0
 DISPATCH_SOURCE=
 DISPATCH_REASON=
 DISPATCH_ROUTE_HARNESS=
@@ -773,7 +771,6 @@ DISPATCH_UNIFIED_RESOLVED=0
 DISPATCH_FALLBACK_SELECTED=
 DISPATCH_META_OVERRIDE_REASON=
 DISPATCH_EXPLANATION=
-unset FM_CAPTAIN_OVERRIDE_REASON
 PI_OPENCODE_SESSION=
 OPENCODE_WORKSPACE_ARG=
 OPENCODE_WORKSPACE_SET=0
@@ -2133,8 +2130,6 @@ dispatch_adopt_captain_route() {
   EFFORT=$CAPTAIN_ROUTE_EFFORT
   [ -z "$MODEL" ] || MODEL_SET=1
   [ -z "$EFFORT" ] || EFFORT_SET=1
-  unset FM_CAPTAIN_OVERRIDE_REASON
-  FM_CAPTAIN_OVERRIDE_REASON=$CAPTAIN_SAID
   return 0
 }
 
@@ -2160,12 +2155,10 @@ dispatch_apply_profile() {
         return 1
       }
       dispatch_adopt_captain_route || return 1
-      DISPATCH_OVERRIDE_APPLIED=1
       DISPATCH_META_OVERRIDE_REASON=$CAPTAIN_SAID
     fi
     return 0
   fi
-  DISPATCH_PROFILE_ACTIVE=1
   command -v jq >/dev/null 2>&1 || { echo "error: jq is required to enforce config/dispatch-policy.json" >&2; return 1; }
   brief_file="$DATA/$ID/brief.md"
   [ -r "$brief_file" ] || { echo "error: dispatch resolution needs the written task brief at $brief_file" >&2; return 1; }
@@ -2263,7 +2256,6 @@ dispatch_apply_profile() {
     return 1
   fi
   if [ "$CAPTAIN_ROUTE_SET" -eq 1 ]; then
-    DISPATCH_OVERRIDE_APPLIED=1
     DISPATCH_META_OVERRIDE_REASON=$CAPTAIN_SAID
   fi
   if [ -z "$ARG3" ]; then
@@ -2781,6 +2773,9 @@ OPENCODE_TASK_DB=
 OPENCODE_SECOND_ORG=
 OPENCODE_MAIN_ORG=
 OPENCODE_ROUTE_ORG=
+PI_OPENCODE_GO=0
+PI_OPENCODE_ORG=
+PI_OPENCODE_SESSION=
 # The shared-server experiment (docs/configuration.md "Shared OpenCode
 # servers"): `on` in config/opencode-shared-server lets an OpenCode worker
 # attach to a firstmate-managed `opencode serve`; absent or `off` keeps the
@@ -2801,7 +2796,11 @@ if [ -f "$CONFIG/opencode-shared-server" ] || [ -L "$CONFIG/opencode-shared-serv
   esac
 fi
 [ "$HARNESS" = opencode ] && [ "$KIND" != secondmate ] || OPENCODE_SHARED_SERVER=0
-if [ "$HARNESS" = opencode ]; then
+if [ "$HARNESS" = pi ] && [ "$KIND" != secondmate ] && [[ "$MODEL" == opencode-go/* ]]; then
+  PI_OPENCODE_GO=1
+  [ -n "$OPENCODE_WORKSPACE" ] || OPENCODE_WORKSPACE=main
+fi
+if [ "$HARNESS" = opencode ] || [ "$PI_OPENCODE_GO" -eq 1 ]; then
   if [ "$RELAUNCH" -eq 1 ] && [ -n "$DISPATCH_ROUTE_WORKSPACE" ]; then
     OPENCODE_WORKSPACE=$DISPATCH_ROUTE_WORKSPACE
   elif [ "$RELAUNCH" -eq 1 ]; then
@@ -2834,7 +2833,11 @@ fi
 # The OpenCode database helper builds a private database for a selected policy
 # account. A configured account must prove its workspace before launch; an
 # unpinned route gets a private task database without selecting an account.
-if [ "$HARNESS" = opencode ] && [ -n "$DISPATCH_ROUTE_WORKSPACE" ]; then
+if [ "$PI_OPENCODE_GO" -eq 1 ] && [ "$DISPATCH_ROUTE_WORKSPACE" = main ]; then
+  PI_OPENCODE_ORG=$(fm_opencode_main_org_ensure "$(fm_opencode_second_config_dir)") || exit 1
+  OPENCODE_MAIN_ORG=$PI_OPENCODE_ORG
+  OPENCODE_ROUTE_ORG=$PI_OPENCODE_ORG
+elif { [ "$HARNESS" = opencode ] || [ "$PI_OPENCODE_GO" -eq 1 ]; } && [ -n "$DISPATCH_ROUTE_WORKSPACE" ]; then
   OPENCODE_ROUTE_ORG=$(fm_opencode_workspace_org "$DISPATCH_ROUTE_WORKSPACE") || {
     OPENCODE_ROUTE_FILE=$(fm_opencode_workspace_org_file "$DISPATCH_ROUTE_WORKSPACE" "$(fm_opencode_second_config_dir)") || exit 1
     echo "error: selected OpenCode account '$DISPATCH_ROUTE_WORKSPACE' is missing or malformed in $OPENCODE_ROUTE_FILE" >&2
@@ -2845,6 +2848,17 @@ elif [ "$HARNESS" = opencode ] && [ "$KIND" = secondmate ] && [ "$OPENCODE_WORKS
 elif [ "$HARNESS" = opencode ] && [ "$KIND" = secondmate ] \
   && fm_opencode_second_configured 2>/dev/null; then
   OPENCODE_MAIN_ORG=$(fm_opencode_main_org_ensure "$(fm_opencode_second_config_dir)") || exit 1
+fi
+if [ "$PI_OPENCODE_GO" -eq 1 ]; then
+  case "$OPENCODE_WORKSPACE" in
+    secondary) PI_OPENCODE_ORG=${OPENCODE_ROUTE_ORG:-$OPENCODE_SECOND_ORG} ;;
+    main)
+      PI_OPENCODE_ORG=$(fm_opencode_main_org_ensure "$(fm_opencode_second_config_dir)") || exit 1
+      OPENCODE_MAIN_ORG=$PI_OPENCODE_ORG
+      ;;
+    *) echo "error: OpenCode Go requires a configured main or secondary workspace" >&2; exit 1 ;;
+  esac
+  PI_OPENCODE_SESSION="fm-$ID"
 fi
 # opencode_task_db: the standalone launch's private workspace copy, or its
 # seeded task-local database when no workspace pin applies. An attached worker
@@ -2857,7 +2871,7 @@ opencode_task_db() {
     OPENCODE_SECOND_DB=$(fm_opencode_workspace_db_for_task "$OPENCODE_WORKSPACE" "$OPENCODE_SECOND_ORG" "$(fm_opencode_second_config_dir)" "$ID" "$STATE") || return 1
   elif [ -n "$OPENCODE_MAIN_ORG" ]; then
     OPENCODE_MAIN_DB=$(fm_opencode_workspace_db_for_task "$OPENCODE_WORKSPACE" "$OPENCODE_MAIN_ORG" "$(fm_opencode_second_config_dir)" "$ID" "$STATE") || return 1
-  elif [ "$HARNESS" = opencode ] && [ "$KIND" != secondmate ]; then
+  elif { [ "$HARNESS" = opencode ] || [ "$PI_OPENCODE_GO" -eq 1 ]; } && [ "$KIND" != secondmate ]; then
     # Unpinned standalone workers still need a task-private database so
     # OpenCode cannot grow its machine-wide event log. Keep an existing file
     # intact across relaunches; seed new files with the console account.
@@ -2870,6 +2884,14 @@ opencode_task_db() {
   fi
 }
 [ "$OPENCODE_SHARED_SERVER" -eq 1 ] || opencode_task_db || exit 1
+if [ "$PI_OPENCODE_GO" -eq 1 ]; then
+  PI_OPENCODE_DB=${OPENCODE_ROUTE_DB:-${OPENCODE_SECOND_DB:-${OPENCODE_MAIN_DB:-$OPENCODE_TASK_DB}}}
+  fm_opencode_db_has_console_login "$PI_OPENCODE_DB" || {
+    echo "error: Pi OpenCode Go requires a console login in its task database" >&2
+    exit 1
+  }
+  fm_opencode_pins_refresh "$(fm_opencode_second_config_dir)" || true
+fi
 # Ultra is an explicit native capability, never a Pi thinking-level alias.
 # Validate the fully resolved profile before worktree or endpoint provisioning.
 if [ "$EFFORT" = ultra ]; then
@@ -2894,12 +2916,36 @@ RAW_COMMAND=
 WORKER_ACCOUNT_ROOT=
 WORKER_ACCOUNT_DECLARED=
 WORKER_ACCOUNT_PROVIDER=
-WORKER_ACCOUNT=$(fm_worker_account_select "$HARNESS" "$CONFIG" "$MODEL" "${PI_BIN:-$HARNESS}" "$RAW_COMMAND") || exit 1
+if [ "$PI_OPENCODE_GO" -eq 1 ]; then
+  WORKER_ACCOUNT=
+else
+  WORKER_ACCOUNT=$(fm_worker_account_select "$HARNESS" "$CONFIG" "$MODEL" "${PI_BIN:-$HARNESS}" "$RAW_COMMAND") || exit 1
+fi
 if [ -n "$WORKER_ACCOUNT" ]; then
   WORKER_ACCOUNT_DECLARED=${WORKER_ACCOUNT%%$'\t'*}
   WORKER_ACCOUNT_ROOT=${WORKER_ACCOUNT#*$'\t'}
   WORKER_ACCOUNT_PROVIDER=${WORKER_ACCOUNT_ROOT#*$'\t'}
   WORKER_ACCOUNT_ROOT=${WORKER_ACCOUNT_ROOT%%$'\t'*}
+fi
+if [ "$PI_OPENCODE_GO" -eq 1 ]; then
+  PI_ACCOUNT_RESOLVED=$(fm_worker_account_resolve pi "$CONFIG") || exit 1
+  if [ -n "$PI_ACCOUNT_RESOLVED" ]; then
+    WORKER_ACCOUNT_DECLARED=${PI_ACCOUNT_RESOLVED%%$'\t'*}
+    PI_ACCOUNT_REST=${PI_ACCOUNT_RESOLVED#*$'\t'}
+    WORKER_ACCOUNT_ROOT=${PI_ACCOUNT_REST%%$'\t'*}
+    WORKER_ACCOUNT_PROVIDER=${PI_ACCOUNT_REST#*$'\t'}
+    case " $WORKER_ACCOUNT_PROVIDER " in
+      *' opencode-go '*) ;;
+      *) echo "error: config/pi-account does not authorize provider 'opencode-go' for this OpenCode Go worker" >&2; exit 1 ;;
+    esac
+    WORKER_ACCOUNT="${WORKER_ACCOUNT_DECLARED}"$'\t'"${WORKER_ACCOUNT_ROOT}"$'\t'opencode-go
+  else
+    WORKER_ACCOUNT=
+    WORKER_ACCOUNT_ROOT=${HOME:?}/.pi/agent
+  fi
+  "$SCRIPT_DIR/fm-pi-opencode-go.sh" install "$WORKER_ACCOUNT_ROOT" || exit 1
+  [ -n "$PI_OPENCODE_DB" ] || { echo "error: Pi OpenCode Go task database was not prepared" >&2; exit 1; }
+  LAUNCH="FM_OPENCODE_TASK_DB=$(shell_quote "$PI_OPENCODE_DB") FM_OPENCODE_ORG_ID=$(shell_quote "$PI_OPENCODE_ORG") FM_OPENCODE_CONFIG_DIR=$(shell_quote "$CONFIG") FM_OPENCODE_SESSION=$(shell_quote "$PI_OPENCODE_SESSION") PI_CODING_AGENT_DIR=$(shell_quote "$WORKER_ACCOUNT_ROOT") $LAUNCH"
 fi
 if [ -n "$WORKER_ACCOUNT" ] && [ "$HARNESS" = claude ]; then
   if [ -n "$WORKER_ACCOUNT_ROOT" ]; then
@@ -6044,7 +6090,7 @@ preserve_relaunch_meta() {
   # absence means the main workspace, exactly as every record written before
   # markers existed reads. Any configured account label round-trips here, so
   # a new account is a policy and config edit, never a code change.
-  if [ "$HARNESS" = opencode ] && [ -n "$OPENCODE_WORKSPACE" ] && [ "$OPENCODE_WORKSPACE" != main ]; then
+  if { [ "$HARNESS" = opencode ] || [ "$PI_OPENCODE_GO" -eq 1 ]; } && [ -n "$OPENCODE_WORKSPACE" ] && [ "$OPENCODE_WORKSPACE" != main ]; then
     echo "opencode_workspace=$OPENCODE_WORKSPACE"
   fi
   # An attached worker's server profile and session; absent for a standalone

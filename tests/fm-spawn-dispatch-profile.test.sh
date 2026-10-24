@@ -555,6 +555,41 @@ JSON
   pass "unified dispatch honors the configured harness and an explicit eligible rung"
 }
 
+test_muse_go_rung_uses_pi_with_the_selected_workspace_pin() {
+  local rec id out status datadir launch
+  command -v sqlite3 >/dev/null 2>&1 || {
+    pass "Muse Go workspace launch needs sqlite3 (live credential-flow tests cover the provider helper)"
+    return 0
+  }
+
+  id=profile-muse-go-pi-workspace-z42
+  rec=$(make_spawn_case profile-muse-go-pi-workspace opencode "$id")
+  read_case_record "$rec"
+  printf '%s' "$DUAL_SECOND_ORG_ID" > "$HOME_DIR/config/opencode-second-org"
+  cat > "$HOME_DIR/config/dispatch-policy.json" <<'JSON'
+{"version":2,"rules":[],"default_ladder":[{"id":"muse-go","harness":"pi","model":"opencode-go/muse-spark-1.3-contributor","provider":"opencode-go","workspace":"secondary"}],"constraints":[],"providers":[]}
+JSON
+  mkdir -p "$HOME_DIR/pinned-pi"
+  printf '%s\nopencode-go\n' "$HOME_DIR/pinned-pi" > "$HOME_DIR/config/pi-account"
+  datadir=$(make_dual_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") || fail "secondary workspace fixture login could not be built"
+  export FM_FAKE_OPENCODE_DATA="$datadir"
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  unset FM_FAKE_OPENCODE_DATA
+  expect_code 0 "$status" "the Muse Go rung should spawn through its configured Pi provider: $out"
+  assert_grep 'harness=pi' "$HOME_DIR/state/$id.meta" "the Go rung did not record its provider-capable harness"
+  assert_grep 'dispatch_route_workspace=secondary' "$HOME_DIR/state/$id.meta" "the selected secondary workspace was not recorded"
+  assert_grep 'opencode_workspace=secondary' "$HOME_DIR/state/$id.meta" "the selected workspace pin was not recorded"
+  launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" "--model 'opencode-go/muse-spark-1.3-contributor'" "the provider model was not passed to Pi"
+  assert_contains "$launch" "PI_CODING_AGENT_DIR='$HOME_DIR/pinned-pi'" "the selected Pi provider root did not reach the worker"
+  assert_contains "$launch" "FM_OPENCODE_ORG_ID='$DUAL_SECOND_ORG_ID'" "the selected workspace id did not reach the Pi provider"
+  assert_contains "$launch" "FM_OPENCODE_TASK_DB='$HOME_DIR/state/$id.opencode.db'" "the provider did not receive its private secondary workspace database"
+  jq -e '.providers["opencode-go"].apiKey | strings | contains("fm-pi-opencode-go.sh")' "$HOME_DIR/pinned-pi/models.json" >/dev/null \
+    || fail "the selected Pi root did not receive the managed Go key resolver"
+  pass "the Muse Go dispatch rung uses Pi's Go provider and preserves the selected workspace pin"
+}
+
 test_symlinked_project_routes_by_registered_name() {
   local case_dir home real_target link_path wt wt_abs fakebin launchlog id_projects id_abs out status
   id_projects=profile-symlink-projects-form-z20
@@ -2799,6 +2834,7 @@ test_active_dispatch_profile_resolves_default_for_ship
 test_active_dispatch_profile_resolves_default_for_scout
 test_unified_dispatch_enforces_and_records_captain_approval
 test_policy_rung_harness_is_preserved_and_explicit_harness_selects_its_rung
+test_muse_go_rung_uses_pi_with_the_selected_workspace_pin
 test_symlinked_project_routes_by_registered_name
 test_off_rule_profile_requires_captain_override_reason
 test_matching_explicit_profile_needs_no_override
