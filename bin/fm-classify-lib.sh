@@ -97,7 +97,8 @@ FM_CLASSIFY_CAPTAIN_RE_DEFAULT='done:|needs-decision:|blocked:|failed:|PR ready|
 #   paused: waits-for=<task|pr|lease|lock|process|decision>:<identifier> <reason>
 # to declare a known wait expected to clear on its own. The reference must name
 # an outside task, PR URL, lease, lock, process, or decision key; pauses without
-# one are invalid and surface immediately for supervision.
+# one are invalid and surface immediately for supervision. Firstmate's own
+# resume handoff also uses the exact shorthand `waits-for=firstmate-resume`.
 # bin/fm-brief.sh owns worker-facing declaration and resolution instructions.
 # Unlike `blocked:` (stuck, firstmate must help), an idle `paused:` pane is EXPECTED, so
 # the stale path bounds repeats instead of escalating a possible wedge; a live
@@ -395,7 +396,8 @@ status_is_suppressed_child_fact() {  # <state-dir> <task-id> <status-line>
 }
 
 # 0 if a status line's leading verb is the pause verb and it names an external
-# wait in the classifier's waits-for form. A pure
+# wait in the classifier's waits-for form, or firstmate's resume-handoff
+# shorthand. A pure
 # read of the line itself, so the daemon's classify_stale can reuse the last line
 # it already read without a fm-crew-state.sh call. Matches only the verb before the
 # first colon, so a reason mentioning "paused" elsewhere does not false-match.
@@ -404,7 +406,8 @@ status_is_paused() {  # <status-line>
   [ -n "$line" ] || return 1
   verb=$(status_line_verb "$line")
   [ "$verb" = "${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}" ] || return 1
-  [[ "$line" =~ [[:space:]]waits-for=(task|pr|lease|lock|process|decision):[A-Za-z0-9._/@:+#=-]+([[:space:]]|$) ]]
+  [[ "$line" =~ [[:space:]]waits-for=firstmate-resume([[:space:];]|$) ]] \
+    || [[ "$line" =~ [[:space:]]waits-for=(task|pr|lease|lock|process|decision):[A-Za-z0-9._/@:+#=-]+([[:space:];]|$) ]]
 }
 
 # 0 if a status line's leading verb is the verified captain-held transfer verb.
