@@ -2645,6 +2645,53 @@ SH
     "the main-workspace replacement must carry the task's private copy, never the machine-wide active workspace"
   [ "$(sqlite3 "$dir/home/state/wq1.opencode.db" 'SELECT active_org_id FROM account_state WHERE id=1;')" = org_01FIXTUREMAIN00000 ] \
     || fail "the replacement copy must be pinned back to the main workspace"
+
+  # A legacy Pi Go task can have its durable workspace marker without the
+  # newer dispatch_route_workspace field. Both the first and repeated
+  # fm-control relaunch must derive the Go org id from that durable pin.
+  awk -F= '$1 != "dispatch_route_workspace" && $1 != "harness" && $1 != "opencode_workspace" { print }' \
+    "$dir/home/state/wq1.meta" > "$dir/home/state/wq1.meta.tmp"
+  printf 'harness=pi\nopencode_workspace=secondary\n' >> "$dir/home/state/wq1.meta.tmp"
+  mv "$dir/home/state/wq1.meta.tmp" "$dir/home/state/wq1.meta"
+  cat > "$dir/home/config/dispatch-policy.json" <<'JSON'
+{"version":2,"rules":[],"default_ladder":[{"id":"muse-go","harness":"pi","model":"opencode-go/muse-spark-1.3-contributor","provider":"opencode-go"}],"constraints":[],"providers":[]}
+JSON
+  cat > "$dir/home/config/model-catalog.json" <<'JSON'
+{"models":[{"id":"opencode-go/muse-spark-1.3-contributor","status":"active","pi":{"name":"Muse Spark 1.3 Contributor","api":"openai-responses","reasoning":true,"input":["text","image"],"contextWindow":1048576,"maxTokens":131072,"cost":{"input":0.1,"output":0.2,"cacheRead":0,"cacheWrite":0}}}]}
+JSON
+  mkdir -p "$dir/pi-agent"
+  printf '%s\nopencode-go\n' "$dir/pi-agent" > "$dir/home/config/pi-account"
+  cat > "$dir/fakebin/pi" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = --list-models ]; then
+  printf '%s\n' 'Model Provider' 'opencode-go test-model'
+fi
+exit 0
+SH
+  chmod +x "$dir/fakebin/pi"
+  for attempt in first repeated; do
+    out=$(run_control "$dir" wq1 relaunch --harness pi --note "continue Go task on $attempt relaunch"); rc=$?
+    expect_code 0 "$rc" "a legacy Pi Go $attempt relaunch should succeed"$'\n'"$out"
+    launch=$(tail -n 1 "$dir/fake/literal")
+    assert_contains "$launch" "FM_OPENCODE_ORG_ID=" \
+      "the $attempt Pi Go relaunch omitted the org id environment variable"
+    assert_contains "$launch" "org_01FIXTURESECONDARY00" \
+      "the $attempt Pi Go relaunch lost the org id associated with its recorded secondary workspace"
+    assert_contains "$launch" "$dir/home/state/wq1.opencode.db" \
+      "the $attempt Pi Go relaunch did not use its task-private workspace-pinned database"
+    [ "$(sqlite3 "$dir/home/state/wq1.opencode.db" 'SELECT active_org_id FROM account_state WHERE id=1;')" = org_01FIXTURESECONDARY00 ] \
+      || fail "the $attempt Pi Go relaunch database did not prove the secondary workspace"
+  done
+  out=$(run_control "$dir" wq1 relaunch --harness pi --opencode-workspace main --note "move Go task to main"); rc=$?
+  expect_code 0 "$rc" "a Pi Go relaunch to the main workspace should succeed"$'\n'"$out"
+  launch=$(tail -n 1 "$dir/fake/literal")
+  assert_contains "$launch" "FM_OPENCODE_ORG_ID=" \
+    "the main Pi Go relaunch omitted the org id environment variable"
+  assert_contains "$launch" "org_01FIXTUREMAIN00000" \
+    "the main Pi Go relaunch lost its main workspace id"
+  [ "$(sqlite3 "$dir/home/state/wq1.opencode.db" 'SELECT active_org_id FROM account_state WHERE id=1;')" = org_01FIXTUREMAIN00000 ] \
+    || fail "the main Pi Go relaunch database did not prove the main workspace"
+  unset FM_FAKE_OPENCODE_DATA
   pass "fm-control relaunch: --opencode-workspace moves the pin and its absence preserves it"
 }
 
@@ -2714,6 +2761,7 @@ test_tmux_refuses_a_window_missing_from_its_session
 test_tmux_refuses_a_session_that_cannot_be_found
 test_tmux_refuses_when_the_server_is_gone
 test_reclaim_refuses_an_unreadable_endpoint
+test_relaunch_opencode_workspace_moves_and_preserves_the_pin
 test_herdr_relaunch_resumes_only_the_registered_pi_session
 test_herdr_reclaim_adopts_a_pane_that_outlived_its_server
 test_herdr_exit_reports_already_stopped_when_the_pane_outlived_its_server
@@ -2725,4 +2773,3 @@ test_herdr_rebind_failure_from_a_plain_shell_names_the_real_cause
 test_relaunch_reverifies_an_already_in_flight_item_instead_of_rewriting_it
 test_relaunch_moves_a_drifted_item_back_in_flight
 test_relaunch_does_not_disarm_a_live_pr_poll
-test_relaunch_opencode_workspace_moves_and_preserves_the_pin

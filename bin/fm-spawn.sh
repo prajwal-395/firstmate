@@ -2851,7 +2851,17 @@ elif [ "$HARNESS" = opencode ] && [ "$KIND" = secondmate ] \
 fi
 if [ "$PI_OPENCODE_GO" -eq 1 ]; then
   case "$OPENCODE_WORKSPACE" in
-    secondary) PI_OPENCODE_ORG=${OPENCODE_ROUTE_ORG:-$OPENCODE_SECOND_ORG} ;;
+    secondary)
+      PI_OPENCODE_ORG=${OPENCODE_ROUTE_ORG:-$OPENCODE_SECOND_ORG}
+      if [ -z "$PI_OPENCODE_ORG" ]; then
+        PI_OPENCODE_ORG=$(fm_opencode_workspace_org secondary "$(fm_opencode_second_config_dir)") || {
+          OPENCODE_SECOND_ORG_FILE=$(fm_opencode_workspace_org_file secondary "$(fm_opencode_second_config_dir)") || exit 1
+          echo "error: Pi OpenCode Go requires the secondary workspace id in $OPENCODE_SECOND_ORG_FILE" >&2
+          exit 1
+        }
+        OPENCODE_SECOND_ORG=$PI_OPENCODE_ORG
+      fi
+      ;;
     main)
       PI_OPENCODE_ORG=$(fm_opencode_main_org_ensure "$(fm_opencode_second_config_dir)") || exit 1
       OPENCODE_MAIN_ORG=$PI_OPENCODE_ORG
