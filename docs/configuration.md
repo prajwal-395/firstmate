@@ -1111,11 +1111,12 @@ Secondmate launches and relaunches do not resolve a new policy route.
 ## Model catalog (config/model-catalog.json)
 
 The local catalog records available and retired model IDs with billing family, verification date, source, optional replacement, and optional `harnesses` array.
+Pi provider metadata may be recorded in a model's `pi` object when a dispatch rung uses that model through Pi; the OpenCode Go provider installer combines this metadata with active Pi rungs from the dispatch policy.
 A populated `harnesses` array is an allowlist of runtimes verified to expose that model; a rung using another harness is skipped and explained before the next eligible rung is selected.
 A selected policy route that names a retired ID is refused before launch and names its replacement when one is recorded.
 Models absent from the catalog remain uncatalogued and do not gain quota or availability assumptions.
 Refresh once from the main home with `FM_HOME=<main-home> bin/fm-model-catalog-refresh.sh` after reviewing the main home's provider accounts.
-The refresh reads `opencode models` and `codex debug models`, marks previously listed IDs that disappeared as retired, and preserves recorded replacements.
+The refresh reads `opencode models` and `codex debug models`, marks previously listed IDs that disappeared as retired, and preserves recorded replacements and Pi metadata.
 Policy rungs across providers are seeded by dispatch-policy migration.
 The primary propagates `config/model-catalog.json` to secondmate homes with the ordinary inheritance flow.
 Do not run the refresh in a secondmate home.
