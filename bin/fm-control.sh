@@ -786,9 +786,23 @@ do_exit() {
       cancel=$(deliver_interrupt) || return $?
       interrupt_result="delivered verified=agent-alive cancel=$cancel"
     fi
-    ! rendered_matches 'Free usage exceeded, subscribe to Go' \
-      || die "task $ID still shows OpenCode's free-usage retry screen after Escape; refusing to type the exit command"
-    opencode_retry_recovered=1
+    # On this explicit provider refusal, Escape can leave OpenCode alive on its
+    # retry surface. Ctrl-C exits that process to the pane shell; bound retries
+    # and prove the process is gone before proceeding with relaunch.
+    local retry_press=0
+    while rendered_matches 'Free usage exceeded, subscribe to Go' && [ "$retry_press" -lt 3 ]; do
+      fm_backend_send_key "$BACKEND" "$T" C-c "$LABEL" \
+        || die "task $ID's OpenCode retry screen remained after Escape and Ctrl-C was not delivered"
+      retry_press=$((retry_press + 1))
+      [ "$(agent_state)" != dead ] || break
+      sleep "$POLL"
+    done
+    state=$(agent_state)
+    [ "$state" = dead ] \
+      || die "task $ID still shows OpenCode's free-usage retry screen after Escape and Ctrl-C; refusing to type the exit command"
+    retire_busy_incarnation
+    printf 'stopped'
+    return 0
   fi
   cmd=$(fm_control_exit_command "$HARNESS")
   hazard=$(fm_control_interrupt_hazard_signal "$HARNESS")

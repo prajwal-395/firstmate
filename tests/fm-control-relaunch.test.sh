@@ -98,6 +98,9 @@ case "${1:-}" in
         count=$(wc -l < "$D/keys" | tr -d ' ')
         if [ "$count" -ge 2 ]; then : > "$D/composer"; fi
       fi
+      if [ "${FM_FAKE_OPENCODE_RETRY:-}" = ctrl-c ] && [ "$payload" = C-c ]; then
+        printf 'zsh' > "$D/command"
+      fi
       case "$payload" in
         'export GOTMPDIR='*)
           if [ -n "${FM_FAKE_TRACE_PREPARE:-}" ]; then
@@ -438,21 +441,23 @@ test_relaunch_refuses_before_exit_when_the_composer_state_is_unproven() {
   pass "fm-control relaunch: an unreadable composer fails safe before the exit command is typed"
 }
 
-test_opencode_retry_screen_is_interrupted_before_relaunch_exit() {
+test_opencode_retry_screen_returns_to_shell_before_relaunch_exit() {
   local dir out rc
   dir=$(new_case opencode-retry rl45)
   add_ship_task "$dir" rl45 opencode
   printf 'opencode' > "$dir/fake/command"
   printf 'Free usage exceeded, subscribe to Go' > "$dir/fake/composer"
 
-  out=$(FM_FAKE_OPENCODE_RETRY=1 \
+  out=$(FM_FAKE_OPENCODE_RETRY=ctrl-c \
     run_control "$dir" rl45 relaunch --note "continue after the provider refusal"); rc=$?
 
-  expect_code 0 "$rc" "OpenCode's explicit free-usage retry screen should be cleared before relaunch"$'\n'"$out"
+  expect_code 0 "$rc" "OpenCode's explicit free-usage retry screen should return to the shell before relaunch"$'\n'"$out"
   [ "$(grep -c '^Escape$' "$dir/fake/keys")" -ge 2 ] \
     || fail "the retry screen must use OpenCode's verified double-Escape interrupt path"
-  assert_grep '/exit' "$dir/fake/literal" "the exit command should be sent after the retry screen clears"
-  pass "fm-control relaunch: the OpenCode free-usage retry screen is interrupted before exit"
+  grep -Fxq 'C-c' "$dir/fake/keys" \
+    || fail "Ctrl-C should leave the retry screen for the pane shell"
+  case "$out" in *'relaunched rl45'*) ;; *) fail "the replacement should launch after OpenCode exits to the shell: $out" ;; esac
+  pass "fm-control relaunch: the OpenCode free-usage retry screen exits to the pane shell before replacement"
 }
 
 test_relaunch_from_linked_home_preserves_recorded_worktree() {
@@ -2615,7 +2620,7 @@ SH
 test_same_harness_relaunch_keeps_identity_and_reuses_the_endpoint
 test_relaunch_refuses_before_exit_when_the_composer_holds_pending_text
 test_relaunch_refuses_before_exit_when_the_composer_state_is_unproven
-test_opencode_retry_screen_is_interrupted_before_relaunch_exit
+test_opencode_retry_screen_returns_to_shell_before_relaunch_exit
 test_relaunch_from_linked_home_preserves_recorded_worktree
 test_relaunch_preserves_durable_task_metadata
 test_relaunch_serializes_concurrent_durable_metadata_publication

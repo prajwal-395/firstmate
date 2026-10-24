@@ -7,7 +7,7 @@ HOME_DIR="$TMP_ROOT/home"
 mkdir -p "$HOME_DIR/config" "$HOME_DIR/data/task" "$HOME_DIR/state" "$TMP_ROOT/bin"
 cat > "$HOME_DIR/config/dispatch-policy.json" <<'JSON'
 {"version":2,"rules":[],"default_ladder":[
-  {"id":"first","harness":"opencode","model":"opencode/deepseek-v4.1-flash-free","provider":"opencode","accounts":["secondary"]},
+  {"id":"first","harness":"opencode","model":"opencode/deepseek-v4.1-flash-free","provider":"opencode","accounts":["main","secondary"]},
   {"id":"next","harness":"codex","model":"model-b","provider":"provider-b"}
 ],"constraints":[],"providers":[]}
 JSON
@@ -16,10 +16,10 @@ cat > "$HOME_DIR/state/task.meta" <<'META'
 kind=scout
 harness=opencode
 model=opencode/deepseek-v4.1-flash-free
-opencode_workspace=secondary
 dispatch_unified=1
 dispatch_source=default
 dispatch_route_provider=opencode
+dispatch_route_workspace=secondary
 dispatch_project=sample
 META
 cat > "$TMP_ROOT/bin/quota-axi" <<'SH'
@@ -36,6 +36,7 @@ export FM_HOME="$HOME_DIR" FM_DISPATCH_DESCENT_CONTROL_BIN="$TMP_ROOT/control.sh
 export FM_DISPATCH_TEST_CONTROL_LOG="$TMP_ROOT/control.log"
 reset_ms=$(( ($(date +%s) + 3600) * 1000 ))
 "$ROOT/bin/fm-dispatch-reset.sh" record "$HOME_DIR/state" opencode deepseek-v4.1-flash-free secondary "$reset_ms" fixture
+"$ROOT/bin/fm-dispatch-reset.sh" record "$HOME_DIR/state" opencode deepseek-v4.1-flash-free main "$reset_ms" fixture
 
 out=$("$ROOT/bin/fm-dispatch-descent.sh" "$HOME_DIR/state")
 case "$out" in
