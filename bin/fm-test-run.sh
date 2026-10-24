@@ -487,6 +487,7 @@ fm-sessionstart-nudge.test.sh session-bootstrap
 fm-shared-captain-inheritance.test.sh secondmate
 fm-spawn-batch.test.sh backend-dispatch
 fm-spawn-dispatch-profile.test.sh backend-dispatch
+fm-pi-opencode-go.test.sh backend-dispatch
 fm-spawn-pool-base-freshen.test.sh standalone
 fm-spawn-positional-args.test.sh backend-dispatch
 fm-spawn-relaunch-worktree-e2e.test.sh real-herdr-gated

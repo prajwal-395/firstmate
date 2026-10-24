@@ -569,6 +569,9 @@ test_muse_go_rung_uses_pi_with_the_selected_workspace_pin() {
   cat > "$HOME_DIR/config/dispatch-policy.json" <<'JSON'
 {"version":2,"rules":[],"default_ladder":[{"id":"muse-go","harness":"pi","model":"opencode-go/muse-spark-1.3-contributor","provider":"opencode-go","workspace":"secondary"}],"constraints":[],"providers":[]}
 JSON
+  cat > "$HOME_DIR/config/model-catalog.json" <<'JSON'
+{"models":[{"id":"opencode-go/muse-spark-1.3-contributor","status":"active","pi":{"name":"Muse Spark 1.3 Contributor","api":"openai-responses","reasoning":true,"input":["text","image"],"contextWindow":1048576,"maxTokens":131072,"cost":{"input":0.1,"output":0.2,"cacheRead":0,"cacheWrite":0}}}]}
+JSON
   mkdir -p "$HOME_DIR/pinned-pi"
   printf '%s\nopencode-go\n' "$HOME_DIR/pinned-pi" > "$HOME_DIR/config/pi-account"
   datadir=$(make_dual_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") || fail "secondary workspace fixture login could not be built"

@@ -55,7 +55,8 @@ jq --slurpfile old "$old" --slurpfile ids "$ids_file" --arg date "$(date +%F)" '
   ($listed | map(.id)) as $available |
   ($old[0].models // []) as $previous |
   ($previous | map({key:.id,value:(.bills // "none")}) | from_entries) as $billing |
-  (([$listed[] | {id:.id,status:"active",bills:($billing[.id] // "none"),last_verified:$date,source:.source,harnesses:.harnesses}])
+  (([$listed[] as $model | {id:$model.id,status:"active",bills:($billing[$model.id] // "none"),last_verified:$date,source:$model.source,harnesses:$model.harnesses}
+    + ([$previous[] | select(.id == $model.id) | select(.pi != null) | {pi:.pi}] | first // {})])
    + [$previous[] | select(.id as $id | ($available | index($id)) == null) |
       .status="retired" | .last_verified=$date])
   | group_by(.id) | map(.[-1]) | sort_by(.id) | {models:.}

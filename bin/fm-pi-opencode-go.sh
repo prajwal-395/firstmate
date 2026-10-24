@@ -275,7 +275,7 @@ install_provider() {
 }
 
 install_unlocked() {
-  local agent_dir=${1:-} models tmp helper_hash api_key
+  local agent_dir=${1:-} models tmp helper_hash api_key config_dir policy catalog model_rows model_ids
   models="$agent_dir/models.json"
   tmp="$models.tmp.$$"
   if [ -f "$models" ]; then
@@ -302,13 +302,33 @@ install_unlocked() {
   agent_dir=$(CDPATH='' cd -- "$agent_dir" && pwd -P) || return 1
   models="$agent_dir/models.json"
   helper_hash=$(install_token_helper "$agent_dir") || return 1
+  config_dir=${FM_CONFIG_OVERRIDE:-${FM_HOME:-$(dirname "$SCRIPT_DIR")}/config}
+  policy="$config_dir/dispatch-policy.json"
+  catalog="$config_dir/model-catalog.json"
+  [ -r "$policy" ] && [ -r "$catalog" ] || {
+    echo "error: Pi OpenCode Go installation requires dispatch policy and model catalog in $config_dir" >&2
+    return 1
+  }
+  model_rows=$(jq -ce --slurpfile catalog "$catalog" '
+    [(.default_ladder[]?, .rules[]?.ladder[]?)
+      | select(.harness == "pi" and .provider == "opencode-go")
+      | .model as $model
+      | ($catalog[0].models[] | select(.id == $model and .status == "active" and .pi != null)) as $entry
+      | ($entry.pi + {id: ($model | sub("^opencode-go/"; ""))})]
+    | unique_by(.id)
+    | if length == 0 then error("no active Pi OpenCode Go dispatch models with Pi metadata in model catalog") else . end
+  ' "$policy" 2>/dev/null) || {
+    echo "error: no usable Pi OpenCode Go dispatch models in $policy and $catalog" >&2
+    return 1
+  }
+  model_ids=$(printf '%s' "$model_rows" | jq -c '[.[].id]') || return 1
   # Pi's provider file may be shared across multiple Firstmate homes and code
   # roots. Keep the request helper beside that provider, version it by content,
   # and select the correct agent directory at request time. Older helper
   # versions remain installed so workers that already loaded an older command
   # can continue to use it after a later install.
   api_key="!bash \"\${PI_CODING_AGENT_DIR:-\$HOME/.pi/agent}/fm-opencode-go/$helper_hash/fm-pi-opencode-go.sh\" token"
-  jq --arg api_key "$api_key" '
+  jq --arg api_key "$api_key" --argjson model_ids "$model_ids" --argjson model_rows "$model_rows" '
     .providers as $existing_providers |
     .providers = (.providers // {}) |
     .providers["opencode-go"] = {
@@ -320,9 +340,7 @@ install_unlocked() {
         "x-opencode-session":"${FM_OPENCODE_SESSION}"
       },
       "models": (($existing_providers["opencode-go"].models // []
-        | map(select(.id != "minimax-m3.1-flash-free" and .id != "muse-spark-1.3-contributor"))) + [
-        {"id":"muse-spark-1.3-contributor","name":"Muse Spark 1.3 Contributor","api":"openai-responses","reasoning":true,"input":["text","image"],"contextWindow":1048576,"maxTokens":131072,"cost":{"input":0.1,"output":0.2,"cacheRead":0,"cacheWrite":0}}
-      ])
+        | map(select(.id as $id | ($model_ids | index($id)) == null))) + $model_rows)
     }
   ' "$models" > "$tmp" || { echo "error: could not update Pi's OpenCode Go provider" >&2; return 1; }
   chmod 600 "$tmp" 2>/dev/null || true

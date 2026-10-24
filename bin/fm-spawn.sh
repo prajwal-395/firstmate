@@ -2943,7 +2943,7 @@ if [ "$PI_OPENCODE_GO" -eq 1 ]; then
     WORKER_ACCOUNT=
     WORKER_ACCOUNT_ROOT=${HOME:?}/.pi/agent
   fi
-  "$SCRIPT_DIR/fm-pi-opencode-go.sh" install "$WORKER_ACCOUNT_ROOT" || exit 1
+  FM_HOME="$FM_HOME" FM_CONFIG_OVERRIDE="$CONFIG" "$SCRIPT_DIR/fm-pi-opencode-go.sh" install "$WORKER_ACCOUNT_ROOT" || exit 1
   [ -n "$PI_OPENCODE_DB" ] || { echo "error: Pi OpenCode Go task database was not prepared" >&2; exit 1; }
   LAUNCH="FM_OPENCODE_TASK_DB=$(shell_quote "$PI_OPENCODE_DB") FM_OPENCODE_ORG_ID=$(shell_quote "$PI_OPENCODE_ORG") FM_OPENCODE_CONFIG_DIR=$(shell_quote "$CONFIG") FM_OPENCODE_SESSION=$(shell_quote "$PI_OPENCODE_SESSION") PI_CODING_AGENT_DIR=$(shell_quote "$WORKER_ACCOUNT_ROOT") $LAUNCH"
 fi
