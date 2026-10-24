@@ -2879,6 +2879,53 @@ test_no_run_idle_pane_paused() {
   pass "no run + idle pane on a paused: status reports state: paused with its reason"
 }
 
+# Pi has no verified idle signal when its extension record is absent or stale.
+# The Codex install may also have no verified semantic source yet. In both
+# cases an idle prompt plus a current declared wait must remain visible from
+# the status log instead of collapsing to unknown.
+test_no_run_pi_idle_paused_status_is_current() {
+  reset_fakes
+  local d out gen now
+  d=$(new_case pi-idle-paused)
+  now=$(date +%s)
+  make_repo_on_branch "$d/wt" fm/pi-idle-paused
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/pi-idle-paused.meta" "window=fm:fm-pi-idle-paused" \
+    "worktree=$d/wt" "kind=ship" "harness=pi" "spawned_at=$now"
+  printf 'paused [at=%s]: waits-for=task:upstream-release waiting for the upstream release\n' \
+    "$now" > "$d/state/pi-idle-paused.status"
+  FM_FAKE_AXI_STATUS=""
+  FM_FAKE_BUSY=0
+  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" pi-idle-paused)
+  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" pi-idle-paused idle --gen "$gen" \
+    --source pi-ext --event stop
+  out=$(run_crew_state "$d" pi-idle-paused)
+  assert_contains "$out" 'state: paused' 'Pi idle pane keeps its declared pause'
+  assert_contains "$out" 'source: status-log' 'Pi idle pane uses current status evidence'
+  assert_contains "$out" 'waits-for=task:upstream-release' 'Pi pause preserves its wait'
+  pass "Pi idle prompt plus declared wait reports paused"
+}
+
+test_no_run_codex_unverified_idle_paused_status_is_current() {
+  reset_fakes
+  local d out now
+  d=$(new_case codex-idle-paused)
+  now=$(date +%s)
+  make_repo_on_branch "$d/wt" fm/codex-idle-paused
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/codex-idle-paused.meta" "window=fm:fm-codex-idle-paused" \
+    "worktree=$d/wt" "kind=ship" "harness=codex" "spawned_at=$now"
+  printf 'paused [at=%s]: waits-for=task:upstream-release waiting for the upstream release\n' \
+    "$now" > "$d/state/codex-idle-paused.status"
+  FM_FAKE_AXI_STATUS=""
+  FM_FAKE_BUSY=0
+  out=$(run_crew_state "$d" codex-idle-paused)
+  assert_contains "$out" 'state: paused' 'Codex unknown semantic state yields to its declared pause'
+  assert_contains "$out" 'source: status-log' 'Codex idle pane uses current status evidence'
+  assert_contains "$out" 'waits-for=task:upstream-release' 'Codex pause preserves its wait'
+  pass "Codex unverified idle prompt plus declared wait reports paused"
+}
+
 test_secondmate_open_block_survives_unrelated_append() {
   reset_fakes
   local d out suffix gen
@@ -6331,6 +6378,8 @@ test_no_run_herdr_idle_agent_status_and_idle_record_stays_idle
 test_no_run_idle_pane_uses_log
 test_no_run_idle_pane_uses_keyed_log
 test_no_run_idle_pane_paused
+test_no_run_pi_idle_paused_status_is_current
+test_no_run_codex_unverified_idle_paused_status_is_current
 test_no_run_idle_pane_custom_paused_verb
 test_no_run_idle_secondmate_resolved_event_not_state
 test_dead_window_ignores_stale_status_log
