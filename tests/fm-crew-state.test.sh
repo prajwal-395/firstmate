@@ -2907,6 +2907,7 @@ test_no_run_pi_idle_paused_status_is_current() {
 }
 
 test_no_run_codex_unverified_idle_paused_status_is_current() {
+  command -v jq >/dev/null 2>&1 || { pass "Codex Herdr pause reproduction skipped without jq"; return; }
   reset_fakes
   local d out now
   d=$(new_case codex-idle-paused)
@@ -2914,16 +2915,19 @@ test_no_run_codex_unverified_idle_paused_status_is_current() {
   make_repo_on_branch "$d/wt" fm/codex-idle-paused
   make_fakebin "$d" >/dev/null
   fm_write_meta "$d/state/codex-idle-paused.meta" "window=fm:fm-codex-idle-paused" \
-    "worktree=$d/wt" "kind=ship" "harness=codex" "spawned_at=$now"
-  printf 'paused [at=%s]: waits-for=task:upstream-release waiting for the upstream release\n' \
+    "worktree=$d/wt" "kind=ship" "backend=herdr" "harness=codex" "spawned_at=$now"
+  printf 'paused [at=%s]: waits-for=firstmate-resume; the ready selection is waiting for Firstmate to resume it\n' \
     "$now" > "$d/state/codex-idle-paused.status"
   FM_FAKE_AXI_STATUS=""
   FM_FAKE_BUSY=0
+  FM_FAKE_TMUX_MISSING=1
+  FM_FAKE_HERDR_AGENT_STATUS=idle
+  FM_FAKE_HERDR_BUSY=0
   out=$(run_crew_state "$d" codex-idle-paused)
   assert_contains "$out" 'state: paused' 'Codex unknown semantic state yields to its declared pause'
   assert_contains "$out" 'source: status-log' 'Codex idle pane uses current status evidence'
-  assert_contains "$out" 'waits-for=task:upstream-release' 'Codex pause preserves its wait'
-  pass "Codex unverified idle prompt plus declared wait reports paused"
+  assert_contains "$out" 'waits-for=firstmate-resume' 'Codex pause preserves the firstmate resume handoff'
+  pass "Codex idle Herdr pane plus firstmate resume handoff reports paused"
 }
 
 test_secondmate_open_block_survives_unrelated_append() {
