@@ -804,6 +804,33 @@ do_exit() {
     printf 'stopped'
     return 0
   fi
+  # OpenCode can render its ordinary TUI while the composer classifier is
+  # unknown (for example, after a transient capture failure). In that case do
+  # not type a slash command into an unclassified composer. Use OpenCode's
+  # interrupt/exit keys and require positive proof that its process group left
+  # the endpoint before allowing the relaunch transaction to continue.
+  if [ "$HARNESS" = opencode ]; then
+    : > "$FM_COMPOSER_DIALOG_SINK" || true
+    composer_state=$(fm_backend_composer_state "$BACKEND" "$T" "$LABEL" 2>/dev/null) \
+      || composer_state=unknown
+    if [ "$composer_state" = unknown ]; then
+      fm_backend_send_key "$BACKEND" "$T" Escape "$LABEL" \
+        || die "task $ID's OpenCode composer is unknown and Escape could not be delivered"
+      local opencode_exit_press=0
+      while [ "$opencode_exit_press" -lt 3 ] && [ "$(agent_state)" != dead ]; do
+        fm_backend_send_key "$BACKEND" "$T" C-c "$LABEL" \
+          || die "task $ID's OpenCode composer is unknown and Ctrl-C could not be delivered"
+        opencode_exit_press=$((opencode_exit_press + 1))
+        [ "$(agent_state)" = dead ] || sleep "$POLL"
+      done
+      state=$(agent_state)
+      [ "$state" = dead ] \
+        || die "task $ID's OpenCode composer is unknown; Escape and Ctrl-C did not prove the process exited (state=$state)"
+      retire_busy_incarnation
+      printf 'stopped'
+      return 0
+    fi
+  fi
   cmd=$(fm_control_exit_command "$HARNESS")
   hazard=$(fm_control_interrupt_hazard_signal "$HARNESS")
   if [ -n "$hazard" ] && rendered_matches "$hazard"; then

@@ -101,6 +101,10 @@ case "${1:-}" in
       if [ "${FM_FAKE_OPENCODE_RETRY:-}" = ctrl-c ] && [ "$payload" = C-c ]; then
         printf 'zsh' > "$D/command"
       fi
+      if [ "${FM_FAKE_OPENCODE_UNKNOWN:-}" = 1 ] && [ "$payload" = C-c ]; then
+        count=$(grep -c '^C-c$' "$D/keys" || true)
+        [ "$count" -lt 2 ] || printf 'zsh' > "$D/command"
+      fi
       case "$payload" in
         'export GOTMPDIR='*)
           if [ -n "${FM_FAKE_TRACE_PREPARE:-}" ]; then
@@ -117,7 +121,9 @@ case "${1:-}" in
   display-message)
     for a in "$@"; do
       case "$a" in
-        *cursor_y*) printf '1\n'; exit 0 ;;
+        *cursor_y*)
+          [ -z "${FM_FAKE_OPENCODE_UNKNOWN:-}" ] || exit 1
+          printf '1\n'; exit 0 ;;
         *pane_current_command*) cat "$D/command"; printf '\n'; exit 0 ;;
         *pane_current_path*)
           if [ -n "${FM_FAKE_CWD_RACE_READY:-}" ]; then
@@ -129,6 +135,9 @@ case "${1:-}" in
     done
     printf 'fakepane\n'; exit 0 ;;
   capture-pane)
+    if [ -n "${FM_FAKE_OPENCODE_UNKNOWN:-}" ]; then
+      printf 'OpenCode 1.2.3\nChoose a model · Chat · Build\n'; exit 0
+    fi
     [ -z "${FM_FAKE_COMPOSER_READ_FAIL:-}" ] || exit 1
     if [ -s "$D/composer" ]; then
       printf '╭────╮\n│ %s  │\n╰────╯\n' "$(cat "$D/composer")"
@@ -260,6 +269,8 @@ run_control() {  # <case-dir> <args...>
     FM_FAKE_META_PUBLISH_MV_FAIL="${FM_FAKE_META_PUBLISH_MV_FAIL:-}" \
     FM_FAKE_TRACE_PREPARE="${FM_FAKE_TRACE_PREPARE:-}" \
     FM_FAKE_TRACE_RELEASE="${FM_FAKE_TRACE_RELEASE:-}" \
+    FM_FAKE_OPENCODE_UNKNOWN="${FM_FAKE_OPENCODE_UNKNOWN:-}" \
+    FM_FAKE_COMPOSER_READ_FAIL="${FM_FAKE_COMPOSER_READ_FAIL:-}" \
     FM_FAKE_META_WRITER_READY="${FM_FAKE_META_WRITER_READY:-}" \
     FM_FAKE_TRACE_EXPORTED="${FM_FAKE_TRACE_EXPORTED:-}" \
     "$CONTROL" "$@" 2>&1
@@ -458,6 +469,26 @@ test_opencode_retry_screen_returns_to_shell_before_relaunch_exit() {
     || fail "Ctrl-C should leave the retry screen for the pane shell"
   case "$out" in *'relaunched rl45'*) ;; *) fail "the replacement should launch after OpenCode exits to the shell: $out" ;; esac
   pass "fm-control relaunch: the OpenCode free-usage retry screen exits to the pane shell before replacement"
+}
+
+test_opencode_unknown_composer_uses_interrupt_keys_before_relaunch() {
+  local dir out rc
+  dir=$(new_case opencode-unknown rl46)
+  add_ship_task "$dir" rl46 opencode
+  printf 'opencode' > "$dir/fake/command"
+  # The captured pane has the ordinary OpenCode TUI, but the capture transport
+  # is unreadable to the composer classifier. The control path must not type
+  # /exit into that unknown composer.
+  out=$(FM_FAKE_OPENCODE_UNKNOWN=1 FM_FAKE_COMPOSER_READ_FAIL=1 \
+    run_control "$dir" rl46 relaunch --note "continue from the normal OpenCode TUI"); rc=$?
+  expect_code 0 "$rc" "an unknown OpenCode composer should exit through its interrupt keys"$'\n'"$out"
+  grep -Fxq Escape "$dir/fake/keys" || fail "OpenCode should receive Escape first"
+  [ "$(grep -c '^C-c$' "$dir/fake/keys")" -ge 2 ] \
+    || fail "OpenCode should receive bounded Ctrl-C presses until its process exits"
+  ! grep -Fxq /exit "$dir/fake/literal" \
+    || fail "an unknown OpenCode composer must never receive a typed exit command"
+  case "$out" in *'relaunched rl46'*) ;; *) fail "the replacement should launch after OpenCode exits: $out" ;; esac
+  pass "fm-control relaunch: unknown OpenCode composer exits through Escape and Ctrl-C"
 }
 
 test_relaunch_from_linked_home_preserves_recorded_worktree() {
@@ -2621,6 +2652,7 @@ test_same_harness_relaunch_keeps_identity_and_reuses_the_endpoint
 test_relaunch_refuses_before_exit_when_the_composer_holds_pending_text
 test_relaunch_refuses_before_exit_when_the_composer_state_is_unproven
 test_opencode_retry_screen_returns_to_shell_before_relaunch_exit
+test_opencode_unknown_composer_uses_interrupt_keys_before_relaunch
 test_relaunch_from_linked_home_preserves_recorded_worktree
 test_relaunch_preserves_durable_task_metadata
 test_relaunch_serializes_concurrent_durable_metadata_publication

@@ -30,9 +30,14 @@ cat > "$TMP_ROOT/control.sh" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_DISPATCH_TEST_CONTROL_LOG"
 SH
-chmod +x "$TMP_ROOT/bin/quota-axi" "$TMP_ROOT/control.sh"
+cat > "$TMP_ROOT/crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'state: exited · source: pane · agent exited to shell\n'
+SH
+chmod +x "$TMP_ROOT/bin/quota-axi" "$TMP_ROOT/control.sh" "$TMP_ROOT/crew-state.sh"
 export PATH="$TMP_ROOT/bin:$PATH"
 export FM_HOME="$HOME_DIR" FM_DISPATCH_DESCENT_CONTROL_BIN="$TMP_ROOT/control.sh"
+export FM_DISPATCH_DESCENT_STATE_BIN="$TMP_ROOT/crew-state.sh"
 export FM_DISPATCH_TEST_CONTROL_LOG="$TMP_ROOT/control.log"
 reset_ms=$(( ($(date +%s) + 3600) * 1000 ))
 "$ROOT/bin/fm-dispatch-reset.sh" record "$HOME_DIR/state" opencode deepseek-v4.1-flash-free secondary "$reset_ms" fixture
@@ -48,3 +53,13 @@ grep -qF 'task relaunch --harness codex --model model-b' "$FM_DISPATCH_TEST_CONT
 [ "$(cat "$HOME_DIR/state/.dispatch-descent-task")" = "$reset_ms|codex|model-b|none" ] \
   || { echo 'not ok - unified descent did not latch the reset episode' >&2; exit 1; }
 printf '%s\n' 'ok - launch reset evidence re-resolves the policy and relaunches on the next eligible rung'
+
+rm -f "$HOME_DIR/state/.dispatch-descent-task"
+out=$("$ROOT/bin/fm-dispatch-descent.sh" "$HOME_DIR/state")
+case "$out" in
+  'relaunched task opencode/deepseek-v4.1-flash-free -> codex/model-b'*) ;;
+  *) echo "not ok - an exited OpenCode worker at its pane shell was skipped: ${out:-<silent>}" >&2; exit 1 ;;
+esac
+[ "$(wc -l < "$FM_DISPATCH_TEST_CONTROL_LOG" | tr -d ' ')" -eq 2 ] \
+  || { echo 'not ok - the bare-shell OpenCode worker did not reach relaunch control' >&2; exit 1; }
+printf '%s\n' 'ok - an exhausted OpenCode worker already at its pane shell is relaunched'

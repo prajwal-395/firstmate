@@ -13,6 +13,7 @@ POLICY="$CONFIG/dispatch-policy.json"
 RESET="$SCRIPT_DIR/fm-dispatch-reset.sh"
 RESOLVE="$SCRIPT_DIR/fm-dispatch-resolve.sh"
 CONTROL=${FM_DISPATCH_DESCENT_CONTROL_BIN:-$SCRIPT_DIR/fm-control.sh}
+STATE_READER=${FM_DISPATCH_DESCENT_STATE_BIN:-$SCRIPT_DIR/fm-crew-state.sh}
 ONLY_ID=${2:-}
 
 [ -d "$STATE" ] && [ -r "$POLICY" ] || exit 0
@@ -39,8 +40,17 @@ for meta in "$STATE"/*.meta; do
   [ "$(sed -n 's/^kind=//p' "$meta" | tail -n 1)" = secondmate ] && continue
   stopped="$STATE/$id.stopped"
   [ ! -e "$stopped" ] || continue
-  state_line=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" "$SCRIPT_DIR/fm-crew-state.sh" "$id" 2>/dev/null) || continue
-  case "$state_line" in 'state: done '*|'state: failed '*|'state: paused '*|'state: stopped '*|'state: exited '*) continue ;; esac
+  state_line=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" "$STATE_READER" "$id" 2>/dev/null) || continue
+  case "$state_line" in
+    'state: done '*|'state: failed '*|'state: paused '*|'state: stopped '*) continue ;;
+    'state: exited '*)
+      # OpenCode may already have been interrupted to its pane shell while
+      # resolving an exhausted rung. relaunch verifies that the endpoint is
+      # agent-free before starting the replacement; other harnesses retain
+      # their terminal-state exclusion.
+      [ "$(sed -n 's/^harness=//p' "$meta" | tail -n 1)" = opencode ] || continue
+      ;;
+  esac
 
   model=$(sed -n 's/^model=//p' "$meta" | tail -n 1)
   harness=$(sed -n 's/^harness=//p' "$meta" | tail -n 1)
