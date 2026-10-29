@@ -1085,6 +1085,7 @@ Account labels use letters, digits, underscores, or hyphens and begin with a let
 `account_strategy` is `ordered` (the default) or `reset-soonest-yield-shorter-reset`, which ranks the configured account rows by their next known quota reset before testing eligibility.
 `constraints` can deny a provider for a home role or require captain approval for a worker route.
 `providers[].refusal_patterns` declares provider-specific refusal wording and reset policy.
+`bin/fm-crew-state.sh` reuses the same patterns to report a worker parked on a matching pane notice as blocked.
 `reset` supports `next-utc-day`, `retry-after-iso8601`, `retry-after-iso8601-or-next-utc-day`, or `provider-reset-time-or-quota-axi`; reset timestamps found in refusal text are stored as absolute epochs.
 `bin/fm-dispatch-policy-validate.sh` owns structural validation, while the rest of this section owns the schema.
 Every home must use version 2; migrate existing version 1 policies and active task routes with `FM_HOME=<home> bin/fm-migrate-unified-dispatch.sh --force`.

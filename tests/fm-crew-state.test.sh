@@ -275,6 +275,10 @@ case "${1:-}" in
     esac ;;
   capture-pane)
     [ "${FM_FAKE_TMUX_MISSING:-0}" = 1 ] && exit 1
+    if [ -n "${FM_FAKE_PANE_CAPTURE:-}" ]; then
+      printf '%s\n' "$FM_FAKE_PANE_CAPTURE"
+      exit 0
+    fi
     if [ "${FM_FAKE_TMUX_DIALOG:-0}" = 1 ]; then
       printf '╭─────────────────╮\n│ dialog text     │\n│ 1. yes 2. no    │\n╰─────────────────╯\n'
       exit 0
@@ -390,6 +394,7 @@ reset_fakes() {
   FM_FAKE_TMUX_UNREADABLE=0
   FM_FAKE_TMUX_WINDOWS=""
   FM_FAKE_TMUX_DIALOG=0
+  FM_FAKE_PANE_CAPTURE=""
   FM_FAKE_PANE_TTY=""
   FM_FAKE_PANE_COMMAND=""
   FM_FAKE_HERDR_BUSY=0
@@ -417,8 +422,9 @@ reset_fakes() {
   FM_FAKE_GERRIT_READ_FAIL=0
   FM_FAKE_GERRIT_READ_LOG=
   unset FM_FAKE_PR_47_STATE FM_FAKE_PR_47_MERGED FM_FAKE_PR_48_STATE FM_FAKE_PR_48_MERGED
+  unset FM_CREW_STATE_POLICY
   export FM_FAKE_AXI_STATUS FM_FAKE_AXI_STATUS_RUN FM_FAKE_RUNS_LIST FM_FAKE_BUSY FM_FAKE_BUSY_TEXT FM_FAKE_TMUX_MISSING FM_FAKE_TMUX_UNREADABLE
-  export FM_FAKE_TMUX_WINDOWS FM_FAKE_TMUX_DIALOG FM_FAKE_PANE_TTY FM_FAKE_PANE_COMMAND
+  export FM_FAKE_TMUX_WINDOWS FM_FAKE_TMUX_DIALOG FM_FAKE_PANE_CAPTURE FM_FAKE_PANE_TTY FM_FAKE_PANE_COMMAND
   export FM_FAKE_HERDR_BUSY FM_FAKE_HERDR_MISSING FM_FAKE_HERDR_READ_FAIL FM_FAKE_HERDR_HUSK FM_FAKE_HERDR_AGENT_STATUS FM_FAKE_HERDR_PROCESS FM_FAKE_HERDR_SHELL_PID FM_FAKE_CI_LOGS
   export FM_FAKE_DAEMON_DOWN FM_FAKE_DAEMON_TIMEOUT FM_FAKE_DAEMON_PROBE_LOG FM_FAKE_AXI_HOME
   export FM_FAKE_AXI_HOME_ERROR FM_FAKE_AXI_STATUS_RUN_ERROR FM_FAKE_AXI_STATUS_ERROR
@@ -3943,6 +3949,176 @@ test_expired_generic_dispatch_exhaustion_does_not_block() {
 }
 
 # ---------------------------------------------------------------------------
+# (t) A worker parked on its provider's usage/quota notice reads blocked with
+# the provider and the reset time from the pane - never working from a stale
+# status line, idle from a quiet turn, or an attributed working run. The
+# wording is driven by the dispatch policy's providers[].refusal_patterns
+# (never a second list kept in the reader), with the composer's own OpenCode
+# row matcher as the no-policy fallback. The Codex pane below is a faithful
+# capture of the October 2026 incident wording ("You've hit your usage limit
+# ... try again at ...") that 18 video-home workers sat at while
+# current-state reported working or idle.
+write_limit_policy() {  # <file> - provider subset mirroring docs/examples/dispatch-policy.json
+  cat > "$1" <<'EOF'
+{"version":2,"rules":[],"default_ladder":[],"providers":[
+{"id":"opencode","refusal_patterns":[{"pattern":"free usage exceeded","reset":"retry-after-iso8601-or-next-utc-day"},{"pattern":"subscribe to go","reset":"retry-after-iso8601-or-next-utc-day"}]},
+{"id":"opencode-go","refusal_patterns":[{"pattern":"free usage exceeded|subscribe to go","reset":"retry-after-iso8601-or-next-utc-day"},{"pattern":"usage limit","reset":"provider-reset-time-or-quota-axi"}]},
+{"id":"codex","refusal_patterns":[{"pattern":"usage limit","reset":"provider-reset-time-or-quota-axi"}]},
+{"id":"anthropic","refusal_patterns":[{"pattern":"usage limit","reset":"provider-reset-time-or-quota-axi"}]},
+{"id":"google","refusal_patterns":[{"pattern":"usage limit","reset":"provider-reset-time-or-quota-axi"}]}
+]}
+EOF
+}
+
+test_usage_limit_pane_blocks_codex_worker() {
+  reset_fakes
+  local d out
+  d=$(new_case usage-limit-codex)
+  make_repo_on_branch "$d/wt" fm/feat-limit-codex
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-limit-codex.meta" "window=fm:fm-feat-limit-codex" "worktree=$d/wt" "kind=ship" "harness=codex"
+  FM_FAKE_AXI_STATUS=""
+  FM_FAKE_RUNS_LIST=""
+  printf 'working [at=1]: implementing the thing\n' > "$d/state/feat-limit-codex.status"
+  write_limit_policy "$d/policy.json"
+  FM_CREW_STATE_POLICY="$d/policy.json"
+  export FM_CREW_STATE_POLICY
+  FM_FAKE_PANE_CAPTURE="› Ask Codex to do anything
+────────────────────────────────────────
+You've hit your usage limit. Upgrade your plan or add credits to continue, or try again at Oct 29, 2026, 10:05 PM.
+› "
+  export FM_FAKE_PANE_CAPTURE
+  out=$(run_crew_state "$d" feat-limit-codex)
+  assert_contains "$out" "state: blocked" "a Codex pane on its limit notice reads blocked, not working-from-log"
+  assert_contains "$out" "source: pane" "the limit verdict is a pane verdict"
+  assert_contains "$out" "provider codex" "shared usage-limit wording attributes to the task's own provider"
+  assert_contains "$out" "try again at Oct 29, 2026, 10:05 PM" "the reset time from the pane is reported"
+  pass "a Codex worker at its usage limit reads blocked with provider and reset"
+}
+
+test_usage_limit_pane_blocks_opencode_worker() {
+  reset_fakes
+  local d out
+  d=$(new_case usage-limit-opencode)
+  make_repo_on_branch "$d/wt" fm/feat-limit-opencode
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-limit-opencode.meta" "window=fm:fm-feat-limit-opencode" "worktree=$d/wt" "kind=ship" "harness=opencode"
+  FM_FAKE_AXI_STATUS=""
+  FM_FAKE_RUNS_LIST=""
+  printf 'working [at=1]: implementing the thing\n' > "$d/state/feat-limit-opencode.status"
+  write_limit_policy "$d/policy.json"
+  FM_CREW_STATE_POLICY="$d/policy.json"
+  export FM_CREW_STATE_POLICY
+  FM_FAKE_PANE_CAPTURE="┃ Free usage exceeded (usage limit reached). Subscribe to go or wait until 2026-10-30T02:00:00Z.
+┃ "
+  export FM_FAKE_PANE_CAPTURE
+  out=$(run_crew_state "$d" feat-limit-opencode)
+  assert_contains "$out" "state: blocked" "an OpenCode pane on its limit notice reads blocked"
+  assert_contains "$out" "provider opencode" "the blocking provider is named"
+  assert_contains "$out" "2026-10-30T02:00:00Z" "the ISO reset time from the pane is reported"
+  pass "an OpenCode worker at its usage limit reads blocked with provider and reset"
+}
+
+test_usage_limit_pane_blocks_claude_worker() {
+  reset_fakes
+  local d out
+  d=$(new_case usage-limit-claude)
+  make_repo_on_branch "$d/wt" fm/feat-limit-claude
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-limit-claude.meta" "window=fm:fm-feat-limit-claude" "worktree=$d/wt" "kind=ship" "harness=claude"
+  FM_FAKE_AXI_STATUS=""
+  FM_FAKE_RUNS_LIST=""
+  printf 'working [at=1]: implementing the thing\n' > "$d/state/feat-limit-claude.status"
+  write_limit_policy "$d/policy.json"
+  FM_CREW_STATE_POLICY="$d/policy.json"
+  export FM_CREW_STATE_POLICY
+  FM_FAKE_PANE_CAPTURE="❯ working on the fix...
+Usage limit reached. Please try again later; resets Oct 30, 2026 02:00 UTC."
+  export FM_FAKE_PANE_CAPTURE
+  out=$(run_crew_state "$d" feat-limit-claude)
+  assert_contains "$out" "state: blocked" "a Claude pane on its limit notice reads blocked"
+  assert_contains "$out" "provider anthropic" "the Claude provider is named"
+  assert_contains "$out" "resets Oct 30, 2026 02:00 UTC" "the reset time from the pane is reported"
+  pass "a Claude worker at its usage limit reads blocked with provider and reset"
+}
+
+test_usage_limit_pane_without_policy_match_stays_working() {
+  reset_fakes
+  local d out
+  d=$(new_case usage-limit-no-match)
+  make_repo_on_branch "$d/wt" fm/feat-limit-no-match
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-limit-no-match.meta" "window=fm:fm-feat-limit-no-match" "worktree=$d/wt" "kind=ship" "harness=codex"
+  FM_FAKE_AXI_STATUS=""
+  FM_FAKE_RUNS_LIST=""
+  printf 'working [at=1]: implementing the thing\n' > "$d/state/feat-limit-no-match.status"
+  cat > "$d/policy.json" <<'EOF'
+{"version":2,"rules":[],"default_ladder":[],"providers":[
+{"id":"codex","refusal_patterns":[{"pattern":"quota exhausted","reset":"provider-reset-time-or-quota-axi"}]}
+]}
+EOF
+  FM_CREW_STATE_POLICY="$d/policy.json"
+  export FM_CREW_STATE_POLICY
+  FM_FAKE_PANE_CAPTURE="› Ask Codex to do anything
+────────────────────────────────────────
+You've hit your usage limit. Upgrade your plan or add credits to continue, or try again at Oct 29, 2026, 10:05 PM.
+› "
+  export FM_FAKE_PANE_CAPTURE
+  out=$(run_crew_state "$d" feat-limit-no-match)
+  assert_contains "$out" "state: working" "wording outside the policy is not a limit verdict"
+  assert_not_contains "$out" "state: blocked" "no policy match must not read blocked"
+  pass "limit wording the policy does not declare never blocks (no second list)"
+}
+
+test_usage_limit_pane_overrides_working_run() {
+  reset_fakes
+  local d out
+  d=$(new_case usage-limit-run)
+  make_repo_on_branch "$d/wt" fm/feat-limit-run
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-limit-run.meta" "window=fm:fm-feat-limit-run" "worktree=$d/wt" "kind=ship" "harness=codex"
+  FM_FAKE_AXI_STATUS="$(run_running fm/feat-limit-run)"
+  FM_FAKE_RUNS_LIST=""
+  write_limit_policy "$d/policy.json"
+  FM_CREW_STATE_POLICY="$d/policy.json"
+  export FM_CREW_STATE_POLICY
+  FM_FAKE_PANE_CAPTURE="› Ask Codex to do anything
+────────────────────────────────────────
+You've hit your usage limit. Upgrade your plan or add credits to continue, or try again at Oct 29, 2026, 10:05 PM.
+› "
+  export FM_FAKE_PANE_CAPTURE
+  out=$(run_crew_state "$d" feat-limit-run)
+  assert_contains "$out" "state: blocked" "a limit pane beats an attributed working run"
+  assert_contains "$out" "source: run-step" "the override keeps the run-step source"
+  assert_contains "$out" "provider codex" "the blocking provider is named"
+  pass "a working run whose worker sits at a usage limit reads blocked"
+}
+
+test_usage_limit_pane_blocks_secondmate() {
+  reset_fakes
+  local d out
+  d=$(new_case usage-limit-mate)
+  make_repo_on_branch "$d/wt" fm/feat-limit-mate
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-limit-mate.meta" "window=fm:fm-feat-limit-mate" "worktree=$d/wt" "kind=secondmate" "harness=codex"
+  FM_FAKE_AXI_STATUS=""
+  FM_FAKE_RUNS_LIST=""
+  printf 'working [at=1]: watching the video home\n' > "$d/state/feat-limit-mate.status"
+  write_limit_policy "$d/policy.json"
+  FM_CREW_STATE_POLICY="$d/policy.json"
+  export FM_CREW_STATE_POLICY
+  FM_FAKE_PANE_CAPTURE="› Ask Codex to do anything
+────────────────────────────────────────
+You've hit your usage limit. Upgrade your plan or add credits to continue, or try again at Oct 29, 2026, 10:05 PM.
+› "
+  export FM_FAKE_PANE_CAPTURE
+  out=$(run_crew_state "$d" feat-limit-mate)
+  assert_contains "$out" "state: blocked" "a secondmate on a limit notice reads blocked, not idle"
+  assert_contains "$out" "provider codex" "the blocking provider is named"
+  pass "a secondmate parked at a usage limit reads blocked"
+}
+
+# ---------------------------------------------------------------------------
 # (p) The declared-stop RECORD itself (bin/fm-stopped-lib.sh): pure functions
 #     over exact bytes on disk - no agent, no backend, no endpoint. The pairing
 #     with a verified-gone agent is proven in (o); the absorb it licenses in
@@ -6441,6 +6617,12 @@ test_declared_stop_never_overrides_a_live_agent
 test_declared_stop_absorb_predicate_end_to_end
 test_generic_dispatch_exhaustion_blocks_any_harness
 test_expired_generic_dispatch_exhaustion_does_not_block
+test_usage_limit_pane_blocks_codex_worker
+test_usage_limit_pane_blocks_opencode_worker
+test_usage_limit_pane_blocks_claude_worker
+test_usage_limit_pane_without_policy_match_stays_working
+test_usage_limit_pane_overrides_working_run
+test_usage_limit_pane_blocks_secondmate
 test_stopped_record_round_trips_reason_and_incarnation
 test_stopped_record_stops_binding_when_the_incarnation_changes
 test_stopped_absent_record_is_never_declared

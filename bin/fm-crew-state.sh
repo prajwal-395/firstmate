@@ -120,7 +120,9 @@
 #      forge evidence leaves the original failed or unknown classification.
 #      A monitor whose only remaining job is to observe a merge decision must not
 #      convert the absence of that decision into a failure verdict
-#      (nm_reclassify_failed_run_as_held_green). In the
+#      (nm_reclassify_failed_run_as_held_green). A working run whose pane shows
+#      the provider's own usage/quota refusal reads blocked with that provider
+#      and its reset time. In the
 #      coarse runs-ledger fallback (no steps table, no ci log), a terminal
 #      FAILED record whose daemon an explicit probe proves down reads unknown,
 #      never failed: an instrument failure must not read as work failure
@@ -152,7 +154,9 @@
 #      writer is no longer around to advance. An agent that is merely idle or
 #      unreachable is never reported gone, and neither is one whose record was
 #      published so recently that its harness cannot be expected to have
-#      started yet (the registration grace at within_spawn_grace, below). Then
+#      started yet (the registration grace at within_spawn_grace, below). A pane
+#      showing the provider's own usage/quota refusal reads `blocked` with that
+#      provider and its reset time, for every kind. Then
 #      the recorded backend's pane busy state, then the status log's last line
 #      only when its verb maps to a recognized run-state. A busy unified-
 #      dispatch lane with a current reset record reads `blocked`, not working.
@@ -517,6 +521,114 @@ fm_crew_dispatch_exhaustion_detail() {
   detail=$("$SCRIPT_DIR/fm-dispatch-reset.sh" check "$STATE" "$provider" "$model" "$workspace" 2>/dev/null) || return 1
   printf 'dispatch candidate exhausted (%s/%s on %s; %s); no forward progress until reset' \
     "$provider" "$model" "$workspace" "$detail"
+}
+
+# Provider usage/quota-limit pane detection (2026-10 incident: Codex workers
+# sat at the vendor limit screen while current-state reported working from a
+# stale status line or idle from a quiet turn). A worker parked on its
+# provider's own refusal notice reads blocked with the provider and the reset
+# time when the pane shows one - never working, idle, or done.
+#
+# The wording lives in exactly two places and is never copied here:
+# providers[].refusal_patterns in the dispatch policy (FM_CREW_STATE_POLICY
+# override, else $FM_HOME/config/dispatch-policy.json, else the tracked
+# docs/examples/dispatch-policy.json), which also attributes the provider,
+# and bin/fm-composer-lib.sh's own OpenCode limit row matcher, which covers
+# the no-policy fallback. First match wins across candidates ordered most
+# specific first (this task's dispatched provider, then its harness family,
+# then policy file order), so shared wording such as "usage limit" attributes
+# to the provider this task routes through.
+fm_crew_usage_limit_policy() {
+  if [ -n "${FM_CREW_STATE_POLICY:-}" ]; then
+    [ -r "$FM_CREW_STATE_POLICY" ] && printf '%s' "$FM_CREW_STATE_POLICY" && return 0
+    return 1
+  fi
+  if [ -r "$FM_HOME/config/dispatch-policy.json" ]; then
+    printf '%s' "$FM_HOME/config/dispatch-policy.json"
+    return 0
+  fi
+  if [ -r "$SCRIPT_DIR/../docs/examples/dispatch-policy.json" ]; then
+    printf '%s' "$SCRIPT_DIR/../docs/examples/dispatch-policy.json"
+    return 0
+  fi
+  return 1
+}
+
+fm_crew_usage_limit_harness_providers() {  # <harness> -> one provider id per line
+  case "${1:-}" in
+    codex*) printf 'codex\n' ;;
+    opencode*) printf 'opencode\nopencode-go\n' ;;
+    claude*) printf 'anthropic\n' ;;
+    gemini*) printf 'google\n' ;;
+  esac
+}
+
+fm_crew_usage_limit_detail() {
+  local target=${1:-$BACKEND_TARGET} text=${2:-} policy provider pattern
+  local candidates seen matched reset excerpt
+  [ -n "$target" ] || return 1
+  if [ -z "$text" ]; then
+    text=$(fm_backend_capture "$TASK_BACKEND" "$target" 60 "$EXPECTED_LABEL" 2>/dev/null) || return 1
+    [ -n "$text" ] || return 1
+  fi
+  command -v jq >/dev/null 2>&1 || return 1
+  policy=$(fm_crew_usage_limit_policy) || return 1
+  candidates=$(printf '%s\n%s\n%s' \
+    "$(sed -n 's/^dispatch_route_provider=//p' "$META" 2>/dev/null | tail -n 1)" \
+    "$(fm_crew_usage_limit_harness_providers "$HARNESS")" \
+    "$(jq -r '.providers[]? | .id' "$policy" 2>/dev/null)")
+  matched=""
+  seen=" "
+  while IFS= read -r provider || [ -n "$provider" ]; do
+    [ -n "$provider" ] || continue
+    case "$seen" in
+      *" $provider "*) continue ;;
+    esac
+    seen="$seen$provider "
+    while IFS= read -r pattern || [ -n "$pattern" ]; do
+      [ -n "$pattern" ] || continue
+      if printf '%s\n' "$text" | grep -Eiq -- "$pattern" 2>/dev/null; then
+        matched=$provider
+        break 2
+      fi
+    done <<PATTERNS
+$(jq -r --arg provider "$provider" '.providers[]? | select(.id == $provider) | .refusal_patterns[]? | .pattern' "$policy" 2>/dev/null)
+PATTERNS
+  done <<PROVIDERS
+$candidates
+PROVIDERS
+  if [ -z "$matched" ]; then
+    if printf '%s\n' "$text" | (
+      . "$SCRIPT_DIR/fm-composer-lib.sh" >/dev/null 2>&1 || exit 1
+      while IFS= read -r row || [ -n "$row" ]; do
+        _fm_composer_row_is_opencode_limit_notice "$row" 2>/dev/null && exit 0
+      done
+      exit 1
+    ); then
+      matched=$(sed -n 's/^dispatch_route_provider=//p' "$META" 2>/dev/null | tail -n 1)
+      if [ -z "$matched" ]; then
+        matched=$(fm_crew_usage_limit_harness_providers "$HARNESS" | head -n 1)
+      fi
+      [ -n "$matched" ] || matched=opencode
+    fi
+  fi
+  [ -n "$matched" ] || return 1
+  reset=$(printf '%s\n' "$text" \
+    | grep -Eo '20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2})?Z' 2>/dev/null | tail -n 1)
+  if [ -z "$reset" ]; then
+    reset=$(printf '%s\n' "$text" \
+      | grep -Eio 'try again at [^.|;<>]*' 2>/dev/null | tail -n 1)
+  fi
+  if [ -z "$reset" ]; then
+    reset=$(printf '%s\n' "$text" \
+      | grep -Eio 'resets?[^.|;<>]{0,48}' 2>/dev/null | tail -n 1)
+  fi
+  excerpt=$(printf '%s' "$reset" | tr '\n\t' ' ' | tr -s ' ' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | cut -c1-120)
+  if [ -n "$excerpt" ]; then
+    printf 'provider %s usage limit (%s)' "$matched" "$excerpt"
+  else
+    printf 'provider %s usage limit (no reset time shown)' "$matched"
+  fi
 }
 
 # --- no-mistakes run lookup (authoritative when a run matches this branch) --
@@ -1400,6 +1512,15 @@ if [ "$HAVE_RUN" = 1 ]; then
       ;;
   esac
 
+  # A worker parked on its provider's usage/quota notice is blocked even while
+  # its run still reads working: the run cannot advance until the quota resets.
+  # Terminal and parked run verdicts keep their own reading.
+  if [ "$RUN_STATE" = working ]; then
+    if USAGE_LIMIT_DETAIL=$(fm_crew_usage_limit_detail); then
+      RUN_STATE=blocked
+      RUN_DETAIL="$USAGE_LIMIT_DETAIL"
+    fi
+  fi
   [ -z "$SELECTED_RUN_ID" ] || RUN_DETAIL="$RUN_DETAIL${SEP}run: $SELECTED_RUN_ID"
   emit "$RUN_STATE" run-step "$RUN_DETAIL"
 fi
@@ -1559,6 +1680,17 @@ if [ "$AGENT_STATE" = dead ] \
     EXIT_LAST="no status events"
   fi
   emit exited pane "harness agent exited without a terminal status line ($EXIT_LAST); its work is intact at $WT - read the deliverable to tell finished from stopped mid-task, and do not assume either"
+fi
+
+# A worker parked on its provider's usage/quota notice reads blocked with the
+# provider and the reset time when the pane shows one - never working from a
+# stale status line, idle from a quiet turn, or unknown. This sits above the
+# busy and status-log reads for every kind (a quiet secondmate pane is healthy,
+# but a secondmate frozen on a limit notice is not idle), and below the
+# dead/suspended/exited/stopped verdicts (an agent that left limit text behind
+# in its scrollback already reported its departure).
+if USAGE_LIMIT_DETAIL=$(fm_crew_usage_limit_detail); then
+  emit blocked pane "$USAGE_LIMIT_DETAIL"
 fi
 
 # Secondmates idle on their own watcher (idle pane = healthy), so the busy
