@@ -13,8 +13,13 @@
 #   pi, pi-signed   PI_CODING_AGENT_DIR   config/pi-account
 #
 # The pin is opt-in: an absent file is no pin, and the launch keeps today's
-# ambient behavior byte for byte. A present file must resolve, or the launch
-# refuses; nothing falls back to an ambient or vendor-default login once a
+# ambient behavior byte for byte. A Claude pin governs only the workers a home
+# dispatches - ships, scouts, and raw Claude commands, plus their relaunches.
+# A local secondmate agent is a supervisor, not a worker, so under a present
+# Claude pin its launch and relaunch resolve as `ordinary` (the default login,
+# CLAUDE_CONFIG_DIR unset) whatever the file names; a Pi pin still applies to
+# every Pi launch, secondmates included. A present file must resolve, or the
+# launch refuses; nothing falls back to an ambient or vendor-default login once a
 # home has declared one. `ordinary` selects the vendor default: for Claude
 # that is CLAUDE_CONFIG_DIR unset, because Claude reads $CLAUDE_CONFIG_DIR/
 # .claude.json and keys its macOS Keychain entry to any CLAUDE_CONFIG_DIR that
@@ -124,14 +129,16 @@ fm_worker_account_config() {
   esac
 }
 
-# fm_worker_account_resolve <harness> <config-dir> <setting>
+# fm_worker_account_resolve <harness> <config-dir> <setting> [<kind>]
 # Prints "declared<TAB>root<TAB>providers" for a valid pin, where root is the
 # directory the launch selects (empty for ordinary Claude, meaning
 # CLAUDE_CONFIG_DIR unset). Prints nothing and returns 0 when the runner is
 # not pinnable or the home has no pin. On refusal prints one error naming the
-# file and returns 1.
+# file and returns 1. A kind of `secondmate` turns a valid Claude pin into
+# `ordinary` (header above); the file must still parse, so a malformed pin
+# refuses every launch alike.
 fm_worker_account_resolve() {
-  local harness=$1 config=$2 setting=$3 file cfg token rc declared root fallback
+  local harness=$1 config=$2 setting=$3 kind=${4:-} file cfg token rc declared root fallback
   file=$(fm_worker_account_file "$harness") || return 0
   cfg="$config/$file"
   token=$(fm_worker_account_read "$harness" "$cfg")
@@ -154,6 +161,7 @@ fm_worker_account_resolve() {
     ;;
   esac
   declared=${token%%$'\t'*}
+  [ "$harness:$kind" != claude:secondmate ] || declared=ordinary
   root=$declared
   # shellcheck disable=SC2088  # The fallbacks are literal text for the refusal.
   case "$harness" in
@@ -239,8 +247,9 @@ fm_worker_account_check() {
   return 0
 }
 
-# fm_worker_account_select <harness> <config-dir> <model> <executable> [<raw-command>] [<secondmate-id>]
-# The whole launch-time decision. Prints nothing for an unpinned runner, so
+# fm_worker_account_select <harness> <config-dir> <model> <executable> [<raw-command>] [<secondmate-id>] [<kind>]
+# The whole launch-time decision; kind is the launch's task kind, passed to
+# fm_worker_account_resolve. Prints nothing for an unpinned runner, so
 # the caller keeps today's launch unchanged. For a pinned one prints
 # "declared<TAB>root<TAB>provider", where provider is the Pi launch model's
 # own (empty for Claude), after the model guard and the sign-in check pass. On
@@ -248,12 +257,15 @@ fm_worker_account_check() {
 # endpoint exists, and bin/fm-control.sh before a relaunch stops the live
 # agent.
 fm_worker_account_select() {
-  local harness=$1 config=$2 model=$3 executable=$4 raw=${5:-} mate=${6:-}
+  local harness=$1 config=$2 model=$3 executable=$4 raw=${5:-} mate=${6:-} kind=${7:-}
   local selection declared root providers word provider='' selected_config setting
   selected_config=$(fm_worker_account_config "$harness" "$config" "$mate") || return 1
   setting="config/$(fm_worker_account_file "$harness")"
   [ "$selected_config" = "$config" ] || setting="$selected_config/$(fm_worker_account_file "$harness")"
-  selection=$(fm_worker_account_resolve "$harness" "$selected_config" "$setting") || return 1
+  # Only the home-wide pin is a worker pin a secondmate supervisor sheds; a
+  # per-secondmate pin is that secondmate's own explicit account.
+  [ "$selected_config" = "$config" ] || kind=
+  selection=$(fm_worker_account_resolve "$harness" "$selected_config" "$setting" "$kind") || return 1
   if [ -z "$selection" ]; then
     [ "$selected_config" = "$config" ] && return 0
     echo "error: secondmate account pin disappeared during selection: $setting" >&2

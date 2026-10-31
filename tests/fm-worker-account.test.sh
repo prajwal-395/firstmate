@@ -232,7 +232,7 @@ test_malformed_pins_refuse_before_launch() {
 }
 
 test_pi_pin_selects_the_root_and_the_declared_provider() {
-  local out rc id=acct-pi launch
+  local out rc id=acct-pi
   new_case pi-pin pi
   mkdir -p "$CASE/pi-work"
   printf 'openai-codex\n' > "$CASE/pi-work/signed-in"
@@ -245,9 +245,6 @@ test_pi_pin_selects_the_root_and_the_declared_provider() {
   assert_grep "account_provider=openai-codex" "$HOME_DIR/state/$id.meta" "the task record should carry the pinned provider"
   [ "$(cat "$CASE/pi-checks")" = "$CASE/pi-work openai-codex" ] \
     || fail "the sign-in check should ask the pinned root about the model's provider: $(cat "$CASE/pi-checks")"
-  launch=$(cat "$CASE/launch.log")
-  assert_contains "$launch" "--provider 'openai-codex' --model 'openai-codex/gpt-5.5'" \
-    "the launch should confine Pi's model lookup to the declared provider"
   run_pane
   assert_grep "PI_CODING_AGENT_DIR=$CASE/pi-work" "$CASE/pi-worker" "the worker should run under the pinned Pi root"
   assert_grep "--provider openai-codex --model openai-codex/gpt-5.5" "$CASE/pi-worker" \
@@ -360,10 +357,11 @@ test_raw_claude_account_override_is_kept_without_a_pin() {
   pass "an unpinned home keeps a raw Claude account override"
 }
 
-test_local_secondmate_reads_the_launching_home_pin() {
+test_local_secondmate_stays_on_the_default_login_under_a_claude_pin() {
   local out rc id=acct-sm sm
   new_case secondmate claude
   signed_in_claude_root "$CASE/work"
+  signed_in_claude_root "$HOME_DIR/user-home/.claude"
   printf '%s\n' "$CASE/work" > "$HOME_DIR/config/claude-account"
   sm="$CASE/secondmate-home"
   mkdir -p "$sm/bin" "$sm/data" "$sm/config" "$CASE/sm-own"
@@ -375,14 +373,20 @@ test_local_secondmate_reads_the_launching_home_pin() {
   signed_in_claude_root "$CASE/ambient-claude"
   out=$(FM_FAKE_LAUNCH_LOG="$CASE/launch.log" FM_TEST_CLAUDE_CONFIG_DIR="$CASE/ambient-claude" \
     fm_test_run_spawn "$HOME_DIR" "$WT" "$FAKEBIN" "$id" "$sm" --secondmate); rc=$?
-  expect_code 0 "$rc" "a local secondmate spawn under the launching home's pin should succeed: $out"
-  assert_contains "$out" "account=$CASE/work" "the secondmate spawn should report the launching home's pin"
+  expect_code 0 "$rc" "a local secondmate spawn under a Claude pin should succeed: $out"
+  assert_contains "$out" "account=ordinary" "the secondmate spawn should report the default login"
+  assert_not_contains "$out" "account=$CASE/work" "the secondmate spawn must not take the worker pin"
   [ "$(cat "$sm/config/claude-account")" = "$CASE/sm-own" ] \
     || fail "the launching home's pin must not be inherited over the secondmate home's own file"
   run_pane
+  assert_grep "CLAUDE_CONFIG_DIR=unset" "$CASE/claude-worker" \
+    "the secondmate agent must not receive the pinned CLAUDE_CONFIG_DIR"
+  out=$(spawn_ship acct-sm-ship); rc=$?
+  expect_code 0 "$rc" "a ship from the same home should succeed: $out"
+  run_pane
   assert_grep "CLAUDE_CONFIG_DIR=$CASE/work" "$CASE/claude-worker" \
-    "the secondmate agent should run under the launching home's pinned root"
-  pass "a local secondmate reads the launching home's pin and its own home's file is never inherited over"
+    "a ship from the same home must still run under the pinned root"
+  pass "a local secondmate stays on the default Claude login while ships from that home keep the pin"
 }
 
 spawn_account_secondmate() {
@@ -426,10 +430,16 @@ test_secondmate_account_override() {
     if [ "$harness" != claude ]; then
       assert_grep '--provider openai-codex' "$CASE/$worker-worker" "the mate must receive its pinned provider"
     fi
+    [ "$harness" != claude ] || signed_in_claude_root "$HOME_DIR/user-home/.claude"
     out=$(spawn_account_secondmate acct-other --model openai-codex/gpt-5.5); rc=$?
-    expect_code 0 "$rc" "an unconfigured secondmate should keep the primary's pin: $out"
+    expect_code 0 "$rc" "an unconfigured secondmate should launch: $out"
     run_pane
-    assert_grep "$variable=$CASE/primary" "$CASE/$worker-worker" "another mate must not receive the override"
+    if [ "$harness" = claude ]; then
+      # A home-wide Claude pin is a worker pin a secondmate supervisor sheds.
+      assert_grep "$variable=unset" "$CASE/$worker-worker" "an unconfigured Claude mate must stay on the default login"
+    else
+      assert_grep "$variable=$CASE/primary" "$CASE/$worker-worker" "another mate must not receive the override"
+    fi
     out=$(spawn_ship acct-ship --model openai-codex/gpt-5.5); rc=$?
     expect_code 0 "$rc" "an ordinary worker must keep the primary's pin: $out"
     run_pane
@@ -500,6 +510,6 @@ test_a_pin_governs_only_its_own_runner
 test_raw_claude_command_receives_the_pin
 test_raw_claude_account_override_refuses_under_a_pin
 test_raw_claude_account_override_is_kept_without_a_pin
-test_local_secondmate_reads_the_launching_home_pin
+test_local_secondmate_stays_on_the_default_login_under_a_claude_pin
 
 echo "# all fm-worker-account tests passed"

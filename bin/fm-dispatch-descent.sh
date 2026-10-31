@@ -15,16 +15,19 @@ RESOLVE="$SCRIPT_DIR/fm-dispatch-resolve.sh"
 CONTROL=${FM_DISPATCH_DESCENT_CONTROL_BIN:-$SCRIPT_DIR/fm-control.sh}
 STATE_READER=${FM_DISPATCH_DESCENT_STATE_BIN:-$SCRIPT_DIR/fm-crew-state.sh}
 ONLY_ID=${2:-}
+# shellcheck source=bin/fm-quota-axi-lib.sh
+. "$SCRIPT_DIR/fm-quota-axi-lib.sh"
 
 [ -d "$STATE" ] && [ -r "$POLICY" ] || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 
 # Refresh the shared reset store from the one quota-axi snapshot before any
-# worker-specific decision. Missing or stale quota data remains a soft miss.
+# worker-specific decision, reusing a recent reading under FM_QUOTA_AXI_MAX_AGE
+# (bin/fm-quota-axi-lib.sh). Missing or stale quota data remains a soft miss.
 if command -v quota-axi >/dev/null 2>&1; then
   quota_snapshot=$(mktemp "${TMPDIR:-/tmp}/fm-dispatch-descent-quota.XXXXXX") || quota_snapshot=
   if [ -n "$quota_snapshot" ]; then
-    if quota-axi --json > "$quota_snapshot" 2>/dev/null; then
+    if QUOTA_AXI_MAX_AGE=$FM_QUOTA_AXI_MAX_AGE quota-axi --json > "$quota_snapshot" 2>/dev/null; then
       "$RESET" sync-quota "$STATE" "$POLICY" "$quota_snapshot" >/dev/null 2>&1 || true
     fi
     rm -f "$quota_snapshot"

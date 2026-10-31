@@ -109,9 +109,13 @@ if [ -e "$RULES_PATH" ] || [ -L "$RULES_PATH" ]; then
   NORMALIZED="$RULES.v1"
   jq --arg home_role "$home_role" '
     def profiles($v): if ($v | type) == "array" then $v elif ($v | type) == "object" then [$v] else [] end;
+    # Claude is spelled "claude" by quota-axi and Claude rungs and "anthropic"
+    # by the migrated approval and research-deny constraints; both name one
+    # provider family here, so neither spelling can disarm a constraint.
+    def provider_family($x): if $x == "anthropic" then "claude" else $x end;
     def constrain($p; $constraints):
-      ($p.provider // "") as $provider
-      | ([$constraints[]? | select((.when.scope // "worker") == "worker" and (.when.provider // $provider) == $provider)
+      provider_family($p.provider // "") as $provider
+      | ([$constraints[]? | select((.when.scope // "worker") == "worker" and provider_family(.when.provider // $provider) == $provider)
           | select((.when.home_role == null) or (.when.home_role == $home_role))]) as $matches
       | $p + {
           _dispatch_unified: true,
@@ -288,8 +292,9 @@ make_response "$RESOLUTION_CHOICE"
 [ -z "$DEFAULT_REASON" ] || [ -n "$PROJECT_RULE_INDEX" ] || [ -n "$DECLARE" ] || echo "dispatch-resolve: $DEFAULT_REASON" >&2
 
 # ---- quota evidence: one quota-axi --json snapshot -----------------------------
+# Reuses a recent reading under FM_QUOTA_AXI_MAX_AGE (bin/fm-quota-axi-lib.sh).
 command -v quota-axi >/dev/null 2>&1 || emit_error "quota-axi not installed"
-quota-axi --json > "$QUOTA" 2>/dev/null || emit_error "quota-axi --json failed"
+QUOTA_AXI_MAX_AGE=$FM_QUOTA_AXI_MAX_AGE quota-axi --json > "$QUOTA" 2>/dev/null || emit_error "quota-axi --json failed"
 fm_quota_json_valid < "$QUOTA" || emit_error "quota-axi --json returned an invalid snapshot"
 if [ "$(jq -r '.version // 1' "$RULES_PATH" 2>/dev/null)" = 2 ]; then
   jq --slurpfile quota "$QUOTA" '

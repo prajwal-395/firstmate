@@ -493,8 +493,10 @@
 # Worker account pin (config/claude-account, config/pi-account):
 #   Opt-in. docs/configuration.md's "Worker account pin" section owns unpinned
 #   account selection. A present file pins every supported launch of
-#   that runner from this home - ship, scout, local secondmate, raw Claude
-#   command, and relaunch - to the declared account root, and the spawn
+#   that runner from this home - ship, scout, raw Claude command, and
+#   relaunch, plus local secondmates for Pi - to the declared account root,
+#   while a local secondmate Claude launch takes the ordinary account
+#   (CLAUDE_CONFIG_DIR unset) unless it has its own per-secondmate pin; the spawn
 #   refuses before any endpoint, worktree, or record exists when the file is
 #   malformed, the root is unusable, or the runner's own check says it is not
 #   signed in. A pinned Claude launch sheds the environment credentials Claude
@@ -3680,7 +3682,7 @@ WORKER_ACCOUNT_PROVIDER=
 if [ "$PI_OPENCODE_GO" -eq 1 ]; then
   WORKER_ACCOUNT=
 else
-  WORKER_ACCOUNT=$(fm_worker_account_select "$HARNESS" "$CONFIG" "$MODEL" "${PI_BIN:-$HARNESS}" "$RAW_COMMAND" "$WORKER_ACCOUNT_MATE") || exit 1
+  WORKER_ACCOUNT=$(fm_worker_account_select "$HARNESS" "$CONFIG" "$MODEL" "${PI_BIN:-$HARNESS}" "$RAW_COMMAND" "$WORKER_ACCOUNT_MATE" "$KIND") || exit 1
 fi
 if [ -n "$WORKER_ACCOUNT" ]; then
   WORKER_ACCOUNT_DECLARED=${WORKER_ACCOUNT%%$'\t'*}
@@ -3689,7 +3691,7 @@ if [ -n "$WORKER_ACCOUNT" ]; then
   WORKER_ACCOUNT_ROOT=${WORKER_ACCOUNT_ROOT%%$'\t'*}
 fi
 if [ "$PI_OPENCODE_GO" -eq 1 ]; then
-  PI_ACCOUNT_RESOLVED=$(fm_worker_account_resolve pi "$CONFIG") || exit 1
+  PI_ACCOUNT_RESOLVED=$(fm_worker_account_resolve pi "$CONFIG" config/pi-account) || exit 1
   if [ -n "$PI_ACCOUNT_RESOLVED" ]; then
     WORKER_ACCOUNT_DECLARED=${PI_ACCOUNT_RESOLVED%%$'\t'*}
     PI_ACCOUNT_REST=${PI_ACCOUNT_RESOLVED#*$'\t'}

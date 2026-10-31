@@ -19,6 +19,22 @@
 # bind a candidate to its row under either schema.
 
 FM_QUOTA_AXI_MIN=0.1.29
+
+# Reading reuse: every firstmate quota read (dispatch resolution, exhaustion
+# descent, and the process-event quota poll) runs `quota-axi --json` with
+# QUOTA_AXI_MAX_AGE set to this bound, so quota-axi serves a provider's last
+# successful reading while it is younger than the bound and processes starting
+# together share one vendor read. Without it each dispatch decision in every
+# home asked the vendor afresh, and Claude's usage endpoint rate-limited the
+# fleet. 60s keeps a reading within one default quota-poll interval while
+# collapsing a burst of dispatches across homes into one vendor call; none of
+# these reads needs a fresher one, because a worker's own exhaustion is
+# recorded in the dispatch exhaustion store, which the resolver applies on top
+# of the quota rows. The environment variable rather than --max-age keeps a
+# build that predates reuse working: it ignores the variable and reads fresh.
+# An operator may override the bound by exporting FM_QUOTA_AXI_MAX_AGE (0
+# disables reuse).
+FM_QUOTA_AXI_MAX_AGE=${FM_QUOTA_AXI_MAX_AGE:-60s}
 FM_QUOTA_PROVIDER_ID_RE='^[a-z0-9]+(-[a-z0-9]+)*\z'
 
 # The eligibility section of .agents/skills/quota-array-dispatch/SKILL.md

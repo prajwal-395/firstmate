@@ -1493,8 +1493,9 @@ An unqualified model, an undeclared provider, or a raw Pi launch command, which 
 
 ### Launch scope and sign-in checks
 
-When a file is present, supported command-line launches of that runner from this home use it: ships, scouts, local secondmate agents, raw Claude launch commands, and relaunches.
-A local secondmate can override this default with its own [per-secondmate account pin](#per-secondmate-account-pins).
+When a file is present, supported command-line worker launches of that runner from this home use it: ships, scouts, raw Claude launch commands, and their relaunches.
+A local secondmate agent is a supervisor rather than a worker, so under `config/claude-account` its launch and relaunch use the `ordinary` account, the default Claude login with `CLAUDE_CONFIG_DIR` unset, whatever the file names; firstmate and its secondmates stay on one login while their workers spend the pinned one.
+`config/pi-account` still applies to local secondmate Pi launches, and either runner can be set for one local secondmate with its own [per-secondmate account pin](#per-secondmate-account-pins).
 T3 Code selects the account through its provider instance instead, so `backend=t3code` refuses a worker account pin before mutation; [`t3code-backend.md`](t3code-backend.md#active-limits) owns that backend limit.
 A raw Claude launch command refuses if its leading assignments set `CLAUDE_CONFIG_DIR` or a credential that a pinned launch unsets, such as `ANTHROPIC_API_KEY`.
 The assignment would override the pin.
@@ -1512,7 +1513,7 @@ A home that authenticates Claude through environment credentials on purpose shou
 A malformed file, a root that is not a readable directory, or a signed-out account refuses the launch and names the file to fix; Firstmate never falls back to the ambient account and never changes a global login or copies a credential.
 The spawn prints the pin as `account=` (plus `account_provider=` for Pi) and records the same fields in the task record, so the session-start digest shows which account each worker launched on.
 
-Pins are not inherited into secondmate homes: the secondmate's own workers read that home's `config/claude-account` and `config/pi-account` files independently.
+Pins are not inherited into secondmate homes: the launching home's files decide a local secondmate agent's own launch, while the secondmate's own workers read the secondmate home's files.
 A remote secondmate is launched on its host from its own home's configuration, so create the file in that remote home.
 
 [`bin/fm-worker-account-lib.sh`](../bin/fm-worker-account-lib.sh) owns parsing, the sign-in check, and the full list of credentials a Claude launch unsets; [runtime backend verification](verification/runtime-backends.md#worker-account-pin-sign-in-check) records the check against the real runners.
@@ -1522,6 +1523,7 @@ A remote secondmate is launched on its host from its own home's configuration, s
 To choose an account for one local secondmate's own agent, create `config/secondmate-accounts/<id>/claude-account` or `config/secondmate-accounts/<id>/pi-account` in the primary home.
 Use the secondmate's registered identifier for `<id>`.
 These private files use the same [file format and provider selection](#file-format-and-provider-selection), sign-in checks, and refusal rules as the home-wide worker pins.
+A per-secondmate `claude-account` is that secondmate's own explicit choice, so it applies even though the home-wide `config/claude-account` never reaches a local secondmate.
 
 The matching per-secondmate file overrides the primary home's matching worker pin for that secondmate alone.
 An absent per-secondmate file preserves the existing home-wide pin or unpinned behavior exactly.
@@ -1725,6 +1727,7 @@ Rungs may be any length, and a workspace or account is an ordinary configured va
 Account labels use letters, digits, underscores, or hyphens and begin with a letter or digit.
 `account_strategy` is `ordered` (the default) or `reset-soonest-yield-shorter-reset`, which ranks the configured account rows by their next known quota reset before testing eligibility.
 `constraints` can deny a provider for a home role or require captain approval for a worker route.
+Constraint matching treats `claude` and `anthropic` as one provider, so a Claude rung is gated under either spelling.
 `providers[].refusal_patterns` declares provider-specific refusal wording and reset policy.
 `bin/fm-crew-state.sh` reuses the same patterns to report a worker parked on a matching pane notice as blocked.
 `reset` supports `next-utc-day`, `retry-after-iso8601`, `retry-after-iso8601-or-next-utc-day`, or `provider-reset-time-or-quota-axi`; reset timestamps found in refusal text are stored as absolute epochs.
