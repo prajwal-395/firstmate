@@ -1108,7 +1108,7 @@ for a in "$@"; do
     --base-branch) want_value='base-branch' ;;
     --base-branch=*) BASE_BRANCH=${a#--base-branch=}; BASE_BRANCH_SET=1 ;;
     --traceparent) want_value=traceparent ;;
-    --upstream-consent) want_value=upstream-consent ;;
+    --upstream-consent) want_value='upstream-consent' ;;
     --upstream-consent=*) UPSTREAM_CONSENT=${a#--upstream-consent=}; UPSTREAM_CONSENT_SET=1 ;;
     --traceparent=*) TRACEPARENT_ARG=${a#--traceparent=}; TRACEPARENT_SET=1 ;;
     --opencode-workspace) want_value=opencode-workspace ;;
