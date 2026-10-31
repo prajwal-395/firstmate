@@ -104,7 +104,8 @@ valid_percent() {
 }
 
 # quota_json [timeout]
-# Run `quota-axi --json` bounded by the given timeout.
+# Run `quota-axi --json` bounded by the given timeout, reusing a recent
+# reading under FM_QUOTA_AXI_MAX_AGE (bin/fm-quota-axi-lib.sh).
 # Exit status: 0 prints JSON; 1 timed out; 2 missing; 3 incompatible; 4 other failure.
 # A missing or incompatible quota-axi is an error condition, not a signal to fire.
 # Callers tolerate a bounded streak of 1/4 before going terminal; 2/3 stay distinct.
@@ -128,7 +129,7 @@ quota_json() {
     fi
     fm_quota_axi_version_compatible "$output" || return 3
     rc=0
-    output=$(fm_run_timed "$timeout" quota-axi --json 2>/dev/null </dev/null) || rc=$?
+    output=$(fm_run_timed "$timeout" env QUOTA_AXI_MAX_AGE="$FM_QUOTA_AXI_MAX_AGE" quota-axi --json 2>/dev/null </dev/null) || rc=$?
     if [ "$rc" -ne 0 ]; then
       if fm_timed_out "$rc"; then
         return 1
@@ -140,7 +141,7 @@ quota_json() {
     output=$(quota-axi --version 2>/dev/null </dev/null) || rc=$?
     [ "$rc" -eq 0 ] || return 4
     fm_quota_axi_version_compatible "$output" || return 3
-    output=$(quota-axi --json 2>/dev/null </dev/null) || return 4
+    output=$(QUOTA_AXI_MAX_AGE=$FM_QUOTA_AXI_MAX_AGE quota-axi --json 2>/dev/null </dev/null) || return 4
   fi
   printf '%s\n' "$output"
 }

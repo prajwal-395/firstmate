@@ -378,8 +378,10 @@
 #   Opt-in. With no file, a Claude or Pi launch is unchanged: Claude still
 #   receives this process's own CLAUDE_CONFIG_DIR when it is set, and Pi the
 #   destination pane's ambient account. A present file pins every launch of
-#   that runner from this home - ship, scout, local secondmate, raw Claude
-#   command, and relaunch - to the declared account root, and the spawn
+#   that runner from this home - ship, scout, raw Claude command, and
+#   relaunch, plus local secondmates for Pi - to the declared account root,
+#   while a local secondmate Claude launch takes the ordinary account
+#   (CLAUDE_CONFIG_DIR unset) whatever config/claude-account names; the spawn
 #   refuses before any endpoint, worktree, or record exists when the file is
 #   malformed, the root is unusable, or the runner's own check says it is not
 #   signed in. A pinned Claude launch sheds the environment credentials Claude
@@ -387,7 +389,8 @@
 #   <provider>/<id> for a declared provider and also carries --provider, and a
 #   raw Pi command refuses. The pin is recorded as account= (and Pi's
 #   account_provider=) in the task record and on the spawned line. A local
-#   secondmate reads this launching home's file; pins are never inherited.
+#   secondmate launch is decided by this launching home's files; pins are
+#   never inherited.
 #   bin/fm-worker-account-lib.sh owns parsing, the check, and the shed list.
 #   Launch templates live in launch_template() below; placeholders replaced before launch:
 #     __BRIEFPOINTER__ shell-quoted instruction naming only the absolute brief path
@@ -2929,7 +2932,7 @@ WORKER_ACCOUNT_PROVIDER=
 if [ "$PI_OPENCODE_GO" -eq 1 ]; then
   WORKER_ACCOUNT=
 else
-  WORKER_ACCOUNT=$(fm_worker_account_select "$HARNESS" "$CONFIG" "$MODEL" "${PI_BIN:-$HARNESS}" "$RAW_COMMAND") || exit 1
+  WORKER_ACCOUNT=$(fm_worker_account_select "$HARNESS" "$CONFIG" "$MODEL" "${PI_BIN:-$HARNESS}" "$RAW_COMMAND" "$KIND") || exit 1
 fi
 if [ -n "$WORKER_ACCOUNT" ]; then
   WORKER_ACCOUNT_DECLARED=${WORKER_ACCOUNT%%$'\t'*}
