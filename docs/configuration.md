@@ -936,7 +936,9 @@ An unqualified model, an undeclared provider, or a raw Pi launch command, which 
 
 ### Launch scope and sign-in checks
 
-When a file is present, every launch of that runner from this home uses it: ships, scouts, local secondmate agents, raw Claude launch commands, and relaunches.
+When a file is present, every worker launch of that runner from this home uses it: ships, scouts, raw Claude launch commands, and their relaunches.
+A local secondmate agent is a supervisor rather than a worker, so under `config/claude-account` its launch and relaunch use the `ordinary` account, the default Claude login with `CLAUDE_CONFIG_DIR` unset, whatever the file names; firstmate and its secondmates stay on one login while their workers spend the pinned one.
+`config/pi-account` still applies to local secondmate Pi launches.
 A raw Claude launch command refuses if its leading assignments set `CLAUDE_CONFIG_DIR` or a credential that a pinned launch unsets, such as `ANTHROPIC_API_KEY`.
 The assignment would override the pin.
 The refusal names the variable; remove that assignment from the raw command, or change or remove `config/claude-account`.
@@ -953,7 +955,7 @@ A home that authenticates Claude through environment credentials on purpose shou
 A malformed file, a root that is not a readable directory, or a signed-out account refuses the launch and names the file to fix; Firstmate never falls back to the ambient account and never changes a global login or copies a credential.
 The spawn prints the pin as `account=` (plus `account_provider=` for Pi) and records the same fields in the task record, so the session-start digest shows which account each worker launched on.
 
-Pins are not inherited into secondmate homes: a local secondmate agent launches on the launching home's pin, while the secondmate's own workers read the secondmate home's files.
+Pins are not inherited into secondmate homes: the launching home's files decide a local secondmate agent's own launch, while the secondmate's own workers read the secondmate home's files.
 A remote secondmate is launched on its host from its own home's configuration, so create the file in that remote home.
 
 [`bin/fm-worker-account-lib.sh`](../bin/fm-worker-account-lib.sh) owns parsing, the sign-in check, and the full list of credentials a Claude launch unsets; [runtime backend verification](verification/runtime-backends.md#worker-account-pin-sign-in-check) records the check against the real runners.
@@ -1084,6 +1086,7 @@ Rungs may be any length, and a workspace or account is an ordinary configured va
 Account labels use letters, digits, underscores, or hyphens and begin with a letter or digit.
 `account_strategy` is `ordered` (the default) or `reset-soonest-yield-shorter-reset`, which ranks the configured account rows by their next known quota reset before testing eligibility.
 `constraints` can deny a provider for a home role or require captain approval for a worker route.
+Constraint matching treats `claude` and `anthropic` as one provider, so a Claude rung is gated under either spelling.
 `providers[].refusal_patterns` declares provider-specific refusal wording and reset policy.
 `bin/fm-crew-state.sh` reuses the same patterns to report a worker parked on a matching pane notice as blocked.
 `reset` supports `next-utc-day`, `retry-after-iso8601`, `retry-after-iso8601-or-next-utc-day`, or `provider-reset-time-or-quota-axi`; reset timestamps found in refusal text are stored as absolute epochs.
