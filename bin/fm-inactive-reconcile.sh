@@ -504,7 +504,7 @@ report_child_ledger_locked() { # <id> <meta>
     && [ ! -f "$(record_path "$fingerprint" pending)" ] \
     && ! fm_dod_accept_ship_done "$(meta_field "$meta" kind)" "$(meta_field "$meta" mode)" \
       "$(meta_field "$meta" worktree)" "$(meta_field "$meta" project)" "$last" \
-      "$STATE" "$id" "$meta" >/dev/null; then
+      "$STATE" "$id" "$meta" meta-locked >/dev/null; then
     return 0
   fi
   # The predecessor head binds the ledger state before this event so a later
