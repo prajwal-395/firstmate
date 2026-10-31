@@ -176,4 +176,16 @@ out=$(run_resolver --declare open-ended --captain-approved)
 assert_equals escalate "$(jq -r .status <<<"$out")" "a research home cannot route to Anthropic even with captain approval"
 pass "captain approval and research-home provider constraints are enforced at resolution"
 
+# Defect: the constraints say provider "anthropic" while Claude rungs and
+# quota-axi say "claude", so an Opus rung spelled "claude" launched unapproved.
+rm -f "$HOME_DIR/data/charter.md"
+jq '(.rules[] | select(.id == "open-ended") | .ladder[]) |= (.provider = "claude" | del(.approval))' \
+  "$ROOT/docs/examples/dispatch-policy.json" > "$HOME_DIR/config/dispatch-policy.json"
+out=$(run_resolver --declare open-ended)
+assert_equals escalate "$(jq -r .status <<<"$out")" "an Opus rung with provider claude requires captain approval"
+printf '%s\n' 'Research charter: this home cannot use Claude.' > "$HOME_DIR/data/charter.md"
+out=$(run_resolver --declare open-ended --captain-approved)
+assert_equals escalate "$(jq -r .status <<<"$out")" "a research home cannot route to a provider claude rung"
+pass "approval and research-deny constraints match a Claude rung spelled provider claude"
+
 printf '# all fm-dispatch-resolve tests passed\n'
