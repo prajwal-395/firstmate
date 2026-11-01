@@ -244,14 +244,6 @@ function isProcessingCustomMessage(message: { role?: string; customType?: string
   return message.role === "custom" && message.customType === PROCESSING_MESSAGE_TYPE;
 }
 
-// Identify the supported custom trigger before prompt-only SDKs can narrow it
-// to never. The message type comes from the public SDK in both releases.
-function isCustomBeforeAgentStart(event: BeforeAgentStartEvent): event is BeforeAgentStartEvent & {
-  message: Extract<MessageStartEvent["message"], { role: "custom" }>;
-} {
-  return !("prompt" in event) && "message" in event;
-}
-
 // Pi persists provider failures as ordinary assistant messages and resolves
 // AgentSession.prompt(), so promise rejection alone cannot detect them. Read
 // only the final assistant entry appended by this prompt: unlike the rebuilt
