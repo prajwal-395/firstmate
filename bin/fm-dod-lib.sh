@@ -501,11 +501,18 @@ fm_ship_checkpoint_instructions() {  # [<paused-verb>]
     '   The pipeline already holds the work durably in that state, so your own push would diverge its validated head.'
 }
 
-fm_dod_block() {  # <mode> <task-id> [branch] [<forge>] [<base>]
-  local mode=$1 id=$2 forge=${4:-none} base=${5:-}
-  local branch=${3:-fm/$id} pr_base='' nm_base='' base_push_guard='' base_q
+fm_dod_block() {  # <mode> <task-id> [branch] [<forge>] [<base>] [<consent>]
+  local mode=$1 id=$2 forge=${4:-none} base=${5:-} consent=${6:-}
+  local branch=${3:-fm/$id} pr_base='' nm_base='' base_push_guard='' base_q contract_consent=''
   fm_forge_valid_for_mode "$forge" "$mode" fm_dod_block || return 1
   fm_base_branch_valid "$base" "$mode" "$forge" fm_dod_block || return 1
+  if [ -n "$consent" ]; then
+    if [ "$mode" = local-only ]; then
+      echo "error: fm_dod_block: upstream consent authorizes a publication that local-only never performs; drop it" >&2
+      return 1
+    fi
+    contract_consent=" upstream-consent=$consent"
+  fi
   if [ -n "$base" ]; then
     printf -v base_q '%q' "$base"
     pr_base=", against the base branch \`$base\` (\`--base $base_q\`), not the repository default"
@@ -518,7 +525,7 @@ fm_dod_block() {  # <mode> <task-id> [branch] [<forge>] [<base>]
     direct-PR)
       cat <<EOF
 # Definition of done
-Delivery contract: mode=direct-PR
+Delivery contract: mode=direct-PR$contract_consent
 This task ships **direct-PR**: you raise the PR yourself, without the no-mistakes pipeline.
 The task is complete only when committed on your branch.
 When it is implemented and committed, push your branch and open a PR with \`gh-axi\` that is ready for review, not a draft$pr_base, then look at the PR's check rollup before reporting done.
@@ -562,7 +569,7 @@ Where a harness's own command limit is not established, assume it bounds command
       fi
       cat <<EOF
 # Definition of done
-Delivery contract: mode=no-mistakes
+Delivery contract: mode=no-mistakes$contract_consent
 The task is complete only when committed on your branch.
 When you believe it is complete, append \`done [at=<epoch>]: {summary} changed {what changed}; left {what of the brief was left undone, or nothing left}\` to the status file and stop.
 Firstmate will then instruct you to run /no-mistakes to validate and ship a PR.

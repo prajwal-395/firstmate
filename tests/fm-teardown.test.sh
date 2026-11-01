@@ -5500,6 +5500,57 @@ EOF
   pass "the run abort and the leaked-process reap both complete before the destructive worktree return"
 }
 
+# Copy the public teardown script tree, then drop or blank one required file.
+# Symlinks keep the copy cheap; an unreadable case replaces one link with a
+# real mode-000 file so the probe is of the file itself.
+prepare_teardown_source_copy() {  # <case-dir>
+  local case_dir=$1 f base dest="$1/test-root/bin" s
+  mkdir -p "$dest/backends"
+  for f in "$ROOT"/bin/*; do
+    base=$(basename "$f")
+    if [ -d "$f" ]; then
+      mkdir -p "$dest/$base"
+      for s in "$f"/*; do
+        ln -s "$s" "$dest/$base/$(basename "$s")"
+      done
+    else
+      ln -s "$f" "$dest/$base"
+    fi
+  done
+  printf 'manual\n' > "$case_dir/config/backlog-backend"
+  cat > "$case_dir/fakebin/treehouse" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$case_dir/treehouse.log"
+exit 0
+SH
+  chmod +x "$case_dir/fakebin/treehouse"
+  : > "$case_dir/treehouse.log"
+  : > "$case_dir/state/task-x1.status"
+}
+
+run_copied_teardown() {  # <case-dir> [args...]
+  local case_dir=$1
+  shift
+  FM_ROOT_OVERRIDE="$ROOT" \
+  FM_STATE_OVERRIDE="$case_dir/state" \
+  FM_DATA_OVERRIDE="$case_dir/data" \
+  FM_CONFIG_OVERRIDE="$case_dir/config" \
+  PATH="$case_dir/fakebin:$PATH" \
+    "$case_dir/test-root/bin/fm-teardown.sh" task-x1 "$@"
+}
+
+assert_source_refusal_preserved_state() {  # <case-dir> <label> <stderr-needle>
+  local case_dir=$1 label=$2 needle=$3
+  [ "$rc" -ne 0 ] || fail "$label: teardown reported success after a required source disappeared"
+  assert_grep "$needle" "$case_dir/stderr" "$label: the refusal did not name the missing source"
+  [ -e "$case_dir/state/task-x1.meta" ] || fail "$label: the refusal erased task metadata"
+  [ -e "$case_dir/state/task-x1.status" ] || fail "$label: the refusal erased the task status record"
+  [ ! -s "$case_dir/treehouse.log" ] || fail "$label: the refusal returned the local copy: $(cat "$case_dir/treehouse.log")"
+  if grep -q "teardown task-x1 complete" "$case_dir/stdout"; then
+    fail "$label: the refusal still reported cleanup complete"
+  fi
+}
+
 # A teardown that fails after the worktree is back in the pool strands its
 # record on a recycled slot, so the failure must be impossible to miss: a
 # non-zero exit with a named reason on stderr, plus one `blocked: teardown`

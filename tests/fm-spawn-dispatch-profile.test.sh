@@ -148,6 +148,7 @@ task_inbox_export() {  # <home> <id>
 }
 
 
+
 normalize_launch_log() {
   local launchlog=$1
   if [ -s "$launchlog" ] && grep -q '^nice -n 10 /bin/sh -c ' "$launchlog"; then
@@ -181,6 +182,9 @@ run_spawn() {
   shift 4
   : > "$launchlog"
   rm -f "$launchlog.raw"
+  # The shared fake tmux remembers the last window it created; these cases
+  # relaunch one task id in a fresh world each time, so start with none.
+  rm -f "$fakebin/.spawn-window"
   # CLAUDE_CONFIG_DIR is forwarded onto claude launches by fm-spawn, so pin it
   # explicitly (empty by default) instead of leaking the invoking shell's value,
   # which would make launch assertions depend on the developer's environment.
@@ -570,10 +574,14 @@ JSON
   expect_code 0 "$status" "a configured OpenCode rung must not be globally rerouted through Pi: $out"
   assert_grep 'harness=opencode' "$HOME_DIR/state/$id.meta" "the configured rung harness was not retained"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "opencode --model 'opencode/deepseek-v4.1-flash-free'" "the free rung did not launch through its configured harness"
+  # OpenCode 2 (the fake's default version) carries the model in its launch config.
+  assert_contains "$launch" '"model":"opencode/deepseek-v4.1-flash-free"' "the free rung did not launch through its configured harness"
   assert_not_contains "$launch" "pi --model 'opencode/deepseek-v4.1-flash-free'" "the Pi switch overrode the rung harness"
 
   id=profile-unified-codex-routing-z39
+  # The fake OpenCode 2 leaves its composer-read log beside the plugin; clear it
+  # so the shared pooled copy is clean for the second launch's base refresh.
+  rm -f "$WT_DIR/.opencode/plugins/fm-busy-state.js.fake-composer-reads"
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --harness codex)
   status=$?
   expect_code 0 "$status" "an explicitly named eligible Codex rung must bypass the unrelated earlier rung: $out"
@@ -881,7 +889,7 @@ test_active_dispatch_profile_allows_raw_launch_command() {
   # so it carries the compact-adviser floor, the per-task git-stash guard on
   # PATH, and the AI-trailer strip; nothing else may rewrite the captain's
   # own command.
-  [ "$launch" = "export COMPACT_ADVISER_DISABLE=1; $(task_inbox_export "$HOME_DIR" "$id")export PATH='$HOME_DIR/state/$id.git-guard':\$PATH; $(ai_trailer_hooks_prefix "$HOME_DIR" "$id")custom-agent --flag" ] || fail "raw launch command changed"$'\n'"actual: $launch"
+  [ "$launch" = "export COMPACT_ADVISER_DISABLE=1; $(task_inbox_export "$HOME_DIR" "$id")export PATH='$HOME_DIR/state/$id.git-guard':\$PATH; $(fm_test_launch_git_prefix "$launch")custom-agent --flag" ] || fail "raw launch command changed"$'\n'"actual: $launch"
   pass "a raw launch command requires and records the captain route"
 }
 
@@ -1240,6 +1248,8 @@ test_opencode_without_effort_keeps_launch_config_unchanged() {
   id=profile-opencode-no-effort-z7a
   rec=$(make_spawn_case profile-opencode-no-effort opencode "$id")
   read_case_record "$rec"
+  # OpenCode 2 always carries the model in an agent block; this pins the 1.x shape.
+  local FM_TEST_OPENCODE_VERSION=1.14.20
 
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model anthropic/claude-sonnet-4-5)
   status=$?
@@ -1273,6 +1283,8 @@ test_opencode_omits_variant_when_model_family_lacks_effort() {
   id=profile-opencode-unsupported-effort-z7c
   rec=$(make_spawn_case profile-opencode-unsupported-effort opencode "$id")
   read_case_record "$rec"
+  # OpenCode 2 always carries the model in an agent block; this pins the 1.x shape.
+  local FM_TEST_OPENCODE_VERSION=1.14.20
 
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model anthropic/claude-sonnet-4-5 --effort low)
   status=$?
@@ -1405,7 +1417,9 @@ test_opencode2_delivery_gate_sends_enter_at_deadline_when_unknown() {
   opencode_gate_spawn profile-opencode-gate-blind profile-opencode-gate-blind-z8f enter
   expect_code 0 "$STATUS" "opencode 2 spawn whose composer always reads unknown should succeed: $OUT"
   [ "$ENTERS" = 2 ] || fail "always-unknown opencode 2 composer must get exactly one gate Enter (bare Enters: $ENTERS)"
-  [ "$READS" = 11 ] || fail "always-unknown composer must get its Enter only at the submit deadline (composer reads: $READS)"
+  # This fork's crew-state probe may read the composer once during launch, so
+  # the deadline is a floor: an early Enter would stop the gate below it.
+  [ "$READS" -ge 11 ] || fail "always-unknown composer must get its Enter only at the submit deadline (composer reads: $READS)"
   pass "opencode 2 delivery gate sends its one Enter at the deadline when the composer only reads unknown"
 }
 
@@ -2453,6 +2467,8 @@ SH
         empty) expected=$(printf '%s\n' unset unset unset unset) ;;
       esac
       expected="$expected"$'\n'"$HOME_DIR/user-home"$'\n'"$HOME_DIR/state/$id.git-guard:$pane_path"$'\nxterm\nsynthetic-pane\n/synthetic/gotmp'
+      # The strip-hook entry must also survive the env -i boundary.
+      expected="$expected"$'\n'"hooksPath=$(cd "$HOME_DIR/state" && pwd -P)/$id.git-hooks"
       [ "$result" = "$expected" ] || fail "allowlist=$setting worker environment mismatch: $result"
     done
     pass "allowlist=$setting preserves the operational floor and filters only when opted in"
@@ -2792,9 +2808,10 @@ claude_worker_add_dirs() {  # <home> <id>
   printf '%s ' "--add-dir '$state_real/operational-inbox' --add-dir '$state_real/$2.inbox' --add-dir '$data_real/$2' --add-dir '$root_real/.agents/skills'"
 }
 
+# The Git configuration prefix is read from the caller's recorded $launch.
 claude_expected_launch() {  # <home> <id> <permission-flag> <settings-value>
   local home=$1 id=$2 flag=$3 sval=$4
-  printf '%s' "export COMPACT_ADVISER_DISABLE=1; $(task_inbox_export "$home" "$id")export PATH='$home/state/$id.git-guard':\$PATH; $(ai_trailer_hooks_prefix "$home" "$id")env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude $flag $(claude_worker_add_dirs "$home" "$id")--settings '{\"permissions\":{\"defaultMode\":\"$sval\"},\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}' $CLAUDE_CONTROL_CHANNEL_FLAG 'Read the brief at $home/data/$id/launch-brief.md and follow it exactly.'"
+  printf '%s' "export COMPACT_ADVISER_DISABLE=1; $(task_inbox_export "$home" "$id")export PATH='$home/state/$id.git-guard':\$PATH; $(fm_test_launch_git_prefix "$launch")env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude $flag $(claude_worker_add_dirs "$home" "$id")--settings '{\"permissions\":{\"defaultMode\":\"$sval\"},\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}' $CLAUDE_CONTROL_CHANNEL_FLAG 'Read the brief at $home/data/$id/launch-brief.md and follow it exactly.'"
 }
 
 test_claude_permission_mode_absent_defaults_to_bypass() {
@@ -2827,9 +2844,6 @@ test_claude_permission_mode_auto_opts_into_model_reviewed_launch() {
   [ "$launch" = "$expected" ] || fail "auto changed more than the permission flag"$'\n'"expected: $expected"$'\n'"actual:   $launch"
   assert_not_contains "$launch" "--dangerously-skip-permissions" "auto launch must not request bypass mode"
   pass "config/claude-permission-mode=auto replaces --dangerously-skip-permissions with --permission-mode auto"
-  expected=$(claude_expected_launch "$launch" "$HOME_DIR" "$id" '--permission-mode auto')
-  [ "$launch" = "$expected" ] || fail "explicit auto did not produce the model-reviewed launch"$'\n'"expected: $expected"$'\n'"actual:   $launch"
-  pass "config/claude-permission-mode=auto opts into the model-reviewed launch"
 }
 
 test_claude_permission_mode_bypass_swaps_only_the_permission_flag() {
@@ -2845,7 +2859,7 @@ test_claude_permission_mode_bypass_swaps_only_the_permission_flag() {
   expect_code 0 "$status" "claude spawn with claude-permission-mode=bypass should succeed"
   assert_contains "$out" "spawned $id harness=claude" "bypass spawn did not report claude"
   launch=$(cat "$LAUNCH_LOG")
-  expected=$(claude_expected_launch "$launch" "$HOME_DIR" "$id" --dangerously-skip-permissions)
+  expected=$(claude_expected_launch "$HOME_DIR" "$id" --dangerously-skip-permissions bypassPermissions)
   [ "$launch" = "$expected" ] || fail "bypass changed more than the permission flag"$'\n'"expected: $expected"$'\n'"actual:   $launch"
   assert_not_contains "$launch" "--permission-mode auto" "bypass launch must not request auto mode"
   pass "explicit config/claude-permission-mode=bypass uses --dangerously-skip-permissions"
@@ -3159,6 +3173,8 @@ test_opencode_shared_server_attaches_worker_to_its_own_session() {
   rec=$(make_spawn_case profile-opencode-shared opencode "$id")
   read_case_record "$rec"
   printf 'on\n' > "$HOME_DIR/config/opencode-shared-server"
+  # The fork's shared OpenCode server is built and verified on the 1.x shape.
+  local FM_TEST_OPENCODE_VERSION=1.14.20
   fm_test_fake_opencode_server "$FAKEBIN_DIR" "$CASE_DIR/fake-server"
 
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" \
@@ -3187,6 +3203,8 @@ test_opencode_shared_server_falls_back_to_standalone() {
   rec=$(make_spawn_case profile-opencode-shared-fallback opencode "$id")
   read_case_record "$rec"
   printf 'on\n' > "$HOME_DIR/config/opencode-shared-server"
+  # The fork's shared OpenCode server is built and verified on the 1.x shape.
+  local FM_TEST_OPENCODE_VERSION=1.14.20
   fm_test_fake_opencode_server "$FAKEBIN_DIR" "$CASE_DIR/fake-server"
   touch "$CASE_DIR/fake-server/serve-fails"
 
@@ -3195,7 +3213,7 @@ test_opencode_shared_server_falls_back_to_standalone() {
   status=$?
   expect_code 0 "$status" "a server that cannot start must leave the standalone launch: $out"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "opencode --model 'anthropic/claude-sonnet-4-5' --prompt" "the standalone launch was not kept"
+  assert_contains "$launch" "/opencode' --model 'anthropic/claude-sonnet-4-5' --prompt" "the standalone launch was not kept"
   assert_not_contains "$launch" "opencode attach" "a failed server must not leave an attached client"
   assert_no_grep 'opencode_server' "$HOME_DIR/state/$id.meta" "a standalone fallback must record no server"
   pass "an OpenCode server that cannot start falls back to the standalone launch"
@@ -3207,6 +3225,8 @@ test_opencode_shared_server_session_failure_falls_back_to_standalone() {
   rec=$(make_spawn_case profile-opencode-shared-session opencode "$id")
   read_case_record "$rec"
   printf 'on\n' > "$HOME_DIR/config/opencode-shared-server"
+  # The fork's shared OpenCode server is built and verified on the 1.x shape.
+  local FM_TEST_OPENCODE_VERSION=1.14.20
   fm_test_fake_opencode_server "$FAKEBIN_DIR" "$CASE_DIR/fake-server"
   touch "$CASE_DIR/fake-server/session-fails"
 
@@ -3216,7 +3236,7 @@ test_opencode_shared_server_session_failure_falls_back_to_standalone() {
   stop_case_servers "$HOME_DIR"
   expect_code 0 "$status" "a server that cannot open a session must leave the standalone launch: $out"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "opencode --model 'anthropic/claude-sonnet-4-5' --prompt" "the standalone launch was not kept"
+  assert_contains "$launch" "/opencode' --model 'anthropic/claude-sonnet-4-5' --prompt" "the standalone launch was not kept"
   assert_not_contains "$launch" "opencode attach" "a failed session must not leave an attached client"
   assert_no_grep 'opencode_server' "$HOME_DIR/state/$id.meta" "a standalone fallback must record no server"
   [ ! -e "$HOME_DIR/state/opencode-server-default.leases/$id" ] || fail "the fallback left its lease holding the server"

@@ -325,6 +325,22 @@ puts YAML.load_file(ARGV[0]).fetch("jobs").fetch(ARGV[1]).fetch("timeout-minutes
 ' "$CI_WORKFLOW" "$1"
 }
 
+# Print every job id in the workflow, one per line.
+workflow_jobs() {
+  ruby -ryaml -e 'puts YAML.load_file(ARGV[0]).fetch("jobs").keys' "$CI_WORKFLOW"
+}
+
+# Print true or false: whether one job's job-level `if` resolves true under
+# one simulated context.
+job_runs_under() {  # <job> [KEY=VALUE]...
+  ruby -ryaml -e "$EXPRESSION_RUBY" -e "$CONTEXT_RUBY" -e '
+doc = YAML.load_file(ARGV.shift)
+job = ARGV.shift
+context = simulated_context(doc.fetch("name"), ARGV)
+puts Expression.condition(doc.fetch("jobs").fetch(job)["if"], context)
+' "$CI_WORKFLOW" "$@"
+}
+
 group_of() { printf '%s\n' "$1" | cut -f1; }
 cancel_of() { printf '%s\n' "$1" | cut -f2; }
 
@@ -471,7 +487,7 @@ test_late_unrelated_label_run_never_masks_a_full_ci_pass() {
     || fail "could not merge the three runs"
   printf '%s\n' "$after" | grep -qx $'Full suite\tsuccess' \
     || fail "a late unrelated label run must leave Full suite passing, got:"$'\n'"$after"
-  printf '%s\n' "$after" | grep -qx $'Lint 1\tsuccess' \
+  printf '%s\n' "$after" | grep -qx $'Lint (shard 1)\tsuccess' \
     || fail "a late unrelated label run must leave the lanes passing, got:"$'\n'"$after"
   pass "a late-finishing unrelated label run leaves a full-ci pass visible"
 }

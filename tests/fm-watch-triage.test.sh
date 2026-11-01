@@ -5068,6 +5068,52 @@ test_closed_exit_picker_drops_saved_dialog_name() {
   pass "a closed picker drops the saved dialog name, and the stale stays ordinary"
 }
 
+# --- a worker firstmate ITSELF stopped: absorbed silently, in every supervision
+#     mode, and only while the declaration binds ---------------------------
+# The live 2026-08-25 case: two workers hit zero model quota with about four
+# hours to reset, firstmate stopped them through bin/fm-control.sh exit - which
+# preserves the endpoint, the local copy and every uncommitted change - and both
+# went on raising a stale event every few minutes for the whole window, now
+# because the endpoint was agent-free. Around forty alerts, each
+# indistinguishable at arrival from the one that reports a genuinely dead worker.
+#
+# All three directions are driven from ONE fixture, changed only where the
+# discriminator lives, so the cases cannot drift apart: the declaration's
+# presence and the incarnation it names. The pane, the status log, the meta and
+# the crew-state verdict for a gone agent are identical in every round.
+
+# Write a declared-stop record bound to <incarnation>, as bin/fm-control.sh exit
+# does. Deliberately hand-written rather than produced by the control plane, so
+# this suite pins the READER's contract independently of the writer.
+declare_stop_record() {  # <state> <id> <incarnation>
+  {
+    echo "v1"
+    echo "task=$2"
+    echo "incarnation=$3"
+    echo "reason=zero model quota until about 19:00; relaunch when it resets"
+    echo "harness=claude"
+    echo "endpoint=test:fm-$2"
+    echo "backend=tmux"
+    echo "ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo "epoch=$(date +%s)"
+  } > "$1/$2.stopped"
+}
+
+# Lay down the shared fixture: an idle agent-free pane, a non-terminal status
+# log, and a meta on incarnation <spawn-gen>. Echoes the pane hash.
+stopped_worker_fixture() {  # <dir> <window> <spawn-gen>
+  local dir=$1 window=$2 gen=$3 state="$1/state" key sig
+  printf 'idle prompt, no agent' > "$dir/pane.txt"
+  printf 'window=%s\nkind=ship\nharness=claude\nbackend=tmux\nspawn_gen=%s\n' \
+    "$window" "$gen" > "$state/quotastop.meta"
+  printf 'working: implementing the fix\n' > "$state/quotastop.status"
+  sig=$(seen_sig "$state/quotastop.status"); printf '%s' "$sig" > "$state/.seen-quotastop_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  printf '%s' "$(hash_text "idle prompt, no agent")" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  printf '%s' "$(hash_text "idle prompt, no agent")"
+}
+
 # 1. THE FIX. A stop firstmate performed and recorded goes quiet - and stays
 #    quiet across repeated polls, which is the whole point: the defect was not
 #    one alert, it was one every few minutes for four hours. Both wedge and
