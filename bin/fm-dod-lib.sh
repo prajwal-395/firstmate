@@ -16,6 +16,9 @@
 # prints the block on stdout with no trailing blank line. The caller validates the
 # mode; an unknown mode is refused rather than silently rendered as the pipeline
 # contract.
+# For local-only tasks, the first accepted done head is latched as exactly one
+# local_done_head= full commit id in the live task metadata. Observing done again
+# never changes that identity. Revised work needs a new task/approval record.
 # The optional third argument is the task's full ship-branch name (a project's
 # registered prefix may replace the legacy `fm/` one); it defaults to `fm/<task-id>`
 # and is the immutable task branch rendered in every delivery contract.
@@ -23,6 +26,18 @@
 # --base-branch; empty means the repository default. A named base is the branch
 # the worker starts from, never pushes to, and targets with its pull request, and
 # fm_base_branch_valid refuses it where no pull request carries the work.
+# The optional seventh argument is the task's PR-text posture, auto|manual,
+# defaulting to auto: `manual` is bin/fm-brief.sh --pr manual, the registry's
+# `pr=manual` token (bin/fm-project-mode.sh owns what the binding means). It
+# renders a no-mistakes block whose worker writes the PR title and body itself,
+# and appends " pr=manual" to the Delivery contract line, which bin/fm-spawn.sh
+# checks against the registry like the forge. fm_pr_text_valid refuses it on any
+# other mode or forge.
+# The optional sixth argument is the task's recorded upstream consent for a
+# firstmate-repository contribution (bin/fm-role-lib.sh owns the boundary): a
+# captain-approved <host>/<owner>/<repo> publication scope for this one task,
+# rendered as an `upstream-consent=<scope>` suffix token on the Delivery
+# contract line so brief, spawn record, and worker instructions agree.
 # Callers of the gate are bin/fm-crew-state.sh (current-state done),
 # bin/fm-pr-check.sh (PR registration), and bin/fm-inactive-reconcile.sh
 # (secondmate ledger-first publish of a child done). A ship `done:` is not
@@ -127,6 +142,8 @@
 . "$(d=${BASH_SOURCE[0]%/*}; [ "$d" != "${BASH_SOURCE[0]}" ] || d=.; cd "${d:-/}" && pwd)/fm-nm-run-lib.sh"
 # shellcheck source=bin/fm-brief-heading-lib.sh
 . "$(d=${BASH_SOURCE[0]%/*}; [ "$d" != "${BASH_SOURCE[0]}" ] || d=.; cd "${d:-/}" && pwd)/fm-brief-heading-lib.sh"
+# shellcheck source=bin/fm-external-review-lib.sh
+. "$(d=${BASH_SOURCE[0]%/*}; [ "$d" != "${BASH_SOURCE[0]}" ] || d=.; cd "${d:-/}" && pwd)/fm-external-review-lib.sh"
 
 fm_brief_worker_role() {  # <state-dir> <task-id> <code-root>
   local state=$1 task_id=$2 root=$3
@@ -145,14 +162,36 @@ EOF
   printf "If the \`firstmate-coding-guidelines\` skill name does not resolve in this session, read \`%s/.agents/skills/firstmate-coding-guidelines/SKILL.md\` instead.\n" "$root"
 }
 
+# Return 0 when <mode> is one of the two publishing modes, whose Definition of
+# done below publishes the task for review: a pull request, or on a
+# forge=gerrit project a change. local-only publishes nothing, and a scout
+# records no mode. A home that opts in with config/spawn-base-primary-checkout
+# reads it in bin/fm-spawn.sh, bin/fm-review-diff.sh, and bin/fm-promote.sh:
+# published work must start from, and be reviewed against, origin's tip rather
+# than a local branch carrying commits origin has never received.
+fm_mode_publishes() {  # <mode>
+  case "$1" in
+    no-mistakes|direct-PR) return 0 ;;
+  esac
+  return 1
+}
+
 # Closed-set gate shared by every forge-aware renderer and bin/fm-brief.sh, so a
 # caller cannot reach a half-rendered contract. local-only is refused rather than
 # rendered with an inert annotation: it publishes nothing, and its landing
 # fast-forwards local main with content the review server has never seen.
+# forge=external also refuses no-mistakes, because the pipeline's push, pr, and
+# ci steps would push to the shared origin.
 fm_forge_valid_for_mode() {  # <forge> <mode> <caller>
   local forge=$1 mode=$2 caller=$3
   case "$forge" in
     none|gerrit) ;;
+    forgejo|external)
+      # Upstream's forgejo and external Definition of done blocks were not
+      # ported onto this fork's fm_dod_block, so refuse rather than render a
+      # GitHub-shaped contract for a forge it does not describe.
+      echo "error: $caller: forge=$forge is not supported by this fork's Definition of done (expected none or gerrit)" >&2
+      return 1 ;;
     *)
       echo "error: $caller: unknown forge '$forge' (expected none or gerrit)" >&2
       return 1 ;;
@@ -161,7 +200,38 @@ fm_forge_valid_for_mode() {  # <forge> <mode> <caller>
     echo "error: $caller: forge=$forge cannot ship mode=local-only - that mode publishes nothing, so a forge has no meaning there, and its landing would fast-forward local main with content the review server has never seen; ship no-mistakes or direct-PR, which publish through the forge" >&2
     return 1
   fi
+  if [ "$forge" = external ] && [ "$mode" != direct-PR ]; then
+    echo "error: $caller: forge=external ships direct-PR only for now; the pipeline's push, pr, and ci steps would push to the shared origin" >&2
+    return 1
+  fi
   return 0
+}
+
+# Closed-set gate for the PR-text posture, shared like fm_forge_valid_for_mode.
+# Only `auto` renders in this fork.
+fm_pr_text_valid() {  # <pr> <mode> <forge> <caller>
+  local pr=$1 caller=$4
+  case "$pr" in
+    auto) return 0 ;;
+    manual)
+      # Upstream's pr=manual no-mistakes block was not ported onto this fork's
+      # fm_dod_block, so refuse rather than render the auto contract.
+      echo "error: $caller: pr=manual is not supported by this fork's Definition of done (expected auto)" >&2
+      return 1 ;;
+    *)
+      echo "error: $caller: unknown PR-text posture '$pr' (expected auto or manual)" >&2
+      return 1 ;;
+  esac
+}
+
+# The task branch prefix: <branch> with its trailing <task-id> removed, or
+# empty when the branch is the bare task id or does not end with it.
+fm_ship_branch_prefix() {  # <branch> <task-id>
+  local branch=$1 id=$2
+  case "$branch" in
+    *"$id") printf '%s\n' "${branch%"$id"}" ;;
+    *) printf '\n' ;;
+  esac
 }
 
 # A task's optional base branch replaces the repository default as the branch
@@ -209,6 +279,18 @@ fm_ship_rule_one() {  # <no-mistakes|direct-PR|local-only> <task-id> [branch] [<
   [ -z "$base" ] || target="the base branch \`$base\` or the default branch"
   if [ "$forge" = gerrit ]; then
     printf '%s\n' "1. Never push with git and never create a change except through the one \`gerrit-axi publish --squash\` your Definition of done names. Never run \`gerrit-axi submit\`, never vote or review a change by any path, including \`gerrit review\` or a label option on a push, and never abandon one: a human reviewer approves and submits it on the server."
+    return 0
+  fi
+  if [ "$forge" = external ]; then
+    local prefix prefixed=''
+    prefix=$(fm_ship_branch_prefix "$branch" "$id")
+    [ -z "$prefix" ] || prefixed=" or any \`$prefix\`-prefixed branch"
+    fm_external_review_backup || return 1
+    printf '%s' "1. Never push to \`origin\`, or to any remote whose URL is the project's shared server, and never push your \`$branch\` branch$prefixed to any remote. The review tool named in your Definition of done uploads its own snapshot, so publishing needs no push. Never approve, merge, or move the review past the stopping point your Definition of done names; a human does that."
+    if [ -n "$FM_REVIEW_BACKUP_REMOTE" ]; then
+      printf ' %s' "The one push you may make is a durable copy to the personal backup remote \`$FM_REVIEW_BACKUP_REMOTE\`: \`git push $FM_REVIEW_BACKUP_REMOTE HEAD:refs/heads/$FM_REVIEW_BACKUP_PREFIX$id\`."
+    fi
+    printf '\n'
     return 0
   fi
   case "$mode" in
@@ -419,11 +501,18 @@ fm_ship_checkpoint_instructions() {  # [<paused-verb>]
     '   The pipeline already holds the work durably in that state, so your own push would diverge its validated head.'
 }
 
-fm_dod_block() {  # <mode> <task-id> [branch] [<forge>] [<base>]
-  local mode=$1 id=$2 forge=${4:-none} base=${5:-}
-  local branch=${3:-fm/$id} pr_base='' nm_base='' base_push_guard='' base_q
+fm_dod_block() {  # <mode> <task-id> [branch] [<forge>] [<base>] [<consent>]
+  local mode=$1 id=$2 forge=${4:-none} base=${5:-} consent=${6:-}
+  local branch=${3:-fm/$id} pr_base='' nm_base='' base_push_guard='' base_q contract_consent=''
   fm_forge_valid_for_mode "$forge" "$mode" fm_dod_block || return 1
   fm_base_branch_valid "$base" "$mode" "$forge" fm_dod_block || return 1
+  if [ -n "$consent" ]; then
+    if [ "$mode" = local-only ]; then
+      echo "error: fm_dod_block: upstream consent authorizes a publication that local-only never performs; drop it" >&2
+      return 1
+    fi
+    contract_consent=" upstream-consent=$consent"
+  fi
   if [ -n "$base" ]; then
     printf -v base_q '%q' "$base"
     pr_base=", against the base branch \`$base\` (\`--base $base_q\`), not the repository default"
@@ -436,7 +525,7 @@ fm_dod_block() {  # <mode> <task-id> [branch] [<forge>] [<base>]
     direct-PR)
       cat <<EOF
 # Definition of done
-Delivery contract: mode=direct-PR
+Delivery contract: mode=direct-PR$contract_consent
 This task ships **direct-PR**: you raise the PR yourself, without the no-mistakes pipeline.
 The task is complete only when committed on your branch.
 When it is implemented and committed, push your branch and open a PR with \`gh-axi\` that is ready for review, not a draft$pr_base, then look at the PR's check rollup before reporting done.
@@ -480,7 +569,7 @@ Where a harness's own command limit is not established, assume it bounds command
       fi
       cat <<EOF
 # Definition of done
-Delivery contract: mode=no-mistakes
+Delivery contract: mode=no-mistakes$contract_consent
 The task is complete only when committed on your branch.
 When you believe it is complete, append \`done [at=<epoch>]: {summary} changed {what changed}; left {what of the brief was left undone, or nothing left}\` to the status file and stop.
 Firstmate will then instruct you to run /no-mistakes to validate and ship a PR.
@@ -536,9 +625,17 @@ fm_dod_ref_contains() {  # <repo> <ref-namespace> <sha>
 # path on this same test, so every CI-ready line it acts on is gated.
 fm_dod_note_reports_ci_ready() {  # <note>
   case "$1" in
-    *PR*"checks green"*|*"checks green"*PR*) return 0 ;;
+    *"checks green"*) ;;
+    *) return 1 ;;
   esac
-  return 1
+  fm_dod_note_has_pr_reference "$1"
+}
+
+# 0 when a note contains a PR/MR URL or a PR #<n> / PR#<n> token,
+# not the bare letters PR inside words such as PROD or PROPERTIES.
+fm_dod_note_has_pr_reference() {  # <note>
+  printf '%s' "$1" \
+    | grep -Eq '(^|[^[:alnum:]])PR[[:space:]]*#[0-9]+([^[:alnum:]]|$)|/pull/[0-9]+([^[:alnum:]]|$)|/pulls/[0-9]+([^[:alnum:]]|$)|/merge_requests/[0-9]+([^[:alnum:]]|$)'
 }
 
 # 0 when a done: note reports a change published to a Gerrit review server
@@ -548,6 +645,57 @@ fm_dod_note_reports_published_change() {  # <note>
   case "$1" in
     *PR*"published for review"*) return 0 ;;
   esac
+  return 1
+}
+
+# 0 when a done: note reports a review uploaded through an external review tool
+# (`review <url> uploaded for review`), the ready report on forge=external.
+fm_dod_note_reports_uploaded_review() {  # <note>
+  case "$1" in
+    review\ https://*\ uploaded\ for\ review*) return 0 ;;
+  esac
+  return 1
+}
+
+# The review URL from a `done: review <url> uploaded for review` note, or empty.
+fm_dod_review_url_from_done_note() {  # <note>
+  local url
+  fm_dod_note_reports_uploaded_review "$1" || return 1
+  url=${1#review }
+  url=${url%% *}
+  printf '%s\n' "$url"
+}
+
+# The forge=external half of the gate. The snapshot lives in a tool firstmate
+# cannot read, so a URL that passes fm_external_review_url_parse is the whole
+# claim unless spawn recorded a personal backup remote (backup_remote= and
+# backup_prefix= in <meta>); then HEAD must also be on that remote's backup
+# namespace. A PR report is refused, because no pull request exists here.
+fm_dod_accept_external_review_done() {  # <worktree> <project> <line> <meta>
+  local wt=$1 project=$2 line=$3 meta=$4 note url remote prefix sha
+  note=$(status_line_note "$line")
+  if ! url=$(fm_dod_review_url_from_done_note "$note"); then
+    printf '%s\n' "this project ships through an external review tool, so the ready report is \`review <url> uploaded for review\`, never a PR"
+    return 1
+  fi
+  if ! fm_external_review_url_parse "$url"; then
+    printf '%s\n' "the review URL $url is not a canonical https review URL (no query, fragment, or forge pull request), or does not match config/external-review-url"
+    return 1
+  fi
+  remote=$(fm_dod_meta_value "$meta" backup_remote)
+  [ -n "$remote" ] || return 0
+  prefix=$(fm_dod_meta_value "$meta" backup_prefix)
+  if [ -z "$prefix" ]; then
+    printf '%s\n' "the task records backup remote $remote with no backup prefix, so the durable copy cannot be verified"
+    return 1
+  fi
+  if [ -z "$wt" ] || [ ! -d "$wt" ] || ! sha=$(git -C "$wt" rev-parse --verify HEAD 2>/dev/null); then
+    printf '%s\n' "named head cannot be verified: worktree missing or not a git copy"
+    return 1
+  fi
+  fm_dod_ref_contains "$wt" "refs/remotes/$remote/$prefix*" "$sha" && return 0
+  fm_dod_ref_contains "$project" "refs/remotes/$remote/$prefix*" "$sha" && return 0
+  printf '%s\n' "named head $sha is not on the backup remote $remote under $prefix; push the durable copy and fetch it before reporting done"
   return 1
 }
 
@@ -583,6 +731,52 @@ fm_dod_pr_url_from_done_note() {  # <note>
 fm_dod_meta_value() {  # <meta> <key>
   grep "^$2=" "$1" 2>/dev/null | tail -1 | cut -d= -f2-
 }
+
+# Read the single owned local landing identity. Never accept rev expressions,
+# abbreviated hashes, duplicate fields, or a record with no head.
+fm_dod_local_done_head() {  # <meta>
+  local value count
+  count=$(awk -F= '$1 == "local_done_head" { n++ } END { print n+0 }' "$1") || return 1
+  [ "$count" = 1 ] || return 1
+  value=$(fm_dod_meta_value "$1" local_done_head) || return 1
+  case "$value" in ''|*[!0-9a-f]*) return 1 ;; esac
+  case ${#value} in 40|64) printf '%s\n' "$value" ;; *) return 1 ;; esac
+}
+
+# Latch the head before reporting readiness, not at landing time. Snapshot
+# callers may supply captured meta; compare it with the live record under the
+# existing control/meta locks before publishing to the live owner only. A caller
+# already holding the live meta lock passes meta-locked and retains its locks.
+fm_dod_pin_local_done_head() (  # <state> <id> <meta> <sha> <captured-meta> [meta-locked]
+  local state=$1 id=$2 meta=$3 sha=$4 captured=$5 script_dir live control='' lock='' tmp='' pinned
+  script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+  # These lazy imports are canonical lint roots. Keep their subshell-local
+  # initializers out of ShellCheck's analysis of the sourcing caller's globals.
+  # shellcheck source=/dev/null
+  . "$script_dir/fm-wake-lib.sh"
+  # shellcheck source=/dev/null
+  . "$script_dir/fm-backlog-transition-lib.sh"
+  live="$state/$id.meta"
+  if [ "${6:-}" != meta-locked ]; then
+    control="$state/.control-$id.lock"
+    lock=$(fm_meta_lock_path "$live") || return 1
+    fm_lock_try_acquire "$control" || return 1
+    trap 'fm_lock_release "$control" || true' EXIT
+    fm_lock_try_acquire "$lock" || return 1
+  fi
+  trap '[ -z "$tmp" ] || rm -f -- "$tmp"; [ -z "$lock" ] || fm_lock_release "$lock" || true; [ -z "$control" ] || fm_lock_release "$control" || true' EXIT
+  fm_backlog_record_present "$live" 'local readiness metadata' "$state" || return 1
+  cmp -s "$meta" "$live" || return 1
+  [ "$(cat "$live")" = "$captured" ] || return 1
+  if grep -q '^local_done_head=' "$live"; then
+    pinned=$(fm_dod_local_done_head "$live") || return 1
+    [ "$pinned" = "$sha" ]
+    return
+  fi
+  tmp=$(mktemp "$state/.local-done-$id.XXXXXX") || return 1
+  { cat "$live" && printf '\nlocal_done_head=%s\n' "$sha"; } > "$tmp" || return 1
+  fm_backlog_record_publish "$tmp" "$live" 'local readiness metadata' "$state"
+)
 
 # 0 when the forge's head for a PR is the head the done names. In no-mistakes
 # mode the pipeline pushes it, possibly with commits the worker clone never
@@ -690,9 +884,10 @@ fm_dod_named_head_reachable_outside_worktree() {  # <worktree> <project> <mode> 
   [ "$mode" = local-only ] && fm_dod_ref_contains "$project" refs/heads "$sha"
 }
 
-# 0 when <line> is not a ship done: to gate, when it names the task's recorded
-# PR whose head the forge holds, when it names a Gerrit change whose current
-# patch set carries the worker copy's HEAD tree, or otherwise when its named
+# 0 when <line> is not a ship done: to gate, when the task's meta records
+# forge=external and fm_dod_accept_external_review_done accepts it, when it
+# names the task's recorded PR whose head the forge holds, when it names a
+# Gerrit change whose current patch set carries the worker copy's HEAD tree, or otherwise when its named
 # head - the worker copy's HEAD - is reachable outside that disposable copy. A
 # published-for-review report that names no Gerrit change is refused.
 # There is no free-text SHA scan: a SHA that happens to appear in the note is
@@ -701,9 +896,21 @@ fm_dod_named_head_reachable_outside_worktree() {  # <worktree> <project> <mode> 
 # output. <state> <id> <meta> supply pr=,
 # pr_head=, and the merge-notified marker; <meta> may be a captured copy
 # (bin/fm-fleet-snapshot.sh), so the marker is read from <state>.
-fm_dod_accept_ship_done() {  # <kind> <mode> <worktree> <project> <line> [<state> <id> <meta>]
-  local kind=$1 mode=$2 wt=$3 project=$4 line=$5 state=${6:-} id=${7:-} meta=${8:-} url sha gerrit
+fm_dod_accept_ship_done() {  # <kind> <mode> <worktree> <project> <line> [<state> <id> <meta> [meta-locked]]
+  local kind=$1 mode=$2 wt=$3 project=$4 line=$5 state=${6:-} id=${7:-} meta=${8:-} url sha gerrit captured=''
   fm_dod_should_gate_ship_done "$kind" "$mode" "$line" || return 0
+  if [ "$mode" = local-only ] && [ -n "$meta" ]; then
+    captured=$(cat "$meta") || return 1
+    if [ "$(fm_dod_meta_value "$meta" worktree)" != "$wt" ] \
+      || [ "$(fm_dod_meta_value "$meta" project)" != "$project" ]; then
+      printf '%s\n' 'local-only task identity changed before readiness could be recorded'
+      return 1
+    fi
+  fi
+  if [ -n "$meta" ] && [ "$(fm_dod_meta_value "$meta" forge)" = external ]; then
+    fm_dod_accept_external_review_done "$wt" "$project" "$line" "$meta"
+    return
+  fi
   if url=$(fm_dod_pr_url_from_done_note "$(status_line_note "$line")") \
     && fm_dod_recorded_pr_on_forge "$state" "$id" "$meta" "$mode" "$url"; then
     return 0
@@ -738,6 +945,13 @@ fm_dod_accept_ship_done() {  # <kind> <mode> <worktree> <project> <line> [<state
     return 1
   fi
   if fm_dod_named_head_reachable_outside_worktree "$wt" "$project" "$mode" "$sha"; then
+    if [ "$mode" = local-only ] && [ -n "$meta" ]; then
+      if [ -z "$state" ] || [ -z "$id" ] \
+        || ! fm_dod_pin_local_done_head "$state" "$id" "$meta" "$sha" "$captured" "${9:-}"; then
+        printf '%s\n' "local-only done head could not be recorded or differs from the recorded head; revised work requires a new task/approval record"
+        return 1
+      fi
+    fi
     return 0
   fi
   printf '%s\n' "named head $sha is unreachable outside the worker copy"
