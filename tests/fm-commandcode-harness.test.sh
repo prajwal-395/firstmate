@@ -156,16 +156,15 @@ spawn_case() {  # <id> <model> <effort>
     --scout --harness commandcode --model "$2" --effort "$3" 2>&1
 }
 out=$(spawn_case cc-low deepseek/deepseek-v4.1-flash low) || fail "spawn failed: $out"
-launch=$(cat "$case_dir/cc-low.launch")
+# The fork wraps every launch in `nice ... /bin/sh -c`; read the inner script.
+launch=$(fm_test_launch_script "$(cat "$case_dir/cc-low.launch")")
 gen=$(cat "$home/state/cc-low.busy-gen")
 assert_contains "$launch" '--yolo --trust --skip-onboarding --no-auto-update' 'autonomy/trust flags missing'
 assert_contains "$launch" "--model 'deepseek/deepseek-v4.1-flash' --effort 'low' " 'model or verified effort lost'
 assert_contains "$launch" "--mod '$ROOT/bin/fm-commandcode-mod.ts'" 'busy mod not loaded'
 assert_contains "$launch" "--mod-option 'fmState=$home/state' --mod-option 'fmId=cc-low' --mod-option 'fmGen=$gen' " 'mod options lost'
 assert_contains "$launch" '-u NO_COLOR COLORTERM=truecolor' 'placeholder styling not pinned'
-# shellcheck disable=SC2016 # the literal command substitution in the template
-assert_contains "$launch" '-- "$(' 'typed launch envelope must follow --'
-assert_contains "$launch" 'Read the brief at ' 'launch lost the brief pointer'
+assert_contains "$launch" "-- 'Read the brief at " 'the brief pointer must follow --'
 [ "$(fm_busy_classify tmux fake:w commandcode cc-low "$home/state")" = 'busy fm-spawn' ] || fail 'launch not armed'
 [ ! -e "$wt/.commandcode" ] || fail 'spawn wrote project Command Code settings'
 mkdir -p "$wt/.commandcode/taste" && : > "$wt/.commandcode/taste/taste.md"
@@ -173,7 +172,9 @@ mkdir -p "$wt/.commandcode/taste" && : > "$wt/.commandcode/taste/taste.md"
 rm -rf "$wt/.commandcode"
 out=$(spawn_case cc-xhigh deepseek/deepseek-v4.1-flash xhigh) || fail "spawn failed: $out"
 case "$(cat "$case_dir/cc-xhigh.launch")" in *--effort*) fail 'an unaccepted effort reached argv' ;; esac
-assert_grep 'effort=xhigh' "$home/state/cc-xhigh.meta" 'effort not recorded'
+# This fork records the effort the launch used, so a dropped xhigh reads as default.
+assert_grep 'effort=default' "$home/state/cc-xhigh.meta" 'the omitted effort was recorded as launched'
+assert_contains "$out" 'effort xhigh omitted for commandcode' 'the omitted effort was not reported'
 out=$(spawn_case cc-other moonshotai/kimi-k3 low) || fail "spawn failed: $out"
 case "$(cat "$case_dir/cc-other.launch")" in *--effort*) fail 'an unverified model received an effort flag' ;; esac
 if out=$(fm_test_run_spawn "$home" "$wt" "$fakebin" cc-sm "$proj" --secondmate --harness commandcode 2>&1)

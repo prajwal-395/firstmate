@@ -1067,7 +1067,8 @@ test_spawn_secondmate_with_a_legacy_pin_file_uses_the_first_line() {
   [ "$(meta_field "$meta" harness)" = claude ] || fail "legacy-pin: meta harness not claude"
   [ "$(meta_field "$meta" model)" = opus ] || fail "legacy-pin: meta model not opus (got '$(meta_field "$meta" model)')"
   [ "$(meta_field "$meta" effort)" = high ] || fail "legacy-pin: meta effort not high (got '$(meta_field "$meta" effort)')"
-  launch=$(cat "$launchlog")
+  # The fork wraps every launch in `nice ... /bin/sh -c`; read the inner script.
+  launch=$(fm_test_launch_script "$(cat "$launchlog")")
   assert_contains "$launch" "--model 'opus' --effort 'high'" \
     "legacy-pin: the launch did not carry the first line's tokens"
   assert_not_contains "$launch" "extra" \
