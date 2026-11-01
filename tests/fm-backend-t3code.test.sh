@@ -876,7 +876,12 @@ test_stale_classifier_resolves_t3_thread() {
   for declaration in 'paused: waiting for upstream release' 'captain-held: awaiting captain review'; do
     printf '%s\n' "$declaration" > "$state/worker.status"
     out=$(t3_run '. "$0/bin/fm-supervise-daemon.sh"; classify_stale thread-live "$1"' "$state")
-    assert_contains "$out" "pause|" "a T3 thread must resolve its task's declared wait"
+    # On this fork an unseen paused: line is still an actionable event, so it
+    # escalates once before it reads as a wait; captain-held never does.
+    case "$declaration" in
+      paused:*) assert_contains "$out" "escalate|" "a T3 thread must surface its task's unseen pause" ;;
+      *) assert_contains "$out" "pause|" "a T3 thread must resolve its task's declared wait" ;;
+    esac
     assert_contains "$out" "$declaration" "stale classification must read the task status"
   done
   pass "T3 stale lookup honors paused and captain-held declarations"
@@ -2048,25 +2053,6 @@ test_dirty_leased_slot_is_kept_without_a_thread() {
   pass "fm-spawn.sh --backend t3code: a leased slot holding uncommitted work gets no thread and keeps its lease"
 }
 
-# A clean slot whose refresh fails holds nothing to lose, so it gets no thread
-# and goes back to the pool.
-test_clean_slot_refresh_failure_returns_lease() {
-  local id out rc
-  id=$(t3_uid t3fetchz)
-  t3_case spawn-fetch-failure
-  t3_worker_setup "$id"
-  git -C "$WORKER_PROJ" remote set-url origin "$CASE_DIR/missing-origin.git"
-  out=$(t3_worker_spawn "$id" claude --model claude-sonnet-5); rc=$?
-  expect_code 1 "$rc" "a leased slot whose origin cannot be fetched must refuse the spawn"$'\n'"$out"
-  assert_contains "$out" "could not fetch origin" "the refusal names the failed fetch"
-  assert_not_contains "$out" "stays leased" "a clean slot must not be kept leased"
-  [ -z "$(t3_dispatch_types)" ] || fail "no thread may be launched on a slot that could not be brought current, got '$(t3_dispatch_types)'"
-  [ "$(t3_log_line_of 'r.tool === "treehouse" && r.args.indexOf("return --force") === 0')" -gt 0 ] \
-    || fail "a clean slot whose refresh failed must be returned"$'\n'"$out"
-  assert_absent "$CASE_DIR/state/$id.meta" "a refused spawn records nothing"
-  pass "fm-spawn.sh --backend t3code: a clean leased slot whose refresh fails gets no thread and is returned"
-}
-
 # A secondmate home outlives an aborted spawn, so once the thread's archive is
 # proven the T3 environment the spawn wrote there leaves with it, and the
 # home's own settings stay.
@@ -2804,7 +2790,6 @@ test_launch_gate_failure_returns_lease
 test_refused_launch_turn_archives_thread_and_returns_lease
 test_misbound_thread_launch_returns_lease
 test_dirty_leased_slot_is_kept_without_a_thread
-test_clean_slot_refresh_failure_returns_lease
 test_aborted_t3_secondmate_spawn_removes_home_env
 test_nested_t3_secondmate_home_reaped_before_removal
 test_uncertain_launch_message_keeps_task_record

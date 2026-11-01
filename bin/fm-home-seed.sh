@@ -795,10 +795,22 @@ refuse_populated_projectless_home() {
     clones+=("$(basename "$project_path")")
   done
   if [ -f "$home/data/projects.md" ]; then
-    registry_entries=$(awk '/^-[ \t]/ && ($3 ~ /^\[/ || $0 ~ /\(added [0-9]{4}-[0-9]{2}-[0-9]{2}\)/) {
-      num = split($2, names, ",");
-      for(i=1; i<=num; i++) print names[i];
-    }' "$home/data/projects.md") || {
+    # A registry row is "- <name>[,<alias>...]" followed by " [<mode>]" or
+    # carrying an "(added <date>)" stamp, so prose bullets are skipped; the
+    # name runs to " [" or " - ", which keeps spaced project names whole.
+    registry_entries=$(awk '
+      substr($0, 1, 2) == "- " {
+        rest = substr($0, 3)
+        cut = index(rest, " [")
+        bracketed = cut > 0
+        dash = index(rest, " - ")
+        if (dash > 0 && (cut == 0 || dash < cut)) { cut = dash; bracketed = 0 }
+        if (!bracketed && $0 !~ /\(added [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\)/) next
+        name = cut > 0 ? substr(rest, 1, cut - 1) : rest
+        num = split(name, names, ",")
+        for (i = 1; i <= num; i++) if (names[i] != "") print names[i]
+      }
+    ' "$home/data/projects.md") || {
       echo "error: cannot inspect existing project registry at $home/data/projects.md; resolve its access permissions or retire or clean this home before seeding with --no-projects" >&2
       return 1
     }
