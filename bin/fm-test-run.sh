@@ -1098,7 +1098,6 @@ tests/fm-spawn-compact-adviser-disable-remote.test.sh 38561
 tests/fm-spawn-compact-adviser-disable.test.sh 21654
 tests/fm-spawn-dispatch-profile.test.sh 133940
 tests/fm-spawn-external-review.test.sh 61736
-tests/fm-spawn-manual-pr-text.test.sh 2392
 tests/fm-spawn-orca-worktree.test.sh 2400
 tests/fm-spawn-pool-base-freshen.test.sh 80960
 tests/fm-spawn-positional-args.test.sh 1391

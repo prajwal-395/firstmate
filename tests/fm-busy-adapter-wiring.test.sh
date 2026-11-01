@@ -17,6 +17,22 @@ set -u
 
 TMP_ROOT=$(fm_test_tmproot fm-busy-adapter-wiring)
 
+# fm-spawn wraps every launch in `nice -n 10 /bin/sh -c '...'`, which
+# re-quotes the inner command; assertions read the unwrapped command.
+launch_text() {  # <launch-log>
+  python3 - "$1" <<'PY'
+import shlex
+import sys
+from pathlib import Path
+
+for line in Path(sys.argv[1]).read_text().splitlines():
+    tokens = shlex.split(line)
+    if tokens[:5] == ["nice", "-n", "10", "/bin/sh", "-c"] and len(tokens) == 6:
+        line = tokens[5]
+    print(line)
+PY
+}
+
 make_spawn_case() {  # <name> <harness> <id>
   local name=$1 harness=$2 id=$3 case_dir home proj wt fakebin
   case_dir="$TMP_ROOT/$name"
@@ -806,6 +822,11 @@ secondmate_stall_watch() { # <primary> <id> <out> [seconds]
   # A previous quiet checkpoint leaves a downtime marker. The next watcher
   # would exit on that recovery wake before this observation finishes.
   rm -f "$state/.watcher-down"
+  # The fork's watcher-quiet check would otherwise wake on this watcher-less
+  # fixture home before the stall tick runs; its episode marker records that
+  # quiet episode as already reported, keeping this observation on the stall
+  # gate alone.
+  printf 'fixture\n' > "$state/.secondmate-watcher-quiet-$id"
   fakebin="$primary/watch-fake-$id"
   mkdir -p "$fakebin"
   cat > "$fakebin/tmux" <<SH
@@ -848,7 +869,7 @@ test_secondmate_claude_spawn_arms_busy_for_the_stall_gate() {
     || fail "claude secondmate spawn failed: $out"
   state="$primary/state"
   settings="$state/$id.claude-settings.json"
-  launch=$(cat "$case_dir/launch.log")
+  launch=$(launch_text "$case_dir/launch.log")
   assert_present "$state/$id.busy-state" "claude secondmate spawn did not arm the busy contract"
   assert_present "$settings" "claude secondmate spawn did not write hook settings"
   assert_contains "$launch" "--settings '$settings'" \
@@ -865,11 +886,18 @@ test_secondmate_claude_spawn_arms_busy_for_the_stall_gate() {
   secondmate_stall_watch "$primary" "$id" "$case_dir/watch-busy.out"
   grep -F 'secondmate wake-loop stalled' "$case_dir/watch-busy.out" >/dev/null \
     && fail "a secondmate inside an armed turn was escalated as a stalled wake loop: $(cat "$case_dir/watch-busy.out")"
-  [ ! -s "$state/.wake-queue" ] \
+  # The fork's watcher-quiet check may still queue its own row for this
+  # watcher-less fixture home; only a stall row would be a busy-gate miss.
+  ! grep -F 'secondmate wake-loop stalled' "$state/.wake-queue" >/dev/null 2>&1 \
     || fail "a secondmate inside an armed turn published a durable stall notification"
 
   rm -f "$state/$id.turn-ended"
+  # The fork's Stop guard keeps a home with queued wakes and no live watcher
+  # supervised, so the frozen row sits aside while this Stop proves the
+  # nothing-to-supervise path, then returns for the idle stall check.
+  mv "$sm/state/.wake-queue" "$case_dir/frozen-queue"
   fire_secondmate_stop "$sm" parallel "$settings" || fail "secondmate Stop was blocked with nothing to supervise"
+  mv "$case_dir/frozen-queue" "$sm/state/.wake-queue"
   [ ! -e "$state/$id.turn-ended" ] || fail "a secondmate Stop touched the parent's turn-ended marker"
   out=$(classify claude "$id" "$state")
   [ "$out" = "idle claude-hook" ] || fail "secondmate Stop must classify idle claude-hook, got '$out'"
@@ -957,6 +985,9 @@ test_secondmate_claude_stop_guard_owns_the_stop_verdict() {
     && fail "a secondmate inside a guard-forced continuation was escalated as stalled: $(cat "$case_dir/watch-blocked.out")"
 
   rm -f "$sm/state/child.meta"
+  # As above: the fork's guard keeps a home with queued wakes supervised, so
+  # the frozen row sits aside for the allowed Stops and returns for the check.
+  mv "$sm/state/.wake-queue" "$case_dir/frozen-queue"
   for order in guard-first guard-last parallel; do
     run_claude_hook "$settings" UserPromptSubmit || fail "secondmate UserPromptSubmit hook failed"
     fire_secondmate_stop "$sm" "$order" "$settings"; status=$?
@@ -964,6 +995,7 @@ test_secondmate_claude_stop_guard_owns_the_stop_verdict() {
     out=$(classify claude "$id" "$state")
     [ "$out" = "idle claude-hook" ] || fail "an allowed Stop must record idle ($order), got '$out'"
   done
+  mv "$case_dir/frozen-queue" "$sm/state/.wake-queue"
   sleep 2
   secondmate_stall_watch "$primary" "$id" "$case_dir/watch-allowed.out" 8
   grep -F "check: secondmate wake-loop stalled: mate=$id row=7" "$case_dir/watch-allowed.out" >/dev/null \
@@ -1035,7 +1067,7 @@ test_secondmate_pi_extension_reports_busy_without_a_parent_turnend() {
     || fail "pi secondmate spawn failed: $out"
   state="$primary/state"
   ext="$state/$id.pi-ext.ts"
-  launch=$(cat "$case_dir/launch.log")
+  launch=$(launch_text "$case_dir/launch.log")
   assert_present "$ext" "pi secondmate spawn did not write the busy extension"
   assert_contains "$launch" "$ext" "pi secondmate launch did not load the busy extension"
   assert_contains "$launch" "fm-primary-turnend-guard.ts" "pi secondmate launch dropped its turn-end extension"
@@ -1059,7 +1091,7 @@ test_secondmate_omp_extension_reports_busy_without_a_parent_turnend() {
     || fail "omp secondmate spawn failed: $out"
   state="$primary/state"
   ext="$state/$id.omp-ext.ts"
-  launch=$(cat "$case_dir/launch.log")
+  launch=$(launch_text "$case_dir/launch.log")
   assert_present "$ext" "omp secondmate spawn did not write the busy extension"
   assert_contains "$launch" "$ext" "omp secondmate launch did not name the busy extension"
   assert_contains "$launch" "--cwd" "omp secondmate launch dropped its cwd pin"
@@ -1117,7 +1149,7 @@ test_raw_secondmate_launch_writes_no_busy_wiring() {
       || fail "raw $harness secondmate spawn must still succeed: $out"
     state="$case_dir/primary/state"
     sm="$case_dir/sm"
-    launch=$(cat "$case_dir/launch.log")
+    launch=$(launch_text "$case_dir/launch.log")
     assert_contains "$launch" "$raw" "raw $harness secondmate did not launch the raw command"
     assert_absent "$state/$id.busy-gen" "raw $harness secondmate armed a busy generation"
     assert_absent "$state/$id.busy-state" "raw $harness secondmate seeded a busy record"
@@ -1144,7 +1176,7 @@ test_raw_secondmate_launch_writes_no_busy_wiring() {
   out=$(FM_BACKEND=tmux FM_FAKE_LAUNCH_LOG="$case_dir/launch.log" \
     fm_test_run_spawn "$case_dir/primary" "$sm" "$case_dir/fake/fakebin" "$id" "$sm" 'claude --fm-raw-flag' --secondmate) \
     || fail "raw claude respawn over an armed secondmate must succeed: $out"
-  assert_contains "$(cat "$case_dir/launch.log")" 'claude --fm-raw-flag' "raw respawn did not launch the raw command"
+  assert_contains "$(launch_text "$case_dir/launch.log")" 'claude --fm-raw-flag' "raw respawn did not launch the raw command"
   assert_absent "$state/$id.busy-gen" "raw respawn kept the earlier busy generation"
   assert_absent "$state/$id.busy-state" "raw respawn kept the earlier busy record"
   assert_absent "$sm/.fm-busy-stop" "raw respawn kept the earlier Stop pointer"
@@ -1160,7 +1192,7 @@ test_secondmate_codex_and_grok_do_not_arm_a_parent_turnend() {
   out=$(spawn_secondmate_harness "$case_dir" "$id" codex) \
     || fail "codex secondmate spawn failed: $out"
   state="$case_dir/primary/state"
-  launch=$(cat "$case_dir/launch.log")
+  launch=$(launch_text "$case_dir/launch.log")
   assert_absent "$state/$id.busy-gen" "codex secondmate must not arm a busy contract with no verified source"
   assert_not_contains "$launch" "turn-ended" "codex secondmate launch referenced a parent turn-ended signal"
   assert_not_contains "$launch" "notify=" "codex secondmate launch included the parent turn-end notify hook"

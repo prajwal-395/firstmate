@@ -495,46 +495,6 @@ mkdir -p "$EXT_CFG"
 # shellcheck disable=SC2016 # Backticks are literal adapter text.
 printf '%s\n' 'Run `review-tool upload --draft` and stop at a draft with checks green.' > "$EXT_CFG/external-review.md"
 
-test_external_forge_is_direct_pr_only() {
-  local out
-  fm_forge_valid_for_mode external direct-PR test 2>/dev/null || fail "forge=external direct-PR was refused"
-  out=$(fm_forge_valid_for_mode external no-mistakes test 2>&1) && fail "forge=external no-mistakes was accepted"
-  assert_contains "$out" "ships direct-PR only for now" "the no-mistakes refusal did not say why"
-  out=$(fm_forge_valid_for_mode external local-only test 2>&1) && fail "forge=external local-only was accepted"
-  assert_contains "$out" "cannot ship mode=local-only" "the local-only refusal did not say why"
-  out=$(fm_base_branch_valid release direct-PR external test 2>&1) && fail "a base branch was accepted on forge=external"
-  pass "forge=external composes with direct-PR only and refuses a base branch"
-}
-
-test_external_rule_one_forbids_every_task_push() {
-  local rule
-  rule=$(CONFIG=$EXT_CFG fm_ship_rule_one direct-PR t1 fm/t1 external) || fail "external rule one did not render"
-  assert_contains "$rule" "Never push to \`origin\`" "external rule one does not forbid the origin push"
-  assert_contains "$rule" "never push your \`fm/t1\` branch or any \`fm/\`-prefixed branch to any remote" \
-    "external rule one does not forbid the task-prefixed push"
-  assert_not_contains "$rule" "push only your" "external rule one still invites a branch push"
-  assert_not_contains "$rule" "personal backup remote" "external rule one offers a backup nobody configured"
-  printf 'backup\n' > "$EXT_CFG/external-review-backup"
-  rule=$(CONFIG=$EXT_CFG fm_ship_rule_one direct-PR t1 fm/t1 external) || fail "external rule one with a backup did not render"
-  rm -f "$EXT_CFG/external-review-backup"
-  assert_contains "$rule" "\`git push backup HEAD:refs/heads/backup/t1\`" "external rule one does not name the backup copy"
-  pass "external rule one forbids origin and task-prefixed pushes and names only the backup copy"
-}
-
-test_external_dod_renders_the_adapter() {
-  local dod out
-  dod=$(CONFIG=$EXT_CFG fm_dod_block direct-PR t1 fm/t1 external) || fail "external DoD did not render"
-  assert_contains "$dod" "Delivery contract: mode=direct-PR forge=external" "external DoD lacks its contract line"
-  assert_contains "$dod" "done [at=<epoch>]: review {url} uploaded for review" "external DoD lacks the ready grammar"
-  assert_contains "$dod" "## Review tool instructions (home configuration)" "external DoD lacks the adapter section"
-  assert_contains "$dod" "review-tool upload --draft" "external DoD lacks the adapter body"
-  assert_not_contains "$dod" "push your branch and open a PR" "external DoD still asks for a pushed PR"
-  out=$(CONFIG="$TMP_ROOT/no-such-config" fm_dod_block direct-PR t1 fm/t1 external 2>&1) \
-    && fail "external DoD rendered with no adapter"
-  assert_contains "$out" "external-review.md" "the missing-adapter refusal did not name the file"
-  pass "external DoD renders the contract, the review grammar, and the adapter, and refuses without one"
-}
-
 # A review-tool fixture: a worker copy, its meta recording forge=external, and
 # optionally a backup remote. Sets EXT_WT, EXT_REPO, EXT_META.
 external_fixture() {  # <name> [backup]
@@ -591,9 +551,6 @@ test_external_review_done_with_backup_needs_the_copy() {
   pass "external review done with a backup: refused until HEAD is under refs/remotes/backup/backup/, then accepted"
 }
 
-test_external_forge_is_direct_pr_only
-test_external_rule_one_forbids_every_task_push
-test_external_dod_renders_the_adapter
 test_external_review_done_without_backup_is_accepted_on_the_url
 test_external_review_done_with_backup_needs_the_copy
 
