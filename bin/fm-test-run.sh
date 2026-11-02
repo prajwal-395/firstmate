@@ -213,7 +213,7 @@ CHANGED_DEFAULT_TIMEOUT_SECS=1500
 
 # How many separate-runner shards the portable serial remainder splits into.
 # One owner: CI lane names carry this count and are refused when they disagree.
-PORTABLE_SERIAL_SHARDS=10
+PORTABLE_SERIAL_SHARDS=11
 
 # Balance hint for a portable-serial script with no measured duration, close to
 # the measured per-script mean so a newly added test neither starves nor
@@ -331,6 +331,7 @@ fm-backend-cmux-smoke.test.sh cmux
 fm-backend-cmux.test.sh cmux
 fm-backend-hc-liveness-live-e2e.test.sh live-harness-optin
 fm-backend-hc-smoke.test.sh hc
+fm-backend-hc-appdetect-smoke.test.sh hc
 fm-backend-hc.test.sh hc
 fm-backend-herdr-agent-exit-shell-e2e.test.sh real-herdr-gated
 fm-backend-herdr-eventwait-smoke.test.sh real-herdr-gated
@@ -459,6 +460,7 @@ fm-pi-branch-responsiveness-live-e2e.test.sh live-harness-optin
 fm-pi-codex-native.test.sh live-harness-optin
 fm-pi-opencode-go.test.sh backend-dispatch
 fm-pi-primary-live-e2e.test.sh live-harness-optin
+fm-pi-worker-stream-live-e2e.test.sh live-harness-optin
 fm-pi-primary-types.test.sh pure-contract-unit
 fm-pi-watch-extension.test.sh watcher-wake-lock
 fm-pi-windows-shell-invocation.test.sh windows-gated
@@ -1059,7 +1061,7 @@ tests/fm-remote-job-process-start.test.sh 11871
 tests/fm-remote-job.test.sh 131830
 tests/fm-remote-reply.test.sh 136904
 tests/fm-remote-secondmate-launch-verify.test.sh 14737
-tests/fm-remote-secondmate-lifecycle-e2e.test.sh 250104
+tests/fm-remote-secondmate-lifecycle-e2e.test.sh 1005249
 tests/fm-remote-secondmate-omp.test.sh 2845
 tests/fm-remote-secondmate-parent-binding.test.sh 34297
 tests/fm-remote-secondmate-relaunch.test.sh 879
@@ -1831,10 +1833,16 @@ families_for_changed_path() {
       printf '%s\n' tern
       printf '%s\n' backend-dispatch
       ;;
-    bin/backends/hc.sh)
+    bin/backends/hc.sh|bin/fm-hc-lab.sh|tests/hc-test-safety.sh)
       printf '%s\n' hc
       printf '%s\n' backend-dispatch
       printf '%s\n' "__script__:fm-backend-hc-liveness-live-e2e.test.sh"
+      ;;
+    bin/fm-install-hc.sh|bin/fm-hc-ci-cleanup.sh)
+      printf '%s\n' pure-contract-unit
+      # Pin or cleanup changes also select the hc family so the real lane's
+      # coverage re-runs, mirroring the real-herdr-gated arm above.
+      printf '%s\n' hc
       ;;
     bin/backends/orca*|bin/backends/tmux.sh)
       printf '%s\n' backend-dispatch
