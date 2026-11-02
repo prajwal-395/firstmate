@@ -32,11 +32,14 @@
 # deliberately forges local records.
 #
 # Self-repository detection compares the task's project dir against the running
-# code root by repository lineage, offline: a shared git common dir covers
-# linked worktrees and the code root itself, and a project holding a root commit
-# of the code root's history covers any fork, the parent, and any clone of
-# either. Lineage that cannot be determined (no code root history, or a shallow
-# side sharing no root) refuses rather than permits. The publication target is
+# code root offline: a shared git common dir covers linked worktrees and the
+# code root itself, and a separate clone holding a root commit of the code
+# root's history counts when it publishes to one of firstmate's own
+# publication identities (the code root's default target and its upstream,
+# github, origin, and fork remotes), so holding firstmate objects alone never
+# gates a project that publishes elsewhere. An undeterminable answer (no code
+# root history, a shallow side sharing no root, or an unknown target for a
+# clone holding a root) refuses rather than permits. The publication target is
 # compared only against a maintainer scope or task consent: the first remote
 # whose remote.<name>.gh-resolved is base, otherwise the first remote named
 # upstream, github, or origin, reduced to lowercase host/owner/repo; a local-path remote
@@ -49,7 +52,8 @@
 #   fm_role_scope_norm <scope>           - canonical comparison form
 #   fm_role_remote_identity <url> [<dir>]- host/owner/repo or path:<abs> or empty
 #   fm_role_publication_target <git-dir> - identity a default publication reaches
-#   fm_role_self_repo <project> <root>   - 0 firstmate lineage, 1 not, 2 unknown
+#   fm_role_root_identities <root>       - firstmate's own publication identities
+#   fm_role_self_repo <project> <root>   - 0 firstmate itself, 1 not, 2 unknown
 #   fm_role_parse_file <file>            - sets FM_ROLE/FM_ROLE_SCOPE/FM_ROLE_DIAG
 #   fm_role_resolve <home> <config-dir>  - effective role; adds FM_ROLE_SOURCE
 #   fm_role_inherit_payload <home> <config-dir> <out-file>
@@ -253,15 +257,33 @@ fm_role_shallow() {
   [ "$(git -C "$1" rev-parse --is-shallow-repository 2>/dev/null)" = true ]
 }
 
-# fm_role_self_repo <project-dir> <code-root> - rc 0 when the task's project
-# shares firstmate's lineage: a shared git common dir (the code root itself or
-# a linked worktree of it), or a project holding a root commit of the code
-# root's history. rc 1 when the project is not a git repository or provably
-# shares no root. rc 2 when lineage cannot be determined: the code root has no
-# history, or either side is shallow and no root matched. Offline only; lazy
-# fetching of missing objects is disabled.
+# fm_role_root_identities <code-root> - firstmate's own publication identities,
+# one per line: the code root's default publication target plus every
+# upstream, github, origin, and fork remote, normalized. Empty when none is
+# readable.
+fm_role_root_identities() {
+  local root=$1 remote url
+  fm_role_publication_target "$root"
+  for remote in upstream github origin fork; do
+    url=$(git -C "$root" remote get-url "$remote" 2>/dev/null) || continue
+    fm_role_remote_identity "$url" "$root"
+  done
+}
+
+# fm_role_self_repo <project-dir> <code-root> - rc 0 when the task's project is
+# firstmate's own repository: a shared git common dir (the code root itself or
+# a linked worktree of it), or a separate clone holding a root commit of the
+# code root's history whose publication target is one of firstmate's own
+# publication identities (fm_role_root_identities). Such a clone whose target
+# or whose code root's identities cannot be determined, or whose target is an
+# unresolved local path, also counts as firstmate. rc 1 when the project is not
+# a git repository, provably shares no root, or publishes somewhere other than
+# firstmate's identities even though it holds firstmate objects. rc 2 when
+# lineage cannot be determined: the code root has no history, or either side
+# is shallow and no root matched. Offline only; lazy fetching of missing
+# objects is disabled.
 fm_role_self_repo() {
-  local proj=$1 root=$2 pa pb roots c
+  local proj=$1 root=$2 pa pb roots c target ids
   pa=$(fm_role_git_common_dir "$proj")
   [ -n "$pa" ] || return 1
   pb=$(fm_role_git_common_dir "$root")
@@ -269,7 +291,16 @@ fm_role_self_repo() {
   roots=$(git -C "$root" rev-list --max-parents=0 HEAD 2>/dev/null) || roots=
   [ -n "$roots" ] || return 2
   for c in $roots; do
-    GIT_NO_LAZY_FETCH=1 git -C "$proj" cat-file -e "$c^{commit}" 2>/dev/null && return 0
+    if GIT_NO_LAZY_FETCH=1 git -C "$proj" cat-file -e "$c^{commit}" 2>/dev/null; then
+      target=$(fm_role_publication_target "$proj")
+      case $target in
+      '' | path:*) return 0 ;;
+      esac
+      ids=$(fm_role_root_identities "$root")
+      [ -n "$ids" ] || return 0
+      printf '%s\n' "$ids" | grep -Fqx -- "$target" && return 0
+      return 1
+    fi
   done
   if fm_role_shallow "$root" || fm_role_shallow "$proj"; then
     return 2

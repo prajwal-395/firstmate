@@ -248,13 +248,16 @@ test_check_equivalent_remote_spellings_are_one_repo() {
   pass "fm-role.sh check: equivalent remote spellings resolve to one publication target"
 }
 
-# Firstmate run from a fork, dispatching to a separate clone of the parent:
-# their origins and git dirs differ, but they share firstmate's root commit,
-# so the task still meets the role/consent gate. A fork's maintainer scope
-# does not cover the parent; one-task consent for the parent does.
+# Firstmate run from a fork that records its parent as upstream, dispatching
+# to a separate clone of the parent: their origins and git dirs differ, but
+# the clone shares firstmate's root commit and publishes to one of the code
+# root's own remotes, so the task still meets the role/consent gate. A fork's
+# maintainer scope does not cover the parent; one-task consent for the parent
+# does.
 test_check_fork_lineage_reaches_the_gate() {
   local fork parent user_home fork_home out rc
   fork=$(make_lineage_root fork-root https://github.com/someone/firstmate-fork)
+  git -C "$fork" remote add upstream https://github.com/kunchenguid/firstmate
   parent=$(clone_with_origin "$fork" parent-clone https://github.com/kunchenguid/firstmate)
   user_home=$(make_role_home fork-user)
   out=$(check_as "$fork" "$user_home" "$parent"); rc=$?
@@ -275,6 +278,37 @@ test_check_fork_lineage_reaches_the_gate() {
   out=$(check_as "$fork" "$user_home" "$TMP_ROOT/fork-unrelated"); rc=$?
   expect_code 2 "$rc" "an unrelated history is not firstmate even with a firstmate remote (got: $out)"
   pass "fm-role.sh check: repository lineage, not remotes, identifies firstmate across forks"
+}
+
+# An ordinary project clone that happens to hold firstmate objects (a stray
+# branch carrying firstmate history, plus a fork remote naming firstmate) but
+# publishes to its own repository is not firstmate: holding objects alone must
+# not gate it. A clone holding the same objects whose publication target is
+# one of the code root's remotes (here its fork remote) is still gated.
+test_check_held_objects_follow_publication_target() {
+  local root proj home out rc
+  root=$(make_lineage_root held-root https://github.com/kunchenguid/firstmate)
+  git -C "$root" remote add fork https://github.com/someone/firstmate
+  home=$(make_role_home held-user)
+  proj="$TMP_ROOT/held-proj"
+  git init -q "$proj" || fail "could not initialize held-objects project fixture"
+  git_commit "$proj" own
+  git -C "$proj" remote add origin https://github.com/someone/video-project.git
+  git -C "$proj" remote add fork "$root"
+  git -C "$proj" fetch -q fork "HEAD:refs/heads/stray-firstmate" || fail "could not fetch firstmate history"
+  git -C "$proj" cat-file -e "$(git -C "$root" rev-list --max-parents=0 HEAD)^{commit}" \
+    || fail "fixture must hold the firstmate root commit"
+
+  out=$(check_as "$root" "$home" "$proj"); rc=$?
+  expect_code 2 "$rc" "a clone publishing elsewhere must not be gated for holding firstmate objects (got: $out)"
+  assert_contains "$out" "not a self-repository task" "the clone must be reported as outside the boundary"
+
+  git -C "$proj" remote set-url origin git@github.com:someone/firstmate.git
+  out=$(check_as "$root" "$home" "$proj"); rc=$?
+  expect_code 1 "$rc" "a clone publishing to the code root's fork remote must be gated (got: $out)"
+  assert_contains "$out" "no publication authority for github.com/someone/firstmate" \
+    "the refusal must name the firstmate publication target"
+  pass "fm-role.sh check: held firstmate objects gate only a clone that publishes to firstmate"
 }
 
 # A fetch-only parent remote must not override gh's explicitly selected fork.
@@ -725,6 +759,7 @@ test_check_maintainer_scope_authorizes
 test_check_wrong_scope_and_remote_presence_do_not_authorize
 test_check_equivalent_remote_spellings_are_one_repo
 test_check_fork_lineage_reaches_the_gate
+test_check_held_objects_follow_publication_target
 test_check_gh_resolved_base_selects_fork
 test_check_undeterminable_lineage_and_target_refuse
 test_check_task_consent_authorizes_one_task
