@@ -344,22 +344,37 @@ while [ "$i" -lt "${#IDS[@]}" ]; do
   # re-resolving there would silently move the mate onto another runtime.
   # Either re-resolution would move a mate that must run on a different runtime
   # than the fleet default onto one its host may not have. The fleet pin only
-  # fills an axis the mate's own record leaves empty.
+  # fills an axis the mate's own record leaves empty. The mate id rides along
+  # so a per-mate override is honored for exactly the mate being restarted, and
+  # an unreadable pin is refused for that mate instead of resolving to whatever
+  # it happened to run last time.
   if [ -z "${HARNESS[i]}" ]; then
-    HARNESS[i]=$("$SCRIPT_DIR/fm-harness.sh" secondmate 2>/dev/null || true)
+    if ! HARNESS[i]=$("$SCRIPT_DIR/fm-harness.sh" secondmate "$id"); then
+      REASON[i]="its configured runtime pin could not be read; fix config/secondmate-harness"
+      i=$((i + 1))
+      continue
+    fi
   fi
   # A recorded `default` is no pin at all, exactly like an empty axis: the mate
   # was launched without a choice there, so the fleet pin still governs it.
   # Only a concrete recorded value pins that axis to the mate.
   case "${MODEL[i]}" in
     ''|default)
-      MODEL[i]=$("$SCRIPT_DIR/fm-harness.sh" secondmate-model 2>/dev/null || true)
+      if ! MODEL[i]=$("$SCRIPT_DIR/fm-harness.sh" secondmate-model "$id"); then
+        REASON[i]="its configured model pin could not be read; fix config/secondmate-harness"
+        i=$((i + 1))
+        continue
+      fi
       ;;
   esac
   case "${EFFORT[i]}" in
     low|medium|high|xhigh|max|ultra) ;;
     *)
-      EFFORT[i]=$("$SCRIPT_DIR/fm-harness.sh" secondmate-effort 2>/dev/null || true)
+      if ! EFFORT[i]=$("$SCRIPT_DIR/fm-harness.sh" secondmate-effort "$id"); then
+        REASON[i]="its configured effort pin could not be read; fix config/secondmate-harness"
+        i=$((i + 1))
+        continue
+      fi
       case "${EFFORT[i]}" in
         ''|low|medium|high|xhigh|max|ultra) ;;
         *) EFFORT[i]="" ;;
