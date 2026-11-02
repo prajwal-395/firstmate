@@ -675,8 +675,6 @@ test_off_rule_profile_requires_captain_override_reason() {
   rec=$(make_spawn_case profile-explicit claude "$id")
   read_case_record "$rec"
   enable_dispatch_profile "$HOME_DIR"
-  jq '.preferred_provider = "claude"' "$HOME_DIR/config/crew-dispatch.json" > "$HOME_DIR/config/preferred.json"
-  mv "$HOME_DIR/config/preferred.json" "$HOME_DIR/config/crew-dispatch.json"
 
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
     "$id" "$PROJ_DIR" --harness grok --model grok-4 --effort high)
