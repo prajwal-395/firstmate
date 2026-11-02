@@ -13,8 +13,8 @@
 #
 # This wrapper is the missing other half. It runs the host-local relaunch
 # through bin/fm-on.sh exactly as secondmate-provisioning documents, then reads
-# the confirmed harness, model, and effort back out of the endpoint's own
-# route report - the same read-back-from-the-endpoint shape bin/fm-spawn.sh
+# the confirmed harness, model, effort, and endpoint target back out of the
+# endpoint's own route report - the same read-back-from-the-endpoint shape bin/fm-spawn.sh
 # already uses when it first records a remote route - and republishes this
 # home's own metadata to match. A failed or refused relaunch leaves this
 # parent's record untouched.
@@ -65,7 +65,12 @@ printf '%s\n' "$RELAUNCH_OUT"
 NEW_HARNESS=$(printf '%s\n' "$RELAUNCH_OUT" | sed -n 's/^harness=//p' | tail -1)
 NEW_MODEL=$(printf '%s\n' "$RELAUNCH_OUT" | sed -n 's/^model=//p' | tail -1)
 NEW_EFFORT=$(printf '%s\n' "$RELAUNCH_OUT" | sed -n 's/^effort=//p' | tail -1)
+NEW_TARGET=$(printf '%s\n' "$RELAUNCH_OUT" | sed -n 's/^target=//p' | tail -1)
 [ -n "$NEW_HARNESS" ] || die "the host's route confirmation carried no harness to record"
+# The replacement agent can land in a new workspace, so the confirmed target
+# replaces the recorded one; otherwise every later read goes to the closed
+# endpoint.
+[ -n "$NEW_TARGET" ] || die "the host's route confirmation carried no endpoint target to record"
 
 META_LOCK=$(fm_meta_lock_path "$META") || die "metadata lock path is invalid for $ID"
 fm_lock_acquire_wait "$META_LOCK"
@@ -77,17 +82,18 @@ META_TMP=$(mktemp "$STATE/.fm-remote-relaunch-meta.XXXXXX") || {
   printf 'harness=%s\n' "$NEW_HARNESS"
   printf 'model=%s\n' "$NEW_MODEL"
   printf 'effort=%s\n' "$NEW_EFFORT"
+  printf 'remote_target=%s\n' "$NEW_TARGET"
 } >> "$META_TMP"
 # Every other line is preserved in its original relative order after the
-# refreshed harness/model/effort. A pr= line's own identity region (pr_head=
+# refreshed harness/model/effort/remote_target. A pr= line's own identity region (pr_head=
 # and the control_relaunch_tx/x_* lifecycle and relay fields
 # fm_pr_metadata_identity_parse allows after it) must stay LAST in the record:
 # that parser rejects any other key following pr=, so writing
-# harness/model/effort after it would break PR movement monitoring on a task
+# these fields after it would break PR movement monitoring on a task
 # that already had one armed.
 while IFS= read -r line || [ -n "$line" ]; do
   case "$line" in
-    harness=*|model=*|effort=*) ;;
+    harness=*|model=*|effort=*|remote_target=*) ;;
     *) printf '%s\n' "$line" >> "$META_TMP" ;;
   esac
 done < "$META"
