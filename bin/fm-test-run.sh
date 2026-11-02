@@ -329,9 +329,9 @@ fm-ask-user-authority.test.sh pure-contract-unit
 fm-backend-autodetect-smoke.test.sh real-herdr-gated
 fm-backend-cmux-smoke.test.sh cmux
 fm-backend-cmux.test.sh cmux
+fm-backend-hc-appdetect-smoke.test.sh hc
 fm-backend-hc-liveness-live-e2e.test.sh live-harness-optin
 fm-backend-hc-smoke.test.sh hc
-fm-backend-hc-appdetect-smoke.test.sh hc
 fm-backend-hc.test.sh hc
 fm-backend-herdr-agent-exit-shell-e2e.test.sh real-herdr-gated
 fm-backend-herdr-eventwait-smoke.test.sh real-herdr-gated
@@ -460,10 +460,10 @@ fm-pi-branch-responsiveness-live-e2e.test.sh live-harness-optin
 fm-pi-codex-native.test.sh live-harness-optin
 fm-pi-opencode-go.test.sh backend-dispatch
 fm-pi-primary-live-e2e.test.sh live-harness-optin
-fm-pi-worker-stream-live-e2e.test.sh live-harness-optin
 fm-pi-primary-types.test.sh pure-contract-unit
 fm-pi-watch-extension.test.sh watcher-wake-lock
 fm-pi-windows-shell-invocation.test.sh windows-gated
+fm-pi-worker-stream-live-e2e.test.sh live-harness-optin
 fm-plan-frontier.test.sh pure-contract-unit
 fm-polytoken-harness.test.sh pure-contract-unit
 fm-polytoken-signals-live-e2e.test.sh live-harness-optin
