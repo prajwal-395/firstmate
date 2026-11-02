@@ -19,6 +19,9 @@
 # agent process group. Any other process group or an unreadable probe defers the
 # repair, leaving that pane and its background work untouched.
 
+# shellcheck source=bin/fm-worker-account-lib.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fm-worker-account-lib.sh"
+
 # fm_posture_harness_supported: 0 when this harness has a verified same-session
 # restore command whose posture Firstmate can reconstruct.
 fm_posture_harness_supported() {  # <harness>
@@ -411,7 +414,7 @@ fm_posture_resolve_binary() {  # <name> <fallback-path>
 # configured posture and the explicit recorded task worktree.
 fm_posture_resume_command() {  # <harness> <session-id> <posture> <meta> <state-dir>
   local harness=$1 session=$2 posture=$3 meta=$4 state=$5
-  local model effort kind settings model_args effort_args notify turnend id
+  local model effort kind settings model_args effort_args notify turnend id account account_root
   local config_json data_root data_real state_real rovo_bin muse_bin muse_config muse_data sessions_root
   id=$(basename "$meta" .meta)
   model=$(fm_meta_get "$meta" model)
@@ -446,8 +449,24 @@ fm_posture_resume_command() {  # <harness> <session-id> <posture> <meta> <state-
         '--dangerously-skip-permissions') settings='{"permissions":{"defaultMode":"bypassPermissions"},"feedbackDrafts":"off","attribution":{"commit":"","pr":"","sessionUrl":false}}' ;;
         *) return 1 ;;
       esac
+      # The transcript lives in the config root the task launched on, so a
+      # recorded account= decides it exactly as bin/fm-spawn.sh's launch did:
+      # the pinned root, or CLAUDE_CONFIG_DIR unset for the ordinary account,
+      # with the same shed credentials, whatever this caller's own
+      # environment holds. A task with no account= was launched with
+      # firstmate's own CLAUDE_CONFIG_DIR forwarded, which this caller shares.
+      account=$(fm_meta_get "$meta" account)
+      if [ -n "$account" ]; then
+        account_root=$(fm_worker_account_root claude "$account" 2>/dev/null) || return 1
+        if [ -n "$account_root" ]; then
+          [ -d "$account_root" ] || return 1
+          printf '%s CLAUDE_CONFIG_DIR=%s ' "$(fm_worker_account_claude_shed)" "$(fm_posture_shell_quote "$account_root")"
+        else
+          printf '%s -u CLAUDE_CONFIG_DIR ' "$(fm_worker_account_claude_shed)"
+        fi
+      fi
       printf '%s' 'env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 '
-      if [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
+      if [ -z "$account" ] && [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
         printf 'CLAUDE_CONFIG_DIR=%s ' "$(fm_posture_shell_quote "$CLAUDE_CONFIG_DIR")"
       fi
       printf 'claude --resume %s %s --settings %s' \
