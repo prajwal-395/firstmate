@@ -394,6 +394,82 @@ fm_posture_idle_ready() {  # <meta> <state-dir>
   printf 'ready\n'
 }
 
+# fm_posture_claude_config_root: the config root a Claude task's transcripts
+# live under, decided exactly as fm_posture_resume_command selects it: the
+# recorded account= root, ~/.claude for the ordinary account, and this caller's
+# own root (shared with the firstmate that launched it) without account=.
+fm_posture_claude_config_root() {  # <meta>
+  local account root
+  account=$(fm_meta_get "$1" account)
+  if [ -n "$account" ]; then
+    root=$(fm_worker_account_root claude "$account" 2>/dev/null) || return 1
+  else
+    root=${CLAUDE_CONFIG_DIR:-}
+  fi
+  if [ -z "$root" ]; then
+    [ -n "${HOME:-}" ] || return 1
+    root=$HOME/.claude
+  fi
+  [ -d "$root" ] || return 1
+  printf '%s\n' "$root"
+}
+
+# fm_posture_claude_transcript_session: find the one Claude conversation this
+# task's current incarnation started, for a pane whose restored resume failed
+# and left only a shell. Prints `session <id> <transcript-path>` or
+# `skip <reason>`, and always succeeds.
+#
+# Claude keeps each conversation as <root>/projects/<worktree with every
+# non-alphanumeric byte as ->/<session-id>.jsonl. A worktree slot is reused by
+# later tasks, so the directory also holds earlier tasks' conversations; only a
+# transcript whose first timestamped record is at or after this incarnation's
+# spawned_at= belongs to it. Exactly one such transcript is required: none, two,
+# an unreadable start, or no spawned_at= refuses rather than resuming a guess.
+fm_posture_claude_transcript_session() {  # <meta>
+  local meta=$1 root worktree spawned dir dirs='' real enc file start session found='' count=0
+  spawned=$(fm_meta_get "$meta" spawned_at)
+  case "$spawned" in ''|*[!0-9]*) printf 'skip no-incarnation-start\n'; return 0 ;; esac
+  root=$(fm_posture_claude_config_root "$meta") || { printf 'skip no-config-root\n'; return 0; }
+  worktree=$(fm_meta_get "$meta" worktree)
+  [ -n "$worktree" ] || { printf 'skip no-worktree\n'; return 0; }
+  real=$(CDPATH='' cd -- "$worktree" 2>/dev/null && pwd -P) || real=
+  for dir in "$worktree" "$real"; do
+    [ -n "$dir" ] || continue
+    enc=$(printf '%s' "$dir" | LC_ALL=C sed 's/[^A-Za-z0-9]/-/g')
+    case " $dirs " in *" $enc "*) continue ;; esac
+    dirs="$dirs $enc"
+    for file in "$root/projects/$enc"/*.jsonl; do
+      [ -f "$file" ] || continue
+      start=$(jq -rn 'first(inputs | select(type == "object" and (.timestamp | type) == "string") | .timestamp | sub("\\.[0-9]+"; "") | fromdateiso8601) // empty' \
+        < "$file" 2>/dev/null) || start=
+      case "$start" in
+        ''|*[!0-9]*) printf 'skip transcript-start-unreadable\n'; return 0 ;;
+      esac
+      [ "$start" -ge "$spawned" ] || continue
+      count=$((count + 1))
+      found=$file
+    done
+  done
+  [ "$count" -gt 0 ] || { printf 'skip no-transcript\n'; return 0; }
+  [ "$count" -eq 1 ] || { printf 'skip transcript-ambiguous\n'; return 0; }
+  session=$(basename "$found" .jsonl)
+  case "$session" in ''|*[!A-Za-z0-9._-]*) printf 'skip bad-session-id\n'; return 0 ;; esac
+  printf 'session %s %s\n' "$session" "$found"
+}
+
+# fm_posture_shell_newer_than: 0 when <shell-pid> started after <path> was last
+# written, which is what separates a shell the terminal manager restored after
+# the conversation stopped from the shell an agent left behind when it exited
+# on its own: that shell predates the conversation's last write.
+fm_posture_shell_newer_than() {  # <shell-pid> <path>
+  local pid=$1 path=$2 etime mtime start
+  etime=$(LC_ALL=C ps -p "$pid" -o etime= 2>/dev/null | tr -d ' ') || return 1
+  [ -n "$etime" ] || return 1
+  mtime=$(fm_posture_mtime "$path") || return 1
+  start=$(( $(date +%s) - $(fm_posture_epoch_seconds "$etime") ))
+  [ "$start" -gt "$mtime" ]
+}
+
 fm_posture_resolve_binary() {  # <name> <fallback-path>
   local name=$1 fallback=$2 candidate dir
   candidate=$(command -v "$name" 2>/dev/null || true)

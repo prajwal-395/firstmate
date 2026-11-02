@@ -3487,6 +3487,11 @@ bin/fm-test-run.sh --family backend-dispatch
 `tests/fm-control.test.sh` covers all seven adapters' bare-resume classification and reconstructed same-session commands, and proves a background tty process defers before any exit key is sent.
 The live guard uses only the named lab session and submits no model turn.
 
+Verified on 2026-11-02 with Claude Code 2.1.316 on macOS: a Claude conversation is stored as `<config root>/projects/<worktree path with every non-alphanumeric byte replaced by ->/<session-id>.jsonl`, and its first records carry no `timestamp`, so the restore recovery reads the first record that does.
+Against this host's real work-account root, `fm_posture_claude_transcript_session` on a live task record returned exactly that task's running session, and the same record with `spawned_at` moved before the slot's earlier tasks returned `skip transcript-ambiguous`.
+On a real tmux 3.8 pane, `fm_backend_endpoint_idle_shell_pid` returned the shell pid for an idle `zsh` and refused both a foreground `sleep 30` and a background `sleep 30 &`.
+`tests/fm-control.test.sh` "a restored Claude pane whose resume failed resumes its own transcript in the worktree" pins the recovery transaction.
+
 ## Launch brief delivery by file pointer
 
 Since 2026-10-01, supervised launches pass a fixed instruction that points to the canonical absolute brief path rather than embedding brief contents in harness argv.

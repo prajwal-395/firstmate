@@ -142,6 +142,7 @@ case "${1:-}" in
         *'Read the brief at '*) cat "$D/becomes" > "$D/command" ;;
         *'claude --resume '*)
           printf 'claude\n' > "$D/command"
+          rm -f "$D/idle-shell"
           [ -z "${FM_POSTURE_TEST_ARGS_FILE:-}" ] || printf 'claude %s\n' "${payload#*'claude '}" > "$FM_POSTURE_TEST_ARGS_FILE"
           ;;
         *'codex resume '*)
@@ -285,7 +286,12 @@ if [ "${FM_POSTURE_TEST_PROCESS_GROUPS:-}" = 1 ]; then
         exit 0
       fi
       ;;
+    *' -p 100 -o etime='*) printf '01:00\n'; exit 0 ;;
+    *' -p 100 -o stat='*) printf 'Ss\n'; exit 0 ;;
+    *' -p 100 -o comm='*) printf -- '-zsh\n'; exit 0 ;;
     *' -t ttys999 -o pid=,pgid=,tpgid=,comm='*)
+      # idle-shell models a restored pane holding nothing but its idle shell.
+      if [ -f "$FM_FAKE_DIR/idle-shell" ]; then printf '100 100 100 -zsh\n'; exit 0; fi
       printf '100 100 101 zsh\n101 101 101 %s\n' "$(cat "$FM_FAKE_DIR/command")"
       if [ -f "$FM_FAKE_DIR/background-pgid" ]; then printf '102 102 101 bash\n'; fi
       exit 0 ;;
@@ -1233,6 +1239,46 @@ test_background_process_defers_repair_without_submitting_exit() {
   pass "fm-control repair-posture: an extra tty process group defers exit and preserves background work"
 }
 
+# After a machine restart the terminal manager restores a Claude pane by
+# running a bare `claude --resume <id>` in the pane's launch directory. For a
+# task pinned to another config root that resume finds no conversation and
+# leaves a bare shell, so the pane exists but no agent runs. Repair must resume
+# the task's own transcript from its recorded root, in its worktree.
+test_claude_restore_whose_resume_failed_is_resumed_in_the_worktree() {
+  local dir out rc wt work_root project_dir transcript line
+  dir=$(new_case claude-dead-restore)
+  add_task "$dir" t1 claude
+  wt=$(sed -n 's/^worktree=//p' "$dir/home/state/t1.meta")
+  work_root="$dir/work-root"
+  project_dir="$work_root/projects/$(printf '%s' "$wt" | sed 's/[^A-Za-z0-9]/-/g')"
+  mkdir -p "$project_dir"
+  printf 'account=%s\nspawned_at=1700000000\n' "$work_root" >> "$dir/home/state/t1.meta"
+  # An earlier task that used the same worktree slot, and this task's own.
+  printf '%s\n' '{"type":"user","timestamp":"2023-11-01T00:00:00.000Z"}' > "$project_dir/sess-earlier.jsonl"
+  transcript="$project_dir/sess-dead.jsonl"
+  printf '%s\n' '{"type":"last-prompt"}' '{"type":"user","timestamp":"2023-11-14T22:14:00.000Z"}' > "$transcript"
+  touch -t 202311150000 "$project_dir/sess-earlier.jsonl" "$transcript"
+  # The restored shell sits idle in the project root, not the worktree.
+  printf '%s' "$dir/proj-t1" > "$dir/fake/cwd"
+  : > "$dir/fake/idle-shell"
+  out=$(FM_POSTURE_TEST_ARGS_FILE="$dir/fake/claude-args" FM_POSTURE_TEST_PROCESS_GROUPS=1 \
+    run_control "$dir" t1 repair-posture)
+  rc=$?
+  expect_code 0 "$rc" "a restored Claude pane whose resume failed should be recovered"$'\n'"$out"
+  assert_contains "$out" 'posture-repaired t1 session=sess-dead posture=bypass worktree=verified' \
+    "the recovery should resume this task's own transcript in its worktree"
+  [ "$(literals "$dir" | sed -n 1p)" = "cd -- $(fm_posture_shell_quote "$wt")" ] \
+    || fail "the recovery must first move the restored shell into the worktree, got: $(literals "$dir")"
+  line=$(literals "$dir" | sed -n 2p)
+  assert_contains "$line" "CLAUDE_CONFIG_DIR=$(fm_posture_shell_quote "$work_root") env -u CURSOR_AGENT" \
+    "the resume must select the recorded config root"
+  assert_contains "$line" "claude --resume sess-dead --dangerously-skip-permissions" \
+    "the resume must name the task's own session with its posture"
+  [ "$(literals "$dir" | wc -l | tr -d ' ')" = 2 ] \
+    || fail "the recovery must type only the cd and the resume, got: $(literals "$dir")"
+  pass "fm-control repair-posture: a restored Claude pane whose resume failed resumes its own transcript in the worktree"
+}
+
 test_claude_posture_classifier_accepts_spawn_flags_and_requires_bare_resume_shape() {
   local got
   got=$(fm_posture_parse_cmdline claude 'claude --resume session-123')
@@ -1845,6 +1891,7 @@ test_claude_resume_on_a_vanished_recorded_root_is_skipped
 test_codex_bare_resume_repair_preserves_session_and_repairs_worktree
 test_opencode_bare_resume_repairs_environment_and_worktree
 test_background_process_defers_repair_without_submitting_exit
+test_claude_restore_whose_resume_failed_is_resumed_in_the_worktree
 test_claude_posture_classifier_accepts_spawn_flags_and_requires_bare_resume_shape
 test_documented_harness_restores_reapply_their_permission_posture
 test_relaunch_only_flags_are_rejected_on_other_verbs
