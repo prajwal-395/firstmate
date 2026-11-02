@@ -283,7 +283,7 @@ test_wedge_threshold_defers_to_a_backlog_captain_hold() {
   # hold the worker's line never shows still bounds the ladder.
   past=$(iso_utc_at "$(( $(date +%s) - 7200 ))")
   dir=$(backlog_hold_wedge_fixture backlog-hold-elapsed-pause 0 '' \
-    "paused: waiting on the build queue until $past") \
+    "paused: waits-for=task:build-queue waiting on the build queue until $past") \
     || fail "could not build a backlog captain-hold wedge fixture"
   state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"; capture="$dir/pane.txt"
   FM_HOME="$dir" FM_DATA_OVERRIDE="$dir/data" \
@@ -730,7 +730,7 @@ test_wedge_threshold_worker_wait_is_off_until_armed() {
   wedge_threshold_round "$state" "$fakebin" "$out" "$capture" "$window" "$working" exit \
     || fail "an unarmed home stopped escalating a worker blocker: $(cat "$out")"
   ack_stopped_cycle "$state" || fail "could not acknowledge the unarmed worker-blocker escalation"
-  grep -Ex 'stale: test:fm-wedge \(idle [0-9]+s, possible wedge, escalation 1\)' "$out" >/dev/null \
+  grep -Ex 'stale: test:fm-wedge \(idle [0-9]+s, possible wedge, escalation 1(, progress [^)]*)?\)' "$out" >/dev/null \
     || fail "an unarmed home changed the wedge reason for a worker blocker: $(cat "$out")"
   grep -F 'declared blocker' "$out" >/dev/null \
     && fail "an unarmed home deferred a worker blocker: $(cat "$out")"

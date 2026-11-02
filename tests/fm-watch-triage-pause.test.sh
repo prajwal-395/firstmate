@@ -1209,7 +1209,7 @@ paused_until_fixture() {  # <name> <until-epoch> <status-age-secs>
   statusf="$state/until.status"
   printf 'idle, waiting for the reset\n' > "$dir/pane.txt"
   printf 'window=%s\nkind=secondmate\n' "$window" > "$state/until.meta"
-  printf 'paused: rate limit resets, until %s, then resuming\n' "$(iso_utc_at "$until")" > "$statusf"
+  printf 'paused: waits-for=task:rate-limit rate limit resets, until %s, then resuming\n' "$(iso_utc_at "$until")" > "$statusf"
   back=$(( $(date +%s) - age ))
   if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$statusf"
   else touch -m -d "@$back" "$statusf"; fi
@@ -1309,7 +1309,7 @@ bg_job_stale_wakes() {  # <state> -> count of stale wakes queued for the parked 
 test_paused_bg_job_without_until_stays_silent_after_the_job_ends() {
   local dir state
   dir=$(bg_job_paused_case bg-job-no-until \
-    "paused [key=nightly-build] [at=$(date +%s)]: nightly build; resume when the job finishes")
+    "paused [key=nightly-build] [at=$(date +%s)]: waits-for=process:nightly-build nightly build; resume when the job finishes")
   state="$dir/state"
   parked_watch_round "$state" "$dir/fakebin" "$dir/watch.out" "$dir/pane.txt" test:fm-parked exit \
     || fail "first sight of a worker paused on its background job did not surface"
@@ -1326,14 +1326,14 @@ test_paused_bg_job_until_timeout_rechecks_after_the_job_ends() {
   local dir state started
   started=$(date +%s)
   dir=$(bg_job_paused_case bg-job-until-running \
-    "paused [key=nightly-build] [at=$started]: nightly build (background job, 600s timeout); resume when it ends, until $(iso_utc_at "$(( started + 600 ))")")
+    "paused [key=nightly-build] [at=$started]: waits-for=process:nightly-build nightly build (background job, 600s timeout); resume when it ends, until $(iso_utc_at "$(( started + 600 ))")")
   state="$dir/state"
   parked_watch_round "$state" "$dir/fakebin" "$dir/watch.out" "$dir/pane.txt" test:fm-parked absorb \
     || fail "a worker paused on its running background job woke before the job's timeout"
   [ "$(bg_job_stale_wakes "$state")" -eq 0 ] || fail "the running job surfaced before its timeout"
   started=$(( $(date +%s) - 180 ))
   dir=$(bg_job_paused_case bg-job-until \
-    "paused [key=nightly-build] [at=$started]: nightly build (background job, 120s timeout); resume when it ends, until $(iso_utc_at "$(( started + 120 ))")")
+    "paused [key=nightly-build] [at=$started]: waits-for=process:nightly-build nightly build (background job, 120s timeout); resume when it ends, until $(iso_utc_at "$(( started + 120 ))")")
   state="$dir/state"
   printf '[bg failed] nightly build - Exited with code 1' > "$dir/pane.txt"
   parked_watch_round "$state" "$dir/fakebin" "$dir/watch.out" "$dir/pane.txt" test:fm-parked exit \

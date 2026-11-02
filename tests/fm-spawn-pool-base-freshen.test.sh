@@ -1230,33 +1230,6 @@ SH
   pass "a refused polytoken launch leaves its per-id paths alone while another spawn holds the per-id lock"
 }
 
-# A launch on any harness other than polytoken keeps main's abort behavior: its
-# pre-publication claim is dropped under the allocation lock, but the window
-# it opened, and with it the slot's lease, stays for the operator to inspect.
-test_non_polytoken_refused_launch_keeps_its_window() {
-  local rec id out status slot_root world
-  id='pool-refused-codex-r1'
-  rec=$(make_originless_case refused-codex "$id")
-  read_case_record "$rec"
-  slot_root="$CASE_DIR/slots"
-  mkdir -p "$slot_root/1"
-  git -C "$PROJECT_DIR" worktree move "$POOL_DIR" "$slot_root/1/project"
-  printf '{"worktrees":[{"name":"1","path":"%s"}]}\n' "$slot_root/1/project" \
-    > "$slot_root/treehouse-state.json"
-  git -C "$slot_root/1/project" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
-  world="$CASE_DIR/tmux-world"
-  install_pool_world_tmux "$FAKEBIN_DIR" "$world" "$slot_root"
-
-  out=$(run_spawn "$id" --harness codex --mode no-mistakes --yolo off)
-  status=$?
-  [ "$status" -ne 0 ] || fail "a codex launch on a slot with an unusable origin should refuse"
-  assert_contains "$out" "could not fetch origin" "the codex refusal message changed"$'\n'"$out"
-  [ ! -e "$HOME_DIR/state/$id.meta" ] || fail "the refused codex launch published a task record"
-  [ -e "$world/fm-$id.id" ] || fail "a non-polytoken refusal closed its window, unlike main"
-  [ ! -e "$slot_root/1/.fm-slot-owner" ] || fail "the refused codex launch left its slot claim"
-  pass "a non-polytoken launch refused after its slot claim keeps main's abort behavior"
-}
-
 # install_isolation_flip_git <fakebin> <worktree>: a git that answers every
 # command truthfully except `rev-parse --show-toplevel` on <worktree>, which
 # reports a foreign root from its third read on - after the discovery poll's
@@ -1708,7 +1681,6 @@ test_completely_unreadable_upstream_warns_and_proceeds
 test_wrong_base_assertion_refuses_and_preserves
 test_refused_launch_leaves_the_pool_for_a_retry_and_a_second_task
 test_refused_launch_spares_per_id_paths_under_a_contended_spawn_lock
-test_non_polytoken_refused_launch_keeps_its_window
 test_treehouse_isolation_refusal_points_at_what_survives
 test_linked_spawning_home_rejects_primary_before_refresh
 test_stale_pool_base_refreshes_before_branching

@@ -1263,7 +1263,7 @@ test_wedge_cap_releases_after_declared_wait() {
   # pause cadence - the wedge episode it was in ends there, not on the busy
   # branch the previous case exercises.
   export FM_FAKE_CREW_STATE='state: paused · source: status-log · holding for the upstream tool release'
-  printf 'paused: holding for the upstream tool release\n' > "$statusf"
+  printf 'paused: waits-for=task:upstream-tool holding for the upstream tool release\n' > "$statusf"
   mark_status_seen "$state" "$statusf"
   : > "$out"
   PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \

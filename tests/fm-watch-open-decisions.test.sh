@@ -121,7 +121,7 @@ test_resolution_and_reopen() {
 test_wait_exemptions() {
   reset_case
   touch "$CONFIG/open-decision-reminders"
-  printf 'needs-decision [at=1000] [key=api]: choose\npaused [at=1050]: validation in flight\n' > "$STATE/paused.status"
+  printf 'needs-decision [at=1000] [key=api]: choose\npaused [at=1050]: waits-for=task:validation validation in flight\n' > "$STATE/paused.status"
   printf 'needs-decision [at=1000] [key=api]: choose\ncaptain-held [at=1050] [key=api]: transferred\n' > "$STATE/transferred.status"
   printf 'needs-decision [at=1000] [key=api]: choose\n' > "$STATE/backlog-held.status"
   # The watcher already delegates backlog ownership to this predicate.

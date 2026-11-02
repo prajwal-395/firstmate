@@ -5066,7 +5066,9 @@ freshen_spawn_worktree_base() { # <worktree> <base-branch> <project> <mode>; 2 w
   fi
   # Wrong-remote backstop: a positive ancestry assertion that refuses on divergence.
   # The assertion sits AFTER the refresh, so it is a post-condition and cannot false-positive.
-  if ! git -C "$worktree" merge-base --is-ancestor "$target" HEAD 2>/dev/null; then
+  # $expected, not $target: under the primary-checkout base $target is a
+  # description ("main in the primary checkout"), not a ref git can resolve.
+  if ! git -C "$worktree" merge-base --is-ancestor "$expected" HEAD 2>/dev/null; then
     echo "error: pooled worktree '$worktree' has HEAD diverged from tracked '$target'; base is on the wrong remote - refusing to launch" >&2
     return 1
   fi

@@ -3714,7 +3714,7 @@ test_dialog_name_after_demand_deep_inspection_still_escalates() {
   grep -F 'demand-deep-inspection: same pane has wedge-escalated 2 times in a row - do not re-absorb on the run-step/pane state alone, blocked-on-prompt: Claude background-task exit picker)' \
     "$state/.subsuper-escalations" >/dev/null \
     || fail "the dialog name was not after demand-deep-inspection: $(cat "$state/.subsuper-escalations")"
-  printf 'paused: awaiting an external dependency\n' > "$state/picker-ship.status"
+  printf 'paused: waits-for=task:upstream-release awaiting an external dependency\n' > "$state/picker-ship.status"
   : > "$state/.subsuper-escalations"
   reason="stale: $win (idle 250s, possible wedge, escalation 3, demand-deep-inspection: same pane has wedge-escalated 3 times in a row - do not re-absorb on the run-step/pane state alone, blocked-on-prompt: Claude background-task exit picker)"
   LOG="$dir/daemon.log" FM_STATE_OVERRIDE="$state" handle_wake "$reason" "$state"

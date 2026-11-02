@@ -916,7 +916,7 @@ test_agy_missing_binary_refuses_before_pane_creation() {
   pass "fm-spawn: a missing agy executable refuses before pane creation"
 }
 
-test_agy_secondmate_launch_pre_trusts_home_and_records_meta() {
+test_agy_secondmate_launch_leaves_trust_store_and_records_meta() {
   local id rec sm_home out rc store meta
   id="agy-secondmate-z6-$$"
   rec=$(make_agy_spawn_case secondmate-launch "$id")
@@ -942,12 +942,14 @@ test_agy_secondmate_launch_pre_trusts_home_and_records_meta() {
     "$SPAWN" "$id" "$sm_home" --secondmate agy 2>&1) || rc=$?
   expect_code 0 "$rc" "agy secondmate spawn should succeed ($out)"
   store="$HOME_DIR/.gemini/antigravity-cli/settings.json"
-  assert_agy_trusted "$store" "$sm_home" "agy secondmate home was not pre-trusted"
+  # The fork never writes agy's trust store (see the Option A worktree test):
+  # the post-launch gate answers the folder-trust dialog for a secondmate home too.
+  assert_agy_not_trusted "$store" "$sm_home" "the spawn wrote the secondmate home into agy's trust store"
   meta="$HOME_DIR/state/$id.meta"
   [ -f "$meta" ] || fail "agy secondmate spawn wrote no state/$id.meta"
   grep -Fq 'kind=secondmate' "$meta" || fail "agy secondmate meta missing kind=secondmate"
   grep -Fq 'harness=agy' "$meta" || fail "agy secondmate meta missing harness=agy"
-  pass "fm-spawn: agy secondmate pre-trusts the secondmate home and records kind=secondmate"
+  pass "fm-spawn: agy secondmate leaves the trust store alone and records kind=secondmate"
 }
 
 test_agy_spawn_arms_hook_wiring() {
@@ -999,5 +1001,5 @@ test_agy_parent_store_entry_does_not_cover_the_worktree
 test_agy_unregistered_path_without_a_dialog_fails_the_spawn
 test_agy_pre_trusted_path_that_never_turns_busy_fails_the_spawn
 test_agy_missing_binary_refuses_before_pane_creation
-test_agy_secondmate_launch_pre_trusts_home_and_records_meta
+test_agy_secondmate_launch_leaves_trust_store_and_records_meta
 test_agy_spawn_arms_hook_wiring
