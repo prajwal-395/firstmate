@@ -1443,7 +1443,11 @@ _fm_open_decisions_cursor_path() {  # <status-file>
 # 8: that end position opens but never closes - a closing verb (resolved,
 # captain-held) with a trailing token folds as prose under "default", so a
 # summary merely quoting a key can no longer close a live decision.
-FM_OPEN_DECISIONS_FOLD_VERSION=10
+# 11: the upstream merge combined two independently numbered histories, where
+# 9 and 10 each named a different rule set, so the merged fold (the stripped
+# time-tag colon reading plus the trailing-key rules) takes a number neither
+# tree has spent, discarding cursors persisted under either reading.
+FM_OPEN_DECISIONS_FOLD_VERSION=11
 
 # Portable device:inode identity for the rotation/recreation check below.
 _fm_open_decisions_file_ident() {  # <file> -> strongest available identity

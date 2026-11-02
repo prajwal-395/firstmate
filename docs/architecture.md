@@ -363,7 +363,7 @@ A per-task captain override (`--captain-route` with `--captain-said`) is the onl
 The session-start bootstrap step keeps valid dispatch configuration silent unless verbose facts are enabled and surfaces a concise invalid-config line when validation fails.
 When the file exists, `fm-spawn.sh` refuses crewmate and scout launches without an explicit harness, so `config/crew-harness` is only automatic when no dispatch profile file is active.
 Secondmate launches are exempt because they resolve the secondmate harness and any optional secondmate model or effort tokens instead.
-[`configuration.md`](configuration.md#crew-dispatch-profiles-configcrew-dispatchjson) owns model and effort defaults and backend-specific refusal or omission behavior.
+[`configuration.md`](configuration.md#crew-dispatch-policy-configdispatch-policyjson) owns model and effort defaults and backend-specific refusal or omission behavior.
 Polytoken composes a concrete model and supported reasoning level through its [adapter contract](../.agents/skills/harness-adapters/references/harness/polytoken.md).
 
 ## Optional secondmates

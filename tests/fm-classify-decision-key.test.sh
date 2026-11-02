@@ -341,8 +341,8 @@ test_stale_version5_cursor_is_invalidated() {
   new_version=$(head -1 "$cf")
   [ "$new_version" = "version=$FM_OPEN_DECISIONS_FOLD_VERSION:unknown" ] \
     || fail "the cursor was not rewritten with the current version: got '$new_version'"
-  [ "$FM_OPEN_DECISIONS_FOLD_VERSION" = "9" ] \
-    || fail "the fold version is $FM_OPEN_DECISIONS_FOLD_VERSION, want 9"
+  [ "$FM_OPEN_DECISIONS_FOLD_VERSION" = "11" ] \
+    || fail "the fold version is $FM_OPEN_DECISIONS_FOLD_VERSION, want 11"
   pass "a stale version-5 cursor is invalidated and refolds to resolved"
 }
 

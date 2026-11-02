@@ -1897,6 +1897,30 @@ It uses the same live secondmate discovery and propagation helper as bootstrap; 
 - That live discovery starts from `state/*.meta` records with `kind=secondmate`; `data/secondmates.md` only backfills `home=` for older or incomplete meta records.
 - Skipped items, such as a destination checkout that does not yet gitignore the item, are visible warnings but not hard failures.
 
+## Forge selection (data/projects.md forge= token)
+
+A project with no `forge=` token is served by the GitHub tooling, `gh` and `gh-axi`, exactly as before the token existed, and the token changes nothing for existing entries.
+A remote-backed project on a Forgejo or Gitea server is registered with `forge=forgejo`, one value of the same closed `forge=` binding that Gerrit uses; `bin/fm-project-mode.sh`'s header owns its grammar, values, and refusals, and `bin/fm-project-mode.sh --forge <name>` reads it back.
+Firstmate passes the binding to `bin/fm-brief.sh --forge` at intake the same way it passes `--mode`, and `bin/fm-spawn.sh` refuses a brief whose forge disagrees with the registry; on `forgejo` the generated ship brief names `tea` instead of `gh-axi`.
+The URL-driven provider dispatch in [`bin/fm-pr-lib.sh`](../bin/fm-pr-lib.sh) recognizes a GitHub, GitLab, Gerrit, or Forgejo PR/MR/change URL once one exists, regardless of this token.
+
+A Forgejo (or Gitea) project needs `tea` on `PATH` plus a `tea login` registered for that project's host (`tea login add`); the login is matched to a PR's host automatically, never configured per project.
+A GitLab project needs no forge token, only `glab` on `PATH`, authenticated via `glab auth login`.
+[`docs/gitlab-merge-watch.md`](gitlab-merge-watch.md) and [`docs/forgejo-tea-integration.md`](forgejo-tea-integration.md) hold the empirically verified CLI behavior each provider's watch and merge path depends on.
+
+A project whose reviews are created by a review tool that uploads its own snapshot of the worker's commits is registered `[direct-PR forge=external]`; it is never detected, ships `direct-PR` only, carries no yolo, and needs the [external review tool](#external-review-tool-configexternal-reviewmd-configexternal-review-url-configexternal-review-backup) configuration below.
+[`docs/external-review-forge.md`](external-review-forge.md) is the design.
+
+## PR text selection (data/projects.md pr= token)
+
+A project with no `pr=` token keeps today's behavior: the no-mistakes pipeline's `pr` step writes the pull request title and body and refreshes them on every validated push.
+A project whose outside maintainer reviews and merges, and whose hand-written PR text the pipeline would overwrite, is registered `[no-mistakes pr=manual]`.
+`pr=manual` is the one accepted value, off by default, read like `forge=`: `bin/fm-project-mode.sh --pr <name>` reads it back, and its header owns the grammar and refusals.
+It applies to a `no-mistakes` ship on a project with no `forge=` binding only, so the registry refuses it on `direct-PR`, which already leaves the PR text to the worker, on `local-only`, which opens no PR, and beside a forge.
+Firstmate passes it to `bin/fm-brief.sh --pr manual` at intake the same way it passes `--forge`, `bin/fm-spawn.sh` refuses a brief whose `pr=` disagrees with the registry, and `bin/fm-promote.sh` reads it from the registry.
+The generated brief then has the worker pass `--skip pr,ci` on every `no-mistakes axi run`, write the PR title and body itself, open or update the PR with `gh-axi`, and wait for the PR's checks; `bin/fm-dod-lib.sh` owns that text.
+The token is the thin registry form of no-mistakes' own keep-text option, [kunchenguid/no-mistakes#1648](https://github.com/kunchenguid/no-mistakes/issues/1648), and is meant to map onto it once that exists.
+
 ## GitHub Enterprise hosts (config/github-hosts)
 
 `config/github-hosts` is an optional local, gitignored file naming the GitHub Enterprise hosts whose pull request URLs this home accepts, one lowercase hostname per line, such as `leadsonline.ghe.com`.
@@ -1911,6 +1935,21 @@ A host named here still needs its own `gh` authentication (`gh auth login --host
 
 The file is local to each home and not part of secondmate inherited configuration, so a secondmate home that serves such a project names the host in its own copy.
 The host is part of each recorded PR identity, so removing a host while a task's pull request is still open stops that task's merge monitoring rather than pointing it at another host.
+
+## External review tool (config/external-review.md, config/external-review-url, config/external-review-backup)
+
+These optional local, gitignored files configure a home's `forge=external` projects; a home with no such project needs none of them.
+
+| File | Required | Meaning |
+| --- | --- | --- |
+| `config/external-review.md` | yes, for any `forge=external` scaffold or spawn | Worker instructions for the home's review tool: how to validate, upload, and read review state, and which state is the stopping point. `bin/fm-dod-lib.sh` appends it verbatim to the Definition of done under `## Review tool instructions (home configuration)`. |
+| `config/external-review-url` | no | One extended regular expression a ready review URL must match in full. Without it, any `https://` URL with no whitespace, control characters, query, or fragment that is not a forge pull request URL is accepted. |
+| `config/external-review-backup` | no | Line 1 names a git remote in the project clone that is the captain's personal backup remote; an optional line 2, `prefix=<ref-prefix>`, sets the backup ref prefix, default `backup/`. |
+
+A missing, unreadable, or empty adapter stops the scaffold or spawn, as does an adapter carrying its own `Delivery contract: mode=` line, because a worker with no upload instructions would otherwise improvise a push.
+A backup remote named `origin`, absent from the project clone, or pointing at one of origin's URLs stops the spawn, as does a backup prefix that is empty, invalid, or equal to or starting with the task branch prefix.
+The files are static, never executed, and local to each home rather than part of secondmate inherited configuration.
+`bin/fm-external-review-lib.sh`'s header owns the readers, and [`docs/external-review-forge.md`](external-review-forge.md) owns the backup rule and its teardown consequence.
 
 ## Watched tool updates (config/watched-tools.json)
 
