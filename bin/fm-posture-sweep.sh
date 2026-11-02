@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Scan local task records for a restored Claude, Codex, OpenCode, Grok, Gemini,
 # Muse, or Rovo session missing its configured permission posture or running
-# outside its worktree.
+# outside its worktree, and a restored Claude pane whose resume failed.
 # Usage: FM_HOME=<home> fm-posture-sweep.sh
 # Prints completed repairs and actionable failures; clean and deferred workers
 # stay silent. The startup bootstrap and watcher own its cadence.

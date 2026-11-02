@@ -114,7 +114,10 @@
 #              resolves to a positively classified endpoint.
 #   repair-posture Resume an idle Claude, Codex, OpenCode, Grok, Gemini, Muse,
 #              or Rovo session in the same pane with its launch posture after
-#              a bare terminal-manager restore.
+#              a bare terminal-manager restore. A Claude restore whose bare
+#              resume found no conversation and left only an idle shell is
+#              resumed on the task's own transcript from its recorded config
+#              root, in its worktree (resume_dead_claude_restore).
 #
 # Teardown and discard are NOT verbs here and never will be. `exit` stops an
 # agent and preserves everything else; removing a worktree, killing an
@@ -125,9 +128,10 @@
 # adapters (bin/fm-control-lib.sh's header owns that reasoning). The narrow
 # `repair-posture` resumes only an already-live Claude, Codex, OpenCode, Grok,
 # Gemini, Muse, or Rovo session whose restored command line proves that the
-# launch posture was lost. `relaunch` remains the general replacement path
-# because the brief on disk, not a harness-private session, is the durable
-# instruction.
+# launch posture was lost, or a restored Claude pane whose failed resume left
+# an idle shell and whose one current-incarnation transcript is provable.
+# `relaunch` remains the general replacement path because the brief on disk,
+# not a harness-private session, is the durable instruction.
 #
 # Targeting is EXACT: only a bare task id with a state/<id>.meta record in
 # THIS home is accepted, and the record must pass the shared endpoint-identity
@@ -1529,6 +1533,58 @@ do_rebind() {
 
 # --- verbs ------------------------------------------------------------------
 
+# resume_dead_claude_restore: a terminal manager restored this Claude pane by
+# running a bare resume that found no conversation (the task's transcript lives
+# under another config root), leaving only a shell. Resume the task's own
+# conversation from its recorded root, in its worktree, with its posture.
+# Acts only on the exact recorded endpoint while it provably holds one idle
+# shell that started after the conversation's last write, never on a declared
+# stop, and never launches a fresh agent: anything unproven is skipped or
+# deferred untouched.
+resume_dead_claude_restore() {
+  local shell_pid found session transcript posture expected resume_command cwd_command send_result state after
+  if fm_stopped_declared "$STATE" "$ID"; then
+    echo "posture-skipped $ID reason=declared-stop"
+    return 0
+  fi
+  shell_pid=$(fm_backend_endpoint_idle_shell_pid "$BACKEND" "$T" 2>/dev/null) || shell_pid=
+  [ -n "$shell_pid" ] || { echo "posture-deferred $ID reason=shell-not-idle"; return 0; }
+  found=$(fm_posture_claude_transcript_session "$META")
+  case "$found" in
+    'session '*) read -r _ session transcript <<< "$found" ;;
+    *) echo "posture-skipped $ID reason=dead-${found#skip }"; return 0 ;;
+  esac
+  fm_posture_shell_newer_than "$shell_pid" "$transcript" \
+    || { echo "posture-skipped $ID reason=dead-not-restored"; return 0; }
+  posture=$(fm_posture_flag claude "$FM_HOME/config") \
+    || { echo "posture-skipped $ID reason=bad-posture-config"; return 0; }
+  expected=bypass
+  [ "$posture" = '--permission-mode auto' ] && expected=auto
+  resume_command=$(fm_posture_resume_command claude "$session" "$posture" "$META" "$STATE" 2>/dev/null) \
+    || { echo "posture-skipped $ID reason=resume-command-unavailable"; return 0; }
+
+  if ! fm_posture_current_path_matches "$BACKEND" "$T" "$WT"; then
+    cwd_command="cd -- $(fm_posture_shell_quote "$WT")"
+    send_result=$(fm_backend_send_text_submit "$BACKEND" "$T" "$cwd_command" "$EXIT_RETRIES" "$POLL" 1.2 "$LABEL") \
+      || die "claude restore recovery could not move task $ID's restored shell into its worktree"
+    [ "$send_result" != send-failed ] \
+      || die "claude restore recovery could not move task $ID's restored shell into its worktree"
+    fm_posture_current_path_matches "$BACKEND" "$T" "$WT" \
+      || die "claude restore recovery ran cd for task $ID, but the endpoint still does not prove worktree $WT"
+  fi
+  send_result=$(fm_backend_send_text_submit "$BACKEND" "$T" "$resume_command" "$EXIT_RETRIES" "$POLL" 1.2 "$LABEL") \
+    || die "claude restore recovery could not resume session $session in task $ID's pane"
+  [ "$send_result" != send-failed ] || die "claude restore recovery could not resume session $session in task $ID's pane"
+  state=$(wait_agent_state "$LAUNCH_WAIT" alive) \
+    || die "claude restore recovery submitted the resume of session $session, but task $ID reads $state"
+  after=$(fm_posture_drift "$META" "$STATE" "$FM_HOME/config")
+  [ "$after" = "clean $expected $session" ] \
+    || die "claude restore recovery resumed task $ID, but the live process does not prove configured posture '$expected' on session $session (observed: $after)"
+  fm_posture_current_path_matches "$BACKEND" "$T" "$WT" \
+    || die "claude restore recovery resumed task $ID, but the endpoint does not prove its recorded worktree $WT"
+  echo "posture-repaired $ID session=$session posture=$expected worktree=verified backend=$BACKEND endpoint=$T restored=dead-shell"
+}
+
 do_repair_posture() {
   local observed ready session posture expected command resume_command send_result state after
   local current_path path_matches cwd_command posture_drift
@@ -1550,6 +1606,13 @@ do_repair_posture() {
       posture=$(fm_posture_flag "$HARNESS" "$FM_HOME/config") \
         || { echo "posture-skipped $ID reason=bad-posture-config"; return 0; }
       posture_drift=0
+      ;;
+    'skip not-alive-dead')
+      if [ "$HARNESS" = claude ]; then
+        resume_dead_claude_restore
+        return 0
+      fi
+      echo "posture-skipped $ID $observed"; return 0
       ;;
     *) echo "posture-skipped $ID $observed"; return 0 ;;
   esac

@@ -1602,6 +1602,20 @@ fm_backend_endpoint_shell_pid() {  # <backend> <target>
   esac
 }
 
+# fm_backend_endpoint_idle_shell_pid: print <target>'s shell pid only when the
+# endpoint provably holds one lone idle shell with no foreground or background
+# job. Each adapter owns its proof; any other backend, or an unreadable probe,
+# proves nothing and returns 1.
+fm_backend_endpoint_idle_shell_pid() {  # <backend> <target>
+  local backend=$1 target=$2
+  fm_backend_source "$backend" || return 1
+  case "$backend" in
+    tmux) fm_backend_tmux_pane_idle_shell_pid "$target" ;;
+    herdr) fm_backend_herdr_pane_idle_shell_pid "${target%%:*}" "${target#*:}" ;;
+    *) return 1 ;;
+  esac
+}
+
 # fm_backend_tty_background_process_group: 0 only when the endpoint tty has no
 # process group beyond its pane shell and its current foreground group. A
 # distinct process group is a live background job; return 2 for that positive

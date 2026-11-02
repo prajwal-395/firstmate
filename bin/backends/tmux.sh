@@ -329,6 +329,40 @@ fm_backend_tmux_shell_pid() {  # <target>
   tmux display-message -p -t "$1" '#{pane_pid}' 2>/dev/null
 }
 
+# fm_backend_tmux_pane_idle_shell_pid: print the pane shell pid only when the
+# pane tty provably holds nothing but that one idle shell: it is the tty's only
+# process, its own process group is the foreground group, it is a recognized
+# shell, and it is sleeping. An idle prompt can briefly host a prompt helper, so
+# the proof takes a few strict samples and succeeds on the first clean one; a
+# pane running any job fails every sample.
+fm_backend_tmux_pane_idle_shell_pid() {  # <target>
+  local target=$1 attempt=0 max_attempts=${FM_BACKEND_TMUX_IDLE_SHELL_PROOF_POLLS:-5}
+  while :; do
+    fm_backend_tmux_pane_idle_shell_sample "$target" && return 0
+    attempt=$((attempt + 1))
+    [ "$attempt" -lt "$max_attempts" ] || return 1
+    sleep 0.1
+  done
+}
+
+fm_backend_tmux_pane_idle_shell_sample() {  # <target>
+  local target=$1 tty shell_pid rows pid pgid tpgid comm stat
+  tty=$(fm_backend_tmux_endpoint_tty "$target") || return 1
+  [ -n "$tty" ] || return 1
+  shell_pid=$(fm_backend_tmux_shell_pid "$target") || return 1
+  case "$shell_pid" in ''|*[!0-9]*) return 1 ;; esac
+  rows=$(LC_ALL=C ps -t "${tty#/dev/}" -o pid=,pgid=,tpgid=,comm= 2>/dev/null) || return 1
+  [ "$(printf '%s\n' "$rows" | grep -c .)" = 1 ] || return 1
+  read -r pid pgid tpgid comm <<EOF
+$rows
+EOF
+  [ "$pid" = "$shell_pid" ] && [ "$pgid" = "$shell_pid" ] && [ "$tpgid" = "$shell_pid" ] || return 1
+  [ "$(fm_agent_process_classify_name "$comm")" = shell ] || return 1
+  stat=$(LC_ALL=C ps -p "$shell_pid" -o stat= 2>/dev/null | tr -d '[:space:]') || return 1
+  case "$stat" in S*|I*) ;; *) return 1 ;; esac
+  printf '%s\n' "$shell_pid"
+}
+
 # The process-name classifier every liveness signal below feeds
 # (fm_agent_process_classify_name) is owned by bin/fm-agent-process-lib.sh,
 # shared with the Herdr adapter so both backends mean the same thing by
