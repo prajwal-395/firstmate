@@ -195,7 +195,7 @@ fm_git_worktree "$proj" "$wt" cortex-test
 fm_test_spawn_brief "$home" cortex-worker
 if ! out=$(FM_FAKE_LAUNCH_LOG="$case_dir/launch" fm_test_run_spawn "$home" "$wt" "$fakebin" cortex-worker "$proj" --scout --harness cortex --model claude-sonnet-5-5 --effort high 2>&1)
 then fail "spawn failed: $out"; fi
-launch=$(cat "$case_dir/launch")
+launch=$(fm_test_launch_script "$(cat "$case_dir/launch")")
 assert_contains "$launch" '--dangerously-allow-all-tool-calls' 'autonomy flag missing'
 assert_contains "$launch" "--plugin-dir '$home/state/cortex-worker.cortex-plugin'" 'private plugin missing'
 assert_contains "$launch" "--model 'claude-sonnet-5-5'" 'model lost'
@@ -215,7 +215,7 @@ fm_test_spawn_brief "$home" cortex-xhigh
 if ! out=$(FM_FAKE_LAUNCH_LOG="$case_dir/launch-xhigh" fm_test_run_spawn "$home" "$wt2" "$fakebin" cortex-xhigh "$proj2" --scout --harness cortex --effort xhigh 2>&1)
 then fail "xhigh spawn failed: $out"; fi
 case "$(cat "$case_dir/launch-xhigh")" in *--effort*) fail 'xhigh reached Cortex argv, which has no such level' ;; esac
-assert_grep 'effort=xhigh' "$home/state/cortex-xhigh.meta" 'effort not recorded'
+assert_grep 'effort=default' "$home/state/cortex-xhigh.meta" 'an effort the harness cannot carry must record as default'
 pass "scout launch carries autonomy, plugin, typed brief and hooks; xhigh effort omitted"
 
 # Only tmux and Herdr supply the Cortex identity that lets its titled composer

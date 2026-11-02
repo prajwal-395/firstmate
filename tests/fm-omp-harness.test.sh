@@ -337,7 +337,7 @@ test_secondmate_omp_profile_pin() {
   out=$(run_omp_secondmate_spawn "$world" omp --secondmate --model openai-codex/gpt-6-speak4)
   status=$?
   expect_code 0 "$status" "a pinned omp secondmate spawn should succeed under its profile's catalog: $out"
-  launch=$(cat "$world/launch.log")
+  launch=$(fm_test_launch_script "$(cat "$world/launch.log")")
   assert_contains "$launch" "OMP_SKIP_SETUP=1 '$fakebin/omp' --profile 'speak4' --config '$ROOT/.omp/fm-worker-overlay.yml' --auto-approve --cwd '$world/sm'" \
     "a pinned omp secondmate launch must carry --profile right after the executable: $launch"
   [ "$(printf '%s\n' "$launch" | grep -o -- '--profile' | wc -l | tr -d ' ')" = 1 ] \
@@ -360,7 +360,7 @@ test_secondmate_omp_profile_absent_or_foreign_adds_nothing() {
     out=$(run_omp_secondmate_spawn "$world" omp --secondmate)
     status=$?
     expect_code 0 "$status" "an unpinned ($variant) omp secondmate spawn should succeed: $out"
-    launch=$(cat "$world/launch.log")
+    launch=$(fm_test_launch_script "$(cat "$world/launch.log")")
     [ -n "$launch" ] || fail "the $variant case recorded no launch, so its absence assertions would be vacuous"
     assert_not_contains "$launch" "--profile" "an unpinned ($variant) omp secondmate launch must carry no --profile: $launch"
     assert_contains "$launch" "OMP_SKIP_SETUP=1 '$world/fake/fakebin/omp' --config" "an unpinned ($variant) launch must keep the executable directly before --config: $launch"

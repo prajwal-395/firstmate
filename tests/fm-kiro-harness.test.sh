@@ -483,7 +483,7 @@ test_kiro_launch_carries_brief_agent_engine_and_clears_markers() {
     --model claude-opus-5 --effort high)
   rc=$?
   expect_code 0 "$rc" "kiro spawn with a listed model should succeed: $out"
-  launch=$(cat "$CASE_DIR/launch.log")
+  launch=$(fm_test_launch_script "$(cat "$CASE_DIR/launch.log")")
   assert_contains "$launch" "$FAKEBIN_DIR/kiro-cli" "kiro launch did not pin the resolved absolute binary"
   assert_contains "$launch" "chat --agent-engine v2" "kiro launch did not pin the V2 engine"
   assert_contains "$launch" "--agent firstmate" "kiro launch did not name the per-task agent"
@@ -553,7 +553,7 @@ test_kiro_effort_xhigh_passes_through() {
   out=$(run_kiro_spawn "$CASE_DIR" "$HOME_DIR" "$PROJ_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" --effort xhigh)
   rc=$?
   expect_code 0 "$rc" "kiro spawn with xhigh should succeed: $out"
-  launch=$(cat "$CASE_DIR/launch.log")
+  launch=$(fm_test_launch_script "$(cat "$CASE_DIR/launch.log")")
   assert_contains "$launch" "--effort 'xhigh'" "kiro must pass xhigh through (unlike agy)"
   pass "fm-spawn: kiro passes the full effort vocabulary including xhigh"
 }
@@ -611,7 +611,7 @@ test_kiro_pretty_printed_listing_validates_the_model() {
   rc=$?
   expect_code 0 "$rc" "a pretty-printed listing must still validate a listed model: $out"
   assert_not_contains "$out" "not listed by" "a pretty-printed listing refused a listed model"
-  launch=$(cat "$CASE_DIR/launch.log")
+  launch=$(fm_test_launch_script "$(cat "$CASE_DIR/launch.log")")
   assert_contains "$launch" "--model 'claude-opus-5'" "the pretty-printed case did not carry the model"
 
   # And it must still REFUSE an unlisted id rather than accept everything.
@@ -642,7 +642,7 @@ test_kiro_unparseable_listing_launches_unvalidated() {
   assert_not_contains "$out" "not listed by" "an unreadable listing claimed the model is absent"
   assert_contains "$out" "carries no model_id" "an unreadable listing launched without its notice"
   [ -s "$CASE_DIR/launch.log" ] || fail "an unreadable listing produced no launch command"
-  assert_contains "$(cat "$CASE_DIR/launch.log")" "--model 'claude-opus-5'" \
+  assert_contains "$(fm_test_launch_script "$(cat "$CASE_DIR/launch.log")")" "--model 'claude-opus-5'" \
     "the unvalidated launch dropped the requested model"
   pass "fm-spawn: a kiro listing with no readable model_id establishes nothing and launches"
 }

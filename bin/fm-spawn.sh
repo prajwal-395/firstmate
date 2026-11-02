@@ -7958,6 +7958,9 @@ EFFORTFLAG=
 EFFORT_SUPPORTED=0
 if [ "$HARNESS" = rovo ]; then
   case "$EFFORT" in low|medium|high|max) EFFORT_SUPPORTED=1 ;; esac
+elif [ "$HARNESS" = polytoken ]; then
+  # polytoken carries effort inside the composed model reference, not a flag.
+  case "$POLYTOKEN_MODEL_REF" in *"("*")") EFFORT_SUPPORTED=1 ;; esac
 else
   EFFORTFLAG=$(effort_flag_for_harness "$HARNESS" "$EFFORT" "$MODEL" "$OPENCODE_MAJOR") || exit 1
   [ -z "$EFFORTFLAG" ] || EFFORT_SUPPORTED=1
