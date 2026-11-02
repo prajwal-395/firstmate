@@ -347,9 +347,15 @@ add_task() {
 
 # run_control <case-dir> <args...>: run fm-control against the case's home with
 # the stubbed provider on PATH. Echoes combined output; returns its exit code.
+# The caller's CLAUDE_CONFIG_DIR is cleared so a Claude resume command does not
+# depend on the shell running the suite; FM_TEST_CALLER_CLAUDE_CONFIG_DIR sets
+# one deliberately.
 run_control() {
   local dir=$1; shift
-  env PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
+  local -a caller_claude=(-u CLAUDE_CONFIG_DIR)
+  [ -z "${FM_TEST_CALLER_CLAUDE_CONFIG_DIR:-}" ] \
+    || caller_claude=("CLAUDE_CONFIG_DIR=$FM_TEST_CALLER_CLAUDE_CONFIG_DIR")
+  env "${caller_claude[@]}" PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
     FM_CONTROL_POLL=0.01 FM_CONTROL_SETTLE_WAIT=0.05 \
     FM_CONTROL_EXIT_WAIT=0.05 FM_CONTROL_LAUNCH_WAIT=0.05 \
     FM_FAKE_MUSE_LOG="${FM_FAKE_MUSE_LOG:-}" \
@@ -857,11 +863,12 @@ test_relaunch_rejects_a_bad_workspace() {
   local dir out rc
   dir=$(new_case workspace-bad)
   add_task "$dir" t1 claude
-  out=$(run_control "$dir" t1 relaunch --opencode-workspace bogus --note x); rc=$?
-  expect_code 1 "$rc" "a bogus workspace must be refused"
-  assert_contains "$out" "--opencode-workspace must be main or secondary" \
-    "the refusal should name the accepted values"
-  pass "fm-control: relaunch refuses a workspace outside main|secondary"
+  out=$(run_control "$dir" t1 relaunch --opencode-workspace 'bad/label' --note x); rc=$?
+  expect_code 1 "$rc" "a malformed workspace label must be refused"
+  assert_contains "$out" "--opencode-workspace must be a configured workspace label (got 'bad/label')" \
+    "the refusal should name the malformed label"
+  [ -z "$(literals "$dir")" ] || fail "a refused workspace label must send nothing"
+  pass "fm-control: relaunch refuses a malformed workspace label before touching the agent"
 }
 
 test_workspace_flag_is_relaunch_only() {
@@ -935,6 +942,78 @@ test_claude_bare_resume_repair_respects_auto_mode() {
   assert_contains "$out" 'posture-repaired t1 session=session-auto posture=auto' \
     "the result should report the configured auto mode"
   pass "fm-control repair-posture: Claude restores keep the configured auto mode"
+}
+
+# A Claude transcript lives under the config root the task launched on, so the
+# resume must select the task's recorded account=, never the caller's own
+# CLAUDE_CONFIG_DIR: a resume on the wrong root finds no conversation.
+claude_resume_line() {  # <case-dir> -> the submitted resume line
+  literals "$1" | sed -n 2p
+}
+
+test_claude_resume_uses_the_recorded_pinned_account_root() {
+  local dir out rc line work_root
+  dir=$(new_case claude-resume-pinned)
+  add_task "$dir" t1 claude
+  work_root="$dir/work account"
+  mkdir -p "$work_root"
+  printf 'account=%s\n' "$work_root" >> "$dir/home/state/t1.meta"
+  alive_as "$dir" claude
+  printf '❯\n' > "$dir/fake/pane"
+  printf 'claude --resume session-work\n' > "$dir/fake/claude-args"
+  out=$(FM_POSTURE_TEST_ARGS_FILE="$dir/fake/claude-args" FM_POSTURE_TEST_PROCESS_GROUPS=1 run_control "$dir" t1 repair-posture)
+  rc=$?
+  expect_code 0 "$rc" "a pinned Claude task should repair"$'\n'"$out"
+  line=$(claude_resume_line "$dir")
+  assert_contains "$line" "CLAUDE_CONFIG_DIR=$(fm_posture_shell_quote "$work_root") env -u CURSOR_AGENT" \
+    "the resume must select the recorded work root although the caller has none"
+  assert_contains "$line" "-u ANTHROPIC_API_KEY" \
+    "the pinned resume must shed credentials Claude ranks above the root's login, as its launch did"
+  assert_contains "$line" "claude --resume session-work --dangerously-skip-permissions" \
+    "the resume must keep the same session and posture"
+  pass "fm-control repair-posture: a Claude task pinned to another root resumes on that root with the caller's CLAUDE_CONFIG_DIR unset"
+}
+
+test_claude_resume_on_the_recorded_ordinary_account_unsets_the_callers_root() {
+  local dir out rc line
+  dir=$(new_case claude-resume-ordinary)
+  add_task "$dir" t1 claude
+  mkdir -p "$dir/caller-root"
+  printf 'account=ordinary\n' >> "$dir/home/state/t1.meta"
+  alive_as "$dir" claude
+  printf '❯\n' > "$dir/fake/pane"
+  printf 'claude --resume session-personal\n' > "$dir/fake/claude-args"
+  out=$(FM_TEST_CALLER_CLAUDE_CONFIG_DIR="$dir/caller-root" FM_POSTURE_TEST_ARGS_FILE="$dir/fake/claude-args" \
+    FM_POSTURE_TEST_PROCESS_GROUPS=1 run_control "$dir" t1 repair-posture)
+  rc=$?
+  expect_code 0 "$rc" "an ordinary-account Claude task should repair"$'\n'"$out"
+  line=$(claude_resume_line "$dir")
+  assert_contains "$line" "-u CLAUDE_CONFIG_DIR env -u CURSOR_AGENT" \
+    "the resume must unset CLAUDE_CONFIG_DIR for the recorded ordinary account"
+  case "$line" in
+    *CLAUDE_CONFIG_DIR=*) fail "the ordinary-account resume must not carry the caller's root, got: $line" ;;
+  esac
+  assert_contains "$line" "claude --resume session-personal --dangerously-skip-permissions" \
+    "the resume must keep the same session and posture"
+  pass "fm-control repair-posture: a Claude task on the ordinary account resumes with CLAUDE_CONFIG_DIR unset although the caller has one"
+}
+
+test_claude_resume_on_a_vanished_recorded_root_is_skipped() {
+  local dir out rc
+  dir=$(new_case claude-resume-vanished)
+  add_task "$dir" t1 claude
+  printf 'account=%s\n' "$dir/no-such-root" >> "$dir/home/state/t1.meta"
+  alive_as "$dir" claude
+  printf '❯\n' > "$dir/fake/pane"
+  printf 'claude --resume session-gone\n' > "$dir/fake/claude-args"
+  out=$(FM_TEST_CALLER_CLAUDE_CONFIG_DIR="$dir" FM_POSTURE_TEST_ARGS_FILE="$dir/fake/claude-args" \
+    FM_POSTURE_TEST_PROCESS_GROUPS=1 run_control "$dir" t1 repair-posture)
+  rc=$?
+  expect_code 0 "$rc" "a vanished recorded root should skip, not fail"$'\n'"$out"
+  assert_contains "$out" 'posture-skipped t1 reason=resume-command-unavailable' \
+    "a recorded root that no longer exists must not fall back to the caller's"
+  [ -z "$(literals "$dir")" ] || fail "a skipped repair must not exit the live worker"
+  pass "fm-control repair-posture: a recorded Claude root that no longer exists leaves the worker running"
 }
 
 test_codex_bare_resume_repair_preserves_session_and_repairs_worktree() {
@@ -1627,6 +1706,9 @@ test_workspace_flag_is_relaunch_only
 test_resume_is_refused_with_its_reason
 test_claude_bare_resume_repair_keeps_the_same_session_and_task_record
 test_claude_bare_resume_repair_respects_auto_mode
+test_claude_resume_uses_the_recorded_pinned_account_root
+test_claude_resume_on_the_recorded_ordinary_account_unsets_the_callers_root
+test_claude_resume_on_a_vanished_recorded_root_is_skipped
 test_codex_bare_resume_repair_preserves_session_and_repairs_worktree
 test_opencode_bare_resume_repairs_environment_and_worktree
 test_background_process_defers_repair_without_submitting_exit

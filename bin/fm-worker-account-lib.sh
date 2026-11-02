@@ -5,7 +5,7 @@
 # credentials a pinned Claude launch sheds.
 #
 # docs/configuration.md "Worker account pin" owns the operator-facing contract.
-# Sourced by bin/fm-spawn.sh and bin/fm-control.sh.
+# Sourced by bin/fm-spawn.sh, bin/fm-control.sh, and bin/fm-posture-lib.sh.
 #
 # Pinnable runners, each a credential store inside a root its vendor lets a
 # process select:
@@ -108,6 +108,30 @@ fm_worker_account_read() {
   ' -- "$1" "$2"
 }
 
+# fm_worker_account_root <harness> <declared>
+# Prints the root directory a declared account selects: the absolute path
+# itself, $HOME/.pi/agent for an ordinary Pi account, and an empty line for an
+# ordinary Claude account, meaning CLAUDE_CONFIG_DIR unset. It maps a pin file's
+# value and a task record's account= alike, so a resume selects the root its
+# launch did. Returns 1, after one error, for any other value.
+fm_worker_account_root() {
+  case "$1:$2" in
+  claude:ordinary) printf '\n' ;;
+  *:ordinary)
+    [ -n "${HOME:-}" ] || {
+      echo "error: HOME is required to resolve an ordinary Pi account" >&2
+      return 1
+    }
+    printf '%s\n' "$HOME/.pi/agent"
+    ;;
+  *:/*) printf '%s\n' "$2" ;;
+  *)
+    echo "error: account '$2' is neither 'ordinary' nor an absolute path" >&2
+    return 1
+    ;;
+  esac
+}
+
 # fm_worker_account_resolve <harness> <config-dir> [<kind>]
 # Prints "declared<TAB>root<TAB>providers" for a valid pin, where root is the
 # directory the launch selects (empty for ordinary Claude, meaning
@@ -141,18 +165,12 @@ fm_worker_account_resolve() {
   esac
   declared=${token%%$'\t'*}
   [ "$harness:$kind" != claude:secondmate ] || declared=ordinary
-  root=$declared
+  root=$(fm_worker_account_root "$harness" "$declared") || return 1
   # shellcheck disable=SC2088  # The fallbacks are literal text for the refusal.
   case "$harness" in
   claude) fallback='~/.claude with CLAUDE_CONFIG_DIR unset' ;;
   *) fallback='~/.pi/agent' ;;
   esac
-  if [ "$declared" = ordinary ]; then
-    case "$harness" in
-    claude) root= ;;
-    *) root="${HOME:?HOME is required to resolve an ordinary Pi account}/.pi/agent" ;;
-    esac
-  fi
   if [ -n "$root" ] && { [ ! -d "$root" ] || [ ! -r "$root" ] || [ ! -x "$root" ]; }; then
     echo "error: config/$file must name a readable, searchable existing directory (ordinary means $fallback): $cfg -> $root" >&2
     return 1

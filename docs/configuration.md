@@ -954,6 +954,7 @@ A home that authenticates Claude through environment credentials on purpose shou
 
 A malformed file, a root that is not a readable directory, or a signed-out account refuses the launch and names the file to fix; Firstmate never falls back to the ambient account and never changes a global login or copies a credential.
 The spawn prints the pin as `account=` (plus `account_provider=` for Pi) and records the same fields in the task record, so the session-start digest shows which account each worker launched on.
+A same-session Claude resume, such as the permission-posture repair after a terminal-manager restore, selects the account that task record names, not firstmate's own `CLAUDE_CONFIG_DIR`, because the conversation lives under that account's config root.
 
 Pins are not inherited into secondmate homes: the launching home's files decide a local secondmate agent's own launch, while the secondmate's own workers read the secondmate home's files.
 A remote secondmate is launched on its host from its own home's configuration, so create the file in that remote home.
