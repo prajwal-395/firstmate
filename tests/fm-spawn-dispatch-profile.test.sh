@@ -2420,6 +2420,45 @@ test_active_dispatch_profile_does_not_block_secondmate_launch() {
   pass "active crew-dispatch profile does not block secondmate launches"
 }
 
+# A keyless research secondmate home holds no OpenCode console login, so it
+# must never take the main Go workspace pin that an inherited
+# config/opencode-second-org would otherwise select: that pin needs a console
+# login the home is forbidden to hold, and every launch of the mate failed on
+# it. An ordinary secondmate home keeps the pin, which is what proves the gate
+# is the keyless charter and not the workspace setup.
+test_keyless_research_secondmate_skips_the_opencode_go_pin() {
+  local rec id sm out status
+  # The 1.x line is what the keyless research host runs.
+  local FM_TEST_OPENCODE_VERSION=1.19.3
+  id=keyless-research-z17
+  rec=$(make_spawn_case keyless-research opencode "$id")
+  read_case_record "$rec"
+  printf '%s' 'org_01FIXTURESECONDARY00' > "$HOME_DIR/config/opencode-second-org"
+  sm="$CASE_DIR/secondmate-home"
+  make_seeded_secondmate_home "$sm" "$id"
+  printf 'Research charter: survey sources, write reports.\n' > "$sm/data/charter.md"
+
+  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$sm" --secondmate opencode 2>&1)
+  status=$?
+  expect_code 0 "$status" "a keyless research secondmate should launch on opencode without the Go pin"$'\n'"$out"
+  assert_contains "$out" "spawned $id harness=opencode kind=secondmate" \
+    "the keyless research secondmate did not launch on opencode"
+  assert_not_contains "$(cat "$LAUNCH_LOG")" "OPENCODE_DB=" \
+    "the keyless research secondmate launch was pinned to a workspace database"
+
+  id=ordinary-secondmate-z18
+  rec=$(make_spawn_case ordinary-secondmate opencode "$id")
+  read_case_record "$rec"
+  printf '%s' 'org_01FIXTURESECONDARY00' > "$HOME_DIR/config/opencode-second-org"
+  sm="$CASE_DIR/secondmate-home"
+  make_seeded_secondmate_home "$sm" "$id"
+  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$sm" --secondmate opencode 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "an ordinary secondmate with no console login should still be refused the main Go pin"$'\n'"$out"
+  [ ! -s "$LAUNCH_LOG" ] || fail "an ordinary secondmate without a pinnable login was launched: $(cat "$LAUNCH_LOG")"
+  pass "a keyless research secondmate launches on opencode without the Go workspace pin"
+}
+
 # Execute the actual emitted command in a synthetic pane environment: the
 # fake backend records delivery, while real shells exercise the env boundary.
 # No developer environment or credential values are inspected by these probes.
@@ -3498,5 +3537,6 @@ test_keep_ai_trailers_omits_attribution_settings_and_strip_hooks
 test_keep_ai_trailers_reaches_secondmate_crew_launches
 test_claude_secondmate_launch_carries_the_attribution_policy
 test_active_dispatch_profile_does_not_block_secondmate_launch
+test_keyless_research_secondmate_skips_the_opencode_go_pin
 
 echo "# all fm-spawn-dispatch-profile tests passed"

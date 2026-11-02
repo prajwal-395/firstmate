@@ -3605,6 +3605,22 @@ if [ "$KIND" = secondmate ] && [ -z "$ARG3" ]; then
   fi
 fi
 fm_backend_validate_harness "$BACKEND" "$HARNESS" || exit 1
+# spawn_secondmate_home_keyless: 0 when this secondmate's home is a keyless
+# research home (fm_secondmate_home_is_keyless). Such a home never holds an
+# OpenCode console login, so pinning it to the main Go workspace - which the
+# inherited config/opencode-second-org would otherwise select - can only fail;
+# it runs on OpenCode's own unpinned account instead. The gate sits here rather
+# than in inheritance because a LOCAL secondmate's pin reads the primary's own
+# config, which no inheritance filter reaches. The home comes from the same
+# sources the secondmate home resolution below uses.
+spawn_secondmate_home_keyless() {
+  local home=$FIRSTMATE_HOME
+  if [ -z "$home" ] && [ -f "$STATE/$ID.meta" ] && [ ! -L "$STATE/$ID.meta" ]; then
+    home=$(fm_meta_get "$STATE/$ID.meta" home)
+  fi
+  [ -n "$home" ] || home=$(secondmate_registry_field "$DATA/secondmates.md" "$ID" home 2>/dev/null || true)
+  fm_secondmate_home_is_keyless "$home"
+}
 # The OpenCode database helper builds a private database for a selected policy
 # account. A configured account must prove its workspace before launch; an
 # unpinned route gets a private task database without selecting an account.
@@ -3621,7 +3637,8 @@ elif { [ "$HARNESS" = opencode ] || [ "$PI_OPENCODE_GO" -eq 1 ]; } && [ -n "$DIS
 elif [ "$HARNESS" = opencode ] && [ "$KIND" = secondmate ] && [ "$OPENCODE_WORKSPACE" != main ]; then
   OPENCODE_SECOND_ORG=$(fm_opencode_workspace_org "$OPENCODE_WORKSPACE") || exit 1
 elif [ "$HARNESS" = opencode ] && [ "$KIND" = secondmate ] \
-  && fm_opencode_second_configured 2>/dev/null; then
+  && fm_opencode_second_configured 2>/dev/null \
+  && ! spawn_secondmate_home_keyless; then
   OPENCODE_MAIN_ORG=$(fm_opencode_main_org_ensure "$(fm_opencode_second_config_dir)") || exit 1
 fi
 if [ "$PI_OPENCODE_GO" -eq 1 ]; then
