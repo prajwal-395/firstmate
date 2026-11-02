@@ -682,7 +682,10 @@ test_native_ultra_restart_keeps_local_and_remote_profiles() {
   expect_code 0 "$rc" "native local restart failed: $out"
   assert_contains "$out" "restarted: sm1 (pi)" "native local restart did not complete"
   assert_contains "$(cat "$dir/home/state/sm1.meta")" "effort=ultra" "local restart dropped native effort"
-  assert_contains "$(cat "$dir/fake/literal")" "--codex-effort 'ultra'" "local restart dropped native launch flag"
+  # The launch rides the lower-priority `nice ... /bin/sh -c` wrapper, which
+  # re-quotes every argument; unwrap it before matching the flag.
+  assert_contains "$(fm_test_launch_script "$(grep '^nice ' "$dir/fake/literal" | tail -1)")" \
+    "--codex-effort 'ultra'" "local restart dropped native launch flag"
 
   dir=$(new_case native-remote)
   setup_remote_case "$dir" sm2 ok pi-signed
