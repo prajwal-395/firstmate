@@ -597,6 +597,8 @@ test_sweep_respawns_authoritatively_missing_pi_secondmate() {
   w=$(new_world sweep-missing-pi)
   add_sm_home "$w" sm1 firstmate:fm-sm1 pi
   fb=$(make_toolchain "$w"); tmuxfb=$(make_liveness_tmux "$w")
+  # Recovery relaunches the mate on its recorded pi, so pi must be installed.
+  fm_fake_exit0 "$fb" pi
   log="$w/calls.log"; : > "$log"
 
   out=$(run_bootstrap "$tmuxfb:$fb" "$w/home" missing "$log")

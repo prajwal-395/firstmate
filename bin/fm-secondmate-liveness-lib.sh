@@ -28,7 +28,9 @@
 # remote route is never replaced by a local endpoint.
 #
 # Replacement relaunch goes through `bin/fm-spawn.sh <id> --secondmate` with
-# FM_SPAWN_NO_GUARD=1, the same guarded path every recovery uses. That path
+# FM_SPAWN_NO_GUARD=1, the same guarded path every recovery uses, carrying the
+# record's own harness, model, and effort so recovery never moves the mate onto
+# this home's config/secondmate-harness default. That path
 # re-resolves placement from the task's own metadata and registry route, so a
 # remote mate is relaunched on its recorded remote host through bin/fm-on.sh -
 # never as a local replacement - behind fm-spawn's own readiness gate and
@@ -365,10 +367,38 @@ fm_secondmate_liveness_relaunch() {  # <meta> <id> [timeout-secs]
     fm_lock_release "$relaunch_lock" || true
     return "$rc"
   fi
+  # Recovery relaunches the mate on the profile its own record names, as the
+  # /updatefirstmate restart does (bin/fm-secondmate-restart.sh):
+  # config/secondmate-harness is this home's default for a NEW mate, not what
+  # the mate's runtime or host can run, so it only fills what the record leaves
+  # empty. An empty or `default` model or effort axis takes the pin's token only
+  # when the pin names the recorded harness, because another runtime's model
+  # id would not launch on this one.
+  local recorded_harness recorded_model recorded_effort pin_harness
+  local -a spawn_args=("$id" --secondmate)
+  recorded_harness=$(fm_meta_get "$meta" harness)
+  if [ -n "$recorded_harness" ]; then
+    recorded_model=$(fm_meta_get "$meta" model)
+    recorded_effort=$(fm_meta_get "$meta" effort)
+    [ "$recorded_model" != default ] || recorded_model=
+    [ "$recorded_effort" != default ] || recorded_effort=
+    if [ -z "$recorded_model" ] || [ -z "$recorded_effort" ]; then
+      pin_harness=$("$FM_ROOT/bin/fm-harness.sh" secondmate "$id" 2>/dev/null) || pin_harness=
+      if [ "$pin_harness" = "$recorded_harness" ]; then
+        [ -n "$recorded_model" ] \
+          || recorded_model=$("$FM_ROOT/bin/fm-harness.sh" secondmate-model "$id" 2>/dev/null) || recorded_model=
+        [ -n "$recorded_effort" ] \
+          || recorded_effort=$("$FM_ROOT/bin/fm-harness.sh" secondmate-effort "$id" 2>/dev/null) || recorded_effort=
+      fi
+    fi
+    spawn_args+=(--harness "$recorded_harness")
+    [ -z "$recorded_model" ] || spawn_args+=(--model "$recorded_model")
+    [ -z "$recorded_effort" ] || spawn_args+=(--effort "$recorded_effort")
+  fi
   if [ -n "$timeout" ]; then
-    FM_SM_LIVE_OUT=$(FM_SPAWN_NO_GUARD=1 fm_run_timed "$timeout" "$FM_ROOT/bin/fm-spawn.sh" "$id" --secondmate 2>&1) || rc=$?
+    FM_SM_LIVE_OUT=$(FM_SPAWN_NO_GUARD=1 fm_run_timed "$timeout" "$FM_ROOT/bin/fm-spawn.sh" "${spawn_args[@]}" 2>&1) || rc=$?
   else
-    FM_SM_LIVE_OUT=$(FM_SPAWN_NO_GUARD=1 "$FM_ROOT/bin/fm-spawn.sh" "$id" --secondmate 2>&1) || rc=$?
+    FM_SM_LIVE_OUT=$(FM_SPAWN_NO_GUARD=1 "$FM_ROOT/bin/fm-spawn.sh" "${spawn_args[@]}" 2>&1) || rc=$?
   fi
   FM_SM_LIVE_RC=$rc
   if [ "$rc" -eq 0 ]; then
