@@ -152,7 +152,7 @@ run_pf() {  # <home> <args...>
   PATH="$home/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/state" FAKE_CURL_LOG="${FAKE_CURL_LOG:-}" \
     FAKE_FOLLOWUP_CODE="${FAKE_FOLLOWUP_CODE:-200}" \
-    FMX_NOW_OVERRIDE="${FMX_NOW_OVERRIDE:-$PF_TEST_NOW}" "$PF" "$@"
+    FMX_NOW_OVERRIDE="${FMX_NOW_OVERRIDE:-$PF_TEST_NOW}" bash "$PF" "$@"
 }
 
 # Drive the real script through macOS system bash (3.2.x). /usr/bin/env bash
@@ -249,7 +249,7 @@ seed_repro_commitment() {   # <home> <obligation> <request> <work-home> <work-id
 emit_terminal() {  # <child-run-dir> <owning-home> <obligation> <work-home> <work-id> [pr-url] [outcome]
   local owning=$2 obligation=$3 work_home=$4 work_id=$5
   local pr=${6:-https://github.com/example/repo/pull/7} outcome=${7:-pr-merged}
-  "$EMIT" --home "$owning" --obligation "$obligation" --relation rel-code \
+  bash "$EMIT" --home "$owning" --obligation "$obligation" --relation rel-code \
     --source-home "$work_home" --work-id "$work_id" --generation 1 \
     --outcome "$outcome" --deliverable "pr_url=$pr" \
     --outcome-text 'Fixed: workers now land in the launching workspace even when two spaces share a name.'
@@ -344,7 +344,7 @@ test_outcome_text_is_bounded_without_corrupting_characters() {
   home=$(make_home outcome-text)
   seed_commitment "$home" pf-text req-text discord main work-text
 
-  "$EMIT" --home "$home" --obligation pf-text --relation rel-code \
+  bash "$EMIT" --home "$home" --obligation pf-text --relation rel-code \
     --source-home main --work-id work-text --generation 1 --outcome pr-merged \
     --deliverable pr_url=https://github.com/example/repo/pull/3 \
     --outcome-text "$(printf 'Shipped\tthe caf\xc3\xa9 fix \xe2\x80\x94 \xf0\x9f\x9a\xa2\nsecond line')" >/dev/null \
@@ -358,7 +358,7 @@ test_outcome_text_is_bounded_without_corrupting_characters() {
   # A very long sentence is capped by codepoint, so the JSON stays valid.
   rm -f "$event"
   long=$(python3 -c 'print("é" * 5000, end="")')
-  "$EMIT" --home "$home" --obligation pf-text --relation rel-code \
+  bash "$EMIT" --home "$home" --obligation pf-text --relation rel-code \
     --source-home main --work-id work-text --generation 1 --outcome pr-merged \
     --deliverable pr_url=https://github.com/example/repo/pull/4 \
     --outcome-text "$long" >/dev/null \
@@ -454,7 +454,7 @@ test_failed_work_on_pr_merged_promise_delivers_honest_outcome() {
   home=$(make_home failed-deliver)
   log="$home/curl.log"; : > "$log"
   seed_commitment "$home" pf-failed req-failed discord main work-failed
-  "$EMIT" --home "$home" --obligation pf-failed --relation rel-code --source-home main \
+  bash "$EMIT" --home "$home" --obligation pf-failed --relation rel-code --source-home main \
     --work-id work-failed --generation 1 --outcome failed --deliverable error_code=quota-exhausted \
     --outcome-text 'This one did not pan out: the worker ran out of quota before it could open a fix.' \
     >/dev/null || fail "the failed terminal result could not be reported"
@@ -522,7 +522,7 @@ test_invalid_events_are_refused_and_quarantined() {
   # Wrong source home and wrong work id are caught at the edge by the emitter,
   # because the owning home's own registration disagrees.
   expect_failure "a wrong source home must be refused" \
-    "$EMIT" --home "$home" --obligation pf-refuse --relation rel-code \
+    bash "$EMIT" --home "$home" --obligation pf-refuse --relation rel-code \
     --source-home secondmate:other --work-id work-real --generation 1 \
     --outcome pr-merged --deliverable pr_url=https://example.invalid/example/repo/pulls/1 \
     --outcome-text 'x'
@@ -530,12 +530,12 @@ test_invalid_events_are_refused_and_quarantined() {
     "the refusal must name the mismatch"
 
   expect_failure "a wrong work id must be refused" \
-    "$EMIT" --home "$home" --obligation pf-refuse --relation rel-code \
+    bash "$EMIT" --home "$home" --obligation pf-refuse --relation rel-code \
     --source-home main --work-id work-other --generation 1 \
     --outcome pr-merged --deliverable pr_url=https://example.invalid/example/repo/pulls/1 \
     --outcome-text 'x'
   expect_failure "a stale generation must be refused" \
-    "$EMIT" --home "$home" --obligation pf-refuse --relation rel-code \
+    bash "$EMIT" --home "$home" --obligation pf-refuse --relation rel-code \
     --source-home main --work-id work-real --generation 0 \
     --outcome pr-merged --deliverable pr_url=https://example.invalid/example/repo/pulls/1 \
     --outcome-text 'x'
@@ -667,7 +667,7 @@ test_typed_terminal_clear_only_removes_legacy_link() {
     'x_followups=2' 'x_platform=discord' 'x_reply_max_chars=1900' > "$meta"
 
   out=$(PATH="$home/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" \
-    FM_STATE_OVERRIDE="$home/state" "$ROOT/bin/fm-x-followup.sh" --clear work-clear) \
+    FM_STATE_OVERRIDE="$home/state" bash "$ROOT/bin/fm-x-followup.sh" --clear work-clear) \
     || fail "the typed terminal clear transition must succeed"
   [ "$out" = work-clear ] || fail "the clear-only transition must identify the task"
   assert_grep 'status=working' "$meta" "clear-only transition must preserve unrelated task metadata"
@@ -726,7 +726,7 @@ test_outward_delivery_stays_with_the_owning_home() {
   PATH="$child/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$child" \
     FM_STATE_OVERRIDE="$child/state" FAKE_CURL_LOG="$log" \
     expect_failure "a home without relay consent must not deliver a public reply" \
-    "$PF" deliver pf-own
+    bash "$PF" deliver pf-own
   assert_contains "$EXPECT_OUT" "has not opted into the myfirstmate relay" \
     "the refusal must name the missing relay consent"
   [ "$(followup_posts "$log")" -eq 0 ] || fail "the refused delivery must post nothing"
@@ -774,7 +774,7 @@ test_secondmate_teardown_requires_parent_binding() {
   PATH="$child/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$child" \
     FM_STATE_OVERRIDE="$child/state" FM_DATA_OVERRIDE="$child/data" \
     expect_failure "marked child teardown without a parent must refuse cleanup" \
-    "$TEARDOWN" work-child
+    bash "$TEARDOWN" work-child
   assert_contains "$EXPECT_OUT" "cannot resolve the primary home for marked secondmate mate" \
     "missing parent binding must be an actionable teardown refusal"
   assert_present "$child/state/work-child.meta" \
@@ -785,7 +785,7 @@ test_secondmate_teardown_requires_parent_binding() {
   printf '%s\n' mate > "$child/.fm-secondmate-home"
   printf -- '- mate - synthetic (id is legacy); preserve this (home: %s; scope: synthetic (child); semicolon remains meaningful; projects: ; added 2026-07-30)\n' \
     "$child" > "$parent/data/secondmates.md"
-  FM_HOME="$parent" "$ROOT/bin/fm-home-seed.sh" validate >/dev/null \
+  FM_HOME="$parent" bash "$ROOT/bin/fm-home-seed.sh" validate >/dev/null \
     || fail "home-seed validation rejected a punctuation-bearing operational registry record"
   registry_before=$(cat "$parent/data/secondmates.md")
   marker_before=$(cat "$child/.fm-secondmate-home")
@@ -801,7 +801,7 @@ test_secondmate_teardown_requires_parent_binding() {
     FM_STATE_OVERRIDE="$child/state" FM_DATA_OVERRIDE="$child/data" \
     FM_PUBLIC_FOLLOWUP_PRIMARY_HOME="$parent" \
     expect_failure "marked child teardown with a valid parent must enforce the parent commitment" \
-    "$TEARDOWN" work-child
+    bash "$TEARDOWN" work-child
   assert_contains "$EXPECT_OUT" "still owes a public reply" \
     "valid parent binding must route cleanup through the parent commitment"
   case "$EXPECT_OUT" in
@@ -864,7 +864,7 @@ SH
     FM_SECONDMATE_CHARTER='Local publication-order regression charter.' \
     FM_TEST_REAL_MV="$real_mv" FM_TEST_PUBLISH_ENTERED="$entered" \
     FM_TEST_PUBLISH_RELEASE="$release" \
-    "$ROOT/bin/fm-home-seed.sh" mate "$child" --no-projects > "$manifest_out" 2>&1 &
+    bash "$ROOT/bin/fm-home-seed.sh" mate "$child" --no-projects > "$manifest_out" 2>&1 &
   seed_pid=$!
   wait_count=0
   while [ ! -f "$entered" ]; do
@@ -889,7 +889,7 @@ test_secondmate_teardown_resolves_parent_from_durable_record_when_env_lost() {
   parent=$(make_home teardown-durable-parent)
   child="$TMP_ROOT/teardown-durable-child"
   FM_SECONDMATE_CHARTER='Durable-record regression charter.' \
-    FM_HOME="$parent" "$ROOT/bin/fm-home-seed.sh" mate "$child" --no-projects >/dev/null \
+    FM_HOME="$parent" bash "$ROOT/bin/fm-home-seed.sh" mate "$child" --no-projects >/dev/null \
     || fail "real secondmate seeding failed"
   child=$(cd "$child" && pwd -P)
   parent_resolved=$(cd "$parent" && pwd -P)
@@ -910,7 +910,7 @@ test_secondmate_teardown_resolves_parent_from_durable_record_when_env_lost() {
   PATH="$child/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$child" \
     FM_STATE_OVERRIDE="$child/state" FM_DATA_OVERRIDE="$child/data" \
     expect_failure "teardown with a lost launch binding must still find the real parent" \
-    "$TEARDOWN" work-child
+    bash "$TEARDOWN" work-child
   assert_contains "$EXPECT_OUT" "still owes a public reply" \
     "the durable record must resolve to the real parent's owed commitment"
   case "$EXPECT_OUT" in
@@ -926,7 +926,7 @@ test_secondmate_teardown_durable_record_missing_parent_registration_still_refuse
   parent=$(make_home teardown-durable-missing-parent relay-off)
   child="$TMP_ROOT/teardown-durable-missing-child"
   FM_SECONDMATE_CHARTER='Durable-record missing-registration regression charter.' \
-    FM_HOME="$parent" "$ROOT/bin/fm-home-seed.sh" mate "$child" --no-projects >/dev/null \
+    FM_HOME="$parent" bash "$ROOT/bin/fm-home-seed.sh" mate "$child" --no-projects >/dev/null \
     || fail "real secondmate seeding failed"
   child=$(cd "$child" && pwd -P)
   parent_resolved=$(cd "$parent" && pwd -P)
@@ -944,7 +944,7 @@ test_secondmate_teardown_durable_record_missing_parent_registration_still_refuse
   PATH="$child/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$child" \
     FM_STATE_OVERRIDE="$child/state" FM_DATA_OVERRIDE="$child/data" \
     expect_failure "a durable local record with no parent-side registration must still refuse" \
-    "$TEARDOWN" work-child
+    bash "$TEARDOWN" work-child
   assert_contains "$EXPECT_OUT" "cannot resolve the primary home for marked secondmate mate" \
     "a genuinely missing parent-side registration must remain an actionable teardown refusal"
   assert_present "$child/state/work-child.meta" \
@@ -957,7 +957,7 @@ test_secondmate_teardown_durable_record_with_unknown_field_succeeds() {
   parent=$(make_home teardown-durable-clean-parent relay-off)
   child="$TMP_ROOT/teardown-durable-clean-child"
   FM_SECONDMATE_CHARTER='Durable-record clean-cleanup regression charter.' \
-    FM_HOME="$parent" "$ROOT/bin/fm-home-seed.sh" mate "$child" --no-projects >/dev/null \
+    FM_HOME="$parent" bash "$ROOT/bin/fm-home-seed.sh" mate "$child" --no-projects >/dev/null \
     || fail "real secondmate seeding failed"
   child=$(cd "$child" && pwd -P)
   parent_resolved=$(cd "$parent" && pwd -P)
@@ -979,7 +979,7 @@ test_secondmate_teardown_durable_record_with_unknown_field_succeeds() {
   out=$(PATH="$child/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$child" \
     FM_STATE_OVERRIDE="$child/state" FM_DATA_OVERRIDE="$child/data" \
     FM_CONFIG_OVERRIDE="$child/config" FM_PUBLIC_FOLLOWUP_PRIMARY_HOME="$parent_alias" \
-    "$TEARDOWN" work-clean 2>&1) || rc=$?
+    bash "$TEARDOWN" work-clean 2>&1) || rc=$?
   [ "$rc" -eq 0 ] || fail "a resolved parent with no owed commitment must allow cleanup (rc=$rc): $out"
   assert_not_contains "$out" "cannot resolve the primary home" \
     "a real durable-record-backed parent must resolve cleanly"
@@ -992,7 +992,7 @@ test_secondmate_teardown_rejects_conflicting_live_and_durable_parent_bindings() 
   live_parent=$(make_home teardown-durable-conflict-live relay-off)
   child="$TMP_ROOT/teardown-durable-conflict-child"
   FM_SECONDMATE_CHARTER='Durable-record conflict regression charter.' \
-    FM_HOME="$durable_parent" "$ROOT/bin/fm-home-seed.sh" mate "$child" --no-projects >/dev/null \
+    FM_HOME="$durable_parent" bash "$ROOT/bin/fm-home-seed.sh" mate "$child" --no-projects >/dev/null \
     || fail "real secondmate seeding failed"
   child=$(cd "$child" && pwd -P)
   parent_resolved=$(cd "$durable_parent" && pwd -P)
@@ -1011,7 +1011,7 @@ test_secondmate_teardown_rejects_conflicting_live_and_durable_parent_bindings() 
     FM_STATE_OVERRIDE="$child/state" FM_DATA_OVERRIDE="$child/data" \
     FM_CONFIG_OVERRIDE="$child/config" FM_PUBLIC_FOLLOWUP_PRIMARY_HOME="$live_parent" \
     expect_failure "conflicting live and durable parent bindings must refuse cleanup" \
-    "$TEARDOWN" work-conflict
+    bash "$TEARDOWN" work-conflict
   assert_contains "$EXPECT_OUT" "cannot resolve the primary home for marked secondmate mate" \
     "a conflicting live parent must produce the explicit durable-binding refusal"
   assert_present "$child/state/work-conflict.meta" \
@@ -1025,7 +1025,7 @@ test_secondmate_teardown_rejects_unsafe_durable_parent_records() {
     parent=$(make_home "teardown-durable-$case_name-parent" relay-off)
     child="$TMP_ROOT/teardown-durable-$case_name-child"
     FM_SECONDMATE_CHARTER='Unsafe durable-record regression charter.' \
-      FM_HOME="$parent" "$ROOT/bin/fm-home-seed.sh" mate "$child" --no-projects >/dev/null \
+      FM_HOME="$parent" bash "$ROOT/bin/fm-home-seed.sh" mate "$child" --no-projects >/dev/null \
       || fail "real secondmate seeding failed for $case_name"
     child=$(cd "$child" && pwd -P)
     make_fake_curl "$child" >/dev/null
@@ -1059,7 +1059,7 @@ test_secondmate_teardown_rejects_unsafe_durable_parent_records() {
     PATH="$child/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$child" \
       FM_STATE_OVERRIDE="$child/state" FM_DATA_OVERRIDE="$child/data" \
       expect_failure "an unsafe $case_name durable parent record must refuse cleanup" \
-      "$TEARDOWN" work-child
+      bash "$TEARDOWN" work-child
     assert_contains "$EXPECT_OUT" "cannot resolve the primary home for marked secondmate mate" \
       "an unsafe $case_name durable parent record must produce the explicit binding refusal"
     assert_present "$child/state/work-child.meta" \
@@ -1086,7 +1086,7 @@ test_secondmate_teardown_rejects_nul_bearing_durable_parent_record() {
   parent=$(make_home teardown-durable-nul-parent relay-off)
   child="$TMP_ROOT/teardown-durable-nul-child"
   FM_SECONDMATE_CHARTER='Durable-record NUL regression charter.' \
-    FM_HOME="$parent" "$ROOT/bin/fm-home-seed.sh" mate "$child" --no-projects >/dev/null \
+    FM_HOME="$parent" bash "$ROOT/bin/fm-home-seed.sh" mate "$child" --no-projects >/dev/null \
     || fail "real secondmate seeding failed"
   child=$(cd "$child" && pwd -P)
   parent_resolved=$(cd "$parent" && pwd -P)
@@ -1114,7 +1114,7 @@ test_secondmate_teardown_rejects_nul_bearing_durable_parent_record() {
     FM_STATE_OVERRIDE="$child/state" FM_DATA_OVERRIDE="$child/data" \
     FM_CONFIG_OVERRIDE="$child/config" \
     expect_failure "a NUL-bearing durable parent record must refuse cleanup" \
-    "$TEARDOWN" work-child
+    bash "$TEARDOWN" work-child
   assert_contains "$EXPECT_OUT" "cannot resolve the primary home for marked secondmate mate" \
     "a NUL-bearing durable parent record must produce the explicit binding refusal"
   assert_present "$child/state/work-child.meta" \
@@ -1143,7 +1143,7 @@ SH
   out=$(PATH="$home/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
     FM_CONFIG_OVERRIDE="$home/config" FAKE_TASKS_AXI_LOG="$tasks_log" \
-    "$TEARDOWN" work-disabled 2>&1) || rc=$?
+    bash "$TEARDOWN" work-disabled 2>&1) || rc=$?
   [ "$rc" -eq 0 ] || fail "relay-disabled unmarked teardown must not refuse public-followup cleanup (rc=$rc): $out"
   [ ! -s "$tasks_log" ] || fail "relay-disabled unmarked teardown must not invoke tasks-axi: $(tr '\n' ';' < "$tasks_log")"
   assert_not_contains "$out" "still owes a public reply" \
@@ -1180,7 +1180,7 @@ SH
     FM_STATE_OVERRIDE="$child/state" FM_DATA_OVERRIDE="$child/data" \
     FM_CONFIG_OVERRIDE="$child/config" \
     FM_PUBLIC_FOLLOWUP_PRIMARY_HOME="$parent" FAKE_TASKS_AXI_LOG="$tasks_log" \
-    "$TEARDOWN" work-disabled 2>&1) || rc=$?
+    bash "$TEARDOWN" work-disabled 2>&1) || rc=$?
   [ "$rc" -eq 0 ] || fail "relay-disabled parent must allow marked-child teardown (rc=$rc): $out"
   [ ! -s "$tasks_log" ] || fail "relay-disabled parent must not invoke tasks-axi for a marked child"
   assert_not_contains "$out" "still owes a public reply" \
@@ -1207,7 +1207,7 @@ test_secondmate_parent_binding_matches_literal_id() {
     FM_STATE_OVERRIDE="$child/state" FM_DATA_OVERRIDE="$child/data" \
     FM_CONFIG_OVERRIDE="$child/config" FM_PUBLIC_FOLLOWUP_PRIMARY_HOME="$parent" \
     expect_failure "a near-match registry id must not satisfy a dotted parent binding" \
-    "$TEARDOWN" work-literal
+    bash "$TEARDOWN" work-literal
   assert_contains "$EXPECT_OUT" "cannot resolve the primary home for marked secondmate mate.id" \
     "a dotted id must be matched as an exact registry field"
   assert_present "$child/state/work-literal.meta" \
@@ -1302,7 +1302,7 @@ test_cleanup_refuses_while_a_public_reply_is_owed() {
   rc=0
   PATH="$home/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
-    FM_CONFIG_OVERRIDE="$home/config" "$TEARDOWN" ship-task \
+    FM_CONFIG_OVERRIDE="$home/config" bash "$TEARDOWN" ship-task \
     > "$home/teardown.out" 2> "$home/teardown.err" || rc=$?
   [ "$rc" -ne 0 ] || fail "cleanup must refuse while a public reply is still owed"
   assert_grep "still owes a public reply" "$home/teardown.err" "the refusal must be explicit"
@@ -1315,7 +1315,7 @@ test_cleanup_refuses_while_a_public_reply_is_owed() {
   rc=0
   PATH="$home/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
-    FM_CONFIG_OVERRIDE="$home/config" "$TEARDOWN" ship-task >/dev/null 2>&1 || rc=$?
+    FM_CONFIG_OVERRIDE="$home/config" bash "$TEARDOWN" ship-task >/dev/null 2>&1 || rc=$?
   [ "$rc" -eq 0 ] || fail "cleanup must proceed once the public reply has landed (rc=$rc)"
   pass "cleanup refuses while a public reply is owed and proceeds once it has landed"
 }
@@ -1341,7 +1341,7 @@ SH
     rc=0
     # shellcheck disable=SC2086  # each cmd is a deliberate argument list
     out=$(PATH="$home/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" \
-      FM_STATE_OVERRIDE="$home/state" FAKE_TASKS_AXI_LOG="$tasks_log" "$PF" $cmd 2>&1) || rc=$?
+      FM_STATE_OVERRIDE="$home/state" FAKE_TASKS_AXI_LOG="$tasks_log" bash "$PF" $cmd 2>&1) || rc=$?
     [ "$rc" -eq 0 ] || fail "'$cmd' must be a silent success in a relay-disabled home (rc=$rc)"
     [ -z "$out" ] || fail "'$cmd' must print nothing in a relay-disabled home, got: $out"
   done
@@ -1356,7 +1356,7 @@ SH
 
   rc=0
   PATH="$home/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" \
-    FM_STATE_OVERRIDE="$home/state" FAKE_TASKS_AXI_LOG="$tasks_log" "$PF" active || rc=$?
+    FM_STATE_OVERRIDE="$home/state" FAKE_TASKS_AXI_LOG="$tasks_log" bash "$PF" active || rc=$?
   [ "$rc" -eq 1 ] || fail "'active' must report inactive in a relay-disabled home"
 
   [ ! -s "$tasks_log" ] \
@@ -1369,7 +1369,7 @@ SH
 
   # A child cannot force artifacts into a home that never opted in either.
   rc=0
-  out=$("$EMIT" --home "$home" --obligation pf-x --relation rel-code \
+  out=$(bash "$EMIT" --home "$home" --obligation pf-x --relation rel-code \
     --source-home main --work-id w --generation 1 --outcome pr-merged \
     --outcome-text 'x' 2>&1) || rc=$?
   [ "$rc" -eq 0 ] || fail "emitting into a relay-disabled home must be a silent no-op (rc=$rc)"
@@ -1396,7 +1396,7 @@ SH
     rc=0
     # shellcheck disable=SC2086  # each cmd is a deliberate argument list
     out=$(PATH="$home/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" \
-      FM_STATE_OVERRIDE="$home/state" FAKE_TASKS_AXI_LOG="$tasks_log" "$PF" $cmd 2>&1) || rc=$?
+      FM_STATE_OVERRIDE="$home/state" FAKE_TASKS_AXI_LOG="$tasks_log" bash "$PF" $cmd 2>&1) || rc=$?
     [ "$rc" -eq 0 ] || fail "'$cmd' must be a silent success with no commitments (rc=$rc)"
     [ -z "$out" ] || fail "'$cmd' must print nothing with no commitments, got: $out"
   done
@@ -1435,29 +1435,29 @@ test_relay_poll_stays_inert_and_surfaces_once() {
   local off on out first second
   off=$(make_home poll-off relay-off)
   out=$(PATH="$off/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$off" \
-    FM_STATE_OVERRIDE="$off/state" "$POLL" 2>&1)
+    FM_STATE_OVERRIDE="$off/state" bash "$POLL" 2>&1)
   [ -z "$out" ] || fail "the relay poll must stay silent without a token, got: $out"
   assert_absent "$off/state/public-followup" "an inert poll must create nothing"
 
   on=$(make_home poll-on)
   out=$(PATH="$on/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$on" \
-    FM_STATE_OVERRIDE="$on/state" "$POLL" 2>&1)
+    FM_STATE_OVERRIDE="$on/state" bash "$POLL" 2>&1)
   assert_not_contains "$out" "public-followup" \
     "a relay home with no public commitments must not mention public follow-ups"
 
   seed_commitment "$on" pf-poll req-poll discord main work-poll
   out=$(PATH="$on/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$on" \
-    FM_STATE_OVERRIDE="$on/state" "$POLL" 2>&1)
+    FM_STATE_OVERRIDE="$on/state" bash "$POLL" 2>&1)
   assert_not_contains "$out" "public-followup" \
     "a registered commitment with no terminal result yet must not wake the poll"
 
   emit_terminal "$on" "$on" pf-poll main work-poll >/dev/null || fail "emit failed"
   first=$(PATH="$on/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$on" \
-    FM_STATE_OVERRIDE="$on/state" "$POLL" 2>&1)
+    FM_STATE_OVERRIDE="$on/state" bash "$POLL" 2>&1)
   assert_contains "$first" "public-followup terminal results are waiting" \
     "a new terminal result must surface through the existing relay poll"
   second=$(PATH="$on/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$on" \
-    FM_STATE_OVERRIDE="$on/state" "$POLL" 2>&1)
+    FM_STATE_OVERRIDE="$on/state" bash "$POLL" 2>&1)
   assert_not_contains "$second" "public-followup" \
     "an unchanged pending set must not wake firstmate again every cycle"
   pass "the relay poll stays inert without a token, silent with no commitments, and surfaces a new result once"
@@ -1470,7 +1470,7 @@ test_session_start_surfaces_only_when_owed() {
   off=$(make_home startup-off relay-off)
   out=$(PATH="$off/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$off" \
     FM_STATE_OVERRIDE="$off/state" FM_DATA_OVERRIDE="$off/data" \
-    FM_CONFIG_OVERRIDE="$off/config" "$SESSION_START" 2>&1)
+    FM_CONFIG_OVERRIDE="$off/config" bash "$SESSION_START" 2>&1)
   assert_not_contains "$out" "Public commitments" \
     "a relay-disabled home must not gain a public-commitments section at startup"
 
@@ -1478,7 +1478,7 @@ test_session_start_surfaces_only_when_owed() {
   seed_commitment "$on" pf-start req-start discord main work-start
   out=$(PATH="$on/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$on" \
     FM_STATE_OVERRIDE="$on/state" FM_DATA_OVERRIDE="$on/data" \
-    FM_CONFIG_OVERRIDE="$on/config" "$SESSION_START" 2>&1)
+    FM_CONFIG_OVERRIDE="$on/config" bash "$SESSION_START" 2>&1)
   assert_contains "$out" "Public commitments" \
     "an unresolved commitment must be surfaced at startup"
   assert_contains "$out" "unresolved pf-start state=pending-work platform=discord" \
@@ -1519,7 +1519,7 @@ test_dropped_baton_now_surfaces_open_loop() {
   parent=$(make_home baton-parent)
   child="$TMP_ROOT/baton-child"
   FM_SECONDMATE_CHARTER='Baton repro charter.' FM_HOME="$parent" \
-    "$ROOT/bin/fm-home-seed.sh" mate "$child" --no-projects >/dev/null || fail "seed failed"
+    bash "$ROOT/bin/fm-home-seed.sh" mate "$child" --no-projects >/dev/null || fail "seed failed"
   child=$(cd "$child" && pwd -P)
   make_fake_curl "$child" >/dev/null
   fm_fake_exit0 "$child/fakebin" tmux treehouse no-mistakes gh gh-axi
@@ -1529,7 +1529,7 @@ test_dropped_baton_now_surfaces_open_loop() {
     secondmate:mate pi-rearm-loop-repro-s1
   fm_write_meta "$parent/state/mate.meta" "kind=secondmate" "home=$child"
 
-  "$EMIT" --home "$parent" --obligation public-final-pi-rearm-repro --relation rel-code \
+  bash "$EMIT" --home "$parent" --obligation public-final-pi-rearm-repro --relation rel-code \
     --source-home secondmate:mate --work-id pi-rearm-loop-repro-s1 --generation 1 \
     --outcome report-ready --deliverable report_path=data/pi-rearm-loop-repro-s1/report.md \
     --outcome-text 'Reproduced the loop. A bounded fix is scoped and waiting on you, captain.' >/dev/null \
@@ -1546,7 +1546,7 @@ test_dropped_baton_now_surfaces_open_loop() {
     "worktree=$child" "project=$child" "kind=ship" "mode=local-only" "spawn_gen=public-followup-fixture"
 
   PATH="$parent/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$parent" \
-    FM_STATE_OVERRIDE="$parent/state" "$PF" guard-work secondmate:mate pi-rearm-loop-fix-r1 \
+    FM_STATE_OVERRIDE="$parent/state" bash "$PF" guard-work secondmate:mate pi-rearm-loop-fix-r1 \
     || fail "guard-work unexpectedly blocked the unregistered follow-on"
 
   run_pf "$parent" pending > "$TMP_ROOT/pending.out"
@@ -1557,7 +1557,7 @@ test_dropped_baton_now_surfaces_open_loop() {
 
   PATH="$child/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$child" \
     FM_STATE_OVERRIDE="$child/state" FM_DATA_OVERRIDE="$child/data" FAKE_CURL_LOG="$log" \
-    "$TEARDOWN" pi-rearm-loop-fix-r1 > "$TMP_ROOT/td.out" 2>&1 || true
+    bash "$TEARDOWN" pi-rearm-loop-fix-r1 > "$TMP_ROOT/td.out" 2>&1 || true
   case "$(cat "$TMP_ROOT/td.out")" in
     *"still owes a public reply"*) fail "teardown unexpectedly guarded the unregistered follow-on" ;;
   esac
@@ -1570,7 +1570,7 @@ test_control_registered_followon_is_guarded() {
   parent=$(make_home baton-control-parent)
   child="$TMP_ROOT/baton-control-child"
   FM_SECONDMATE_CHARTER='Baton control charter.' FM_HOME="$parent" \
-    "$ROOT/bin/fm-home-seed.sh" mate "$child" --no-projects >/dev/null || fail "seed failed"
+    bash "$ROOT/bin/fm-home-seed.sh" mate "$child" --no-projects >/dev/null || fail "seed failed"
   child=$(cd "$child" && pwd -P)
   make_fake_curl "$child" >/dev/null
   fm_fake_exit0 "$child/fakebin" tmux treehouse no-mistakes gh gh-axi
@@ -1582,7 +1582,7 @@ test_control_registered_followon_is_guarded() {
     "worktree=$child" "project=$child" "kind=ship" "mode=local-only" "spawn_gen=public-followup-fixture"
   PATH="$child/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$child" \
     FM_STATE_OVERRIDE="$child/state" FM_DATA_OVERRIDE="$child/data" \
-    expect_failure "registered follow-on must be guarded" "$TEARDOWN" pi-rearm-loop-fix-r1
+    expect_failure "registered follow-on must be guarded" bash "$TEARDOWN" pi-rearm-loop-fix-r1
   assert_contains "$EXPECT_OUT" "still owes a public reply" "the guard fires only on presence"
   pass "CONTROL: the identical teardown REFUSES the moment a commitment is registered"
 }
@@ -1592,7 +1592,7 @@ test_rechain_delivers_second_post_on_same_thread() {
   parent=$(make_home rechain-parent)
   log="$parent/curl.log"; : > "$log"
   seed_repro_commitment "$parent" public-final-a req-rechain main scout-a
-  "$EMIT" --home "$parent" --obligation public-final-a --relation rel-code \
+  bash "$EMIT" --home "$parent" --obligation public-final-a --relation rel-code \
     --source-home main --work-id scout-a --generation 1 \
     --outcome report-ready --deliverable report_path=data/scout-a/report.md \
     --outcome-text 'Reproduced. A fix is waiting.' >/dev/null || fail "emit failed"
@@ -1635,7 +1635,7 @@ SH
   assert_present "$parent/state/public-followup/registry/public-final-b" \
     "the follow-on registration must exist"
 
-  "$EMIT" --home "$parent" --obligation public-final-b --relation rel-1 \
+  bash "$EMIT" --home "$parent" --obligation public-final-b --relation rel-1 \
     --source-home main --work-id ship-b --generation 1 \
     --outcome pr-merged --deliverable pr_url=https://github.com/example/repo/pull/99 \
     --outcome-text 'Shipped: the Pi recovery loop is fixed.' >/dev/null || fail "follow-on emit failed"
@@ -1657,7 +1657,7 @@ test_rechain_resumes_after_partial_add() {
   home=$(make_home rechain-resume)
   log="$home/curl.log"; : > "$log"
   seed_repro_commitment "$home" public-final-resume-a req-resume main scout-resume
-  "$EMIT" --home "$home" --obligation public-final-resume-a --relation rel-code \
+  bash "$EMIT" --home "$home" --obligation public-final-resume-a --relation rel-code \
     --source-home main --work-id scout-resume --generation 1 \
     --outcome report-ready --deliverable report_path=data/scout-resume/report.md \
     --outcome-text 'Reproduced. A fix is waiting.' >/dev/null || fail "emit failed"
@@ -1713,7 +1713,7 @@ test_rechain_claims_delivered_source_once() {
   home=$(make_home rechain-claim)
   log="$home/curl.log"; : > "$log"
   seed_repro_commitment "$home" public-final-claim-a req-claim main scout-claim
-  "$EMIT" --home "$home" --obligation public-final-claim-a --relation rel-code \
+  bash "$EMIT" --home "$home" --obligation public-final-claim-a --relation rel-code \
     --source-home main --work-id scout-claim --generation 1 \
     --outcome report-ready --deliverable report_path=data/scout-claim/report.md \
     --outcome-text 'Reproduced. One follow-on may claim this thread.' >/dev/null || fail "emit failed"
@@ -1749,7 +1749,7 @@ test_failed_rechain_retirement_keeps_source_claimed() {
   home=$(make_home rechain-retire-failure)
   log="$home/curl.log"; : > "$log"
   seed_repro_commitment "$home" public-final-retire-a req-retire-failure main scout-retire
-  "$EMIT" --home "$home" --obligation public-final-retire-a --relation rel-code \
+  bash "$EMIT" --home "$home" --obligation public-final-retire-a --relation rel-code \
     --source-home main --work-id scout-retire --generation 1 \
     --outcome report-ready --deliverable report_path=data/scout-retire/report.md \
     --outcome-text 'Reproduced. A fix is waiting.' >/dev/null || fail "emit failed"
@@ -1849,7 +1849,7 @@ test_registration_replay_preserves_delivery_and_retirement() {
   run_pf "$home" register pf-register-replay --relation rel-alternate --work-home main \
     --work-id work-alternate --generation 1 >/dev/null \
     || fail "could not register the alternate valid work binding"
-  "$EMIT" --home "$home" --obligation pf-register-replay --relation rel-alternate \
+  bash "$EMIT" --home "$home" --obligation pf-register-replay --relation rel-alternate \
     --source-home main --work-id work-alternate --generation 1 --outcome pr-merged \
     --deliverable pr_url=https://github.com/example/repo/pull/8 \
     --outcome-text 'The alternate bound work also reached its terminal outcome.' >/dev/null \
@@ -1920,7 +1920,7 @@ test_retire_after_secondmate_home_removal() {
   fm_write_meta "$home/state/mate.meta" "kind=secondmate" "home=$child"
   log="$home/curl.log"; : > "$log"
   seed_repro_commitment "$home" pf-removed-mate req-removed-mate secondmate:mate scout-removed
-  "$EMIT" --home "$home" --obligation pf-removed-mate --relation rel-code \
+  bash "$EMIT" --home "$home" --obligation pf-removed-mate --relation rel-code \
     --source-home secondmate:mate --work-id scout-removed --generation 1 \
     --outcome report-ready --deliverable report_path=data/scout-removed/report.md \
     --outcome-text 'The removed child completed its investigation.' >/dev/null || fail "emit failed"
@@ -1950,7 +1950,7 @@ test_retire_refuses_unbound_existing_secondmate() {
   fm_write_meta "$home/state/mate.meta" "kind=secondmate" "home=$child"
   log="$home/curl.log"; : > "$log"
   seed_repro_commitment "$home" pf-unbound-mate req-unbound-mate secondmate:mate scout-unbound
-  "$EMIT" --home "$home" --obligation pf-unbound-mate --relation rel-code \
+  bash "$EMIT" --home "$home" --obligation pf-unbound-mate --relation rel-code \
     --source-home secondmate:mate --work-id scout-unbound --generation 1 \
     --outcome report-ready --deliverable report_path=data/scout-unbound/report.md \
     --outcome-text 'The unbound child completed its investigation.' >/dev/null || fail "emit failed"
@@ -1985,7 +1985,7 @@ test_retire_refuses_reassigned_secondmate_home() {
   fm_write_meta "$home/state/mate.meta" "kind=secondmate" "home=$original"
   log="$home/curl.log"; : > "$log"
   seed_repro_commitment "$home" pf-reassigned-mate req-reassigned-mate secondmate:mate scout-reassigned
-  "$EMIT" --home "$home" --obligation pf-reassigned-mate --relation rel-code \
+  bash "$EMIT" --home "$home" --obligation pf-reassigned-mate --relation rel-code \
     --source-home secondmate:mate --work-id scout-reassigned --generation 1 \
     --outcome report-ready --deliverable report_path=data/scout-reassigned/report.md \
     --outcome-text 'The original child completed its investigation.' >/dev/null || fail "emit failed"
@@ -2018,7 +2018,7 @@ test_rechain_refuses_unclaimed_existing_destination() {
   home=$(make_home rechain-existing-destination)
   log="$home/curl.log"; : > "$log"
   seed_repro_commitment "$home" public-final-existing-a req-existing main scout-existing
-  "$EMIT" --home "$home" --obligation public-final-existing-a --relation rel-code \
+  bash "$EMIT" --home "$home" --obligation public-final-existing-a --relation rel-code \
     --source-home main --work-id scout-existing --generation 1 \
     --outcome report-ready --deliverable report_path=data/scout-existing/report.md \
     --outcome-text 'Investigation complete.' >/dev/null || fail "emit failed"
@@ -2186,7 +2186,7 @@ test_retention_creates_no_false_teardown_refusal() {
   rc=0
   PATH="$home/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
-    FM_CONFIG_OVERRIDE="$home/config" "$TEARDOWN" ship-retain \
+    FM_CONFIG_OVERRIDE="$home/config" bash "$TEARDOWN" ship-retain \
     > "$home/td.out" 2> "$home/td.err" || rc=$?
   [ "$rc" -eq 0 ] || fail "teardown must proceed with a retained delivered registration (rc=$rc)"
   case "$(cat "$home/td.err")" in
@@ -2225,7 +2225,7 @@ test_expiry_escalation_uses_now_override() {
     "an expired unresolved reply must escalate the unreachable thread"
   assert_contains "$out" "captain decision" \
     "an expired unresolved reply must name the captain call"
-  "$EMIT" --home "$home" --obligation pf-exp --relation rel-code \
+  bash "$EMIT" --home "$home" --obligation pf-exp --relation rel-code \
     --source-home main --work-id work-exp --generation 1 \
     --outcome report-ready --deliverable report_path=data/x/report.md \
     --outcome-text 'Reproduced.' >/dev/null || fail "emit failed"
@@ -2339,7 +2339,7 @@ test_x_request_teardown_warns_when_final_unposted() {
   rc=0
   PATH="$home/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
-    FM_CONFIG_OVERRIDE="$home/config" "$TEARDOWN" linked-task \
+    FM_CONFIG_OVERRIDE="$home/config" bash "$TEARDOWN" linked-task \
     > "$home/td.out" 2> "$home/td.err" || rc=$?
   [ "$rc" -eq 0 ] || fail "legacy-link warning must not block teardown (rc=$rc)"
   assert_grep "still carries an unreconciled Relay request link (req-legacy-final) on its task record" "$home/td.err" \
@@ -2373,7 +2373,7 @@ test_secondmate_promotion_uses_teardown_parent_resolution() {
   write_promotion_brief "$child" promote-conflict
   out=$(PATH="$child/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$child" \
     FM_STATE_OVERRIDE="$child/state" FM_PUBLIC_FOLLOWUP_PRIMARY_HOME="$parent" \
-    "$PROMOTE" promote-conflict --mode local-only --yolo off 2>&1) \
+    bash "$PROMOTE" promote-conflict --mode local-only --yolo off 2>&1) \
     || fail "promotion must not block on conflicting parent bindings: $out"
   assert_contains "$out" "promoted promote-conflict to ship" \
     "parent-resolution trouble must never refuse the kind flip"
@@ -2388,7 +2388,7 @@ test_secondmate_promotion_uses_teardown_parent_resolution() {
   write_promotion_brief "$child" promote-legacy
   out=$(PATH="$child/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$child" \
     FM_STATE_OVERRIDE="$child/state" FM_PUBLIC_FOLLOWUP_PRIMARY_HOME="$parent" \
-    "$PROMOTE" promote-legacy --mode local-only --yolo off 2>&1) \
+    bash "$PROMOTE" promote-legacy --mode local-only --yolo off 2>&1) \
     || fail "legacy parent recovery must not block promotion: $out"
   assert_contains "$out" "next: FM_HOME=" \
     "a recovered legacy parent must identify the consent-holding home"
@@ -2405,7 +2405,7 @@ test_secondmate_promotion_uses_teardown_parent_resolution() {
   write_promotion_brief "$remote_child" promote-remote
   out=$(PATH="$remote_child/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$remote_child" \
     FM_STATE_OVERRIDE="$remote_child/state" \
-    "$PROMOTE" promote-remote --mode local-only --yolo off 2>&1) \
+    bash "$PROMOTE" promote-remote --mode local-only --yolo off 2>&1) \
     || fail "a remote parent route must not block promotion: $out"
   assert_contains "$out" "promoted promote-remote to ship" \
     "an unresolved remote parent must never refuse the kind flip"
@@ -2509,7 +2509,7 @@ run_pf_remote() {  # <home> <args...>
     FM_FAKE_REMOTE_ENTRYPOINT="$REMOTE_FIXTURE_ROOT/bin/fm-remote-entrypoint.sh" \
     FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux \
     FM_REMOTE_JOB_STATE_ROOT="$REMOTE_FIXTURE_JOBS" \
-    "$PF" "$@"
+    bash "$PF" "$@"
 }
 
 run_pf_remote_timed() {  # <seconds> <home> <args...>
@@ -2525,7 +2525,7 @@ run_pf_remote_timed() {  # <seconds> <home> <args...>
     FM_FAKE_REMOTE_ENTRYPOINT="$REMOTE_FIXTURE_ROOT/bin/fm-remote-entrypoint.sh" \
     FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux \
     FM_REMOTE_JOB_STATE_ROOT="$REMOTE_FIXTURE_JOBS" \
-    "$PF" "$@"
+    bash "$PF" "$@"
 }
 
 # The reported failure: a public loop whose work lived in a REMOTE secondmate
@@ -2548,7 +2548,7 @@ test_remote_secondmate_loop_delivers_and_retires() {
   [ -z "$(sed -n 's/^work_home_path=//p' "$home/state/public-followup/registry/pf-remote-close")" ] \
     || fail "a remote work home must register with no local path"
 
-  "$EMIT" --home "$home" --obligation pf-remote-close --relation rel-code \
+  bash "$EMIT" --home "$home" --obligation pf-remote-close --relation rel-code \
     --source-home secondmate:mini-default --work-id work-remote --generation 1 \
     --outcome report-ready --deliverable report_path=data/work-remote/report.md \
     --outcome-text 'The remote lane finished its investigation.' >/dev/null \
@@ -2581,7 +2581,7 @@ test_delivered_remote_registration_skips_offline_route() {
   fm_write_meta "$remote/state/work-delivered.meta" \
     "x_request=req-remote-delivered" "x_request_ts=1700000000" "x_followups=1"
 
-  "$EMIT" --home "$home" --obligation pf-remote-delivered --relation rel-code \
+  bash "$EMIT" --home "$home" --obligation pf-remote-delivered --relation rel-code \
     --source-home secondmate:mini-default --work-id work-delivered --generation 1 \
     --outcome report-ready --deliverable report_path=data/work-delivered/report.md \
     --outcome-text 'The remote lane completed its work.' >/dev/null \
@@ -2644,7 +2644,7 @@ test_remote_retire_refuses_reassigned_route() {
   seed_repro_commitment "$home" pf-remote-reassigned req-remote-original secondmate:mate work-reused
   fm_write_meta "$original/state/work-reused.meta" \
     "x_request=req-remote-original" "x_request_ts=1700000000" "x_followups=1"
-  "$EMIT" --home "$home" --obligation pf-remote-reassigned --relation rel-code \
+  bash "$EMIT" --home "$home" --obligation pf-remote-reassigned --relation rel-code \
     --source-home secondmate:mate --work-id work-reused --generation 1 \
     --outcome report-ready --deliverable report_path=data/work-reused/report.md \
     --outcome-text 'The original remote route finished its work.' >/dev/null || fail "emit failed"
@@ -2970,7 +2970,7 @@ test_stage_in_refuses_ambiguous_or_unusable_homes() {
   seed_repro_commitment "$home" pf-stage-refuse req-stage-refuse main work-stage
 
   expect_failure "the two home flags must not be combined" \
-    "$EMIT" --home "$home" --stage-in "$home" --obligation pf-stage-refuse \
+    bash "$EMIT" --home "$home" --stage-in "$home" --obligation pf-stage-refuse \
     --relation rel-code --source-home main --work-id work-stage --generation 1 \
     --outcome report-ready --deliverable report_path=data/work-stage/report.md \
     --outcome-text 'Ambiguous destination.'
@@ -2980,7 +2980,7 @@ test_stage_in_refuses_ambiguous_or_unusable_homes() {
   unrelated="$home/not-a-home"
   mkdir -p "$unrelated/state"
   expect_failure "an ordinary directory with state must not pass as a staging home" \
-    "$EMIT" --stage-in "$unrelated" --obligation pf-stage-refuse \
+    bash "$EMIT" --stage-in "$unrelated" --obligation pf-stage-refuse \
     --relation rel-code --source-home secondmate:mate --work-id work-stage --generation 1 \
     --outcome report-ready --deliverable report_path=data/work-stage/report.md \
     --outcome-text 'Nowhere to be collected from.'
@@ -2991,7 +2991,7 @@ test_stage_in_refuses_ambiguous_or_unusable_homes() {
 
   printf 'someone-else\n' > "$unrelated/.fm-secondmate-home"
   expect_failure "a staging home's identity must match --source-home" \
-    "$EMIT" --stage-in "$unrelated" --obligation pf-stage-refuse \
+    bash "$EMIT" --stage-in "$unrelated" --obligation pf-stage-refuse \
     --relation rel-code --source-home secondmate:mate --work-id work-stage --generation 1 \
     --outcome report-ready --deliverable report_path=data/work-stage/report.md \
     --outcome-text 'Wrong home.'
@@ -3020,7 +3020,7 @@ SH
   saved_jobs=$REMOTE_FIXTURE_JOBS
   REMOTE_FIXTURE_JOBS="$jobs"
   set -m
-  "$fake_worker" "$jobs" &
+  bash "$fake_worker" "$jobs" &
   pid=$!
   set +m
   printf '%s\n' "$pid" > "$jobs/worker.pid"
@@ -3307,7 +3307,7 @@ publish_raw_event() {
 
 run_poll() {  # <home>
   PATH="$1/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$1" \
-    FM_STATE_OVERRIDE="$1/state" "$POLL" 2>&1
+    FM_STATE_OVERRIDE="$1/state" bash "$POLL" 2>&1
 }
 
 # The reported failure, first part: the instructions a bound worker received
@@ -3355,7 +3355,7 @@ test_emit_refuses_a_deliverable_tasks_axi_would_reject() {
   seed_repro_commitment "$home" pf-emit-format req-emit-format main work-format
 
   expect_failure "an absolute report path must be refused at emit" \
-    "$EMIT" --home "$home" --obligation pf-emit-format --relation rel-code \
+    bash "$EMIT" --home "$home" --obligation pf-emit-format --relation rel-code \
     --source-home main --work-id work-format --generation 1 --outcome report-ready \
     --deliverable report_path=/Users/someone/fm-home/data/work-format/report.md \
     --outcome-text 'The report is ready.'
@@ -3371,7 +3371,7 @@ test_emit_refuses_a_deliverable_tasks_axi_would_reject() {
   mkdir -p "$staging/state"
   printf 'axi-a1\n' > "$staging/.fm-secondmate-home"
   expect_failure "a staged emit must apply the same deliverable rules" \
-    "$EMIT" --stage-in "$staging" --obligation pf-emit-format --relation rel-code \
+    bash "$EMIT" --stage-in "$staging" --obligation pf-emit-format --relation rel-code \
     --source-home secondmate:axi-a1 --work-id work-format --generation 1 --outcome report-ready \
     --deliverable report_path=/abs/data/work-format/report.md \
     --outcome-text 'The report is ready.'
@@ -3380,7 +3380,7 @@ test_emit_refuses_a_deliverable_tasks_axi_would_reject() {
   assert_absent "$staging/state/public-followup" "a refused staged deliverable must stage nothing"
 
   expect_failure "a deliverable key this promise never carries must be refused at emit" \
-    "$EMIT" --home "$home" --obligation pf-emit-format --relation rel-code \
+    bash "$EMIT" --home "$home" --obligation pf-emit-format --relation rel-code \
     --source-home main --work-id work-format --generation 1 --outcome report-ready \
     --deliverable pr_url=https://github.com/example/repo/pull/12 \
     --deliverable report_path=data/work-format/report.md \
@@ -3399,7 +3399,7 @@ test_emit_refuses_a_repeated_deliverable_key() {
   seed_repro_commitment "$home" pf-emit-repeat req-emit-repeat main work-repeat
 
   expect_failure "a repeated deliverable key must be refused at emit" \
-    "$EMIT" --home "$home" --obligation pf-emit-repeat --relation rel-code \
+    bash "$EMIT" --home "$home" --obligation pf-emit-repeat --relation rel-code \
     --source-home main --work-id work-repeat --generation 1 --outcome report-ready \
     --deliverable report_path=/abs/data/work-repeat/report.md \
     --deliverable report_path=data/work-repeat/report.md \
@@ -3415,7 +3415,7 @@ test_emit_refuses_a_repeated_deliverable_key() {
   mkdir -p "$staging/state"
   printf 'axi-a1\n' > "$staging/.fm-secondmate-home"
   expect_failure "a staged emit must refuse a repeated deliverable key" \
-    "$EMIT" --stage-in "$staging" --obligation pf-emit-repeat --relation rel-code \
+    bash "$EMIT" --stage-in "$staging" --obligation pf-emit-repeat --relation rel-code \
     --source-home secondmate:axi-a1 --work-id work-repeat --generation 1 --outcome report-ready \
     --deliverable report_path=data/work-repeat/report.md \
     --deliverable report_path=data/work-repeat/report.md \
@@ -3441,7 +3441,7 @@ test_emit_refuses_a_missing_required_deliverable() {
     seed_typed_commitment "$home" "pf-missing-$n" "req-missing-$n" "$expected" \
       "[\"$key\"]" main "work-missing-$n"
     expect_failure "a $expected event carrying no deliverable at all must be refused at emit" \
-      "$EMIT" --home "$home" --obligation "pf-missing-$n" --relation rel-code \
+      bash "$EMIT" --home "$home" --obligation "pf-missing-$n" --relation rel-code \
       --source-home main --work-id "work-missing-$n" --generation 1 \
       --outcome "$expected" --outcome-text 'The work finished.'
     assert_contains "$EXPECT_OUT" "$key" "the refusal must name the missing key"
@@ -3457,7 +3457,7 @@ CASES
 
   # A failure report is a different terminal outcome that never carries the
   # promised key, so requiring that key must not block reporting one.
-  "$EMIT" --home "$home" --obligation pf-missing-1 --relation rel-code \
+  bash "$EMIT" --home "$home" --obligation pf-missing-1 --relation rel-code \
     --source-home main --work-id work-missing-1 --generation 1 --outcome failed \
     --deliverable error_code=ci-red --outcome-text 'The work could not finish.' >/dev/null \
     || fail "a failed outcome must not be held to the promised deliverable key"
@@ -3557,7 +3557,7 @@ EOF
 $(printf '%s' "$deliverables" | jq -r 'to_entries[] | "\(.key)=\(.value)"')
 EOF
 
-    if "$EMIT" "${emit_destination[@]}" --obligation "$obligation" --relation rel-code \
+    if bash "$EMIT" "${emit_destination[@]}" --obligation "$obligation" --relation rel-code \
         --work-id "work-agree-$n" --generation 1 --outcome "$outcome" \
         ${emit_args[@]+"${emit_args[@]}"} --outcome-text 'The work finished.' >/dev/null 2>&1; then
       emit_verdict=accept
@@ -3728,7 +3728,7 @@ test_emit_requires_promised_deliverable_under_any_successful_outcome() {
   printf 'axi-a1\n' > "$staging/.fm-secondmate-home"
 
   expect_failure "a pr-merged promise cannot be answered with a report-ready result" \
-    "$EMIT" --home "$home" --obligation pf-outcome-swap --relation rel-code \
+    bash "$EMIT" --home "$home" --obligation pf-outcome-swap --relation rel-code \
     --source-home main --work-id work-swap --generation 1 --outcome report-ready \
     --deliverable report_path=data/work-swap/report.md \
     --outcome-text 'The report is ready.'
@@ -3738,7 +3738,7 @@ test_emit_requires_promised_deliverable_under_any_successful_outcome() {
     || fail "an outcome swap that drops the promised key must publish nothing"
 
   expect_failure "a staged outcome swap must be refused by the same rule" \
-    "$EMIT" --stage-in "$staging" --obligation pf-outcome-swap --relation rel-code \
+    bash "$EMIT" --stage-in "$staging" --obligation pf-outcome-swap --relation rel-code \
     --source-home secondmate:axi-a1 --work-id work-swap --generation 1 \
     --outcome report-ready --require-deliverable pr_url \
     --deliverable report_path=data/work-swap/report.md \
@@ -3747,17 +3747,17 @@ test_emit_requires_promised_deliverable_under_any_successful_outcome() {
   assert_absent "$staging/state/public-followup" \
     "a refused staged outcome swap must stage nothing"
 
-  "$EMIT" --home "$home" --obligation pf-outcome-swap --relation rel-code \
+  bash "$EMIT" --home "$home" --obligation pf-outcome-swap --relation rel-code \
     --source-home main --work-id work-swap --generation 1 --outcome failed \
     --deliverable error_code=ci-red --outcome-text 'The work could not finish.' >/dev/null \
     || fail "a failed outcome must stay reportable without the promised key"
   expect_failure "a superseded outcome cannot be reported from here at all" \
-    "$EMIT" --home "$home" --obligation pf-outcome-swap --relation rel-code \
+    bash "$EMIT" --home "$home" --obligation pf-outcome-swap --relation rel-code \
     --source-home main --work-id work-swap --generation 1 --outcome superseded \
     --outcome-text 'This work was superseded.'
   assert_contains "$EXPECT_OUT" "successor" \
     "the refusal must say what tasks-axi needs for a superseded event"
-  "$EMIT" --stage-in "$staging" --obligation pf-outcome-swap --relation rel-code \
+  bash "$EMIT" --stage-in "$staging" --obligation pf-outcome-swap --relation rel-code \
     --source-home secondmate:axi-a1 --work-id work-swap --generation 1 --outcome failed \
     --require-deliverable pr_url --deliverable error_code=ci-red \
     --outcome-text 'The work could not finish.' >/dev/null \
@@ -3778,7 +3778,7 @@ test_emit_requires_error_code_on_a_failure_promise() {
   printf 'axi-a1\n' > "$staging/.fm-secondmate-home"
 
   expect_failure "a failure promise reported without its error_code must be refused" \
-    "$EMIT" --home "$home" --obligation pf-failure-promise --relation rel-code \
+    bash "$EMIT" --home "$home" --obligation pf-failure-promise --relation rel-code \
     --source-home main --work-id work-failure --generation 1 --outcome failed \
     --outcome-text 'The work could not finish.'
   assert_contains "$EXPECT_OUT" "error_code" "the refusal must name the missing key"
@@ -3786,14 +3786,14 @@ test_emit_requires_error_code_on_a_failure_promise() {
     || fail "a failure promise missing its error_code must publish nothing"
 
   expect_failure "a staged failure promise must apply the same rule" \
-    "$EMIT" --stage-in "$staging" --obligation pf-failure-promise --relation rel-code \
+    bash "$EMIT" --stage-in "$staging" --obligation pf-failure-promise --relation rel-code \
     --source-home secondmate:axi-a1 --work-id work-failure --generation 1 --outcome failed \
     --require-deliverable error_code --outcome-text 'The work could not finish.'
   assert_contains "$EXPECT_OUT" "error_code" "the staged refusal must name the missing key"
   assert_absent "$staging/state/public-followup" \
     "a staged failure promise missing its error_code must stage nothing"
 
-  "$EMIT" --home "$home" --obligation pf-failure-promise --relation rel-code \
+  bash "$EMIT" --home "$home" --obligation pf-failure-promise --relation rel-code \
     --source-home main --work-id work-failure --generation 1 --outcome failed \
     --deliverable error_code=ci-red --outcome-text 'The work could not finish.' >/dev/null \
     || fail "the failure promise must be reportable once it carries its error_code"
@@ -3853,7 +3853,7 @@ test_rejection_wake_survives_a_poll_that_cannot_write() {
     "a refusal must queue a wake"
 
   PATH="$home/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" \
-    FM_STATE_OVERRIDE="$home/state" "$POLL" >&- 2>/dev/null || true
+    FM_STATE_OVERRIDE="$home/state" bash "$POLL" >&- 2>/dev/null || true
   assert_present "$home/state/public-followup/rejection-wakes/$event_id" \
     "a wake whose line could not be written must stay queued"
   assert_contains "$(run_poll "$home")" "public-followup rejected $event_id" \

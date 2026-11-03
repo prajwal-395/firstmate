@@ -65,7 +65,7 @@ ROWS
 
 run_guard() {
   # Scope the guard to a temp repo as the primary checkout; state lives under it.
-  FM_ROOT_OVERRIDE="$1" FM_HOME="$1" "$ROOT/bin/fm-guard.sh" 2>&1
+  FM_ROOT_OVERRIDE="$1" FM_HOME="$1" bash "$ROOT/bin/fm-guard.sh" 2>&1
 }
 
 test_guard_banner() {
@@ -95,7 +95,7 @@ test_guard_banner() {
 
 run_bootstrap() {
   # No projects/ under the home keeps fleet sync inert; grep isolates the line.
-  FM_ROOT_OVERRIDE="$1" FM_HOME="$1" "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null
+  FM_ROOT_OVERRIDE="$1" FM_HOME="$1" bash "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null
 }
 
 test_bootstrap_line() {
@@ -113,7 +113,7 @@ test_bootstrap_line() {
   out=$(run_bootstrap "$repo" | grep '^TANGLE:' || true)
   assert_contains "$out" "fm/tangle-bb2" "bootstrap did not report the tangled branch"
   assert_contains "$out" "checkout main" "bootstrap TANGLE line lacked the restore remediation"
-  out=$(FM_ROOT_OVERRIDE="$repo" FM_HOME="$repo" FM_BOOTSTRAP_DETECT_ONLY=1 "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null | grep '^TANGLE:' || true)
+  out=$(FM_ROOT_OVERRIDE="$repo" FM_HOME="$repo" FM_BOOTSTRAP_DETECT_ONLY=1 bash "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null | grep '^TANGLE:' || true)
   assert_contains "$out" "fm/tangle-bb2" "detect-only bootstrap did not report the tangled branch"
   assert_contains "$out" "read-only session must leave restore work" "detect-only bootstrap did not explain restore ownership"
   assert_not_contains "$out" "checkout main" "detect-only bootstrap printed a state-changing restore command"
@@ -128,7 +128,7 @@ test_brief_assertion_precedes_branch() {
   local home brief iso br
   home="$TMP_ROOT/brief-home"
   mkdir -p "$home/data"
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" tangle-brief-cc3 alpha --mode no-mistakes >/dev/null 2>&1
+  FM_HOME="$home" bash "$ROOT/bin/fm-brief.sh" tangle-brief-cc3 alpha --mode no-mistakes >/dev/null 2>&1
   brief="$home/data/tangle-brief-cc3/brief.md"
   assert_present "$brief" "brief was not scaffolded"
   # shellcheck disable=SC2016 # The generated instruction keeps the stamp literal.

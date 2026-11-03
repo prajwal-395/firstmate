@@ -526,7 +526,7 @@ teardown_export_records() {  # <state> <task-id>
   fi
   FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$state" FM_CONFIG_OVERRIDE="$CONFIG" \
     FM_RECORD_EXPORT_META_LOCK_HELD=1 \
-    "$SCRIPT_DIR/fm-record-export.sh" archive-task "$task" || {
+    bash "$SCRIPT_DIR/fm-record-export.sh" archive-task "$task" || {
       echo "error: record export archive failed for $task; retaining task records for retry" >&2
       return 1
     }
@@ -820,7 +820,7 @@ if [ "$TEARDOWN_BACKLOG_APPLIES" = 1 ]; then
   TEARDOWN_CAPTAIN_OPEN_STATUS=0
   TEARDOWN_CAPTAIN_OPEN_OUT=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
     FM_DATA_OVERRIDE="$DATA" FM_CONFIG_OVERRIDE="$CONFIG" \
-    "$SCRIPT_DIR/fm-captain-hold.sh" open "$ID" 2>&1) || TEARDOWN_CAPTAIN_OPEN_STATUS=$?
+    bash "$SCRIPT_DIR/fm-captain-hold.sh" open "$ID" 2>&1) || TEARDOWN_CAPTAIN_OPEN_STATUS=$?
   case "$TEARDOWN_CAPTAIN_OPEN_STATUS" in
     0) TEARDOWN_BACKLOG_TRANSITION=retain ;;
     1) ;;
@@ -1216,21 +1216,21 @@ remote_secondmate_teardown() {
   if [ "$FORCE" != --force ]; then
     secondmate_unresolved_pending_replies_refuse || return 1
   fi
-  "$SCRIPT_DIR/fm-procevent-remote-reply.sh" retire-quiesce-locked "$ID" "$FORCE" >/dev/null 2>&1 || {
+  bash "$SCRIPT_DIR/fm-procevent-remote-reply.sh" retire-quiesce-locked "$ID" "$FORCE" >/dev/null 2>&1 || {
     echo "REFUSED: remote secondmate $ID still has an unhandled captured reply" >&2
     return 1
   }
-  "$FM_ROOT/bin/fm-guard.sh" || true
+  bash "$FM_ROOT/bin/fm-guard.sh" || true
   if [ "$FORCE" = --force ]; then
-    if out=$("$SCRIPT_DIR/fm-on.sh" "$ID" fm-remote-secondmate-control.sh retire "$ID" --force < /dev/null 2>&1); then rc=0; else rc=$?; fi
+    if out=$(bash "$SCRIPT_DIR/fm-on.sh" "$ID" fm-remote-secondmate-control.sh retire "$ID" --force < /dev/null 2>&1); then rc=0; else rc=$?; fi
   else
-    if out=$("$SCRIPT_DIR/fm-on.sh" "$ID" fm-remote-secondmate-control.sh retire "$ID" < /dev/null 2>&1); then rc=0; else rc=$?; fi
+    if out=$(bash "$SCRIPT_DIR/fm-on.sh" "$ID" fm-remote-secondmate-control.sh retire "$ID" < /dev/null 2>&1); then rc=0; else rc=$?; fi
   fi
   if [ "$rc" -ne 0 ] && [ "$rc" -ne "$TEARDOWN_LOST_SLOT_EXIT" ]; then
     [ -z "$out" ] || printf '%s\n' "$out" >&2
     if [ "$rc" -eq 255 ]; then
       echo "error: remote retirement completion is unknown; preserving the route and local records for same-host reconciliation" >&2
-    elif ! "$SCRIPT_DIR/fm-procevent-remote-reply.sh" arm-locked "$ID" >/dev/null 2>&1; then
+    elif ! bash "$SCRIPT_DIR/fm-procevent-remote-reply.sh" arm-locked "$ID" >/dev/null 2>&1; then
       echo "error: remote retirement failed and the reply source could not be re-armed" >&2
     fi
     return "$rc"
@@ -1243,7 +1243,7 @@ remote_secondmate_teardown() {
     echo "error: remote home retired but local recovery paths changed; preserving the local route for retry" >&2
     return 1
   }
-  "$SCRIPT_DIR/fm-procevent-remote-reply.sh" retire-finalize-locked "$ID" "$FORCE" >/dev/null 2>&1 || {
+  bash "$SCRIPT_DIR/fm-procevent-remote-reply.sh" retire-finalize-locked "$ID" "$FORCE" >/dev/null 2>&1 || {
     echo "error: remote home retired but reply-source cleanup is incomplete; preserving the local route for retry" >&2
     return 1
   }
@@ -1293,7 +1293,7 @@ else
   remote_teardown_rc=$?
 fi
 if [ "$remote_teardown_rc" -eq 0 ] || [ "$remote_teardown_rc" -eq "$TEARDOWN_LOST_SLOT_EXIT" ]; then
-  "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
+  bash "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
   exit "$remote_teardown_rc"
 fi
 [ "$remote_teardown_rc" -eq 3 ] || exit "$remote_teardown_rc"
@@ -1327,7 +1327,7 @@ if [ "$BACKEND" = t3code ]; then
   [ "$TEARDOWN_META_KIND" != secondmate ] || t3code_secondmate_lsof_check "$ID" "$(fm_meta_get "$META" home)" || exit 1
 fi
 if [ "${FM_TEARDOWN_GUARD_DONE:-0}" != 1 ]; then
-  "$FM_ROOT/bin/fm-guard.sh" || true
+  bash "$FM_ROOT/bin/fm-guard.sh" || true
 fi
 HOME_PATH=$(grep '^home=' "$META" | cut -d= -f2- || true)
 PR_URL=$(grep '^pr=' "$META" | tail -1 | cut -d= -f2- || true)
@@ -1640,9 +1640,9 @@ retire_busy_state() {
   # teardown has already removed, taking its busy records with it.
   [ -d "$state_dir" ] || return 0
   if [ -n "$gen" ]; then
-    "$SCRIPT_DIR/fm-busy-event.sh" retire "$state_dir" "$id" --gen "$gen"
+    bash "$SCRIPT_DIR/fm-busy-event.sh" retire "$state_dir" "$id" --gen "$gen"
   elif [ -f "$state_dir/$id.busy-gen" ]; then
-    "$SCRIPT_DIR/fm-busy-event.sh" retire "$state_dir" "$id" --current-gen
+    bash "$SCRIPT_DIR/fm-busy-event.sh" retire "$state_dir" "$id" --current-gen
   fi
 }
 
@@ -3125,7 +3125,7 @@ restore_firstmate_home_process_events() {
   if [ ! -f "$runner" ] || [ -L "$runner" ] || [ ! -x "$runner" ]; then
     runner="$SCRIPT_DIR/fm-procevent.sh"
   fi
-  if ! FM_HOME="$home" FM_ROOT_OVERRIDE="$FM_ROOT" "$runner" reconcile >/dev/null; then
+  if ! FM_HOME="$home" FM_ROOT_OVERRIDE="$FM_ROOT" bash "$runner" reconcile >/dev/null; then
     echo "error: process-event restoration could not rearm $label $home; active waits may remain retired; recover registrations from $backup" >&2
     return "$TEARDOWN_PROCEVENT_RESTORE_FAILED"
   fi
@@ -3139,7 +3139,7 @@ cleanup_firstmate_home_process_events() {
     echo "REFUSED: $label $home has process-event state but no sweep-capable bin/fm-procevent.sh; restore the home script and rerun teardown" >&2
     return 1
   fi
-  if ! FM_HOME="$home" FM_ROOT_OVERRIDE="$home" "$runner" sweep-home; then
+  if ! FM_HOME="$home" FM_ROOT_OVERRIDE="$home" bash "$runner" sweep-home; then
     echo "REFUSED: process-event cleanup is incomplete for $label $home; preserving the home, lease, and retirement records for retry" >&2
     return 1
   fi
@@ -3156,7 +3156,7 @@ preflight_firstmate_home_process_events() {
     echo "REFUSED: $label $home has process-event state but no sweep-capable bin/fm-procevent.sh; restore the home script and rerun teardown" >&2
     return 1
   fi
-  if ! FM_HOME="$home" FM_ROOT_OVERRIDE="$home" "$runner" sweep-home --preflight >/dev/null; then
+  if ! FM_HOME="$home" FM_ROOT_OVERRIDE="$home" bash "$runner" sweep-home --preflight >/dev/null; then
     echo "REFUSED: process-event cleanup cannot safely proceed for $label $home; preserving the home, lease, and retirement records for retry" >&2
     return 1
   fi
@@ -3663,7 +3663,7 @@ cleanup_firstmate_home_children() {
           "$child_wt/.opencode/plugins/fm-busy-state.js" \
           "$child_wt/.fm-grok-turnend" "$child_wt/.fm-kimi-turnend" "$child_wt/.fm-agy-turnend"
         if [ "$child_backend" = t3code ]; then
-          "$SCRIPT_DIR/fm-t3code-codex-env.sh" cleanup "$child_wt" || return 1
+          bash "$SCRIPT_DIR/fm-t3code-codex-env.sh" cleanup "$child_wt" || return 1
           git -C "$child_wt" ls-files --error-unmatch CLAUDE.local.md >/dev/null 2>&1 \
             || rm -f "$child_wt/CLAUDE.local.md"
         fi
@@ -3789,7 +3789,7 @@ if [ "$KIND" = scout ] && [ "$FORCE" != "--force" ]; then
     exit 1
   fi
   if ! FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
-      FM_CONFIG_OVERRIDE="$CONFIG" "$SCRIPT_DIR/fm-captain-hold.sh" verify "$ID" >/dev/null; then
+      FM_CONFIG_OVERRIDE="$CONFIG" bash "$SCRIPT_DIR/fm-captain-hold.sh" verify "$ID" >/dev/null; then
     echo "REFUSED: scout task $ID has not passed the captain-call completion gate." >&2
     echo "Inventory its report and any visual review through bin/fm-captain-hold.sh before teardown." >&2
     exit 1
@@ -3810,7 +3810,7 @@ if [ "$FORCE" != "--force" ] \
   && [ "$PUBLIC_FOLLOWUP_RELAY_ACTIVE" = 1 ] \
   && fm_pf_has_registrations "$PUBLIC_FOLLOWUP_STATE"; then
   if ! PUBLIC_FOLLOWUP_BLOCKING=$(FM_HOME="$PUBLIC_FOLLOWUP_HOME" FM_STATE_OVERRIDE="$PUBLIC_FOLLOWUP_STATE" \
-      "$SCRIPT_DIR/fm-public-followup.sh" guard-work "$PUBLIC_FOLLOWUP_WORK_HOME" "$ID" 2>/dev/null); then
+      bash "$SCRIPT_DIR/fm-public-followup.sh" guard-work "$PUBLIC_FOLLOWUP_WORK_HOME" "$ID" 2>/dev/null); then
     echo "REFUSED: task $ID still owes a public reply through the myfirstmate relay." >&2
     printf '%s\n' "$PUBLIC_FOLLOWUP_BLOCKING" >&2
     echo "Deliver it with bin/fm-public-followup.sh deliver <obligation-id>, waive it with bin/fm-tasks-axi.sh public-followup waive, or use --force after explicit discard approval." >&2
@@ -3983,13 +3983,13 @@ elif [ "$KIND" != secondmate ]; then
 fi
 if [ "$KIND" = ship ] && [ "$MODE" = no-mistakes ] && teardown_owns_worktree && [ -e "$CONFIG/pipeline-spend" ]; then
   FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" FM_CONFIG_OVERRIDE="$CONFIG" \
-    "$SCRIPT_DIR/fm-pipeline-spend.sh" record "$ID" >/dev/null \
+    bash "$SCRIPT_DIR/fm-pipeline-spend.sh" record "$ID" >/dev/null \
     || echo "warning: could not record $ID's no-mistakes pipeline spend; cleanup continues" >&2
 fi
 
 # Fix 3 (see script header): sweep remote job workers abandoned by an already
 # pruned code root. Best effort - a sweep failure never blocks this teardown.
-"$SCRIPT_DIR/fm-remote-job-reap-orphans.sh" >&2 || true
+bash "$SCRIPT_DIR/fm-remote-job-reap-orphans.sh" >&2 || true
 
 # A t3code thread is stopped and archived BEFORE its slot goes back to the pool
 # or, for a secondmate, before its home is removed: a live thread whose
@@ -4047,7 +4047,7 @@ elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
     "$WT/.fm-grok-turnend" "$WT/.fm-kimi-turnend" "$WT/.fm-agy-turnend"
   remove_harness_worktree_wiring "$WT"
   if [ "$BACKEND" = t3code ]; then
-    "$SCRIPT_DIR/fm-t3code-codex-env.sh" cleanup "$WT" || exit 1
+    bash "$SCRIPT_DIR/fm-t3code-codex-env.sh" cleanup "$WT" || exit 1
     git -C "$WT" ls-files --error-unmatch CLAUDE.local.md >/dev/null 2>&1 || rm -f "$WT/CLAUDE.local.md"
   fi
   # Kills remaining processes in the worktree (including the agent), resets, returns
@@ -4144,7 +4144,7 @@ elif [ "$BACKEND" != orca ] && [ "$BACKEND" != t3code ] && [ "$TEARDOWN_WINDOWLE
   # (bin/fm-rex-marks.sh), so a pane the close cannot reach is not left showing
   # a stale request. A task with no cached record costs nothing.
   if [ "$BACKEND" = rex ] && { [ -e "$STATE/.rex-mark-$ID" ] || [ -e "$STATE/.rex-progress-$ID" ] || [ -e "$STATE/.rex-tint-$ID" ]; }; then
-    FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG "$SCRIPT_DIR/fm-rex-marks.sh" clear "$ID" >/dev/null 2>&1 || true
+    FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG bash "$SCRIPT_DIR/fm-rex-marks.sh" clear "$ID" >/dev/null 2>&1 || true
   fi
   fm_backend_kill "$BACKEND" "$T" "$(meta_value "$META" zellij_tab_id)" "fm-$ID" \
     || endpoint_close_refusal "$ID" "$BACKEND" "$T" 1 || exit 1
@@ -4178,7 +4178,7 @@ if [ "$BACKEND" = herdr ]; then
 fi
 if [ "$KIND" != secondmate ]; then
   if ! FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
-      "$SCRIPT_DIR/fm-inactive-reconcile.sh" report "$ID"; then
+      bash "$SCRIPT_DIR/fm-inactive-reconcile.sh" report "$ID"; then
     echo "error: $ID's final outcome has not reached the parent channel; retaining every durable task record so a rerun can retry the delivery" >&2
     exit 1
   fi
@@ -4224,7 +4224,7 @@ remove_agy_turnend_auth "$STATE" "$ID" || {
 # here warns rather than retaining the task.
 TEARDOWN_OPENCODE_SERVER=$(meta_value "$META" opencode_server)
 if [ -n "$TEARDOWN_OPENCODE_SERVER" ]; then
-  "$SCRIPT_DIR/fm-opencode-server.sh" release "$STATE" "$TEARDOWN_OPENCODE_SERVER" "$ID" \
+  bash "$SCRIPT_DIR/fm-opencode-server.sh" release "$STATE" "$TEARDOWN_OPENCODE_SERVER" "$ID" \
     "$(meta_value "$META" opencode_server_session)" "$WT" >/dev/null \
     || echo "warning: the shared OpenCode server lease for $ID could not be fully released" >&2
 fi
@@ -4358,12 +4358,12 @@ fi
 fm_lock_release "$META_LOCK"
 META_LOCK_HELD=0
 if [ "$KIND" != scout ] && [ "$KIND" != secondmate ] && [ "$MODE" != local-only ]; then
-  "$FM_ROOT/bin/fm-fleet-sync.sh" "$PROJ" || true
+  bash "$FM_ROOT/bin/fm-fleet-sync.sh" "$PROJ" || true
 fi
 # A secondmate retirement may remove the home containing an overridden control
 # state directory. Do not let the side-band refresh recreate that retired home.
 if [ -d "$STATE" ]; then
-  "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
+  bash "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
 fi
 if [ "$TEARDOWN_POOL_SLOT_LOST" = 1 ]; then
   echo "teardown $ID finished its cleanup and removed its task record, but a returned pool slot did not come back clean (see the warning above); clear those paths so the pool can reuse the slot" >&2

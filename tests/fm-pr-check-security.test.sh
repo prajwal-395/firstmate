@@ -31,12 +31,12 @@ REAL_JQ=$(command -v jq) || fail "these tests read glab's JSON with the real jq,
 ack_watcher_cycle() {  # <state>
   local state=$1 err sequence generation
   err="$state/.test-wake-drain.err"
-  FM_STATE_OVERRIDE="$state" "$ROOT/bin/fm-wake-drain.sh" >/dev/null 2> "$err" || return 1
+  FM_STATE_OVERRIDE="$state" bash "$ROOT/bin/fm-wake-drain.sh" >/dev/null 2> "$err" || return 1
   sequence=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation [A-Za-z0-9._-][A-Za-z0-9._-]*$/\1/p' "$err")
   generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through [0-9][0-9]* --recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$err")
   rm -f "$err"
   [ -n "$sequence" ] && [ -n "$generation" ] || return 1
-  FM_STATE_OVERRIDE="$state" "$ROOT/bin/fm-wake-drain.sh" --ack-through "$sequence" \
+  FM_STATE_OVERRIDE="$state" bash "$ROOT/bin/fm-wake-drain.sh" --ack-through "$sequence" \
     --recovery-generation "$generation"
 }
 
@@ -310,7 +310,7 @@ run_check_entry() {
     FM_TEST_GH_AXI_LOG="$dir/gh-axi.log" FM_TEST_GLAB_LOG="$dir/glab.log" \
     FM_TEST_GERRIT_AXI_LOG="$dir/gerrit-axi.log" \
     PATH="$dir/fakebin:$BASE_PATH" \
-    "$PR_CHECK" "$@"
+    bash "$PR_CHECK" "$@"
 }
 
 run_merge_entry() {
@@ -321,7 +321,7 @@ run_merge_entry() {
     FM_TEST_GH_AXI_LOG="$dir/gh-axi.log" FM_TEST_GLAB_LOG="$dir/glab.log" \
     FM_TEST_GERRIT_AXI_LOG="$dir/gerrit-axi.log" \
     PATH="$dir/fakebin:$BASE_PATH" \
-    "$PR_MERGE" "$@"
+    bash "$PR_MERGE" "$@"
 }
 
 # shellcheck disable=SC2016 # Literal rejected URL bytes are parser test data.
@@ -622,7 +622,7 @@ test_invalid_entrypoints_have_zero_side_effects() {
     before=$(state_snapshot "$dir/home/state")
     set +e
     FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$dir/root" FM_TEST_GUARD_LOG="$dir/guard.log" \
-      "$TEARDOWN" "$value" --force > "$dir/stdout" 2> "$dir/stderr"
+      bash "$TEARDOWN" "$value" --force > "$dir/stdout" 2> "$dir/stderr"
     rc=$?
     set -e
     [ "$rc" -ne 0 ] || fail "teardown accepted invalid task ID"
@@ -843,7 +843,7 @@ SH
   chmod 0700 "$dir/fakebin/tmux"
   touch "$dir/home/state/.last-watcher-beat"
   FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" PATH="$dir/fakebin:$BASE_PATH" \
-    "$TEARDOWN" Task_A.1 --force > "$dir/teardown.out" 2> "$dir/teardown.err" \
+    bash "$TEARDOWN" Task_A.1 --force > "$dir/teardown.out" 2> "$dir/teardown.err" \
     || fail "safe lifecycle-compatible task ID could not be torn down"
   [ ! -e "$dir/home/state/Task_A.1.meta" ] \
     || fail "safe lifecycle-compatible task teardown retained metadata"
@@ -867,7 +867,7 @@ SH
     mkdir "$dir/home/state/$id.check.sh"
     set +e
     FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" PATH="$dir/fakebin:$BASE_PATH" \
-      "$TEARDOWN" "$id" --force > "$dir/unsafe-teardown.out" 2> "$dir/unsafe-teardown.err"
+      bash "$TEARDOWN" "$id" --force > "$dir/unsafe-teardown.out" 2> "$dir/unsafe-teardown.err"
     rc=$?
     set -e
     [ "$rc" -ne 0 ] || fail "legacy task teardown accepted an unsafe direct artifact"
@@ -876,7 +876,7 @@ SH
     [ -d "$dir/home/state/$id.check.sh" ] \
       || fail "legacy task teardown changed the unsafe direct artifact"
     rmdir "$dir/home/state/$id.check.sh"
-    FM_HOME="$dir/home" "$ROOT/bin/fm-x-link.sh" "$id" req-legacy \
+    FM_HOME="$dir/home" bash "$ROOT/bin/fm-x-link.sh" "$id" req-legacy \
       --carry-count 0 --carry-ts 1700000000 --carry-platform x --carry-max 280 \
       > "$dir/x-link.out" 2> "$dir/x-link.err" \
       || fail "path-safe legacy task ID could not link an X request"
@@ -887,7 +887,7 @@ SH
       || fail "path-safe legacy task ID did not publish an authenticated poll"
     rm -rf "$dir/wt"
     FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" PATH="$dir/fakebin:$BASE_PATH" \
-      "$TEARDOWN" "$id" --force > "$dir/teardown.out" 2> "$dir/teardown.err" \
+      bash "$TEARDOWN" "$id" --force > "$dir/teardown.out" 2> "$dir/teardown.err" \
       || fail "legacy path-safe task ID could not be torn down"
     [ ! -e "$dir/home/state/$id.meta" ] || fail "legacy task teardown retained metadata"
   done
@@ -1333,13 +1333,13 @@ test_live_artifact_single_link_and_privacy_validation() {
   alias="$dir/custom-check.alias"
   ln "$state/custom.check.sh" "$alias"
   set +e
-  FM_HOME="$dir/home" "$REGISTER" custom > "$dir/register.out" 2> "$dir/register.err"
+  FM_HOME="$dir/home" bash "$REGISTER" custom > "$dir/register.out" 2> "$dir/register.err"
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "custom check registration accepted a hard-linked source"
   [ ! -e "$state/custom.check-trust" ] || fail "rejected hard-linked custom check received a trust record"
   rm -f "$alias"
-  FM_HOME="$dir/home" "$REGISTER" custom >/dev/null \
+  FM_HOME="$dir/home" bash "$REGISTER" custom >/dev/null \
     || fail "could not register the custom check single-link fixture"
   ln "$state/custom.check.sh" "$alias"
   ! fm_custom_check_registered "$state" custom \
@@ -1362,13 +1362,13 @@ test_live_artifact_single_link_and_privacy_validation() {
   printf '#!/usr/bin/env bash\nprintf "custom-ready\\n"\n' > "$state/custom.check.sh"
   chmod 0755 "$state/custom.check.sh"
   set +e
-  FM_HOME="$dir/home" "$REGISTER" custom > "$dir/register.out" 2> "$dir/register.err"
+  FM_HOME="$dir/home" bash "$REGISTER" custom > "$dir/register.out" 2> "$dir/register.err"
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "custom check registration accepted a non-private source"
   [ ! -e "$state/custom.check-trust" ] || fail "non-private custom check received a trust record"
   chmod 0700 "$state/custom.check.sh"
-  FM_HOME="$dir/home" "$REGISTER" custom >/dev/null \
+  FM_HOME="$dir/home" bash "$REGISTER" custom >/dev/null \
     || fail "could not register private custom check fixture"
   chmod 0755 "$state/custom.check.sh"
   ! fm_custom_check_registered "$state" custom \
@@ -1483,7 +1483,7 @@ test_bootstrap_leaves_unauthenticated_checks() {
   printf '%s\n' manual > "$dir/home/config/backlog-backend"
   FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_BOOTSTRAP_NETWORK=skip \
     PATH="$dir/fakebin:$BASE_PATH" \
-    "$ROOT/bin/fm-bootstrap.sh" > "$dir/bootstrap.out" 2> "$dir/bootstrap.err" \
+    bash "$ROOT/bin/fm-bootstrap.sh" > "$dir/bootstrap.out" 2> "$dir/bootstrap.err" \
     || fail "bootstrap failed after migration retirement"
   [ "$(cat "$state/task-a.check.sh")" = 'legacy bytes' ] \
     || fail "bootstrap rewrote an unauthenticated check after migration retirement"
@@ -1513,12 +1513,12 @@ trap 'kill -TERM "$child" 2>/dev/null; exit 124' TERM
 wait "$child"
 SH
   chmod 0700 "$dir/fakebin/timeout"
-  FM_HOME="$dir/home" "$REGISTER" custom >/dev/null \
+  FM_HOME="$dir/home" bash "$REGISTER" custom >/dev/null \
     || fail "could not register signal cleanup custom check"
 
   FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_POLL=0 FM_CHECK_INTERVAL=0 \
     FM_SIGNAL_GRACE=0 FM_TEST_CUSTOM_CHILD_PID="$child_pid_file" \
-    PATH="$dir/fakebin:$BASE_PATH" "$WATCH" \
+    PATH="$dir/fakebin:$BASE_PATH" bash "$WATCH" \
     > "$dir/watch.out" 2> "$dir/watch.err" &
   pid=$!
   i=0
@@ -1585,7 +1585,7 @@ esac
 SH
     for check in custom z-drain-witness; do
       chmod 0700 "$state/$check.check.sh"
-      FM_HOME="$dir/home" "$REGISTER" "$check" >/dev/null \
+      FM_HOME="$dir/home" bash "$REGISTER" "$check" >/dev/null \
         || fail "could not register $backend returned-descendant $check check"
     done
     if [ "$backend" = installed-timeout ]; then
@@ -1638,7 +1638,7 @@ sleep 30
 printf 'finding after the cut\n'
 SH
     chmod 0700 "$state/custom.check.sh"
-    FM_HOME="$dir/home" "$REGISTER" custom >/dev/null || fail "could not register $backend timed-out check"
+    FM_HOME="$dir/home" bash "$REGISTER" custom >/dev/null || fail "could not register $backend timed-out check"
     force_fallback=0
     [ "$backend" = installed-timeout ] || force_fallback=1
 
@@ -1678,7 +1678,7 @@ SH
   touch "$dir/home/state/.last-watcher-beat"
 
   FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" PATH="$fakebin:$BASE_PATH" \
-    "$TEARDOWN" task-a --force > "$dir/teardown.out" 2> "$dir/teardown.err" \
+    bash "$TEARDOWN" task-a --force > "$dir/teardown.out" 2> "$dir/teardown.err" \
     || fail "teardown cleanup fixture failed"
   [ ! -e "$dir/home/state/task-a.check.sh" ] || fail "teardown left the runnable check"
   [ ! -e "$dir/home/state/task-a.pr-poll" ] || fail "teardown left the sidecar"
@@ -1708,7 +1708,7 @@ SH
   chmod +x "$fakebin/tmux"
   touch "$dir/home/state/.last-watcher-beat"
   FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" PATH="$fakebin:$BASE_PATH" \
-    "$TEARDOWN" task-a --force > "$dir/teardown.out" 2> "$dir/teardown.err" \
+    bash "$TEARDOWN" task-a --force > "$dir/teardown.out" 2> "$dir/teardown.err" \
     || fail "teardown could not finish a valid crash-left retirement receipt"
   assert_poll_absent "$dir/home/state" task-a
   [ ! -e "$dir/home/state/task-a.meta" ] || fail "receipt-aware teardown left task metadata"
@@ -1740,7 +1740,7 @@ SH
     touch "$dir/home/state/.last-watcher-beat"
     set +e
     FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_FAKE_TMUX_LOG="$dir/tmux.log" \
-      PATH="$fakebin:$BASE_PATH" "$TEARDOWN" task-a --force \
+      PATH="$fakebin:$BASE_PATH" bash "$TEARDOWN" task-a --force \
       > "$dir/teardown.out" 2> "$dir/teardown.err"
     rc=$?
     set -e
@@ -1880,7 +1880,7 @@ EOF
     set +e
     out=$(FM_ROOT_OVERRIDE="$dir/root" FM_HOME="$dir/home" \
       FM_TEST_GUARD_LOG="$dir/guard.log" PATH="$notool" \
-      "$PR_CHECK" "task-no-$tool" "$url" 2>&1)
+      bash "$PR_CHECK" "task-no-$tool" "$url" 2>&1)
     rc=$?
     set -e
     [ "$rc" -ne 0 ] || fail "arming a Gerrit watch succeeded with $tool absent"
@@ -2398,7 +2398,7 @@ EOF
   set +e
   out=$(FM_ROOT_OVERRIDE="$dir/root" FM_HOME="$dir/home" \
     FM_TEST_GUARD_LOG="$dir/guard.log" PATH="$noglab" \
-    "$PR_CHECK" task-b "$url" 2>&1)
+    bash "$PR_CHECK" task-b "$url" 2>&1)
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "arming a GitLab watch succeeded with glab absent"
@@ -2451,7 +2451,7 @@ add_stop_custom_check() {
   state="$dir/home/state"
   printf '#!/usr/bin/env bash\nprintf "stop-cycle\\n"\n' > "$state/z-stop.check.sh"
   chmod 0700 "$state/z-stop.check.sh"
-  FM_HOME="$dir/home" "$REGISTER" z-stop >/dev/null \
+  FM_HOME="$dir/home" bash "$REGISTER" z-stop >/dev/null \
     || fail "could not register stop-cycle custom check"
 }
 
@@ -2874,7 +2874,7 @@ test_retirement_crash_recovery() {
   raw_count=$(grep -cF "$(printf '\tcheck\tmerged-task-a-https://github.com/o/r/pull/3\t')" \
     "$state/.wake-queue" || true)
   [ "$raw_count" -eq 1 ] || fail "post-queue retry did not publish exactly one new terminal row"
-  FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-wake-drain.sh" > "$dir/drain.out" 2>/dev/null
+  FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" bash "$ROOT/bin/fm-wake-drain.sh" > "$dir/drain.out" 2>/dev/null
   drain_count=$(grep -cF "$(printf '\tcheck\tmerged-task-a-https://github.com/o/r/pull/3\t')" \
     "$dir/drain.out" || true)
   [ "$drain_count" -eq 1 ] || fail "same-key crash retry rows did not deduplicate at drain"
@@ -3104,7 +3104,7 @@ test_retirement_refuses_replacement_and_nonterminal_results() {
   state="$dir/home/state"
   printf '#!/usr/bin/env bash\nprintf "merged\\n"\n' > "$state/custom.check.sh"
   chmod 0700 "$state/custom.check.sh"
-  FM_HOME="$dir/home" "$REGISTER" custom >/dev/null || fail "could not register merged custom check"
+  FM_HOME="$dir/home" bash "$REGISTER" custom >/dev/null || fail "could not register merged custom check"
   set +e
   run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/custom.out" 2> "$dir/custom.err"
   rc=$?
@@ -3193,13 +3193,13 @@ write_away_record() {  # <dir> [<fm-afk-contract.sh enter args>...]
   local dir=$1
   shift
   FM_HOME="$dir/home" FM_STATE_OVERRIDE="$dir/home/state" \
-    "$ROOT/bin/fm-afk-contract.sh" enter "$@" >/dev/null \
+    bash "$ROOT/bin/fm-afk-contract.sh" enter "$@" >/dev/null \
     || fail "could not enter an away-posture record"
 }
 
 archive_away_record() {  # <dir>
   FM_HOME="$1/home" FM_STATE_OVERRIDE="$1/home/state" \
-    "$ROOT/bin/fm-afk-contract.sh" archive >/dev/null \
+    bash "$ROOT/bin/fm-afk-contract.sh" archive >/dev/null \
     || fail "could not archive the away-posture record"
 }
 
@@ -3215,7 +3215,7 @@ merged_ledger_row() {  # <state> <task-id>
 # charging that work to the run's hang guard. Only ever call this while no
 # watcher runs, because a check removed mid-cycle is reported as rejected.
 retire_contributions_observer() {  # <dir>
-  FM_HOME="$1/home" "$ROOT/bin/fm-check-unregister.sh" contributions >/dev/null \
+  FM_HOME="$1/home" bash "$ROOT/bin/fm-check-unregister.sh" contributions >/dev/null \
     || fail "could not retire the contributions observer"
 }
 
@@ -3390,7 +3390,7 @@ test_teardown_cannot_race_authority_consumption() {
   done
   set +e
   FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" PATH="$dir/fakebin:$BASE_PATH" \
-    "$TEARDOWN" task-a --force > "$dir/teardown.out" 2> "$dir/teardown.err"
+    bash "$TEARDOWN" task-a --force > "$dir/teardown.out" 2> "$dir/teardown.err"
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "teardown race: cleanup crossed the active poll transaction"

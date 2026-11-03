@@ -24,16 +24,16 @@ mkdir -p "$FAKEBIN" "$HOME_DIR/state" "$HOME_DIR/config"
 touch "$HOME_DIR/config/herdr-presentation-spaces"
 printf '%s\n' herdr > "$HOME_DIR/config/backend"
 
-HERDR_LAB_SESSION=$("$HERDR_LAB_HELPER" name fm-herdr-session-start-stale-projection-cleanup-r1)
+HERDR_LAB_SESSION=$(bash "$HERDR_LAB_HELPER" name fm-herdr-session-start-stale-projection-cleanup-r1)
 export HERDR_LAB_HELPER HERDR_LAB_SESSION REAL_HERDR HERDR_ORIGINAL_PATH
 cleanup() {
   local status=$?
-  env PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" teardown "$HERDR_LAB_SESSION" || status=1
+  env PATH="$HERDR_ORIGINAL_PATH" bash "$HERDR_LAB_HELPER" teardown "$HERDR_LAB_SESSION" || status=1
   rm -rf "$TMP_ROOT"
   exit "$status"
 }
 trap cleanup EXIT
-"$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION"
+bash "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION"
 
 # Keep the lab helper as the only CLI transport. Production adapter calls have
 # already appended the exact session; this shim strips that pair, refuses every
@@ -60,7 +60,7 @@ exec env PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" run "$HERDR_LAB_SESSION
 SH
 chmod +x "$FAKEBIN/herdr"
 
-lab() { env PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" run "$HERDR_LAB_SESSION" "$@"; }
+lab() { env PATH="$HERDR_ORIGINAL_PATH" bash "$HERDR_LAB_HELPER" run "$HERDR_LAB_SESSION" "$@"; }
 production_process_proof() {
   FM_HOME="$HOME_DIR" FM_BACKEND=herdr HERDR_SESSION="$HERDR_LAB_SESSION" \
     FM_HERDR_SESSION_CLEANUP_SOURCE_ONLY=1 PATH="$FAKEBIN:$HERDR_ORIGINAL_PATH" \
@@ -91,8 +91,8 @@ PANE=$(printf '%s' "$CANDIDATE" | jq -r '.result.root_pane.pane_id')
   printf 'projection_id=%s\n' "$TOKEN"
 } > "$HOME_DIR/state/$ID.herdr-presentation"
 
-"$HERDR_LAB_HELPER" stop "$HERDR_LAB_SESSION" >/dev/null || fail 'could not stop named lab for restored-shell reproduction'
-"$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION" || fail 'could not restore named lab layout'
+bash "$HERDR_LAB_HELPER" stop "$HERDR_LAB_SESSION" >/dev/null || fail 'could not stop named lab for restored-shell reproduction'
+bash "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION" || fail 'could not restore named lab layout'
 lab tab focus "$ANCHOR_TAB" >/dev/null || fail 'could not restore the anchor focus after lab restart'
 BEFORE_FOCUS=$(focus_snapshot) || fail 'could not capture exact pre-cleanup focus'
 [ "$BEFORE_FOCUS" = "$(printf '%s\t%s' "$(printf '%s' "$ANCHOR" | jq -r '.result.workspace.workspace_id')" "$ANCHOR_TAB")" ] \
@@ -120,7 +120,7 @@ done
 pass 'real named lab reproduced the exact restored one-tab one-pane childless no-agent shell shape'
 
 FM_HOME="$HOME_DIR" FM_BACKEND=herdr HERDR_SESSION="$HERDR_LAB_SESSION" \
-  PATH="$FAKEBIN:$HERDR_ORIGINAL_PATH" "$ROOT/bin/fm-herdr-session-cleanup.sh" \
+  PATH="$FAKEBIN:$HERDR_ORIGINAL_PATH" bash "$ROOT/bin/fm-herdr-session-cleanup.sh" \
   || fail 'session-start cleanup command failed'
 AFTER_FOCUS=$(focus_snapshot) || fail 'could not capture exact post-cleanup focus'
 [ "$AFTER_FOCUS" = "$BEFORE_FOCUS" ] || fail 'exact workspace/tab focus changed during cleanup'
@@ -134,7 +134,7 @@ fi
 pass 'real named lab cleanup closes only the exact stale pane and preserves exact focus'
 
 FM_HOME="$HOME_DIR" FM_BACKEND=herdr HERDR_SESSION="$HERDR_LAB_SESSION" \
-  PATH="$FAKEBIN:$HERDR_ORIGINAL_PATH" "$ROOT/bin/fm-herdr-session-cleanup.sh" \
+  PATH="$FAKEBIN:$HERDR_ORIGINAL_PATH" bash "$ROOT/bin/fm-herdr-session-cleanup.sh" \
   || fail 'idempotent repeat failed'
 [ "$(focus_snapshot)" = "$BEFORE_FOCUS" ] || fail 'idempotent repeat changed focus'
 lab pane get "$(printf '%s' "$ANCHOR" | jq -r '.result.root_pane.pane_id')" >/dev/null \

@@ -198,11 +198,11 @@ test_remote_transfer_never_carries_keys() {
 
   home="$TMP_ROOT/remote-receiver"
   mkdir -p "$home/config"
-  if out=$(FM_HOME="$home" "$ROOT/bin/fm-remote-inherit.sh" put .env 0 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 1 < /dev/null 2>&1); then
+  if out=$(FM_HOME="$home" bash "$ROOT/bin/fm-remote-inherit.sh" put .env 0 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 1 < /dev/null 2>&1); then
     fail "remote receiver accepted a .env path"
   fi
   assert_contains "$out" "not inherited material" "receiver should refuse .env as non-inherited material"
-  if out=$(FM_HOME="$home" "$ROOT/bin/fm-remote-inherit.sh" put config/TYPESAFE_API_KEY 0 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 1 < /dev/null 2>&1); then
+  if out=$(FM_HOME="$home" bash "$ROOT/bin/fm-remote-inherit.sh" put config/TYPESAFE_API_KEY 0 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 1 < /dev/null 2>&1); then
     fail "remote receiver accepted a secret key path"
   fi
   assert_contains "$out" "not inherited material" "receiver should refuse keys as non-inherited material"
@@ -213,7 +213,7 @@ test_remote_sender_refuses_secrets_overlap() {
   local out rc
   out=$(FM_INHERITABLE_CONFIG="crew-harness TYPESAFE_API_KEY" \
     FM_INHERITABLE_SECRETS="TYPESAFE_API_KEY AI_GATEWAY_API_KEY" \
-    "$ROOT/bin/fm-remote-inherit-push.sh" probe-mate 1 2>&1)
+    bash "$ROOT/bin/fm-remote-inherit-push.sh" probe-mate 1 2>&1)
   rc=$?
   [ "$rc" -ne 0 ] || fail "remote sender ran despite secrets overlap: $out"
   assert_contains "$out" "local-only secrets allowlist" "overlap refusal should name the cause"

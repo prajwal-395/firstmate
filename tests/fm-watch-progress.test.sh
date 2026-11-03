@@ -246,7 +246,7 @@ run_watch() {
     FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
     FM_PROGRESS_MIN_SPAN_SECS=2 FM_PROGRESS_STALL_SPAN_SECS=2 \
-    env "$@" "$WATCH" > "$out" &
+    env "$@" bash "$WATCH" > "$out" &
 }
 
 # --- (a) the false positive: a silent pane that is measurably working --------
@@ -337,7 +337,7 @@ test_busy_pane_doing_nothing_is_surfaced() {
   # because the harness stopped without firing its turn-end hook. The pane
   # therefore classifies BUSY and, before this change, was exempt from stale
   # detection until FM_BUSY_TURN_MAX_SECS an hour later.
-  "$BUSY_EVENT" arm "$state" stopped >/dev/null || fail "could not arm the busy record"
+  bash "$BUSY_EVENT" arm "$state" stopped >/dev/null || fail "could not arm the busy record"
   export FM_FAKE_CREW_STATE='state: working · source: run-step · claimed in flight'
   run_watch "$state" "$fakebin" "$out" FM_STALE_ESCALATE_SECS=999999 FM_BUSY_TURN_MAX_SECS=999999
   pid=$!
@@ -347,7 +347,7 @@ test_busy_pane_doing_nothing_is_surfaced() {
   grep -F "reports a turn in flight but is not working" "$out" >/dev/null \
     || fail "the wake did not name the stall for what it is: $(cat "$out")"
   grep -F "stalled" "$out" >/dev/null || fail "the wake did not carry the reading that justified it: $(cat "$out")"
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the stall wake failed"
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the stall wake failed"
   grep "$(printf '\tstale\t')" "$drain_out" | grep -F "$window" >/dev/null || fail "the stall wake was not queued"
   cleanup_fixtures
   pass "a worker whose harness still claims a turn in flight, while its subtree does nothing, is surfaced"
@@ -359,7 +359,7 @@ test_busy_pane_that_is_working_raises_no_stall() {
   tty=$(pty_run busywork "$BURNER") || fail "could not start the busy working pty fixture"
   dir=$(make_case busy-working busywork "$window" "$tty" 'working: long turn under way')
   state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"
-  "$BUSY_EVENT" arm "$state" busywork >/dev/null || fail "could not arm the busy record"
+  bash "$BUSY_EVENT" arm "$state" busywork >/dev/null || fail "could not arm the busy record"
   export FM_FAKE_CREW_STATE='state: working · source: run-step · long turn'
   run_watch "$state" "$fakebin" "$out" FM_STALE_ESCALATE_SECS=999999 FM_BUSY_TURN_MAX_SECS=999999
   pid=$!

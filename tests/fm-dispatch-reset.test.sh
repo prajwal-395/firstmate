@@ -8,11 +8,11 @@ mkdir -p "$TMP_ROOT/state"
 now_ms=$(( $(date +%s) * 1000 ))
 reset_ms=$((now_ms + 60000))
 
-"$TOOL" record "$TMP_ROOT/state" new-provider vendor/model-x acct-west "$reset_ms" 'limit; resets tomorrow'
-out=$("$TOOL" check "$TMP_ROOT/state" new-provider vendor/model-x acct-west)
+bash "$TOOL" record "$TMP_ROOT/state" new-provider vendor/model-x acct-west "$reset_ms" 'limit; resets tomorrow'
+out=$(bash "$TOOL" check "$TMP_ROOT/state" new-provider vendor/model-x acct-west)
 assert_contains "$out" "reset_ms=$reset_ms" "the tuple should have an active reset"
-assert_equals 1 "$("$TOOL" check "$TMP_ROOT/state" new-provider vendor/model-x acct-east >/dev/null 2>&1; echo $?)" "a different account must remain available"
-assert_equals 1 "$("$TOOL" check "$TMP_ROOT/state" other-provider vendor/model-x acct-west >/dev/null 2>&1; echo $?)" "a different provider must remain available"
+assert_equals 1 "$(bash "$TOOL" check "$TMP_ROOT/state" new-provider vendor/model-x acct-east >/dev/null 2>&1; echo $?)" "a different account must remain available"
+assert_equals 1 "$(bash "$TOOL" check "$TMP_ROOT/state" other-provider vendor/model-x acct-west >/dev/null 2>&1; echo $?)" "a different provider must remain available"
 pass "exhaustion is keyed by provider, model, and configured account value"
 
 # A local secondmate resolves the same machine-local quota pool through its
@@ -20,53 +20,53 @@ pass "exhaustion is keyed by provider, model, and configured account value"
 mkdir -p "$TMP_ROOT/shared-parent/state" "$TMP_ROOT/shared-mate/state"
 printf 'schema=fm-secondmate-parent.v1\nroute=local\nparent_home=%s\n' "$TMP_ROOT/shared-parent" \
   > "$TMP_ROOT/shared-mate/.fm-secondmate-parent"
-FM_HOME="$TMP_ROOT/shared-mate" "$TOOL" record "$TMP_ROOT/shared-mate/state" new-provider vendor/shared-model shared-account "$reset_ms" mate
-out=$(FM_HOME="$TMP_ROOT/shared-parent" "$TOOL" check "$TMP_ROOT/shared-parent/state" new-provider vendor/shared-model shared-account)
+FM_HOME="$TMP_ROOT/shared-mate" bash "$TOOL" record "$TMP_ROOT/shared-mate/state" new-provider vendor/shared-model shared-account "$reset_ms" mate
+out=$(FM_HOME="$TMP_ROOT/shared-parent" bash "$TOOL" check "$TMP_ROOT/shared-parent/state" new-provider vendor/shared-model shared-account)
 assert_contains "$out" "reset_ms=$reset_ms" "the parent sees a refusal written by its local secondmate"
-FM_HOME="$TMP_ROOT/shared-parent" "$TOOL" record "$TMP_ROOT/shared-parent/state" new-provider vendor/parent-model shared-account "$reset_ms" parent
-out=$(FM_HOME="$TMP_ROOT/shared-mate" "$TOOL" check "$TMP_ROOT/shared-mate/state" new-provider vendor/parent-model shared-account)
+FM_HOME="$TMP_ROOT/shared-parent" bash "$TOOL" record "$TMP_ROOT/shared-parent/state" new-provider vendor/parent-model shared-account "$reset_ms" parent
+out=$(FM_HOME="$TMP_ROOT/shared-mate" bash "$TOOL" check "$TMP_ROOT/shared-mate/state" new-provider vendor/parent-model shared-account)
 assert_contains "$out" "reset_ms=$reset_ms" "the local secondmate sees a refusal written by its parent"
 pass "local secondmate and parent homes share provider refusal records through the parent binding"
 
-"$TOOL" record "$TMP_ROOT/state" opencode deepseek-v4.1-flash-free secondary "$reset_ms" provider-refusal
-out=$("$TOOL" check "$TMP_ROOT/state" opencode opencode/deepseek-v4.1-flash-free secondary)
+bash "$TOOL" record "$TMP_ROOT/state" opencode deepseek-v4.1-flash-free secondary "$reset_ms" provider-refusal
+out=$(bash "$TOOL" check "$TMP_ROOT/state" opencode opencode/deepseek-v4.1-flash-free secondary)
 assert_contains "$out" "reset_ms=$reset_ms" "the metadata model id finds a refusal recorded with OpenCode's bare model id"
 pass "OpenCode refusal lookup accepts the provider-qualified metadata model id"
 
-"$TOOL" clear "$TMP_ROOT/state" new-provider vendor/model-x acct-west
-assert_equals 1 "$("$TOOL" check "$TMP_ROOT/state" new-provider vendor/model-x acct-west >/dev/null 2>&1; echo $?)" "clearing one tuple must retire its active reset"
+bash "$TOOL" clear "$TMP_ROOT/state" new-provider vendor/model-x acct-west
+assert_equals 1 "$(bash "$TOOL" check "$TMP_ROOT/state" new-provider vendor/model-x acct-west >/dev/null 2>&1; echo $?)" "clearing one tuple must retire its active reset"
 pass "clearing one provider/model/account tuple leaves no active exhaustion"
 
 printf '%s\n' '{"version":1,"provider":"p","model":"m","workspace":"w","reset_ms":"bad","observed_ms":1}' > "$TMP_ROOT/state/dispatch-exhaustions.jsonl"
-assert_equals 1 "$("$TOOL" check "$TMP_ROOT/state" p m w >/dev/null 2>&1; echo $?)" "malformed records must fail closed"
+assert_equals 1 "$(bash "$TOOL" check "$TMP_ROOT/state" p m w >/dev/null 2>&1; echo $?)" "malformed records must fail closed"
 pass "malformed exhaustion state is rejected"
 
 cat > "$TMP_ROOT/policy.json" <<'JSON'
 {"version":2,"rules":[],"default_ladder":[],"providers":[{"id":"new-provider","refusal_patterns":[{"pattern":"budget exceeded","reset":"provider-reset-time-or-quota-axi"},{"pattern":"free usage exceeded","reset":"retry-after-iso8601-or-next-utc-day"},{"pattern":"usage limit at","reset":"retry-after-iso8601"}]}]}
 JSON
 mkdir -p "$TMP_ROOT/observe-state"
-out=$("$TOOL" observe "$TMP_ROOT/observe-state" "$TMP_ROOT/policy.json" new-provider vendor/model-y acct-west "$reset_ms" 'Budget exceeded; resume after reset; secret=must-not-persist')
+out=$(bash "$TOOL" observe "$TMP_ROOT/observe-state" "$TMP_ROOT/policy.json" new-provider vendor/model-y acct-west "$reset_ms" 'Budget exceeded; resume after reset; secret=must-not-persist')
 assert_equals 0 "$?" "a configured provider refusal should be stored: $out"
 assert_equals provider-refusal "$(jq -r 'select(.model == "vendor/model-y").evidence' "$TMP_ROOT/observe-state/dispatch-exhaustions.jsonl")" "only a typed summary is retained"
 assert_not_contains "$(cat "$TMP_ROOT/observe-state/dispatch-exhaustions.jsonl")" 'secret=must-not-persist' "provider refusal text must not be copied into the home state"
-"$TOOL" record "$TMP_ROOT/observe-state" new-provider vendor/model-y acct-west "$reset_ms" duplicate
+bash "$TOOL" record "$TMP_ROOT/observe-state" new-provider vendor/model-y acct-west "$reset_ms" duplicate
 assert_equals 1 "$(jq -s 'length' "$TMP_ROOT/observe-state/dispatch-exhaustions.jsonl")" "repeated observations replace the tuple instead of growing the store"
-assert_equals 1 "$("$TOOL" observe "$TMP_ROOT/observe-state" "$TMP_ROOT/policy.json" new-provider vendor/model-z acct-west "$reset_ms" 'Rate limit; retry soon' >/dev/null 2>&1; echo $?)" "unconfigured refusal wording must not be recorded"
+assert_equals 1 "$(bash "$TOOL" observe "$TMP_ROOT/observe-state" "$TMP_ROOT/policy.json" new-provider vendor/model-z acct-west "$reset_ms" 'Rate limit; retry soon' >/dev/null 2>&1; echo $?)" "unconfigured refusal wording must not be recorded"
 pass "provider refusal wording is read from the dispatch policy"
 printf '%s\n' 'Free usage exceeded; keep this evidence local.' > "$TMP_ROOT/refusal.txt"
-"$TOOL" observe-file "$TMP_ROOT/observe-state" "$TMP_ROOT/policy.json" new-provider vendor/model-file acct-west - "$TMP_ROOT/refusal.txt"
-file_reset=$($TOOL check "$TMP_ROOT/observe-state" new-provider vendor/model-file acct-west)
+bash "$TOOL" observe-file "$TMP_ROOT/observe-state" "$TMP_ROOT/policy.json" new-provider vendor/model-file acct-west - "$TMP_ROOT/refusal.txt"
+file_reset=$(bash "$TOOL" check "$TMP_ROOT/observe-state" new-provider vendor/model-file acct-west)
 assert_contains "$file_reset" 'evidence=provider-refusal' "file-based refusal evidence is summarized without copying its contents"
 pass "provider refusal files use configured wording and reset strategy without forwarding pane text"
 provider_reset_ms=$(( ($(date +%s) + 7200) * 1000 ))
 provider_reset_iso=$(date -u -r "$((provider_reset_ms / 1000))" '+%Y-%m-%dT%H:%M:%SZ')
 printf 'Usage limit at %s\n' "$provider_reset_iso" > "$TMP_ROOT/provider-reset.txt"
-"$TOOL" observe-file "$TMP_ROOT/observe-state" "$TMP_ROOT/policy.json" new-provider vendor/model-exact acct-west - "$TMP_ROOT/provider-reset.txt"
-assert_equals "$provider_reset_ms" "$("$TOOL" check "$TMP_ROOT/observe-state" new-provider vendor/model-exact acct-west | sed -n 's/.*reset_ms=\([0-9]*\).*/\1/p')" "provider timestamps take precedence over the fallback reset strategy"
+bash "$TOOL" observe-file "$TMP_ROOT/observe-state" "$TMP_ROOT/policy.json" new-provider vendor/model-exact acct-west - "$TMP_ROOT/provider-reset.txt"
+assert_equals "$provider_reset_ms" "$(bash "$TOOL" check "$TMP_ROOT/observe-state" new-provider vendor/model-exact acct-west | sed -n 's/.*reset_ms=\([0-9]*\).*/\1/p')" "provider timestamps take precedence over the fallback reset strategy"
 pass "provider refusal timestamps populate the generic reset store when configured"
-observed_reset=$($TOOL observe "$TMP_ROOT/observe-state" "$TMP_ROOT/policy.json" new-provider vendor/model-observed acct-west - "Usage limit at $provider_reset_iso")
+observed_reset=$(bash "$TOOL" observe "$TMP_ROOT/observe-state" "$TMP_ROOT/policy.json" new-provider vendor/model-observed acct-west - "Usage limit at $provider_reset_iso")
 assert_equals 0 "$?" "text observations with a configured reset timestamp should be stored: $observed_reset"
-assert_equals "$provider_reset_ms" "$("$TOOL" check "$TMP_ROOT/observe-state" new-provider vendor/model-observed acct-west | sed -n 's/.*reset_ms=\([0-9]*\).*/\1/p')" "observe should parse its reset timestamp before deleting its temporary evidence"
+assert_equals "$provider_reset_ms" "$(bash "$TOOL" check "$TMP_ROOT/observe-state" new-provider vendor/model-observed acct-west | sed -n 's/.*reset_ms=\([0-9]*\).*/\1/p')" "observe should parse its reset timestamp before deleting its temporary evidence"
 pass "provider reset extraction works for in-memory refusal observations"
 
 cat > "$TMP_ROOT/quota-policy.json" <<'JSON'
@@ -79,8 +79,8 @@ cat > "$TMP_ROOT/quota.json" <<JSON
   {"provider":"new-provider","accountKey":"acct-two","quotaSemantics":{"effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":90,"resetsAt":"$future_iso"}]}}
 ]}
 JSON
-"$TOOL" sync-quota "$TMP_ROOT/observe-state" "$TMP_ROOT/quota-policy.json" "$TMP_ROOT/quota.json"
-out=$("$TOOL" check "$TMP_ROOT/observe-state" new-provider vendor/quota-model acct-one)
+bash "$TOOL" sync-quota "$TMP_ROOT/observe-state" "$TMP_ROOT/quota-policy.json" "$TMP_ROOT/quota.json"
+out=$(bash "$TOOL" check "$TMP_ROOT/observe-state" new-provider vendor/quota-model acct-one)
 assert_contains "$out" "evidence=quota-axi" "quota-axi reset evidence is recorded"
-assert_equals 1 "$("$TOOL" check "$TMP_ROOT/observe-state" new-provider vendor/quota-model acct-two >/dev/null 2>&1; echo $?)" "positive quota remains eligible"
+assert_equals 1 "$(bash "$TOOL" check "$TMP_ROOT/observe-state" new-provider vendor/quota-model acct-two >/dev/null 2>&1; echo $?)" "positive quota remains eligible"
 pass "quota-axi exhaustion feeds the generic provider/model/account reset store"

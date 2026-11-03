@@ -1433,7 +1433,7 @@ METHODS
 }
 
 record_pr_metadata() {
-  if ! FM_PR_CHECK_MERGE=1 "$SCRIPT_DIR/fm-pr-check.sh" "$ID" "$URL"; then
+  if ! FM_PR_CHECK_MERGE=1 bash "$SCRIPT_DIR/fm-pr-check.sh" "$ID" "$URL"; then
     return 1
   fi
   grep -qxF "pr=$URL" "$META" || {
@@ -1473,7 +1473,7 @@ record_absent_task_recovery() {
 require_released_captain_hold() {
   local hold_status=0
   FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
-    "$SCRIPT_DIR/fm-captain-hold.sh" open "$ID" --distinguish-absent || hold_status=$?
+    bash "$SCRIPT_DIR/fm-captain-hold.sh" open "$ID" --distinguish-absent || hold_status=$?
   case "$hold_status" in
     0)
       echo "error: task $ID is still held for the captain; release it before merging" >&2

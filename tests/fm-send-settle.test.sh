@@ -67,7 +67,7 @@ run_send() {
   : > "$log"
   env "$@" PATH="$fb:$PATH" \
     FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_SLEEP_LOG="$log" \
-    "$SEND" "sess:win" "hello captain" 2>/dev/null
+    bash "$SEND" "sess:win" "hello captain" 2>/dev/null
 }
 
 test_default_send_pauses_one_second() {
@@ -113,7 +113,7 @@ test_key_path_never_pauses() {
   home="$dir/home"; mkdir -p "$home/state"
   : > "$log"
   env PATH="$fb:$PATH" FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_SLEEP_LOG="$log" \
-    "$SEND" "sess:win" --key Escape 2>/dev/null; rc=$?
+    bash "$SEND" "sess:win" --key Escape 2>/dev/null; rc=$?
   expect_code 0 "$rc" "--key send should succeed"
   [ ! -s "$log" ] || fail "--key path paused but must not"$'\n'"--- sleeps ---"$'\n'"$(cat "$log")"
   pass "fm-send: the --key path never pauses (settle scoped to text submit)"
@@ -127,12 +127,12 @@ test_claude_escape_records_interrupt_idle() {
   fm_write_meta "$home/state/task.meta" \
     "window=sess:win" "worktree=$home/wt" "project=$home/project" \
     "harness=claude" "kind=ship" "mode=no-mistakes" "yolo=off"
-  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$home/state" task)
+  gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$home/state" task)
   printf 'busy_gen=%s\n' "$gen" >> "$home/state/task.meta"
   : > "$log"
 
   env PATH="$fb:$PATH" FM_HOME="$home" FM_SLEEP_LOG="$log" \
-    "$SEND" task --key Escape 2>/dev/null; rc=$?
+    bash "$SEND" task --key Escape 2>/dev/null; rc=$?
   expect_code 0 "$rc" "Claude Escape send should succeed"
   out=$(fm_busy_classify tmux sess:win claude task "$home/state")
   [ "$out" = "idle fm-interrupt" ] \

@@ -75,7 +75,7 @@ SH
 chmod +x "$FAKEBIN/gh"
 
 run_state() {
-  PATH="$FAKEBIN:$PATH" "$SCRIPT" https://github.com/o/r/pull/7
+  PATH="$FAKEBIN:$PATH" bash "$SCRIPT" https://github.com/o/r/pull/7
 }
 
 # reviews "<login> <state> <commit> <submitted_at>"... prints the JSON array
@@ -276,7 +276,7 @@ test_protected_base_reports_only_required_checks() {
 
 test_help_states_what_silence_means_and_what_is_out_of_scope() {
   local out
-  out=$("$SCRIPT" --help) || fail "help was refused"
+  out=$(bash "$SCRIPT" --help) || fail "help was refused"
   assert_contains "$out" 'it does not mean the pull request is ready to merge' \
     "help must not let empty output read as a verdict that the pull request can merge"
   assert_contains "$out" 'is absent from what this command reads' \
@@ -304,16 +304,16 @@ test_unknown_mergeability_is_a_blocker() {
 
 test_refusals_exit_nonzero() {
   local status=0
-  PATH="$FAKEBIN:$PATH" "$SCRIPT" >/dev/null 2>&1 || status=$?
+  PATH="$FAKEBIN:$PATH" bash "$SCRIPT" >/dev/null 2>&1 || status=$?
   [ "$status" -ne 0 ] || fail "missing argument refusal exited zero"
 
   status=0
-  PATH="$FAKEBIN:$PATH" "$SCRIPT" not-a-pr >/dev/null 2>&1 || status=$?
+  PATH="$FAKEBIN:$PATH" bash "$SCRIPT" not-a-pr >/dev/null 2>&1 || status=$?
   [ "$status" -ne 0 ] || fail "lookup refusal exited zero"
 
   local out
   status=0
-  out=$(PATH="$FAKEBIN:$PATH" "$SCRIPT" 7 2>&1) || status=$?
+  out=$(PATH="$FAKEBIN:$PATH" bash "$SCRIPT" 7 2>&1) || status=$?
   [ "$status" -ne 0 ] \
     || fail "a bare number resolves against the ambient repository and is not an address"
   assert_contains "$out" 'expected a GitHub pull-request URL' \

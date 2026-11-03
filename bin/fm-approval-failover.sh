@@ -87,8 +87,8 @@ printf 'saved config/%s=%s; approvals use a model reviewer\n' "$SETTING" "$FALLB
 fm_lease_guard_release
 # Cancel the pending approval/refused turn so guarded relaunch can exit the
 # composer without accepting the blocked command or typing into its dialog.
-if ! "$SCRIPT_DIR/fm-control.sh" "$ID" interrupt \
-  || ! "$SCRIPT_DIR/fm-control.sh" "$ID" relaunch --note "Managed bypass failed; config/$SETTING now selects $FALLBACK. Preserve all work and continue the assigned task."; then
+if ! bash "$SCRIPT_DIR/fm-control.sh" "$ID" interrupt \
+  || ! bash "$SCRIPT_DIR/fm-control.sh" "$ID" relaunch --note "Managed bypass failed; config/$SETTING now selects $FALLBACK. Preserve all work and continue the assigned task."; then
   echo 'error: fallback saved, but worker recovery failed; preserve work and reconcile through fm-control' >&2
   exit 1
 fi

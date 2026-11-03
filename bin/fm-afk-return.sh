@@ -148,7 +148,7 @@ window_start_epoch() {
   epoch=$(gate_window_epoch)
   case "$epoch" in ''|*[!0-9]*) epoch= ;; esac
   if [ -z "$epoch" ] && fm_afk_contract_present "$STATE"; then
-    epoch=$("$CONTRACT" field entered_epoch 2>/dev/null || true)
+    epoch=$(bash "$CONTRACT" field entered_epoch 2>/dev/null || true)
   fi
   if [ -z "$epoch" ] && [ -f "$STATE/.afk" ]; then
     flag=$(head -1 "$STATE/.afk" 2>/dev/null || true)
@@ -168,7 +168,7 @@ store_rows_load() {  # <since-epoch>
   STORE_ROWS=
   [ -s "$STATE/branch-outcomes.jsonl" ] || return 0
   case "$since" in ''|*[!0-9]*) since=0 ;; esac
-  raw=$("$SCRIPT_DIR/fm-branch-outcome.sh" list --recent 1000000 2>/dev/null) \
+  raw=$(bash "$SCRIPT_DIR/fm-branch-outcome.sh" list --recent 1000000 2>/dev/null) \
     || return 1
   STORE_ROWS=$(printf '%s\n' "$raw" | jq -r --argjson since "$since" \
     'select(.epoch >= $since) | [.seq, .task, .verdict, (.statusEndpoint // 0), (.summary // ""), (.silent // false)] | @tsv' 2>/dev/null) \
@@ -484,7 +484,7 @@ HELD_READ_FAILED=0
 HELD_READ_PATH=
 render_words_record() {  # <record> [superseded-time]
   local record=$1 superseded=${2:-} words
-  if ! words=$("$CONTRACT" words --path "$record"; rc=$?; printf x; exit "$rc"); then
+  if ! words=$(bash "$CONTRACT" words --path "$record"; rc=$?; printf x; exit "$rc"); then
     MANDATE_COUNT=$((MANDATE_COUNT + 1))
     printf '  your words are unreadable in %s; catch-up stays gated until the record is restored\n' "$record"
     return 1
@@ -565,7 +565,7 @@ render_return_brief() {  # <evidence-file> <blockers-file> <since-epoch> <drain-
   printf 'Your instructions:\n'
   record=""
   MANDATE_COUNT=0
-  [ -z "$since" ] || record=$("$CONTRACT" archived "$since" 2>/dev/null || true)
+  [ -z "$since" ] || record=$(bash "$CONTRACT" archived "$since" 2>/dev/null || true)
   if [ -n "$record" ]; then
     archive_dir=$(fm_afk_contract_archive_dir "$STATE")
     for superseded in "$archive_dir/$since-superseded-"*.afk-contract; do
@@ -735,7 +735,7 @@ return_reconcile() {
       append_evidence lifecycle "away-posture record unreadable: $retained_live; catch-up stays gated" "$evidence"
       lifecycle_ok=0
     else
-      restored_epoch=$("$CONTRACT" field entered_epoch --path "$retained_live" 2>/dev/null || true)
+      restored_epoch=$(bash "$CONTRACT" field entered_epoch --path "$retained_live" 2>/dev/null || true)
       case "$restored_epoch" in
         ''|*[!0-9]*) lifecycle_ok=0 ;;
         *)
@@ -754,13 +754,13 @@ $(cat "$evidence")
 EOF
 
   if [ -e "$STATE/.afk" ] || [ -e "$STATE/.afk-daemon-terminal" ] || fm_afk_contract_present "$STATE"; then
-    if ! "$SCRIPT_DIR/fm-afk-launch.sh" stop; then
+    if ! bash "$SCRIPT_DIR/fm-afk-launch.sh" stop; then
       lifecycle_ok=0
       append_evidence lifecycle 'away-mode shutdown failed; lifecycle state preserved for retry' "$evidence"
     fi
   fi
 
-  if drained=$("$SCRIPT_DIR/fm-wake-drain.sh" 2> "$drain_err"); then
+  if drained=$(bash "$SCRIPT_DIR/fm-wake-drain.sh" 2> "$drain_err"); then
     remove_evidence lifecycle 'durable wake drain failed; retry catch-up before ordinary work' "$evidence" || lifecycle_ok=0
   else
     append_evidence lifecycle 'durable wake drain failed; retry catch-up before ordinary work' "$evidence"
@@ -786,7 +786,7 @@ EOF
       remove_evidence_prefix lifecycle 'away-posture record unreadable:' "$evidence" || lifecycle_ok=0
     fi
   elif [ -n "$contract_since" ]; then
-    archived_contract=$("$CONTRACT" archived "$contract_since" 2>/dev/null || true)
+    archived_contract=$(bash "$CONTRACT" archived "$contract_since" 2>/dev/null || true)
     if [ -z "$archived_contract" ]; then
       append_evidence lifecycle "archived away-posture record missing for entered_epoch $contract_since; catch-up stays gated" "$evidence"
       lifecycle_ok=0
@@ -917,7 +917,7 @@ main() {
   window_epoch=$(window_start_epoch)
   contract_epoch=$(gate_contract_epoch)
   if [ -z "$contract_epoch" ] && fm_afk_contract_present "$STATE"; then
-    contract_epoch=$("$CONTRACT" field entered_epoch 2>/dev/null || true)
+    contract_epoch=$(bash "$CONTRACT" field entered_epoch 2>/dev/null || true)
     case "$contract_epoch" in ''|*[!0-9]*) contract_epoch= ;; esac
   fi
   write_pending_seed "$window_epoch" "$contract_epoch" || { fm_lock_release "$LOCK"; trap - EXIT; return 1; }

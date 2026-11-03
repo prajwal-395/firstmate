@@ -51,7 +51,7 @@ test_afk_start_refuses_when_flag_cannot_be_written() {
   state="$dir/state"
   mkdir -p "$state/.afk"
 
-  out=$(FM_STATE_OVERRIDE="$state" FM_SUPERVISOR_BACKEND=unsupported "$AFK_START" 2>&1)
+  out=$(FM_STATE_OVERRIDE="$state" FM_SUPERVISOR_BACKEND=unsupported bash "$AFK_START" 2>&1)
   status=$?
 
   [ "$status" -ne 0 ] || fail "fm-afk-start.sh should fail when state/.afk cannot be written"
@@ -66,7 +66,7 @@ test_afk_start_ignores_stale_pidfile_without_lock() {
   state="$dir/state"
   printf '%s\n' "$$" > "$state/.supervise-daemon.pid"
 
-  out=$(FM_STATE_OVERRIDE="$state" FM_SUPERVISOR_BACKEND=unsupported "$AFK_START" 2>&1)
+  out=$(FM_STATE_OVERRIDE="$state" FM_SUPERVISOR_BACKEND=unsupported bash "$AFK_START" 2>&1)
   status=$?
 
   [ "$status" -ne 0 ] || fail "fm-afk-start.sh should attempt daemon startup instead of trusting a pidfile-only live pid"
@@ -81,7 +81,7 @@ test_afk_start_refuses_tern_supervisor_backend() {
   dir=$(make_supercase afk-start-tern-unsupported)
   state="$dir/state"
 
-  out=$(FM_STATE_OVERRIDE="$state" FM_SUPERVISOR_BACKEND=tern "$AFK_START" 2>&1)
+  out=$(FM_STATE_OVERRIDE="$state" FM_SUPERVISOR_BACKEND=tern bash "$AFK_START" 2>&1)
   status=$?
 
   [ "$status" -ne 0 ] || fail "fm-afk-start.sh should refuse a tern supervisor backend (away mode supports only tmux, herdr, and rex)"
@@ -102,7 +102,7 @@ test_afk_start_reclaims_stale_daemon_lock_reused_pid() {
   printf '%s\n' "$$" > "$lock/pid"
   printf '%s\n' "stale daemon identity" > "$lock/pid-identity"
 
-  out=$(FM_STATE_OVERRIDE="$state" FM_SUPERVISOR_BACKEND=unsupported "$AFK_START" 2>&1)
+  out=$(FM_STATE_OVERRIDE="$state" FM_SUPERVISOR_BACKEND=unsupported bash "$AFK_START" 2>&1)
   status=$?
 
   [ "$status" -ne 0 ] || fail "fm-afk-start.sh should attempt daemon startup after rejecting a reused-pid lock"
@@ -389,8 +389,8 @@ test_busy_inbox_escalation_reaches_supervision() {
   printf '%s\n' "$mode" > "$state/.afk"
   printf 'working: processing instructions\n' > "$state/$task.status"
   fm_write_meta "$state/$task.meta" "window=$win" "backend=tmux" "harness=claude"
-  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$state" "$task")
-  "$ROOT/bin/fm-busy-event.sh" apply "$state" "$task" busy --gen "$gen" \
+  gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$state" "$task")
+  bash "$ROOT/bin/fm-busy-event.sh" apply "$state" "$task" busy --gen "$gen" \
     --source claude-hook --event UserPromptSubmit
   printf 'Question awaiting an answer\n' > "$pane"
   PATH="$dir/fakebin:$PATH" FM_FAKE_TMUX_CAPTURE="$pane" \
@@ -1270,9 +1270,9 @@ test_housekeeping_captain_held_silenced_only_by_an_away_record() {
     printf 'idle prompt $\n' > "$pane"
     key=$(printf '%s' "held-w11r" | tr ':/.' '___')
     echo $(( $(date +%s) - 5000 )) > "$state/.subsuper-paused-$key"
-    FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_AFK_MODE="$mode" "$ROOT/bin/fm-afk-contract.sh" enter --words 'fixture words' >/dev/null 2>&1 \
+    FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_AFK_MODE="$mode" bash "$ROOT/bin/fm-afk-contract.sh" enter --words 'fixture words' >/dev/null 2>&1 \
       || fail "fixture: could not record the $mode posture"
-    [ "$(FM_HOME="$dir" FM_STATE_OVERRIDE="$state" "$ROOT/bin/fm-afk-contract.sh" mode)" = "$mode" ] || fail "fixture: the record is not $mode"
+    [ "$(FM_HOME="$dir" FM_STATE_OVERRIDE="$state" bash "$ROOT/bin/fm-afk-contract.sh" mode)" = "$mode" ] || fail "fixture: the record is not $mode"
     PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$win" FM_FAKE_TMUX_CAPTURE="$pane" \
       FM_STATE_OVERRIDE="$state" FM_PAUSE_RESURFACE_SECS=240 housekeeping "$state"
     if [ "$mode" = away ]; then
@@ -1304,8 +1304,8 @@ test_housekeeping_paused_resumed_cleared() {
     > "$state/held-w12.status"
   printf 'Working...\n' > "$pane"
   fm_write_meta "$state/held-w12.meta" "window=$win" "worktree=$dir/wt" "kind=ship" "harness=pi"
-  local gen; gen=$("$ROOT/bin/fm-busy-event.sh" arm "$state" held-w12)
-  "$ROOT/bin/fm-busy-event.sh" apply "$state" held-w12 busy --gen "$gen" \
+  local gen; gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$state" held-w12)
+  bash "$ROOT/bin/fm-busy-event.sh" apply "$state" held-w12 busy --gen "$gen" \
     --source pi-ext --event agent-start
   key=$(printf '%s' "held-w12" | tr ':/.' '___')
   echo $(( $(date +%s) - 5000 )) > "$state/.subsuper-paused-$key"
@@ -1343,8 +1343,8 @@ test_housekeeping_busy_declared_wait_matures_its_window() {
     esac
     printf 'Working...\n' > "$pane"
     fm_write_meta "$state/$task.meta" "window=$win" "worktree=$dir/wt" "kind=ship" "harness=pi"
-    gen=$("$ROOT/bin/fm-busy-event.sh" arm "$state" "$task")
-    "$ROOT/bin/fm-busy-event.sh" apply "$state" "$task" busy --gen "$gen" \
+    gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$state" "$task")
+    bash "$ROOT/bin/fm-busy-event.sh" apply "$state" "$task" busy --gen "$gen" \
       --source pi-ext --event agent-start
     key=$(printf '%s' "$task" | tr ':/.' '___')
     PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$win" FM_FAKE_TMUX_CAPTURE="$pane" \
@@ -1568,8 +1568,8 @@ test_housekeeping_resumed_stale_cleared() {
   # A resumed crew proves it is working through its own semantic busy-state
   # record (bin/fm-busy-lib.sh), not through the pane's rendered footer.
   fm_write_meta "$state/res-w6.meta" "window=$win" "worktree=$dir/wt" "kind=ship" "harness=pi"
-  local gen; gen=$("$ROOT/bin/fm-busy-event.sh" arm "$state" res-w6)
-  "$ROOT/bin/fm-busy-event.sh" apply "$state" res-w6 busy --gen "$gen" \
+  local gen; gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$state" res-w6)
+  bash "$ROOT/bin/fm-busy-event.sh" apply "$state" res-w6 busy --gen "$gen" \
     --source pi-ext --event agent-start
   key=$(printf '%s' "res-w6" | tr ':/.' '___')
   echo $(( $(date +%s) - 500 )) > "$state/.subsuper-stale-$key"
@@ -1618,8 +1618,8 @@ test_housekeeping_herdr_idle_busy_record_clears_stale() {
   state="$dir/state"
   fm_write_meta "$state/herdr-footer.meta" "window=default:w1:p4" "backend=herdr" "harness=claude"
   printf 'working\n' > "$state/herdr-footer.status"
-  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$state" herdr-footer)
-  "$ROOT/bin/fm-busy-event.sh" apply "$state" herdr-footer busy --gen "$gen" \
+  gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$state" herdr-footer)
+  bash "$ROOT/bin/fm-busy-event.sh" apply "$state" herdr-footer busy --gen "$gen" \
     --source claude-hook --event user-prompt-submit
   key=$(printf '%s' "herdr-footer" | tr ':/.' '___')
   echo $(( $(date +%s) - 500 )) > "$state/.subsuper-stale-$key"
@@ -3070,7 +3070,7 @@ test_fm_send_reports_delivered_unconfirmed_submit() {
   fakebin="$dir/fakebin"; err="$dir/send.err"
   # Clean submit -> exit 0.
   PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$dir/state" FM_FAKE_COMPOSER="$dir/composer" \
-    FM_SEND_SLEEP=0.05 "$ROOT/bin/fm-send.sh" sess:win 'route this work' >/dev/null 2>"$err" \
+    FM_SEND_SLEEP=0.05 bash "$ROOT/bin/fm-send.sh" sess:win 'route this work' >/dev/null 2>"$err" \
     || fail "fm-send exited non-zero on a clean submit: $(cat "$err")"
   # Persistent composer text after Enter -> delivered-unconfirmed exit 3 with
   # a non-error warning that explicitly tells the operator not to resend.
@@ -3078,7 +3078,7 @@ test_fm_send_reports_delivered_unconfirmed_submit() {
   touch "$dir/.swallow"
   if PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$dir/state" FM_FAKE_COMPOSER="$dir/composer" \
     FM_FAKE_SWALLOW="$dir/.swallow" FM_FAKE_PERSIST_SWALLOW=1 FM_SEND_SLEEP=0.05 \
-    "$ROOT/bin/fm-send.sh" sess:win 'fix findings 1 and 3, skip 2' >/dev/null 2>"$err"; then
+    bash "$ROOT/bin/fm-send.sh" sess:win 'fix findings 1 and 3, skip 2' >/dev/null 2>"$err"; then
     rc=0
   else
     rc=$?
@@ -3100,7 +3100,7 @@ test_fm_send_exits_nonzero_on_initial_send_failure() {
   fakebin="$dir/fakebin"; err="$dir/send.err"
   if PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$dir/state" FM_FAKE_COMPOSER="$dir/composer" \
     FM_FAKE_SEND_FAIL=1 FM_SEND_SLEEP=0.05 \
-    "$ROOT/bin/fm-send.sh" sess:win 'route this work' >/dev/null 2>"$err"; then
+    bash "$ROOT/bin/fm-send.sh" sess:win 'route this work' >/dev/null 2>"$err"; then
     fail "fm-send exited zero despite initial tmux send-keys failure"
   fi
   grep -F 'text not sent' "$err" >/dev/null || fail "fm-send did not explain initial send failure: $(cat "$err")"
@@ -3114,7 +3114,7 @@ test_fm_send_exits_nonzero_on_unproven_submit() {
   touch "$dir/.swallow"
   if PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$dir/state" FM_FAKE_COMPOSER="$dir/composer" \
     FM_FAKE_SWALLOW="$dir/.swallow" FM_FAKE_PERSIST_SWALLOW=1 FM_SEND_SLEEP=0.05 \
-    "$ROOT/bin/fm-send.sh" sess:win '修复' >/dev/null 2>"$err"; then
+    bash "$ROOT/bin/fm-send.sh" sess:win '修复' >/dev/null 2>"$err"; then
     fail "fm-send exited zero when submit proof remained pending-unproven"
   fi
   grep -F 'verdict=pending-unproven' "$err" >/dev/null \

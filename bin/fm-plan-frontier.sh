@@ -105,7 +105,7 @@ OUT=${OUT_FLAG:-$DATA}
 [ -f "$PAYLOAD" ] || fail "board payload does not exist: $PAYLOAD"
 command -v jq >/dev/null 2>&1 || fail "jq is required"
 command -v python3 >/dev/null 2>&1 || fail "python3 is required"
-"$SCRIPT_DIR/fm-bearings-board.sh" validate "$PAYLOAD" >/dev/null \
+bash "$SCRIPT_DIR/fm-bearings-board.sh" validate "$PAYLOAD" >/dev/null \
   || fail "input does not satisfy the Bearings board payload contract"
 
 scratch=$(umask 077; mktemp -d "${TMPDIR:-/tmp}/fm-plan-frontier.XXXXXX") \
@@ -117,7 +117,7 @@ if [ -n "$PLAN_DIR_FLAG" ]; then
   printf '%s\n' "$PLAN_DIR_FLAG/plan.toml" > "$scratch/plans.list"
 else
   if ! FM_HOME="$FM_HOME" FM_DATA_OVERRIDE="$DATA" \
-    "$SCRIPT_DIR/fm-plan-export.sh" --data-dir "$DATA" --out "$OUT" \
+    bash "$SCRIPT_DIR/fm-plan-export.sh" --data-dir "$DATA" --out "$OUT" \
     >"$exported_log" 2>&1; then
     cat "$exported_log" >&2
     fail "backlog export failed"

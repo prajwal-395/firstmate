@@ -84,7 +84,7 @@ run_autoarm() {
   printf '%s\n' "$payload" \
     | FM_HOME="$dir" "$FAKE_CLAUDE" -c '
         printf "%s\n" "$$" > "$FM_HOME/state/.lock"
-        "$FM_HOME/bin/fm-claude-stop-autoarm.sh"
+        bash "$FM_HOME/bin/fm-claude-stop-autoarm.sh"
       ' 2>&1 || rc=$?
   printf 'RC=%s\n' "$rc" >&2
   return "$rc"
@@ -271,7 +271,7 @@ run_autoarm_bg() {
   printf '%s\n' '{"session_id":"sess-autoarm","stop_hook_active":false}' \
     | FM_HOME="$dir" "$FAKE_CLAUDE" -c '
         printf "%s\n" "$$" > "$FM_HOME/state/.lock"
-        "$FM_HOME/bin/fm-claude-stop-autoarm.sh"
+        bash "$FM_HOME/bin/fm-claude-stop-autoarm.sh"
       ' > "$out" 2>&1 &
   RUN_AUTOARM_BG_PID=$!
 }
@@ -331,7 +331,7 @@ test_reclaims_stale_session_lock_before_arming() {
   out=$(printf '%s\n' '{"session_id":"stale"}' \
     | FM_HOME="$dir" "$FAKE_CLAUDE" -c '
         printf "%s\n" "$$" > "$FM_HOME/state/expected-owner"
-        "$FM_HOME/bin/fm-claude-stop-autoarm.sh"
+        bash "$FM_HOME/bin/fm-claude-stop-autoarm.sh"
       ' 2>&1); status=$?
   expect_code 2 "$status" "a dead recorded session owner must be reclaimed before the actionable rewake"
   expected_owner=$(cat "$dir/state/expected-owner")
@@ -480,7 +480,7 @@ test_actionable_close_without_recovery_episode_refuses_silently() {
   printf '%s\n' '{"session_id":"sess-autoarm","stop_hook_active":false}' \
     | FM_HOME="$dir" "$FAKE_CLAUDE" -c '
         printf "%s\n" "$$" > "$FM_HOME/state/.lock"
-        "$FM_HOME/bin/fm-claude-stop-autoarm.sh"
+        bash "$FM_HOME/bin/fm-claude-stop-autoarm.sh"
       ' >"$dir/hook.stdout" 2>"$dir/hook.stderr" || status=$?
   status=${status:-0}
   expect_code 0 "$status" "a refused rewake commit must go silent so the harness delivers nothing"
@@ -828,7 +828,7 @@ test_arms_for_registered_custom_check_without_inflight() {
   dir=$(make_primary_dir "$TMP_ROOT/check-need")
   printf '#!/usr/bin/env bash\nexit 0\n' > "$dir/state/issue-comments.check.sh"
   chmod 700 "$dir/state/issue-comments.check.sh"
-  FM_STATE_OVERRIDE="$dir/state" "$ROOT/bin/fm-check-register.sh" issue-comments >/dev/null \
+  FM_STATE_OVERRIDE="$dir/state" bash "$ROOT/bin/fm-check-register.sh" issue-comments >/dev/null \
     || fail "fm-check-register.sh could not register the custom check"
   write_arm_fixture "$dir" actionable
   out=$(run_autoarm "$dir" 2>/dev/null); status=$?
@@ -844,9 +844,9 @@ test_single_flight_admits_exactly_one_owner() {
   write_arm_fixture "$dir" slow-actionable
   FM_HOME="$dir" "$FAKE_CLAUDE" -c '
     printf "%s\n" "$$" > "$FM_HOME/state/.lock"
-    printf "%s\n" "{\"session_id\":\"s\"}" | "$FM_HOME/bin/fm-claude-stop-autoarm.sh" >/dev/null 2>"$FM_HOME/state/err1" &
+    printf "%s\n" "{\"session_id\":\"s\"}" | bash "$FM_HOME/bin/fm-claude-stop-autoarm.sh" >/dev/null 2>"$FM_HOME/state/err1" &
     p1=$!
-    printf "%s\n" "{\"session_id\":\"s\"}" | "$FM_HOME/bin/fm-claude-stop-autoarm.sh" >/dev/null 2>"$FM_HOME/state/err2" &
+    printf "%s\n" "{\"session_id\":\"s\"}" | bash "$FM_HOME/bin/fm-claude-stop-autoarm.sh" >/dev/null 2>"$FM_HOME/state/err2" &
     p2=$!
     wait "$p1"; echo $? > "$FM_HOME/state/rc1"
     wait "$p2"; echo $? > "$FM_HOME/state/rc2"
@@ -1287,7 +1287,7 @@ test_open_generation_claim_defers_without_any_lock() {
         printf "epoch=464 owner_pid=%s outcome=arming updated_at=1\n%s\n" "$owner" "$identity" \
           > "$FM_HOME/state/.claude-autoarm-epoch"
         touch -t 202001010000 "$FM_HOME/state/.claude-autoarm-epoch"
-        "$FM_HOME/bin/fm-claude-stop-autoarm.sh" 2>&1
+        bash "$FM_HOME/bin/fm-claude-stop-autoarm.sh" 2>&1
         rc=$?
         kill "$owner" 2>/dev/null
         exit "$rc"
@@ -1346,7 +1346,7 @@ test_orphaned_claim_from_dead_session_is_superseded_by_replacement() {
   FM_HOME="$dir" "$FAKE_CLAUDE" -c '
       printf "%s\n" "$$" > "$FM_HOME/state/.lock"
       printf "%s\n" "{\"session_id\":\"sess-dying\",\"stop_hook_active\":false}" \
-        | "$FM_HOME/bin/fm-claude-stop-autoarm.sh" > "$FM_HOME/state/orphan-out" 2>&1 &
+        | bash "$FM_HOME/bin/fm-claude-stop-autoarm.sh" > "$FM_HOME/state/orphan-out" 2>&1 &
       printf "%s\n" "$!" > "$FM_HOME/state/orphan-hook-pid"
       for _ in $(seq 1 250); do [ -e "$FM_HOME/state/arm-ran" ] && break; sleep 0.02; done
     '
@@ -1364,7 +1364,7 @@ test_orphaned_claim_from_dead_session_is_superseded_by_replacement() {
   dead_lock_pid=$(sed -n 1p "$dir/state/.lock")
   printf '%s\n' '{"session_id":"sess-replacement","stop_hook_active":false}' \
     | FM_HOME="$dir" "$FAKE_CLAUDE" -c '
-        "$FM_HOME/bin/fm-claude-stop-autoarm.sh"
+        bash "$FM_HOME/bin/fm-claude-stop-autoarm.sh"
       ' > "$dir/state/replacement-out" 2>&1 &
   RUN_AUTOARM_BG_PID=$!
   for i in $(seq 1 250); do
@@ -1416,7 +1416,7 @@ test_resumed_same_id_session_supersedes_the_orphan() {
       export CLAUDE_PID=$$
       printf "%s\n" "$$" > "$FM_HOME/state/.lock"
       printf "%s\n" "{\"session_id\":\"sess-resumed\",\"stop_hook_active\":false}" \
-        | "$FM_HOME/bin/fm-claude-stop-autoarm.sh" > "$FM_HOME/state/orphan-out" 2>&1 &
+        | bash "$FM_HOME/bin/fm-claude-stop-autoarm.sh" > "$FM_HOME/state/orphan-out" 2>&1 &
       printf "%s\n" "$!" > "$FM_HOME/state/orphan-hook-pid"
       for _ in $(seq 1 250); do [ -e "$FM_HOME/state/arm-ran" ] && break; sleep 0.02; done
     '
@@ -1435,7 +1435,7 @@ test_resumed_same_id_session_supersedes_the_orphan() {
   printf '%s\n' '{"session_id":"sess-resumed","stop_hook_active":false}' \
     | FM_HOME="$dir" "$FAKE_CLAUDE" -c '
         export CLAUDE_PID=$$
-        "$FM_HOME/bin/fm-claude-stop-autoarm.sh"
+        bash "$FM_HOME/bin/fm-claude-stop-autoarm.sh"
       ' > "$dir/state/replacement-out" 2>&1 &
   RUN_AUTOARM_BG_PID=$!
   for i in $(seq 1 250); do
@@ -1633,7 +1633,7 @@ test_superseded_owner_goes_silent_and_never_double_translates() {
   # its child, with exit codes and output left in state/ for the assertions.
   FM_HOME="$dir" "$FAKE_CLAUDE" -c '
     printf "%s\n" "$$" > "$FM_HOME/state/.lock"
-    fire() { printf "%s\n" "{\"session_id\":\"s\",\"stop_hook_active\":false}" | "$FM_HOME/bin/fm-claude-stop-autoarm.sh" > "$FM_HOME/state/$1.out" 2>&1; echo $? > "$FM_HOME/state/$1.rc"; }
+    fire() { printf "%s\n" "{\"session_id\":\"s\",\"stop_hook_active\":false}" | bash "$FM_HOME/bin/fm-claude-stop-autoarm.sh" > "$FM_HOME/state/$1.out" 2>&1; echo $? > "$FM_HOME/state/$1.rc"; }
     fire a &
     a_pid=$!
     i=0
@@ -1897,7 +1897,7 @@ test_host_handback_beside_a_quiet_record_carries_no_away_note() {
   mkdir -p "$dir/config"
   rm -f "$dir/config/supervision-host-off"
   : > "$dir/state/task.meta"
-  FM_HOME="$dir" FM_AFK_MODE=quiet "$ROOT/bin/fm-afk-contract.sh" enter --words 'keep routine wakes off my main' >/dev/null 2>&1 \
+  FM_HOME="$dir" FM_AFK_MODE=quiet bash "$ROOT/bin/fm-afk-contract.sh" enter --words 'keep routine wakes off my main' >/dev/null 2>&1 \
     || fail "fixture: could not record quiet mode"
   write_host_fixture "$dir" handed-back
   out=$(run_autoarm "$dir" 2>/dev/null); status=$?
@@ -2045,7 +2045,7 @@ test_arguments_never_arm() {
     rc=0
     out=$(FM_HOME="$dir" "$FAKE_CLAUDE" -c '
         printf "%s\n" "$$" > "$FM_HOME/state/.lock"
-        "$FM_HOME/bin/fm-claude-stop-autoarm.sh" "$1" </dev/null 2>"$FM_HOME/help-stderr"
+        bash "$FM_HOME/bin/fm-claude-stop-autoarm.sh" "$1" </dev/null 2>"$FM_HOME/help-stderr"
       ' _ "$arg") || rc=$?
     after=$(find "$dir/state" -mindepth 1 ! -name .lock | sort)
     after_contents=$(find "$dir/state" -type f ! -name .lock -exec cksum {} + | sort)

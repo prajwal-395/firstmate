@@ -166,7 +166,7 @@ pass "removing the state root and killing the recorded worker pid leaves the tre
 
 # A worker whose code root is intact is never a reap candidate, which is what
 # keeps the account's healthy LaunchAgent worker out of scope.
-out=$("$REAPER" 2>&1) || fail "the reaper failed against a live code root: $out"
+out=$(bash "$REAPER" 2>&1) || fail "the reaper failed against a live code root: $out"
 assert_not_contains "$out" "$WORKER" "the reaper reported a worker whose code root still exists"
 alive "$WORKER" || fail "the reaper stopped a worker whose code root still exists"
 pass "a worker whose code root still exists is never reaped"
@@ -204,7 +204,7 @@ chmod +x "$CASE2/remote-root/bin/fm-remote-job-worker.sh"
 printf 'fixture\n' > "$CASE2/remote-root/AGENTS.md"
 
 set -m
-"$CASE2/remote-root/bin/fm-remote-job-worker.sh" >/dev/null 2>&1 &
+/bin/bash "$CASE2/remote-root/bin/fm-remote-job-worker.sh" >/dev/null 2>&1 &
 STALE=$!
 set +m
 track "$STALE"
@@ -213,18 +213,18 @@ STALE_SERVE=$(pgrep -P "$STALE" | head -n 1)
 
 rm -rf "$CASE2/remote-root"
 
-out=$("$REAPER" --dry-run 2>&1) || fail "the reaper dry run failed: $out"
+out=$(bash "$REAPER" --dry-run 2>&1) || fail "the reaper dry run failed: $out"
 assert_contains "$out" "$STALE" "the dry run did not report the abandoned worker"
 assert_contains "$out" "would reap" "the dry run did not mark its report as a preview"
 alive "$STALE" || fail "the dry run stopped the abandoned worker instead of only reporting it"
 pass "a dry run reports the abandoned worker and signals nothing"
 
-out=$("$REAPER" 2>&1) || fail "the reaper failed: $out"
+out=$(bash "$REAPER" 2>&1) || fail "the reaper failed: $out"
 assert_contains "$out" "$STALE" "the reaper did not report stopping the abandoned worker"
 wait_gone "$STALE" 20 || fail "the abandoned worker survived the reaper"
 wait_gone "$STALE_SERVE" 20 || fail "the abandoned worker's serving child survived the reaper"
 pass "the reaper stops an abandoned worker's whole tree"
 
-out=$("$REAPER" 2>&1) || fail "a repeat reaper run failed: $out"
+out=$(bash "$REAPER" 2>&1) || fail "a repeat reaper run failed: $out"
 assert_not_contains "$out" "$STALE" "the reaper reported an already-stopped worker"
 pass "the reaper is idempotent"

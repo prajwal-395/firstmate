@@ -1397,7 +1397,7 @@ test_secondmate_spawn_refuses_tern_backend() {
   dir="$TMP_ROOT/secondmate-refuse"; state="$dir/state"; data="$dir/data"; config="$dir/config"; projects="$dir/projects"
   mkdir -p "$state" "$data" "$config" "$projects"
   out=$( FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" FM_PROJECTS_OVERRIDE="$projects" \
-    "$ROOT/bin/fm-spawn.sh" sm-tern-test --secondmate --backend tern 2>&1 )
+    bash "$ROOT/bin/fm-spawn.sh" sm-tern-test --secondmate --backend tern 2>&1 )
   status=$?
   [ "$status" -ne 0 ] || fail "fm-spawn.sh should refuse a --secondmate spawn with --backend tern"
   assert_contains "$out" "does not support --secondmate" "fm-spawn.sh did not report the tern secondmate refusal"
@@ -1470,7 +1470,7 @@ test_smoke_test_skips_cleanly_without_a_window() {
   # tern on PATH it must report a skip and exit 0 rather than fail.
   local dir out status
   dir="$TMP_ROOT/smoke-skip-no-tern"; mkdir -p "$dir/empty-bin"
-  out=$( PATH="$dir/empty-bin:/usr/bin:/bin" "$ROOT/tests/fm-backend-tern-smoke.test.sh" 2>&1 )
+  out=$( PATH="$dir/empty-bin:/usr/bin:/bin" bash "$ROOT/tests/fm-backend-tern-smoke.test.sh" 2>&1 )
   status=$?
   case "$out" in
     skip:*) : ;;
@@ -1484,7 +1484,7 @@ test_smoke_test_skips_cleanly_without_a_window() {
   # Probe order in the smoke test: 1 = tern ls --json (works), 2 = tern ctl state (no window).
   ls_with_block "$dir" 1
   ctl_down "$dir" 2
-  out=$( PATH="$dir/fakebin:$PATH" FM_TERN_LOG="$dir/log" FM_TERN_RESPONSES="$dir/responses" "$ROOT/tests/fm-backend-tern-smoke.test.sh" 2>&1 )
+  out=$( PATH="$dir/fakebin:$PATH" FM_TERN_LOG="$dir/log" FM_TERN_RESPONSES="$dir/responses" bash "$ROOT/tests/fm-backend-tern-smoke.test.sh" 2>&1 )
   status=$?
   case "$out" in
     skip:*"control endpoint"*) : ;;

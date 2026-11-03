@@ -29,7 +29,7 @@ export FM_CONFIG_OVERRIDE="$TMP_ROOT/config"
 prime_cursor() {  # <state> <status-file>
   local state=$1 status=$2
   printf 'note: bootstrap cursor line\n' > "$status"
-  FM_STATE_OVERRIDE="$state" "$DRAIN" >/dev/null 2>/dev/null \
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" >/dev/null 2>/dev/null \
     || fail "bootstrap drain failed while priming the unread cursor"
 }
 
@@ -44,7 +44,7 @@ test_incident_note_answer_buried_under_routine_note_surfaces_both() {
   printf 'note: captain said use REST not RPC\n' >> "$status"
   printf 'note: re-read acknowledgement\n' >> "$status"
 
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed on the incident shape"
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$out" || fail "drain failed on the incident shape"
 
   grep -F 'UNREAD STATUS' "$out" >/dev/null \
     || fail "the incident shape produced no UNREAD STATUS section: $(cat "$out")"
@@ -65,11 +65,11 @@ test_already_presented_notes_are_not_replayed() {
 
   printf 'note: captain said use REST not RPC\n' >> "$status"
   printf 'note: re-read acknowledgement\n' >> "$status"
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "first drain of unread notes failed"
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$out" || fail "first drain of unread notes failed"
   grep -F 'captain said use REST not RPC' "$out" >/dev/null \
     || fail "setup error: first drain did not surface the answer note"
 
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "second drain after presentation failed"
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$out" || fail "second drain after presentation failed"
   if grep -F 'captain said use REST not RPC' "$out" >/dev/null; then
     fail "an already-presented answer note was replayed as new: $(cat "$out")"
   fi
@@ -91,12 +91,12 @@ test_brand_new_note_after_presentation_is_surfaced() {
   prime_cursor "$state" "$status"
 
   printf 'note: first answer\n' >> "$status"
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain of the first note failed"
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$out" || fail "drain of the first note failed"
   grep -F 'task3 note: first answer' "$out" >/dev/null \
     || fail "setup error: first note was not presented"
 
   printf 'note: follow-up after ack\n' >> "$status"
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain of the brand-new note failed"
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$out" || fail "drain of the brand-new note failed"
   grep -F 'task3 note: follow-up after ack' "$out" >/dev/null \
     || fail "a brand-new note after presentation was not surfaced: $(cat "$out")"
   if grep -F 'task3 note: first answer' "$out" >/dev/null; then
@@ -119,7 +119,7 @@ test_signal_annotation_surfaces_every_unread_note_not_only_the_newest() {
   append_wake "$state" signal task4.status "signal: task4.status" \
     || fail "queueing the incident-shape status signal failed"
 
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" 2> "$err" \
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$out" 2> "$err" \
     || fail "signal drain failed on the incident shape"
 
   grep -F 'unread wake-EVENT since last drain, not current state: task4.status: note: captain said use REST not RPC' "$out" >/dev/null \
@@ -142,14 +142,14 @@ test_pending_reply_resolution_surfaces_once() {
   printf 'blocked [key=pending-reply-abcdef0123456789]: pending-reply-missed: task=task5 pending-reply-id=abcdef0123456789 request=ship it\n' >> "$status"
   append_wake "$state" signal task5.status "signal: task5.status" \
     || fail "queueing the pending-reply request signal failed"
-  FM_STATE_OVERRIDE="$state" "$DRAIN" >/dev/null \
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" >/dev/null \
     || fail "drain failed while acknowledging the pending-reply request"
   {
     printf 'resolved [key=pending-reply-abcdef0123456789]: pending-reply-resolved: task=task5 pending-reply-id=abcdef0123456789 via=status\n'
     printf 'note: re-read acknowledgement\n'
   } >> "$status"
 
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed on a pending-reply resolution"
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$out" || fail "drain failed on a pending-reply resolution"
 
   grep -F 'pending-reply-resolved: task=task5 pending-reply-id=abcdef0123456789 via=status' "$out" >/dev/null \
     || fail "the pending-reply resolution was buried under the later note: $(cat "$out")"
@@ -159,7 +159,7 @@ test_pending_reply_resolution_surfaces_once() {
     fail "the pending-reply resolution did not close its open decision: $(cat "$out")"
   fi
 
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "second drain after pending-reply presentation failed"
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$out" || fail "second drain after pending-reply presentation failed"
   if grep -F 'pending-reply-resolved:' "$out" >/dev/null; then
     fail "an already-presented pending-reply resolution was replayed: $(cat "$out")"
   fi
@@ -198,12 +198,12 @@ test_self_announced_pending_reply_close_still_surfaces() {
   prime_status_seen "$state" "$status" || fail "could not mark the status file surfaced"
   append_wake "$state" signal task6.status "signal: task6.status" \
     || fail "queueing the pending-reply escalation signal failed"
-  FM_STATE_OVERRIDE="$state" "$DRAIN" >/dev/null || fail "drain of the escalation failed"
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" >/dev/null || fail "drain of the escalation failed"
   printf 'done [corr=%s]: shipped after all\n' "$corr" >> "$status"
   prime_status_seen "$state" "$status" || fail "could not mark the status file surfaced"
   append_wake "$state" signal task6.status "signal: task6.status" \
     || fail "queueing the delayed reply signal failed"
-  FM_STATE_OVERRIDE="$state" "$DRAIN" >/dev/null || fail "drain of the delayed reply failed"
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" >/dev/null || fail "drain of the delayed reply failed"
 
   run_pending_reply fm_pending_reply_try_resolve "$state" "$corr" \
     || fail "the delayed reply did not resolve the pending-reply record"
@@ -215,12 +215,12 @@ test_self_announced_pending_reply_close_still_surfaces() {
   run_pending_reply fm_wake_signal_seen_current "$state" "$status" \
     || fail "the self-announced escalation close was left to re-wake this home"
 
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain after the escalation close failed"
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$out" || fail "drain after the escalation close failed"
   sed -E 's/ \[at=[0-9]+\]//' "$out" \
     | grep -F "task6 resolved [key=pending-reply-$corr]: pending-reply-resolved: task=task6 pending-reply-id=$corr" >/dev/null \
     || fail "the self-announced pending-reply resolution was hidden from UNREAD STATUS: $(cat "$out")"
 
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "second drain after the escalation close failed"
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$out" || fail "second drain after the escalation close failed"
   if grep -F 'pending-reply-resolved:' "$out" >/dev/null; then
     fail "an already-presented self-announced resolution was replayed: $(cat "$out")"
   fi
@@ -241,7 +241,7 @@ test_unread_output_over_cap_remains_recoverable() {
     i=$((i + 1))
   done
 
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed for unread output over the former cap"
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$out" || fail "drain failed for unread output over the former cap"
   grep -F 'task-cap note: overflow-01' "$out" >/dev/null \
     || fail "the first over-cap note was not surfaced"
   grep -F 'task-cap note: overflow-30' "$out" >/dev/null \
@@ -287,7 +287,7 @@ test_retired_task_id_starts_new_status_unread() {
   out="$dir/drain.out"
   printf 'note: old reused-task history\n' > "$state/reused.status"
   printf 'note: stable neighboring history\n' > "$state/neighbor.status"
-  FM_STATE_OVERRIDE="$state" "$DRAIN" >/dev/null \
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" >/dev/null \
     || fail "drain failed while acknowledging pre-retirement histories"
 
   FM_STATE_OVERRIDE="$state" bash -c '
@@ -328,7 +328,7 @@ test_retired_task_id_starts_new_status_unread() {
   [ "$event" = 'blocked: release host unavailable' ] \
     || fail "retired supervision offsets hid the replacement task blocker: $event"
 
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" \
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$out" \
     || fail "drain failed after reusing a retired task id"
   grep -F 'reused note: first event from reused task id' "$out" >/dev/null \
     || fail "the retired manifest row skipped the new task prefix: $(cat "$out")"
@@ -344,13 +344,13 @@ test_weak_identity_still_presents_and_advances() {
   out="$dir/first.out"; second="$dir/second.out"; reader="$dir/identity-reader"
   printf '#!/usr/bin/env bash\nprintf "weak:7:8"\n' > "$reader"; chmod +x "$reader"
   printf 'needs-decision [key=release]: choose target\nnote: release context attached\n' > "$state/weak.status"
-  FM_STATUS_IDENTITY_READER="$reader" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" \
+  FM_STATUS_IDENTITY_READER="$reader" FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$out" \
     || fail "drain failed with the platform-strength fallback identity"
   grep -F 'weak [key=release] needs-decision: choose target' "$out" >/dev/null \
     || fail "weak identity omitted OPEN DECISIONS: $(cat "$out")"
   grep -F 'weak note: release context attached' "$out" >/dev/null \
     || fail "weak identity omitted unread status: $(cat "$out")"
-  FM_STATUS_IDENTITY_READER="$reader" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$second" \
+  FM_STATUS_IDENTITY_READER="$reader" FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$second" \
     || fail "second drain failed with the platform-strength fallback identity"
   grep -F 'release context attached' "$second" >/dev/null \
     && fail "weak identity did not advance the presented-status cursor"
@@ -362,7 +362,7 @@ test_snapshot_failure_is_visible() {
   dir=$(make_case snapshot-failure); state="$dir/state"; out="$dir/drain.out"; reader="$dir/identity-reader"
   printf '#!/usr/bin/env bash\nexit 1\n' > "$reader"; chmod +x "$reader"
   printf 'needs-decision: choose target\n' > "$state/fail.status"
-  FM_STATUS_IDENTITY_READER="$reader" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" \
+  FM_STATUS_IDENTITY_READER="$reader" FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$out" \
     || fail "drain aborted instead of reporting its incomplete status surface"
   grep -F 'STATUS PRESENTATION INCOMPLETE:' "$out" >/dev/null \
     || fail "snapshot failure produced a silently incomplete drain: $(cat "$out")"
@@ -378,7 +378,7 @@ test_open_decisions_fold_is_unchanged() {
   printf 'working: continuing other work\n' >> "$state/task6.status"
   printf 'note: re-read acknowledgement\n' >> "$state/task6.status"
 
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed on a buried needs-decision plus a note"
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$out" || fail "drain failed on a buried needs-decision plus a note"
 
   grep -F 'task6 [key=api-shape] needs-decision: pick REST or RPC' "$out" >/dev/null \
     || fail "OPEN DECISIONS no longer surfaces a buried needs-decision: $(cat "$out")"
@@ -388,7 +388,7 @@ test_open_decisions_fold_is_unchanged() {
     || fail "OPEN DECISIONS lost its answerer-closes hint"
 
   printf 'resolved [key=api-shape]: went with REST\n' >> "$state/task6.status"
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed after resolving the keyed decision"
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$out" || fail "drain failed after resolving the keyed decision"
   if grep -F 'OPEN DECISIONS' "$out" >/dev/null; then
     fail "an explicitly resolved decision still printed as open: $(cat "$out")"
   fi
@@ -406,14 +406,14 @@ test_empty_queue_does_not_swallow_later_signal_annotation() {
   status="$state/task-delayed.status"
   printf 'done: shipped before watcher published signal\n' > "$status"
 
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" \
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$out" \
     || fail "empty-queue drain failed before delayed signal publication"
   grep -F 'task-delayed done: shipped before watcher published signal' "$out" >/dev/null \
     || fail "the main-drain loss backstop did not surface the terminal event before its delayed signal: $(cat "$out")"
 
   append_wake "$state" signal task-delayed.status "signal: task-delayed.status" \
     || fail "publishing the delayed status signal failed"
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" \
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$out" \
     || fail "drain failed after delayed signal publication"
   grep -F 'latest wake-EVENT observed at drain, not current state: task-delayed.status: done: shipped before watcher published signal' "$out" >/dev/null \
     || fail "the empty-queue drain acknowledged an event before its signal annotation: $(cat "$out")"
@@ -430,11 +430,11 @@ test_routine_working_and_covered_done_stay_silent_on_the_empty_queue() {
   old=$(( $(date +%s) - 20 ))
   perl -e 'utime($ARGV[0], $ARGV[0], $ARGV[1]) or exit 1' "$old" "$state/task8.status" \
     || fail "could not age the covered done fixture"
-  FM_STATE_OVERRIDE="$state" "$ROOT/bin/fm-branch-outcome.sh" append \
+  FM_STATE_OVERRIDE="$state" bash "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task8 --verdict captain --summary 'shipped clean was handled' >/dev/null \
     || fail "could not record the newer branch outcome fixture"
 
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed with routine working and covered done lines"
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$out" || fail "drain failed with routine working and covered done lines"
 
   if grep -F 'UNREAD STATUS' "$out" >/dev/null; then
     fail "routine working/covered done lines printed an UNREAD STATUS section: $(cat "$out")"

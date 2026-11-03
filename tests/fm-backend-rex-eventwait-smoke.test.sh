@@ -106,7 +106,7 @@ mkdir -p "$MCFG"
 printf 'on\n' >"$MCFG/rex-status-marks"
 printf '%s\n' "window=$TM" "backend=rex" "kind=ship" >"$STATE/evmark.meta"
 printf '%s\n' "needs-decision [at=1700000000] [key=pick-db]: pick a database" >"$STATE/evmark.status"
-marks() { FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$MCFG" "$ROOT/bin/fm-rex-marks.sh" "$@"; }
+marks() { FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$MCFG" bash "$ROOT/bin/fm-rex-marks.sh" "$@"; }
 mark_record() {  # the block's Firstmate record as "<state>|<kind>|<title>|<msg>"
   fm_backend_rex_block_call "$TM" program_status \
     | jq -r '[.records[] | select(.app == "firstmate")] | first // empty | "\(.state)|\(.kind)|\(.title)|\(.msg)"'

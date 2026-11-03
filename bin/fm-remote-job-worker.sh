@@ -1139,7 +1139,7 @@ worker_lane_execute() { # <account-home> <job-dir>
 # has always run in.
 worker_start_lane() { # <job-dir> <home>
   local job=$1 home=$2 lane_pid lane_start
-  "$SCRIPT_DIR/fm-remote-job-worker.sh" --lane "${job##*/}" &
+  /bin/bash "$SCRIPT_DIR/fm-remote-job-worker.sh" --lane "${job##*/}" &
   lane_pid=$!
   WORKER_ACTIVITY=1
   lane_start=$(fm_remote_job_process_start "$lane_pid" 2>/dev/null || true)
@@ -1339,7 +1339,7 @@ worker_supervise_linux() {
       return 0
     fi
     started=$SECONDS
-    "$SCRIPT_DIR/fm-remote-job-worker.sh" --serve &
+    /bin/bash "$SCRIPT_DIR/fm-remote-job-worker.sh" --serve &
     WORKER_SUPERVISED_PID=$!
     wait "$WORKER_SUPERVISED_PID" 2>/dev/null
     child_status=$?

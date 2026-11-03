@@ -154,7 +154,7 @@ fm_on() {
   FM_ROOT_OVERRIDE="$REMOTE_ROOT" \
   FM_SSH_BIN="$FAKEBIN/fake-ssh" \
   FM_FAKE_REMOTE_ENTRYPOINT="$REMOTE_ROOT/bin/fm-remote-entrypoint.sh" \
-  "$ROOT/bin/fm-on.sh" "$@"
+  bash "$ROOT/bin/fm-on.sh" "$@"
 }
 
 job_state() { # <id>
@@ -173,7 +173,7 @@ wait_for_state() { # <id> <state>
 
 HOME="$ACCOUNT_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_REMOTE_JOB_STATE_ROOT="$STATE_ROOT" \
   FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux \
-  "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" > "$TMP_ROOT/worker.out" 2> "$TMP_ROOT/worker.err" &
+  /bin/bash "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" > "$TMP_ROOT/worker.out" 2> "$TMP_ROOT/worker.err" &
 for _ in $(seq 1 100); do
   [ -f "$STATE_ROOT/worker.ready" ] && break
   sleep 0.05
@@ -362,7 +362,7 @@ for tag in c1 c2 c3; do
     FM_SSH_BIN="$FAKEBIN/fake-ssh" \
     FM_FAKE_REMOTE_ENTRYPOINT="$REMOTE_ROOT/bin/fm-remote-entrypoint.sh" \
     FM_REMOTE_JOB_STATE_ROOT="$STATE_ROOT" FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux \
-    "$ROOT/bin/fm-on.sh" ios fm-touch-job.sh "$TMP_ROOT/burst-$tag" >/dev/null 2>&1 || rc=$?
+    bash "$ROOT/bin/fm-on.sh" ios fm-touch-job.sh "$TMP_ROOT/burst-$tag" >/dev/null 2>&1 || rc=$?
   [ "$rc" -eq 0 ] || fail "post-cancellation burst command $tag failed with $rc"
   assert_present "$TMP_ROOT/burst-$tag" "post-cancellation burst command $tag did not run"
 done
@@ -380,7 +380,7 @@ fm_run_timed 20 env FM_HOME="$LOCAL_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" \
   FM_SSH_BIN="$FAKEBIN/fake-ssh" \
   FM_FAKE_REMOTE_ENTRYPOINT="$REMOTE_ROOT/bin/fm-remote-entrypoint.sh" \
   FM_REMOTE_JOB_STATE_ROOT="$STATE_ROOT" FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux \
-  "$ROOT/bin/fm-on.sh" ios fm-remote-secondmate-control.sh state rsm \
+  bash "$ROOT/bin/fm-on.sh" ios fm-remote-secondmate-control.sh state rsm \
   < <(sleep 30) > "$TMP_ROOT/state-out" 2> "$TMP_ROOT/state-err" || rc=$?
 [ "$rc" -ne 124 ] || fail "a control-state call with an open stdin pipe wedged staging"
 assert_grep 'missing' "$TMP_ROOT/state-out" \

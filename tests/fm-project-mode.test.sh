@@ -43,10 +43,10 @@ cat > "$DATA/projects.md" <<'EOF'
 EOF
 
 run_mode() {
-  FM_DATA_OVERRIDE="$DATA" "$PROJECT_MODE" "$1" 2>/dev/null
+  FM_DATA_OVERRIDE="$DATA" bash "$PROJECT_MODE" "$1" 2>/dev/null
 }
 run_forge() {
-  FM_DATA_OVERRIDE="$DATA" "$PROJECT_MODE" --forge "$1" 2>/dev/null
+  FM_DATA_OVERRIDE="$DATA" bash "$PROJECT_MODE" --forge "$1" 2>/dev/null
 }
 
 [ "$(run_mode legacy)" = "no-mistakes off" ] || fail "legacy entry's default output changed: $(run_mode legacy)"
@@ -57,19 +57,19 @@ pass "fm-project-mode: an entry with no forge token reports forge none and keeps
 
 [ "$(run_mode lab)" = "no-mistakes off" ] || fail "lab entry's mode output changed: $(run_mode lab)"
 [ "$(run_forge lab)" = "forgejo" ] || fail "forge=forgejo after the mode token did not resolve: $(run_forge lab)"
-err=$(FM_DATA_OVERRIDE="$DATA" "$PROJECT_MODE" lab 2>&1 >/dev/null)
+err=$(FM_DATA_OVERRIDE="$DATA" bash "$PROJECT_MODE" lab 2>&1 >/dev/null)
 [ -z "$err" ] || fail "a registered forge=forgejo warned: $err"
 pass "fm-project-mode: forge=forgejo placed after the mode token binds forgejo without a warning"
 
 [ "$(run_mode lead)" = "direct-PR on" ] || fail "forge=forgejo must keep +yolo, which only gerrit deactivates: $(run_mode lead)"
 [ "$(run_forge lead)" = "forgejo" ] || fail "forge=forgejo placed before the mode token did not resolve: $(run_forge lead)"
-err=$(FM_DATA_OVERRIDE="$DATA" "$PROJECT_MODE" lead 2>&1 >/dev/null)
+err=$(FM_DATA_OVERRIDE="$DATA" bash "$PROJECT_MODE" lead 2>&1 >/dev/null)
 [ -z "$err" ] || fail "+yolo on a forge=forgejo project was refused or warned: $err"
 pass "fm-project-mode: forge=forgejo binds in any token order and keeps +yolo"
 
 for flag in "" --forge; do
   # shellcheck disable=SC2086 # An empty flag must expand to nothing.
-  out=$(FM_DATA_OVERRIDE="$DATA" "$PROJECT_MODE" $flag kept 2>/dev/null)
+  out=$(FM_DATA_OVERRIDE="$DATA" bash "$PROJECT_MODE" $flag kept 2>/dev/null)
   status=$?
   [ "$status" -eq 3 ] || fail "local-only with forge=forgejo did not refuse${flag:+ under $flag} (status $status, got '$out')"
   [ -z "$out" ] || fail "a refused local-only forge still handed the caller a posture: '$out'"
@@ -82,82 +82,82 @@ pass "fm-project-mode: the colon spelling forge:forgejo is not a forge binding"
 
 for flag in "" --forge; do
   # shellcheck disable=SC2086 # An empty flag must expand to nothing.
-  out=$(FM_DATA_OVERRIDE="$DATA" "$PROJECT_MODE" $flag glabbed 2>/dev/null)
+  out=$(FM_DATA_OVERRIDE="$DATA" bash "$PROJECT_MODE" $flag glabbed 2>/dev/null)
   status=$?
   [ "$status" -eq 3 ] || fail "forge=gitlab did not refuse${flag:+ under $flag} (status $status, got '$out')"
   [ -z "$out" ] || fail "a refused forge=gitlab still handed the caller a posture: '$out'"
 done
-err=$(FM_DATA_OVERRIDE="$DATA" "$PROJECT_MODE" glabbed 2>&1 >/dev/null) || true
+err=$(FM_DATA_OVERRIDE="$DATA" bash "$PROJECT_MODE" glabbed 2>&1 >/dev/null) || true
 assert_contains "$err" 'forge=forgejo' "the unknown-forge refusal did not name forge=forgejo as an accepted value"
 assert_contains "$err" 'forge=external' "the unknown-forge refusal did not name forge=external as an accepted value"
 pass "fm-project-mode: a value outside none|gerrit|forgejo|external is refused and the refusal names the accepted values"
 
 [ "$(run_forge reviewed)" = "external" ] || fail "forge=external did not resolve: $(run_forge reviewed)"
 [ "$(run_mode reviewed)" = "direct-PR off" ] || fail "forge=external changed the two-word output: $(run_mode reviewed)"
-err=$(FM_DATA_OVERRIDE="$DATA" "$PROJECT_MODE" reviewed 2>&1 >/dev/null)
+err=$(FM_DATA_OVERRIDE="$DATA" bash "$PROJECT_MODE" reviewed 2>&1 >/dev/null)
 [ -z "$err" ] || fail "a registered forge=external warned: $err"
 [ "$(run_mode reviewed-yolo)" = "direct-PR off" ] || fail "+yolo on forge=external must report yolo=off: $(run_mode reviewed-yolo)"
-err=$(FM_DATA_OVERRIDE="$DATA" "$PROJECT_MODE" reviewed-yolo 2>&1 >/dev/null)
+err=$(FM_DATA_OVERRIDE="$DATA" bash "$PROJECT_MODE" reviewed-yolo 2>&1 >/dev/null)
 assert_contains "$err" "yolo is inactive for forge=external" "+yolo on forge=external was dropped without a refusal"
 for flag in "" --forge; do
   # shellcheck disable=SC2086 # An empty flag must expand to nothing.
-  out=$(FM_DATA_OVERRIDE="$DATA" "$PROJECT_MODE" $flag reviewed-local 2>/dev/null)
+  out=$(FM_DATA_OVERRIDE="$DATA" bash "$PROJECT_MODE" $flag reviewed-local 2>/dev/null)
   status=$?
   [ "$status" -eq 3 ] || fail "local-only with forge=external did not refuse${flag:+ under $flag} (status $status, got '$out')"
   [ -z "$out" ] || fail "a refused local-only external forge still handed the caller a posture: '$out'"
 done
-err=$(FM_DATA_OVERRIDE="$DATA" "$PROJECT_MODE" near-miss 2>&1 >/dev/null)
+err=$(FM_DATA_OVERRIDE="$DATA" bash "$PROJECT_MODE" near-miss 2>&1 >/dev/null)
 assert_contains "$err" "forge=external" "the near-miss warning does not list forge=external"
 pass "fm-project-mode: forge=external binds direct-PR, reports yolo=off with a refusal, and is refused on local-only"
 
 [ "$(run_forge missing-project)" = "none" ] || fail "a missing project must default --forge to none: $(run_forge missing-project)"
-[ "$(FM_DATA_OVERRIDE="$TMP_ROOT/no-such-dir" "$PROJECT_MODE" --forge legacy 2>/dev/null)" = "none" ] \
+[ "$(FM_DATA_OVERRIDE="$TMP_ROOT/no-such-dir" bash "$PROJECT_MODE" --forge legacy 2>/dev/null)" = "none" ] \
   || fail "an absent registry file must default --forge to none"
 pass "fm-project-mode: a missing project or absent registry defaults --forge to none"
 
 run_pr() {
-  FM_DATA_OVERRIDE="$DATA" "$PROJECT_MODE" --pr "$1" 2>/dev/null
+  FM_DATA_OVERRIDE="$DATA" bash "$PROJECT_MODE" --pr "$1" 2>/dev/null
 }
 
 [ "$(run_pr legacy)" = "auto" ] || fail "an entry with no pr token must report pr auto: $(run_pr legacy)"
 [ "$(run_pr flagged)" = "auto" ] || fail "mode and +yolo with no pr token must report pr auto: $(run_pr flagged)"
 [ "$(run_pr missing-project)" = "auto" ] || fail "a missing project must default --pr to auto: $(run_pr missing-project)"
-[ "$(FM_DATA_OVERRIDE="$TMP_ROOT/no-such-dir" "$PROJECT_MODE" --pr legacy 2>/dev/null)" = "auto" ] \
+[ "$(FM_DATA_OVERRIDE="$TMP_ROOT/no-such-dir" bash "$PROJECT_MODE" --pr legacy 2>/dev/null)" = "auto" ] \
   || fail "an absent registry file must default --pr to auto"
 pass "fm-project-mode: an entry with no pr token, a missing project, or an absent registry reports pr auto"
 
 [ "$(run_pr hand)" = "manual" ] || fail "pr=manual did not resolve: $(run_pr hand)"
 [ "$(run_mode hand)" = "no-mistakes off" ] || fail "pr=manual changed the two-word output: $(run_mode hand)"
 [ "$(run_forge hand)" = "none" ] || fail "pr=manual changed the forge: $(run_forge hand)"
-err=$(FM_DATA_OVERRIDE="$DATA" "$PROJECT_MODE" hand 2>&1 >/dev/null)
+err=$(FM_DATA_OVERRIDE="$DATA" bash "$PROJECT_MODE" hand 2>&1 >/dev/null)
 [ -z "$err" ] || fail "a registered pr=manual warned: $err"
 [ "$(run_pr hand-first)" = "manual" ] || fail "pr=manual placed first did not resolve: $(run_pr hand-first)"
 [ "$(run_mode hand-first)" = "no-mistakes on" ] || fail "pr=manual placed first displaced the mode or +yolo: $(run_mode hand-first)"
-[ "$(FM_DATA_OVERRIDE="$DATA" "$PROJECT_MODE" --branch-prefix hand-first 2>/dev/null)" = "" ] \
+[ "$(FM_DATA_OVERRIDE="$DATA" bash "$PROJECT_MODE" --branch-prefix hand-first 2>/dev/null)" = "" ] \
   || fail "pr=manual placed first displaced the empty branch= override"
 pass "fm-project-mode: pr=manual binds in any token order and leaves mode, yolo, forge, and branch alone"
 
 [ "$(run_pr hand-prod)" = "manual" ] || fail "pr=manual on the conditional policy did not resolve: $(run_pr hand-prod)"
-[ "$(FM_DATA_OVERRIDE="$DATA" "$PROJECT_MODE" --raw hand-prod 2>/dev/null)" = "no-mistakes-prod-only off" ] \
+[ "$(FM_DATA_OVERRIDE="$DATA" bash "$PROJECT_MODE" --raw hand-prod 2>/dev/null)" = "no-mistakes-prod-only off" ] \
   || fail "pr=manual changed the raw conditional-policy output"
 pass "fm-project-mode: pr=manual is kept on a no-mistakes-prod-only project"
 
 for name in hand-direct hand-local hand-forgejo hand-empty hand-auto; do
   for flag in "" --pr; do
     # shellcheck disable=SC2086 # An empty flag must expand to nothing.
-    out=$(FM_DATA_OVERRIDE="$DATA" "$PROJECT_MODE" $flag "$name" 2>/dev/null)
+    out=$(FM_DATA_OVERRIDE="$DATA" bash "$PROJECT_MODE" $flag "$name" 2>/dev/null)
     status=$?
     [ "$status" -eq 3 ] || fail "$name did not refuse${flag:+ under $flag} (status $status, got '$out')"
     [ -z "$out" ] || fail "a refused $name still handed the caller a posture: '$out'"
   done
-  [ "$(FM_DATA_OVERRIDE="$DATA" "$PROJECT_MODE" --forge "$name" 2>/dev/null)" != "" ] \
+  [ "$(FM_DATA_OVERRIDE="$DATA" bash "$PROJECT_MODE" --forge "$name" 2>/dev/null)" != "" ] \
     || fail "--forge refused over the pr token of $name"
 done
-err=$(FM_DATA_OVERRIDE="$DATA" "$PROJECT_MODE" --pr hand-empty 2>&1 >/dev/null)
+err=$(FM_DATA_OVERRIDE="$DATA" bash "$PROJECT_MODE" --pr hand-empty 2>&1 >/dev/null)
 assert_contains "$err" "empty PR-text binding" "the empty pr= refusal did not name the empty value"
-err=$(FM_DATA_OVERRIDE="$DATA" "$PROJECT_MODE" --pr hand-auto 2>&1 >/dev/null)
+err=$(FM_DATA_OVERRIDE="$DATA" bash "$PROJECT_MODE" --pr hand-auto 2>&1 >/dev/null)
 assert_contains "$err" "pr=manual" "the unknown pr value refusal did not name the accepted value"
-err=$(FM_DATA_OVERRIDE="$DATA" "$PROJECT_MODE" --pr hand-direct 2>&1 >/dev/null)
+err=$(FM_DATA_OVERRIDE="$DATA" bash "$PROJECT_MODE" --pr hand-direct 2>&1 >/dev/null)
 assert_contains "$err" "only a no-mistakes ship takes it" "the direct-PR refusal did not say why"
 pass "fm-project-mode: pr=manual refuses another mode, a bound forge, an empty value, and an unknown value, but leaves --forge answerable"
 

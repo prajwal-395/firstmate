@@ -1602,7 +1602,7 @@ test_opt_in_base_follows_the_delivery_and_the_review_follows_the_base() {
       git -C "$POOL_DIR" add task-change.txt
       git -C "$POOL_DIR" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qm 'task work'
       review=$(FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$HOME_DIR/state" FM_CONFIG_OVERRIDE="$HOME_DIR/config" \
-        "$ROOT/bin/fm-review-diff.sh" "$id" --stat 2>/dev/null)
+        bash "$ROOT/bin/fm-review-diff.sh" "$id" --stat 2>/dev/null)
       base_line=$(printf '%s\n' "$review" | sed -n 's/^diff base: //p')
       [ -n "$base_line" ] || fail "$shape/$contract: the review printed no base"
       review_start=$(git -C "$POOL_DIR" merge-base "$base_line" "fm/$id" 2>/dev/null) \

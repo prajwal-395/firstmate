@@ -56,7 +56,7 @@ test_contribution_input_propagates_jq_failure() {
   write_backlog "$home"
   fakebin=$(make_failing_assembly_jq_fakebin "$home")
 
-  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --contribution-input 2>&1)
+  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" bash "$SNAPSHOT" --contribution-input 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "contribution-input must not exit 0 when jq assembly fails: $out"
   assert_contains "$out" "fm-fleet-snapshot: contribution input assembly failed" "jq assembly failure must surface an fm-fleet-snapshot error"

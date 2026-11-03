@@ -254,7 +254,7 @@ esac
 # queue notices (FM_GUARD_NO_QUEUE_NOTICE) and reports only supervision and
 # tangle health. Never let a guard hiccup change the drain's exit status.
 assert_watcher_liveness() {
-  FM_GUARD_NO_QUEUE_NOTICE=1 "$SCRIPT_DIR/fm-guard.sh" || true
+  FM_GUARD_NO_QUEUE_NOTICE=1 bash "$SCRIPT_DIR/fm-guard.sh" || true
 }
 
 # Mark presentation-stage inactive terminal outcomes only after the handling
@@ -278,7 +278,7 @@ acknowledge_inactive_outcomes() { # <mode> <newline-separated-fingerprints>
   local mode=$1 fingerprints=$2 fingerprint
   while IFS= read -r fingerprint; do
     [ -n "$fingerprint" ] || continue
-    "$SCRIPT_DIR/fm-inactive-reconcile.sh" "$mode" "$fingerprint" || return 1
+    bash "$SCRIPT_DIR/fm-inactive-reconcile.sh" "$mode" "$fingerprint" || return 1
   done <<< "$fingerprints"
 }
 
@@ -352,7 +352,7 @@ print_status_outcome_backstop_section() {  # <task-and-endpoint-snapshot>
     fi
     ready="$STATE/.branch-outcome-index-ready"
     if ! outcome_index_ready_ok "$ready"; then
-      if ! "$SCRIPT_DIR/fm-branch-outcome.sh" processed-init --held-lock >/dev/null 2>&1 \
+      if ! bash "$SCRIPT_DIR/fm-branch-outcome.sh" processed-init --held-lock >/dev/null 2>&1 \
         || ! outcome_index_ready_ok "$ready"; then
         fm_lock_release "$lock"
         printf 'STATUS OUTCOME BACKSTOP SKIPPED: bounded outcome indexes could not be rebuilt because the outcome store is unsafe; repair it before relying on drain recovery.\n'
@@ -594,7 +594,7 @@ print_record_divergence_section() {
   # Bounded, because this runs at the top of every supervision turn: a backlog
   # tool having a bad day must cost the drain a few seconds at worst, never the
   # presentation of the wakes it exists to deliver.
-  diverged=$(fm_run_timed "$bound" "$SCRIPT_DIR/fm-captain-hold.sh" diverged 2>/dev/null) || return 0
+  diverged=$(fm_run_timed "$bound" bash "$SCRIPT_DIR/fm-captain-hold.sh" diverged 2>/dev/null) || return 0
   [ -n "$diverged" ] || return 0
 
   while IFS=$(printf '\t') read -r task origin key title; do
@@ -683,7 +683,7 @@ print_branch_outcomes_section() {
     printf 'BRANCH OUTCOMES SKIPPED: jq is not installed, so the outcome store cannot be presented; nothing was marked read, and these outcomes are presented once jq is back.\n' >&2
     return 1
   fi
-  if ! rows=$("$SCRIPT_DIR/fm-branch-outcome.sh" present 2>/dev/null); then
+  if ! rows=$(bash "$SCRIPT_DIR/fm-branch-outcome.sh" present 2>/dev/null); then
     printf 'BRANCH OUTCOMES SKIPPED: the outcome store could not be read safely; repair it before relying on this section.\n' >&2
     return 1
   fi
@@ -771,7 +771,7 @@ ROWS
     printf '%s' "$text" || return 1
   fi
   [ "$through" -gt 0 ] || return 0
-  if ! "$SCRIPT_DIR/fm-branch-outcome.sh" mark-read --through "$through" >/dev/null 2>&1; then
+  if ! bash "$SCRIPT_DIR/fm-branch-outcome.sh" mark-read --through "$through" >/dev/null 2>&1; then
     printf 'BRANCH OUTCOMES: the store could not record this presentation, so these outcomes are presented again on the next drain and an acknowledgement above is refused until then.\n' >&2
     return 1
   fi
@@ -904,7 +904,7 @@ observe_drain_triage() { # <presented-rows-text>
   log="$STATE/.drain-triage-counts.log"
   printf '%s\n' "$rows_text" > "$tmp" || { rm -f -- "$tmp"; return 0; }
   chmod 0600 "$tmp" || { rm -f -- "$tmp"; return 0; }
-  if out=$(fm_run_timed "$bound" "$SCRIPT_DIR/fm-drain-triage.sh" \
+  if out=$(fm_run_timed "$bound" bash "$SCRIPT_DIR/fm-drain-triage.sh" \
     --rows-file "$tmp" --actor "$ACTOR" 2>&1); then
     {
       printf 'drain-triage-observe ts=%s actor=%s\n' "$(date +%s)" "$ACTOR"

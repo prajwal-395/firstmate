@@ -345,7 +345,7 @@ case "$op" in
     IFS=$'\t' read -r owner_task owner_gen <<< "$owner"
     case "$4" in
       busy|idle)
-        [ "$owner_gen" = - ] || "$SCRIPT_DIR/fm-busy-event.sh" apply "$1" "$owner_task" "$4" --gen "$owner_gen" --source opencode-plugin --event "${5:-session-$4}" >/dev/null 2>&1 || true
+        [ "$owner_gen" = - ] || bash "$SCRIPT_DIR/fm-busy-event.sh" apply "$1" "$owner_task" "$4" --gen "$owner_gen" --source opencode-plugin --event "${5:-session-$4}" >/dev/null 2>&1 || true
         ;;
       turn-end) touch "$1/$owner_task.turn-ended" ;;
       *) die "unknown event '$4'" ;;

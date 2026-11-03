@@ -91,7 +91,7 @@ jq --slurpfile template "$EXAMPLE" --argjson pmap "$PROVIDER_MAP" '
 fi
 jq -e '.version == 2 and (.rules | type == "array") and (.default_ladder | type == "array") and all(.default_ladder[]; (.id | type == "string") and (.harness | type == "string") and (.model | type == "string") and (.provider | type == "string"))' "$tmp/policy.json" >/dev/null 2>&1 \
   || { echo 'error: converted policy failed schema checks' >&2; exit 1; }
-"$SCRIPT_DIR/fm-dispatch-policy-validate.sh" "$tmp/policy.json" || exit 1
+bash "$SCRIPT_DIR/fm-dispatch-policy-validate.sh" "$tmp/policy.json" || exit 1
 
 # Translate every recorded worker onto the generic route representation before
 # replacing the policy. This preserves the task's actual model and account while

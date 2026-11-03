@@ -293,10 +293,10 @@ SH
 chmod +x "$INTEGRATION_ROOT/bin/fm-herdr-session-cleanup.sh"
 printf '%s\n' manual > "$INTEGRATION_ROOT/home/config/backlog-backend"
 FM_HOME="$INTEGRATION_ROOT/home" FM_HERDR_CLEANUP_TRACE="$TRACE" FM_BOOTSTRAP_DETECT_ONLY=1 \
-  "$INTEGRATION_ROOT/bin/fm-bootstrap.sh" >/dev/null 2>&1
+  bash "$INTEGRATION_ROOT/bin/fm-bootstrap.sh" >/dev/null 2>&1
 [ ! -e "$TRACE" ] || fail "detect-only bootstrap ran stale projection cleanup"
 FM_HOME="$INTEGRATION_ROOT/home" FM_HERDR_CLEANUP_TRACE="$TRACE" \
-  "$INTEGRATION_ROOT/bin/fm-bootstrap.sh" >/dev/null 2>&1
+  bash "$INTEGRATION_ROOT/bin/fm-bootstrap.sh" >/dev/null 2>&1
 [ ! -e "$TRACE" ] || fail "standalone bootstrap ran lock-owned stale projection cleanup"
 pass "standalone bootstrap cannot run lock-owned stale projection cleanup"
 
@@ -307,7 +307,7 @@ SH
 chmod +x "$INTEGRATION_ROOT/bin/fm-lock.sh"
 FM_HOME="$INTEGRATION_ROOT/home" FM_ROOT_OVERRIDE="$INTEGRATION_ROOT" \
   FM_HERDR_CLEANUP_TRACE="$TRACE" \
-  "$INTEGRATION_ROOT/bin/fm-session-start.sh" >/dev/null 2>&1 \
+  bash "$INTEGRATION_ROOT/bin/fm-session-start.sh" >/dev/null 2>&1 \
   || fail "lock-owning session start failed"
 [ "$(cat "$TRACE")" = "$INTEGRATION_ROOT/home" ] \
   || fail "lock-owning session start did not run cleanup for its exact home"
@@ -321,7 +321,7 @@ SH
 chmod +x "$INTEGRATION_ROOT/bin/fm-lock.sh"
 FM_HOME="$INTEGRATION_ROOT/home" FM_ROOT_OVERRIDE="$INTEGRATION_ROOT" \
   FM_HERDR_CLEANUP_TRACE="$TRACE" \
-  "$INTEGRATION_ROOT/bin/fm-session-start.sh" >/dev/null 2>&1 \
+  bash "$INTEGRATION_ROOT/bin/fm-session-start.sh" >/dev/null 2>&1 \
   || fail "read-only session start failed"
 [ ! -s "$TRACE" ] || fail "read-only session start ran stale projection cleanup"
 pass "session start runs cleanup only after acquiring its home lock"

@@ -380,7 +380,7 @@ run_control() {
     FM_POSTURE_TEST_ARGS_FILE="${FM_POSTURE_TEST_ARGS_FILE:-}" \
     FM_POSTURE_TEST_ENV_FILE="${FM_POSTURE_TEST_ENV_FILE:-}" \
     FM_POSTURE_TEST_PROCESS_GROUPS="${FM_POSTURE_TEST_PROCESS_GROUPS:-}" \
-    "$CONTROL" "$@" 2>&1
+    bash "$CONTROL" "$@" 2>&1
 }
 
 alive_as() {  # <case-dir> <command-name>
@@ -526,7 +526,7 @@ test_devin_interrupt_invalidates_busy() {
   dir=$(new_case devin-busy)
   add_task "$dir" t1 devin
   devin_as "$dir" running
-  "$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1 >/dev/null
+  bash "$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1 >/dev/null
   out=$(run_control "$dir" t1 interrupt) || fail "Devin interrupt failed: $out"
   assert_contains "$out" 'cancel=unconfirmed' 'Devin cancellation must not claim semantic confirmation'
   assert_grep 'state=unknown source=fm-interrupt' "$dir/home/state/t1.busy-state" 'cancelled Devin turn stayed busy'
@@ -545,7 +545,7 @@ test_devin_idle_interrupt_sends_one_press() {
   dir=$(new_case devin-idle)
   add_task "$dir" t1 devin
   devin_as "$dir" idle
-  "$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1 >/dev/null
+  bash "$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1 >/dev/null
   before=$(cat "$dir/home/state/t1.busy-state")
   out=$(run_control "$dir" t1 interrupt) || fail "an idle Devin interrupt should still deliver: $out"
   [ "$(keys_sent "$dir")" = Escape ] \
@@ -562,7 +562,7 @@ test_devin_exit_after_turn_ended_types_quit_once() {
   dir=$(new_case devin-exit-race)
   add_task "$dir" t1 devin
   devin_as "$dir" idle
-  "$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1 >/dev/null
+  bash "$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1 >/dev/null
   out=$(run_control "$dir" t1 exit); rc=$?
   expect_code 0 "$rc" "exiting a Devin whose turn already ended should succeed"$'\n'"$out"
   [ "$(keys_sent "$dir")" = Escape ] \
@@ -1437,7 +1437,7 @@ test_busy_agent_is_interrupted_before_the_exit_command() {
   alive_as "$dir" claude
   # Arm the semantic busy contract and record a busy turn, exactly as the
   # harness's own lifecycle hook would.
-  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1)
+  gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1)
   printf 'busy_gen=%s\n' "$gen" >> "$dir/home/state/t1.meta"
   out=$(run_control "$dir" t1 exit); rc=$?
   expect_code 0 "$rc" "exiting a busy agent should succeed"$'\n'"$out"
@@ -1482,7 +1482,7 @@ test_exit_refuses_the_confirming_enter() {
   exit_picker_screen > "$dir/fake/after-enter"
   out=$(env FM_FAKE_NEVER_DIES=1 PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" \
     FM_FAKE_DIR="$dir/fake" FM_CONTROL_POLL=0.01 FM_CONTROL_EXIT_WAIT=0.05 \
-    "$CONTROL" t1 exit 2>&1); rc=$?
+    bash "$CONTROL" t1 exit 2>&1); rc=$?
   expect_code 1 "$rc" "the confirming Enter should refuse"$'\n'"$out"
   assert_contains "$out" "blocked on a prompt: Claude background-task exit picker" \
     "the refusal should name the dialog"
@@ -1505,7 +1505,7 @@ test_exit_names_a_picker_that_renders_after_the_submit() {
   printf '1' > "$dir/fake/after-enter-late"
   out=$(env FM_FAKE_NEVER_DIES=1 PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" \
     FM_FAKE_DIR="$dir/fake" FM_CONTROL_POLL=0.01 FM_CONTROL_EXIT_WAIT=0.05 \
-    "$CONTROL" t1 exit 2>&1); rc=$?
+    bash "$CONTROL" t1 exit 2>&1); rc=$?
   expect_code 1 "$rc" "a picker that renders after the submit should refuse"$'\n'"$out"
   [ "$(cat "$dir/fake/after-enter-late")" = 0 ] \
     || fail "the submit should have read the ordinary pane once after Enter"
@@ -1523,7 +1523,7 @@ test_idle_agent_is_not_interrupted() {
   dir=$(new_case idle)
   add_task "$dir" t1 claude
   alive_as "$dir" claude
-  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1 --state idle --source fm-spawn --event seed)
+  gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1 --state idle --source fm-spawn --event seed)
   printf 'busy_gen=%s\n' "$gen" >> "$dir/home/state/t1.meta"
   out=$(run_control "$dir" t1 exit); rc=$?
   expect_code 0 "$rc" "exiting an idle agent should succeed"$'\n'"$out"
@@ -1538,7 +1538,7 @@ test_exit_drops_meta_busy_gen_with_the_sidecar() {
   dir=$(new_case codex-retire)
   add_task "$dir" t1 codex
   alive_as "$dir" codex
-  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1)
+  gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1)
   printf 'busy_gen=%s\n' "$gen" >> "$dir/home/state/t1.meta"
   grep -v '^busy_gen=' "$dir/home/state/t1.meta" > "$dir/expected.meta"
   out=$(run_control "$dir" t1 exit); rc=$?
@@ -1555,7 +1555,7 @@ test_interrupt_without_acknowledgement_preserves_busy_state() {
   dir=$(new_case unconfirmed)
   add_task "$dir" t1 claude
   alive_as "$dir" claude
-  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1)
+  gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1)
   printf 'busy_gen=%s\n' "$gen" >> "$dir/home/state/t1.meta"
   before=$(cat "$dir/home/state/t1.busy-state")
   out=$(run_control "$dir" t1 interrupt); rc=$?
@@ -1619,7 +1619,7 @@ test_exit_accepts_agent_stopped_by_busy_interrupt() {
   dir=$(new_case interrupt-stops)
   add_task "$dir" t1 claude
   alive_as "$dir" claude
-  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1)
+  gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1)
   printf 'busy_gen=%s\n' "$gen" >> "$dir/home/state/t1.meta"
   out=$(FM_FAKE_INTERRUPT_STOPS_AGENT=1 run_control "$dir" t1 exit); rc=$?
   expect_code 0 "$rc" "exit should accept a busy agent stopped by interrupt"$'\n'"$out"
@@ -1639,11 +1639,11 @@ test_agent_that_does_not_stop_fails_closed() {
   dir=$(new_case stubborn)
   add_task "$dir" t1 claude
   alive_as "$dir" claude
-  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1)
+  gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1)
   printf 'busy_gen=%s\n' "$gen" >> "$dir/home/state/t1.meta"
   out=$(env FM_FAKE_NEVER_DIES=1 PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" \
     FM_FAKE_DIR="$dir/fake" FM_CONTROL_POLL=0.01 FM_CONTROL_EXIT_WAIT=0.05 \
-    "$CONTROL" t1 exit 2>&1); rc=$?
+    bash "$CONTROL" t1 exit 2>&1); rc=$?
   expect_code 1 "$rc" "an agent that ignores its exit command should fail closed"
   assert_contains "$out" "did not stop" "the failure should say the agent did not stop"
   assert_contains "$out" "exit-delivered t1 interrupt=delivered verified=agent-alive cancel=unconfirmed exit-command=delivered agent-state=alive exit=unconfirmed" \
@@ -1804,7 +1804,7 @@ test_fm_send_still_marks_the_same_secondmate_task() {
   : > "$log"
   out=$(env PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
     FM_SEND_SETTLE=0 FM_ROOT_OVERRIDE="$dir/home" \
-    "$SEND" domain "audit the build" 2>&1); rc=$?
+    bash "$SEND" domain "audit the build" 2>&1); rc=$?
   expect_code 0 "$rc" "fm-send to a secondmate should still succeed"$'\n'"$out"
   # The marked steer rides fm-send's durable inbox plane; only the doorbell is
   # typed, so the marker is asserted on the recorded body.

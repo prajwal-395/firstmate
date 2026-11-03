@@ -462,7 +462,7 @@ EOF
 # seed instead of arriving as an empty mode that passes every posture guard.
 registered_posture_line() {  # <project>
   local project=$1 line
-  line=$(FM_HOME="$FM_HOME" FM_DATA_OVERRIDE="$DATA" "$FM_ROOT/bin/fm-project-mode.sh" "$project") || {
+  line=$(FM_HOME="$FM_HOME" FM_DATA_OVERRIDE="$DATA" bash "$FM_ROOT/bin/fm-project-mode.sh" "$project") || {
     echo "error: project $project does not resolve to a delivery posture (see the refusal above); correct $DATA/projects.md" >&2
     return 1
   }
@@ -701,7 +701,7 @@ registry_line_for_project() {
 
 project_mode_in_home() {
   local home=$1 project=$2 mode mode_line
-  mode_line=$(FM_ROOT_OVERRIDE='' FM_STATE_OVERRIDE='' FM_DATA_OVERRIDE='' FM_PROJECTS_OVERRIDE='' FM_CONFIG_OVERRIDE='' FM_HOME="$home" "$FM_ROOT/bin/fm-project-mode.sh" "$project") || {
+  mode_line=$(FM_ROOT_OVERRIDE='' FM_STATE_OVERRIDE='' FM_DATA_OVERRIDE='' FM_PROJECTS_OVERRIDE='' FM_CONFIG_OVERRIDE='' FM_HOME="$home" bash "$FM_ROOT/bin/fm-project-mode.sh" "$project") || {
     echo "error: project $project does not resolve to a delivery posture in $home (see the refusal above); correct $home/data/projects.md" >&2
     return 1
   }
@@ -952,9 +952,9 @@ seed_home() {
     }
     [ -d "$DATA/$id" ] || SEED_PARENT_BRIEF_DIR_CREATED=1
     if [ "$no_projects" -eq 1 ]; then
-      "$FM_ROOT/bin/fm-brief.sh" "$id" --secondmate --no-projects
+      bash "$FM_ROOT/bin/fm-brief.sh" "$id" --secondmate --no-projects
     else
-      "$FM_ROOT/bin/fm-brief.sh" "$id" --secondmate "$@"
+      bash "$FM_ROOT/bin/fm-brief.sh" "$id" --secondmate "$@"
     fi
     SEED_PARENT_BRIEF_CREATED=1
   fi

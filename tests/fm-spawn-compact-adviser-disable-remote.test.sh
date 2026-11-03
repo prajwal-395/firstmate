@@ -134,14 +134,14 @@ remote_pane_exports() {
 # Provision and register the remote route from the captain-facing primary.
 FM_SECONDMATE_CHARTER='Own iOS delivery on the build Mac.' \
   FM_SECONDMATE_SCOPE='iOS implementation and Xcode validation' \
-  remote_env "$ROOT/bin/fm-remote-home-seed.sh" ios remote-mac "$REMOTE_ROOT" "$REMOTE_HOME" --no-projects >/dev/null \
+  remote_env bash "$ROOT/bin/fm-remote-home-seed.sh" ios remote-mac "$REMOTE_ROOT" "$REMOTE_HOME" --no-projects >/dev/null \
   || fail "remote seed did not provision the route under test"
 
 run_remote_launch() {  # <label>
   local label=$1
   reset_remote_herdr_fixture "$HERDR_STATE"
   : > "$HERDR_LOG"
-  remote_env "$ROOT/bin/fm-spawn.sh" ios --secondmate >/dev/null 2>&1 \
+  remote_env bash "$ROOT/bin/fm-spawn.sh" ios --secondmate >/dev/null 2>&1 \
     || fail "$label: the remote second-mate launch failed"
 }
 

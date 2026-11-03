@@ -41,20 +41,20 @@ TMP_ROOT=$(fm_test_tmproot fm-herdr-attached-viewer)
 FAKEBIN=$(fm_fakebin "$TMP_ROOT")
 FOCUS_SWITCH_CONTROL="$TMP_ROOT/focus-switch"
 ORIGINAL_PATH=$PATH
-LAB_SESSION=$("$LAB_HELPER" name fm-herdr-attached-viewer)
+LAB_SESSION=$(bash "$LAB_HELPER" name fm-herdr-attached-viewer)
 export LAB_HELPER LAB_SESSION ORIGINAL_PATH FOCUS_SWITCH_CONTROL
 
 cleanup() {
   local status=$?
-  env PATH="$ORIGINAL_PATH" "$LAB_HELPER" viewer stop "$LAB_SESSION" >/dev/null 2>&1 || status=1
-  env PATH="$ORIGINAL_PATH" "$LAB_HELPER" teardown "$LAB_SESSION" || status=1
+  env PATH="$ORIGINAL_PATH" bash "$LAB_HELPER" viewer stop "$LAB_SESSION" >/dev/null 2>&1 || status=1
+  env PATH="$ORIGINAL_PATH" bash "$LAB_HELPER" teardown "$LAB_SESSION" || status=1
   fm_test_cleanup
   exit "$status"
 }
 trap cleanup EXIT
-"$LAB_HELPER" provision "$LAB_SESSION" || fail "could not provision the isolated Herdr lab"
+bash "$LAB_HELPER" provision "$LAB_SESSION" || fail "could not provision the isolated Herdr lab"
 
-lab() { env PATH="$ORIGINAL_PATH" "$LAB_HELPER" run "$LAB_SESSION" "$@"; }
+lab() { env PATH="$ORIGINAL_PATH" bash "$LAB_HELPER" run "$LAB_SESSION" "$@"; }
 
 # The adapter under test calls `herdr` by name. This shim strips the trailing
 # session flag the helper will re-append, refuses any caller-supplied one, and
@@ -152,7 +152,7 @@ REASON=$(foreground_reason) || fail "could not probe the session's foreground cl
 [ "$REASON" = no_foreground_client ] \
   || fail "the fresh lab already had a foreground client (reason=$REASON)"
 
-"$LAB_HELPER" viewer start "$LAB_SESSION" >/dev/null \
+bash "$LAB_HELPER" viewer start "$LAB_SESSION" >/dev/null \
   || fail "could not attach a real foreground Herdr viewer over a sized pty"
 REASON=$(foreground_reason) || fail "could not probe the session's foreground client"
 [ "$REASON" = cleared ] \
@@ -245,7 +245,7 @@ pass "attached viewer: the projection seeded-tab prune refuses while a live clie
 
 # --- detaching restores the no-client contract the detached tests rely on ---
 
-"$LAB_HELPER" viewer stop "$LAB_SESSION" >/dev/null \
+bash "$LAB_HELPER" viewer stop "$LAB_SESSION" >/dev/null \
   || fail "could not detach the lab viewer"
 REASON=$(foreground_reason) || fail "could not probe the session's foreground client"
 [ "$REASON" = no_foreground_client ] \

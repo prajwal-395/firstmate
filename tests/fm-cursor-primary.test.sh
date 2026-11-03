@@ -141,7 +141,7 @@ SH
 # changes the process identity when an exec reaches the adapter's shebang.
 PARK_CHILD='
   printf "%s\n" "$$" > "$FM_HOME/state/.lock"
-  "$FM_HOME/bin/fm-turnend-guard-cursor.sh"
+  bash "$FM_HOME/bin/fm-turnend-guard-cursor.sh"
 '
 
 # Run the park as a child of the fake cursor harness that holds the home lock.
@@ -164,7 +164,7 @@ run_session() {  # <dir> <event> <source> [session-id]
   payload=$(printf '{"hook_event_name":"%s","session_id":"%s","cursor_version":"x"}' "$event" "$session_id")
   printf '%s' "$payload" | FM_HOME="$dir" FM_SESSION_SOURCE="$source" "$FAKE_CURSOR" -c '
     printf "%s\n" "$$" > "$FM_HOME/state/.lock"
-    "$FM_HOME/bin/fm-sessionstart-cursor.sh" --source "$FM_SESSION_SOURCE"
+    bash "$FM_HOME/bin/fm-sessionstart-cursor.sh" --source "$FM_SESSION_SOURCE"
   ' 2>/dev/null
 }
 
@@ -176,7 +176,7 @@ kind_of_followup() {  # <json> -> the operational kind
   local body
   body=$(followup_of "$1")
   [ -n "$body" ] || return 1
-  printf '%s' "$body" | "$ROOT/bin/fm-operational-input.sh" kind
+  printf '%s' "$body" | bash "$ROOT/bin/fm-operational-input.sh" kind
 }
 
 # --- HOST GUARD --------------------------------------------------------------
@@ -211,7 +211,7 @@ test_autoarm_stands_down_on_cursor_payload() {
   write_arm_fixture "$dir" actionable
   printf '%s' "$CURSOR_PAYLOAD" | FM_HOME="$dir" "$FAKE_CURSOR" -c '
       printf "%s\n" "$$" > "$FM_HOME/state/.lock"
-      exec "$FM_HOME/bin/fm-claude-stop-autoarm.sh"
+      exec bash "$FM_HOME/bin/fm-claude-stop-autoarm.sh"
     ' >/dev/null 2>&1
   status=$?
   expect_code 0 "$status" "the Claude auto-arm must stay inert under Cursor"
@@ -545,7 +545,7 @@ test_park_runs_the_supervision_host_only_when_opted_in() {
   # QUIET), so the same handback beside it carries no away note.
   dir=$(make_primary_dir "$TMP_ROOT/park-host-quiet")
   : > "$dir/state/task1.meta"
-  FM_HOME="$dir" FM_AFK_MODE=quiet "$ROOT/bin/fm-afk-contract.sh" enter --words 'keep routine wakes off my main' >/dev/null 2>&1 \
+  FM_HOME="$dir" FM_AFK_MODE=quiet bash "$ROOT/bin/fm-afk-contract.sh" enter --words 'keep routine wakes off my main' >/dev/null 2>&1 \
     || fail "fixture: could not record quiet mode"
   mkdir -p "$dir/config"
   : > "$dir/config/supervision-host"

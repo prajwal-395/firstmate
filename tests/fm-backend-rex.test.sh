@@ -695,7 +695,7 @@ test_teardown_retires_the_secondmate_session() {
   out=$(env -u TERM_PROGRAM -u REX_SESSION -u REX_BLOCK -u REX_SERVER \
     FM_REX_FAKE_DIR="$dir/fake" REX_BIN_DIR="$dir/bin" FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" \
     FM_REX_FAKE_DEAD_PID="$DEAD_PID" FM_BACKEND_REX_BUNDLE_BIN="$dir/no-bundle/rex" \
-    "$ROOT/bin/fm-teardown.sh" sm --force 2>&1); rc=$?
+    bash "$ROOT/bin/fm-teardown.sh" sm --force 2>&1); rc=$?
   expect_code 0 "$rc" "teardown of a rex secondmate must succeed: $out"
   assert_equals 0 "$(state_json "$dir" "[.sessions[] | select(.session_id == \"$sid\")] | length")" \
     "retiring the secondmate must retire its emptied per-home session"
@@ -770,7 +770,7 @@ run_rex_control() {  # <dir> <args...>
     FM_REX_FAKE_DIR="$dir/fake" REX_BIN_DIR="$dir/bin" FM_HOME="$dir/home" \
     FM_REX_FAKE_DEAD_PID="$DEAD_PID" FM_BACKEND_REX_BUNDLE_BIN="$dir/no-bundle/rex" \
     FM_CONTROL_POLL=0.01 FM_CONTROL_SETTLE_WAIT=0.05 FM_CONTROL_EXIT_WAIT=0.05 \
-    "$ROOT/bin/fm-control.sh" "$@" 2>&1
+    bash "$ROOT/bin/fm-control.sh" "$@" 2>&1
 }
 
 test_control_exit_after_a_server_stop() {
@@ -857,7 +857,7 @@ marks_run() {  # <args...>
     FM_STATE_OVERRIDE="$MARK_DIR/home/state" FM_CONFIG_OVERRIDE="$MARK_DIR/home/config" \
     FM_REX_FAKE_DEAD_PID="$DEAD_PID" FM_BACKEND_REX_BUNDLE_BIN="$MARK_DIR/no-bundle/rex" \
     PATH="$MARK_DIR/psbin:$PATH" FM_BACKEND_REX_DEV_DIR="$MARK_DIR/dev" \
-    "$ROOT/bin/fm-rex-marks.sh" "$@"
+    bash "$ROOT/bin/fm-rex-marks.sh" "$@"
 }
 
 mark_task_status() {  # <line>

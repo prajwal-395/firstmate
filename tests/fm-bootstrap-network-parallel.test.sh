@@ -239,7 +239,7 @@ SH
     FM_FAKE_GIT_FETCH_SLEEP=0.4 \
     FM_INHERITABLE_CONFIG='' \
     FM_FAKE_TREEHOUSE_LEASE_HELP=1 \
-    "$ROOT/bin/fm-bootstrap.sh" 2>&1
+    bash "$ROOT/bin/fm-bootstrap.sh" 2>&1
   )
 
   assert_contains "$out" \
@@ -381,7 +381,7 @@ EOF
     FM_FAKE_GIT_FETCH_SLEEP=0 \
     FM_INHERITABLE_CONFIG='dispatch-policy.json crew-harness' \
     FM_FAKE_TREEHOUSE_LEASE_HELP=1 \
-    "$ROOT/bin/fm-bootstrap.sh" 2>&1
+    bash "$ROOT/bin/fm-bootstrap.sh" 2>&1
   )
 
   line=$(printf '%s\n' "$out" | grep '^SECONDMATE_SYNC: secondmate sm: skipped: remote inheritance failed on host-sm:' || true)
@@ -519,7 +519,7 @@ run_inherit_push() {  # <id> <generation> -> stdout+stderr; status of the push
     FM_SSH_BIN="$CF_FAKEBIN/fake-ssh" \
     FM_FAKE_SSH_LOG="$CF_LOG" \
     FM_INHERITABLE_CONFIG='item-a item-b item-c item-d item-e item-f' \
-    "$ROOT/bin/fm-remote-inherit-push.sh" "$@" 2>&1
+    bash "$ROOT/bin/fm-remote-inherit-push.sh" "$@" 2>&1
 }
 
 max_inherit_overlap() {  # <log>: the most inheritance items in flight at once
@@ -637,7 +637,7 @@ test_convergence_budget_isolates_a_hung_mate() {
     FM_SECONDMATE_CONVERGENCE_TIMEOUT=15 \
     FM_INHERITABLE_CONFIG='item-a' \
     FM_FAKE_TREEHOUSE_LEASE_HELP=1 \
-    "$ROOT/bin/fm-bootstrap.sh" 2>&1
+    bash "$ROOT/bin/fm-bootstrap.sh" 2>&1
   )
   elapsed=$(( $(date +%s) - start ))
   [ "$elapsed" -lt 90 ] || fail "a hung mate held the network phase for ${elapsed}s past its 15s budget"$'\n'"$out"
@@ -674,7 +674,7 @@ test_partial_push_failure_keeps_the_reread_owed() {
     FM_REMOTE_INHERIT_PUSH_JOBS=1 \
     FM_INHERITABLE_CONFIG='item-a item-b' \
     FM_FAKE_TREEHOUSE_LEASE_HELP=1 \
-    "$ROOT/bin/fm-bootstrap.sh" 2>&1
+    bash "$ROOT/bin/fm-bootstrap.sh" 2>&1
   )
   assert_contains "$out" \
     "SECONDMATE_SYNC: secondmate alpha: skipped: remote inheritance failed on host-alpha: error: synthetic refusal of config/item-b" \

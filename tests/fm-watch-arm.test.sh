@@ -51,7 +51,7 @@ ARM_PID=
 start_seed_watcher() {  # <state> <fakebin> <watch-out> [poll-seconds]
   local state=$1 fakebin=$2 out=$3 poll=${4:-5} i
   PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL="$poll" FM_SIGNAL_GRACE=1 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 bash "$WATCH" > "$out" &
   SEED_PID=$!
   i=0
   while [ "$i" -lt 60 ]; do
@@ -68,7 +68,7 @@ start_seed_watcher() {  # <state> <fakebin> <watch-out> [poll-seconds]
 start_attached_arm() {  # <state> <fakebin> <arm-out> <confirm-timeout>
   local state=$1 fakebin=$2 armout=$3 confirm=$4 i
   PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_ARM_ATTACH_POLL=0.1 \
-    FM_ARM_CONFIRM_TIMEOUT="$confirm" "$WATCH_ARM" > "$armout" &
+    FM_ARM_CONFIRM_TIMEOUT="$confirm" bash "$WATCH_ARM" > "$armout" &
   ARM_PID=$!
   i=0
   while [ "$i" -lt 80 ]; do
@@ -136,7 +136,7 @@ wait_for_file_text() {  # <file> <fixed-text>
 ack_wakes() {  # <state>
   local state=$1 sequence generation err
   err="$state/.test-ack.err"
-  FM_STATE_OVERRIDE="$state" "$DRAIN" >/dev/null 2> "$err" || return 1
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" >/dev/null 2> "$err" || return 1
   sequence=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation [A-Za-z0-9._-][A-Za-z0-9._-]*$/\1/p' "$err")
   generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through [0-9][0-9]* --recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$err")
   rm -f "$err"
@@ -145,7 +145,7 @@ ack_wakes() {  # <state>
     case "$(cat "$state/.watcher-down" 2>/dev/null || true)" in pending:*|announced:*) return 1 ;; esac
     return 0
   fi
-  FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-through "$sequence" \
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" --ack-through "$sequence" \
     --recovery-generation "$generation"
 }
 
@@ -165,7 +165,7 @@ start_rearm_arm() {  # <home> <state> <fakebin> <arm-out> [predecessor-arm-pid]
     FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
     FM_ARM_CONFIRM_TIMEOUT="$REARM_CONFIRM_SECONDS" \
     FM_WATCH_PREDECESSOR_ARM_PID="$predecessor" \
-    "$WATCH_ARM" --restart > "$armout" &
+    bash "$WATCH_ARM" --restart > "$armout" &
   ARM_PID=$!
   # Wait for the arm to confirm its watcher or exit, within a ceiling that
   # outlasts its confirmation budget. A fixed short count let a slow start fall
@@ -228,7 +228,7 @@ test_attached_arm_reports_the_delivered_wake_after_drain() {
   # The handling turn consumes the records before the attached arm closes: the
   # queue is empty again, while the watcher's identity-bound terminal record
   # still proves which cycle delivered the reason.
-  FM_STATE_OVERRIDE="$state" "$DRAIN" >/dev/null 2>&1 || fail "drain failed"
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" >/dev/null 2>&1 || fail "drain failed"
   ack_wakes "$state" || fail "handling acknowledgement failed"
   [ ! -s "$state/.wake-queue" ] || fail "acknowledgement left records behind"
 
@@ -281,7 +281,7 @@ test_attached_arm_follows_a_slow_live_holder() {
   armout="$dir/arm.out"
   start_seed_watcher "$state" "$fakebin" "$out" 1
   PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_ARM_ATTACH_POLL=0.1 \
-    FM_ARM_CONFIRM_TIMEOUT=1 FM_GUARD_GRACE=4 FM_WATCHER_STALL_BOUND=600 "$WATCH_ARM" > "$armout" &
+    FM_ARM_CONFIRM_TIMEOUT=1 FM_GUARD_GRACE=4 FM_WATCHER_STALL_BOUND=600 bash "$WATCH_ARM" > "$armout" &
   ARM_PID=$!
   i=0
   while [ "$i" -lt 80 ]; do
@@ -353,7 +353,7 @@ test_attached_arm_hands_a_stalled_holder_to_its_replacement() {
   : > "$state/.last-watcher-beat"
 
   PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_ARM_ATTACH_POLL=0.1 \
-    FM_ARM_CONFIRM_TIMEOUT=1 FM_GUARD_GRACE=5 FM_WATCHER_STALL_BOUND=12 "$WATCH_ARM" > "$armout" &
+    FM_ARM_CONFIRM_TIMEOUT=1 FM_GUARD_GRACE=5 FM_WATCHER_STALL_BOUND=12 bash "$WATCH_ARM" > "$armout" &
   ARM_PID=$!
   wait_for_exit "$ARM_PID" 300
   status=$?
@@ -374,7 +374,7 @@ test_attached_arm_hands_a_stalled_holder_to_its_replacement() {
   # end in the auto-arm FAILED notice.
   PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" \
     FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    FM_ARM_CONFIRM_TIMEOUT=10 FM_GUARD_GRACE=5 FM_WATCHER_STALL_BOUND=12 "$WATCH_ARM" > "$rearmout" 2>&1 &
+    FM_ARM_CONFIRM_TIMEOUT=10 FM_GUARD_GRACE=5 FM_WATCHER_STALL_BOUND=12 bash "$WATCH_ARM" > "$rearmout" 2>&1 &
   ARM_PID=$!
   wait_for_exit "$ARM_PID" 300
   status=$?
@@ -406,13 +406,13 @@ test_rearm_resurfaces_durable_queue_and_remote_open_decision() {
   write_remote_delta "$result" \
     'needs-decision [key=remote-signoff]: remote secondmate is held for captain sign-off'
   FM_HOME="$home" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$home/data" \
-    "$ROOT/bin/fm-procevent-remote-reply.sh" ingest ios "$result" >/dev/null \
+    bash "$ROOT/bin/fm-procevent-remote-reply.sh" ingest ios "$result" >/dev/null \
     || fail "remote parent-reply ingest failed"
 
   # Drain once before the outage to establish the incremental cursor and the
   # signal suppressor that a watcher had already observed. The decision remains
   # intentionally open across the watcher-down interval.
-  FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/baseline-drain.out" \
+  FM_HOME="$home" FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$dir/baseline-drain.out" \
     || fail "baseline drain failed"
   ack_wakes "$state" || fail "baseline handling acknowledgement failed"
   grep -F 'remote secondmate is held for captain sign-off' "$dir/baseline-drain.out" >/dev/null \
@@ -446,7 +446,7 @@ test_rearm_resurfaces_durable_queue_and_remote_open_decision() {
   # The normal wake-handling drain is the one owner of both queue consumption
   # and the cursor-backed fold. It must expose every queued record and the
   # already-open remote decision without relying on another user message.
-  FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drainout" \
+  FM_HOME="$home" FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$drainout" \
     || fail "drain after re-arm recovery failed"
   grep "$(printf '\tcheck\tremote-reply-ios\t')" "$drainout" >/dev/null \
     || fail "remote-reply wake queued during downtime was not drained"
@@ -473,7 +473,7 @@ test_rearm_resurfaces_durable_queue_and_remote_open_decision() {
   start_rearm_arm "$home" "$state" "$fakebin" "$dir/decision-handling-successor.out" "$decision_recovery_arm"
   is_live_non_zombie "$ARM_PID" || fail "decision handling successor re-triggered before the drain"
   decision_successor=$ARM_PID
-  FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/decision-only-drain.out" \
+  FM_HOME="$home" FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$dir/decision-only-drain.out" \
     2> "$dir/decision-only-drain.err" || fail "decision-only drain after re-arm recovery failed"
   grep -F 'ios [key=remote-signoff] needs-decision: remote secondmate is held for captain sign-off' \
     "$dir/decision-only-drain.out" >/dev/null \
@@ -493,7 +493,7 @@ test_rearm_resurfaces_durable_queue_and_remote_open_decision() {
   wait_for_exit "$ARM_PID" "$REARM_EXIT_POLLS" || fail "interrupted decision handling was not recovered on successor re-arm"
   grep -F 'check: rearm-resurface' "$dir/interrupted-decision-arm.out" >/dev/null \
     || fail "successor did not re-surface the unacknowledged decision recovery"
-  FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/replayed-decision-drain.out" \
+  FM_HOME="$home" FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$dir/replayed-decision-drain.out" \
     2> "$dir/replayed-decision-drain.err" || fail "replayed decision recovery drain failed"
   grep -F 'ios [key=remote-signoff] needs-decision: remote secondmate is held for captain sign-off' \
     "$dir/replayed-decision-drain.out" >/dev/null \
@@ -502,7 +502,7 @@ test_rearm_resurfaces_durable_queue_and_remote_open_decision() {
   generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through [0-9][0-9]* --recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$dir/replayed-decision-drain.err")
   [ "$sequence" = 0 ] && [ -n "$generation" ] \
     || fail "replayed decision recovery omitted its current acknowledgement generation"
-  FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-through "$sequence" --recovery-generation "$generation" \
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" --ack-through "$sequence" --recovery-generation "$generation" \
     || fail "completed decision handling could not acknowledge current recovery"
   start_rearm_arm "$home" "$state" "$fakebin" "$dir/decision-successor-arm.out"
   is_live_non_zombie "$ARM_PID" || fail "acknowledged decision recovery did not leave a live successor"
@@ -562,7 +562,7 @@ SH
   # while no longer testing a slow cycle at all.
   [ $(( $(date +%s) - started )) -ge 12 ] \
     || fail "the delayed tools did not hold the re-arm past the old fixed wait"
-  FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/drain.out" \
+  FM_HOME="$home" FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$dir/drain.out" \
     || fail "slow re-arm recovery drain failed"
   grep "$(printf '\tcheck\tstartup-network\t')" "$dir/drain.out" >/dev/null \
     || fail "wake queued before the slow re-arm was not drained"
@@ -616,7 +616,7 @@ test_delivery_gap_wake_is_recovered_once() {
   grep -q '^signal:' "$dir/first-arm.out" \
     || fail "first watcher did not report its delivered wake"
 
-  FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/first-drain.out" \
+  FM_HOME="$home" FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$dir/first-drain.out" \
     || fail "first handling drain failed"
   ack_wakes "$state" || fail "first handling acknowledgement failed"
   append_wake "$state" check startup-network 'check: startup-network during handling gap'
@@ -626,7 +626,7 @@ test_delivery_gap_wake_is_recovered_once() {
   grep -F 'check: rearm-resurface' "$dir/gap-arm.out" >/dev/null \
     || fail "delivery-gap successor did not emit one recovery wake: $(cat "$dir/gap-arm.out")"
 
-  FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/gap-drain.out" \
+  FM_HOME="$home" FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$dir/gap-drain.out" \
     || fail "delivery-gap recovery drain failed"
   grep "$(printf '\tcheck\tstartup-network\t')" "$dir/gap-drain.out" >/dev/null \
     || fail "wake queued in the delivery gap was not drained"
@@ -689,7 +689,7 @@ test_interrupted_handling_is_redrained_on_rearm() {
   esac
   handling_generation=$(recovery_marker_generation "$state/.watcher-down")
   handling_watcher_pid=$(sed -n 's/^watcher: started pid=\([0-9][0-9]*\).* recovery-generation=.*$/\1/p' "$dir/handling-successor-arm.out")
-  FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$WATCH_ARM" --handling-delivered "$handling_generation" \
+  FM_HOME="$home" FM_STATE_OVERRIDE="$state" bash "$WATCH_ARM" --handling-delivered "$handling_generation" \
     --watcher-pid "$handling_watcher_pid" \
     || fail "confirmed prompt delivery did not begin handling"
   case "$(cat "$state/.watcher-down" 2>/dev/null || true)" in
@@ -698,7 +698,7 @@ test_interrupted_handling_is_redrained_on_rearm() {
   esac
   ! grep -F 'check: rearm-resurface' "$dir/handling-successor-arm.out" >/dev/null \
     || fail "expected handling successor emitted a recursive recovery wake"
-  FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/interrupted-drain.out" \
+  FM_HOME="$home" FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$dir/interrupted-drain.out" \
     2> "$dir/interrupted-drain.err" || fail "handling drain did not expose the durable wake"
   grep "$(printf '\tsignal\tinterrupted.status\t')" "$dir/interrupted-drain.out" >/dev/null \
     || fail "handling drain did not present the durable wake"
@@ -717,7 +717,7 @@ test_interrupted_handling_is_redrained_on_rearm() {
   wait_for_exit "$ARM_PID" "$REARM_EXIT_POLLS" || fail "successor after interruption did not re-surface the pending wake"
   grep -F 'check: rearm-resurface' "$dir/recovery-arm.out" >/dev/null \
     || fail "successor after interruption did not emit durable recovery"
-  FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/replay-drain.out" \
+  FM_HOME="$home" FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$dir/replay-drain.out" \
     2> "$dir/replay-drain.err" || fail "successor could not re-drain the interrupted wake"
   grep "$(printf '\tsignal\tinterrupted.status\t')" "$dir/replay-drain.out" >/dev/null \
     || fail "successor did not re-drain the still-durable wake"
@@ -725,7 +725,7 @@ test_interrupted_handling_is_redrained_on_rearm() {
   generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through [0-9][0-9]* --recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$dir/replay-drain.err")
   [ -n "$sequence" ] && [ -n "$generation" ] \
     || fail "re-drain did not emit a generation-bound post-handling acknowledgement command"
-  FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-through "$sequence" \
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" --ack-through "$sequence" \
     --recovery-generation "$generation" \
     || fail "completed replay could not acknowledge the handled wake"
   [ ! -s "$state/.wake-queue" ] || fail "acknowledged replay remained in the durable queue"
@@ -748,7 +748,7 @@ test_malformed_marker_is_quarantined_once() {
   invalid_count=$(find "$state" -maxdepth 1 -type d -name '.watcher-down.invalid.*' | wc -l | tr -d '[:space:]')
   [ "$invalid_count" -eq 1 ] || fail "malformed marker was not quarantined exactly once"
 
-  FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/recovery-drain.out" \
+  FM_HOME="$home" FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$dir/recovery-drain.out" \
     || fail "malformed-marker recovery drain failed"
   ack_wakes "$state" || fail "malformed-marker handling acknowledgement failed"
   start_rearm_arm "$home" "$state" "$fakebin" "$dir/stable-successor.out"
@@ -777,7 +777,7 @@ test_recovery_consumption_serializes_queue_publication() {
     || fail "publisher did not restore recovery evidence"
   grep "$(printf '\tcheck\tstartup-network\t')" "$state/.wake-queue" >/dev/null \
     || fail "publisher did not durably append its wake"
-  FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/drain.out" \
+  FM_HOME="$home" FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$dir/drain.out" \
     || fail "publisher recovery drain failed"
   grep "$(printf '\tcheck\tstartup-network\t')" "$dir/drain.out" >/dev/null \
     || fail "publisher wake was not surfaced and drained"
@@ -831,7 +831,7 @@ test_markerless_legacy_queue_is_recovered_on_arm() {
     pending:downtime:*|announced:downtime:*) ;;
     *) fail "markerless legacy queue was not adopted into downtime recovery" ;;
   esac
-  FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/drain.out" \
+  FM_HOME="$home" FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$dir/drain.out" \
     || fail "adopted legacy queue could not be drained"
   grep -F "$row" "$dir/drain.out" >/dev/null \
     || fail "adopted legacy wake was not presented"
@@ -871,11 +871,11 @@ SH
   chmod +x "$source"
 
   FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" FM_STATE_OVERRIDE="$state" \
-    "$ROOT/bin/fm-procevent.sh" register lavish idle-lavish -- "$source" "$trigger" \
+    bash "$ROOT/bin/fm-procevent.sh" register lavish idle-lavish -- "$source" "$trigger" \
     >/dev/null || fail "could not register the Lavish fixture source"
   FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" FM_STATE_OVERRIDE="$state" \
     FM_PROCEVENT_LAUNCH_CONFIRM_SECONDS=1 \
-    "$ROOT/bin/fm-procevent.sh" reconcile >/dev/null \
+    bash "$ROOT/bin/fm-procevent.sh" reconcile >/dev/null \
     || fail "could not start the Lavish fixture source"
   printf 'pending:downtime:idle-lavish.1.fixture\n' > "$state/.watcher-down"
 
@@ -896,7 +896,7 @@ SH
     : > "$trigger"
     wait "$ARM_PID" 2>/dev/null || true
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" FM_STATE_OVERRIDE="$state" \
-      "$ROOT/bin/fm-procevent.sh" retire idle-lavish >/dev/null 2>&1 || true
+      bash "$ROOT/bin/fm-procevent.sh" retire idle-lavish >/dev/null 2>&1 || true
     fail "an idle live Lavish source re-fired recovery with an empty queue: $(cat "$idle_out")"
   fi
   ! grep -F 'check: rearm-resurface' "$idle_out" >/dev/null \
@@ -963,9 +963,9 @@ test_append_wakes_handling_successor() {
   successor=$ARM_PID
   generation=$(recovery_marker_generation "$state/.watcher-down")
   watcher_pid=$(cat "$state/.watch.lock/pid")
-  FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$WATCH_ARM" --handling-delivered "$generation" \
+  FM_HOME="$home" FM_STATE_OVERRIDE="$state" bash "$WATCH_ARM" --handling-delivered "$generation" \
     --watcher-pid "$watcher_pid" || fail "could not confirm first notification delivery"
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/drain.out" 2> "$dir/drain.err"
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$dir/drain.out" 2> "$dir/drain.err"
   pair=$(drain_ack_pair "$dir/drain.err") || fail "first drain supplied no acknowledgement"
   sequence=${pair%%$'\t'*}
   generation=${pair#*$'\t'}
@@ -973,7 +973,7 @@ test_append_wakes_handling_successor() {
   sleep 3
   is_live_non_zombie "$successor" || fail "successor repeated the inherited notification"
   if [ "$phase" = after-ack ]; then
-    FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-through "$sequence" --recovery-generation "$generation"
+    FM_STATE_OVERRIDE="$state" bash "$DRAIN" --ack-through "$sequence" --recovery-generation "$generation"
     [ ! -s "$state/.wake-queue" ] || fail "inherited rows were not acknowledged"
   fi
   # A lost or unreadable counter must not let a new row look inherited.
@@ -1006,7 +1006,7 @@ SH
       || fail "re-append was not byte-identical to the inherited row"
   fi
   if [ "$phase" = before-ack ]; then
-    FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-through "$sequence" --recovery-generation "$generation"
+    FM_STATE_OVERRIDE="$state" bash "$DRAIN" --ack-through "$sequence" --recovery-generation "$generation"
   fi
   wait_for_exit "$successor" 100 || fail "handling successor stranded the second inbox wake ($phase)"
   grep -F 'check: rearm-resurface' "$dir/successor.out" >/dev/null \
@@ -1040,7 +1040,7 @@ test_handling_window_close_keeps_the_acknowledgement_valid() {
   grep "$(printf '\tsignal\thandled.status\t')" "$state/.wake-queue" >/dev/null \
     || fail "delivered wake was not durable before handling"
 
-  FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/drain.out" 2> "$dir/drain.err" \
+  FM_HOME="$home" FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$dir/drain.out" 2> "$dir/drain.err" \
     || fail "handling drain did not present the durable wake"
   pair=$(drain_ack_pair "$dir/drain.err") \
     || fail "drain did not print a generation-bound acknowledgement command"
@@ -1057,7 +1057,7 @@ test_handling_window_close_keeps_the_acknowledgement_valid() {
 
   [ "$(cat "$state/.watcher-down" 2>/dev/null || true)" = "pending:downtime:$generation" ] \
     || fail "repeated publications during handling replaced the outstanding recovery generation"
-  FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-through "$sequence" \
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" --ack-through "$sequence" \
     --recovery-generation "$generation" 2> "$dir/ack.err" \
     || fail "the printed acknowledgement was rejected after repeated publications: $(cat "$dir/ack.err")"
   ! grep "$(printf '\tsignal\thandled.status\t')" "$state/.wake-queue" >/dev/null \
@@ -1065,11 +1065,11 @@ test_handling_window_close_keeps_the_acknowledgement_valid() {
   grep "$(printf '\tsignal\tduring-handling.status\t')" "$state/.wake-queue" >/dev/null \
     || fail "the newer handling-window wake was over-consumed"
 
-  FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/remaining-drain.out" \
+  FM_HOME="$home" FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$dir/remaining-drain.out" \
     2> "$dir/remaining-drain.err" || fail "remaining wake could not be re-drained"
   pair=$(drain_ack_pair "$dir/remaining-drain.err") \
     || fail "remaining drain did not print an acknowledgement command"
-  FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-through "${pair%%$'\t'*}" \
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" --ack-through "${pair%%$'\t'*}" \
     --recovery-generation "${pair##*$'\t'}" \
     || fail "remaining handling-window wake could not be acknowledged"
   [ ! -s "$state/.wake-queue" ] || fail "remaining wake was not consumed"
@@ -1105,13 +1105,13 @@ test_moved_generation_acknowledgement_is_self_healing() {
   is_live_non_zombie "$ARM_PID" || fail "moved-generation fixture watcher did not stay live"
   printf 'done: first handled wake\n' > "$state/first.status"
   wait_for_exit "$ARM_PID" "$REARM_EXIT_POLLS" || fail "fixture watcher did not deliver its first wake"
-  FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/first-drain.out" \
+  FM_HOME="$home" FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$dir/first-drain.out" \
     2> "$dir/first-drain.err" || fail "first drain did not present the durable wake"
   pair=$(drain_ack_pair "$dir/first-drain.err") \
     || fail "first drain did not print a generation-bound acknowledgement command"
   first_sequence=${pair%%$'\t'*}
   first_generation=${pair##*$'\t'}
-  FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-through "$first_sequence" \
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" --ack-through "$first_sequence" \
     --recovery-generation "$first_generation" \
     || fail "the first handled wake could not be acknowledged"
 
@@ -1127,7 +1127,7 @@ test_moved_generation_acknowledgement_is_self_healing() {
 
   # Replaying the stale pair must not fail, must not over-consume, and must not
   # retire the newer episode.
-  FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-through "$first_sequence" \
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" --ack-through "$first_sequence" \
     --recovery-generation "$first_generation" 2> "$dir/stale-ack.err" \
     || fail "a replayed stale acknowledgement was rejected instead of degrading safely"
   if ! grep -F 'WAKE_ACK_REQUIRED' "$dir/stale-ack.err" >/dev/null \
@@ -1141,7 +1141,7 @@ test_moved_generation_acknowledgement_is_self_healing() {
 
   # The sequence alone owns consumption, so the handled rows go even while the
   # generation is stale, and only the episode stays pending.
-  FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-through 999 \
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" --ack-through 999 \
     --recovery-generation "$first_generation" 2> "$dir/stale-consume.err" \
     || fail "a stale acknowledgement refused to consume the rows it was given"
   [ ! -s "$state/.wake-queue" ] \
@@ -1150,11 +1150,11 @@ test_moved_generation_acknowledgement_is_self_healing() {
     || fail "row consumption under a stale generation retired the pending episode"
 
   # Following the printed remedy closes the episode, so the loop is self-healing.
-  FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/redrain.out" \
+  FM_HOME="$home" FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$dir/redrain.out" \
     2> "$dir/redrain.err" || fail "the remedy re-drain did not run"
   pair=$(drain_ack_pair "$dir/redrain.err") \
     || fail "the remedy re-drain did not print the newer acknowledgement command"
-  FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-through "${pair%%$'\t'*}" \
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" --ack-through "${pair%%$'\t'*}" \
     --recovery-generation "${pair##*$'\t'}" \
     || fail "the newer recovery episode could not be acknowledged"
   case "$(cat "$state/.watcher-down" 2>/dev/null || true)" in
@@ -1175,7 +1175,7 @@ test_stop_ends_the_home_watcher_and_publishes_downtime() {
   fakebin=$(make_case stop-home-watcher-bin)/fakebin
   mkdir -p "$state"
   FM_HOME="$home" start_seed_watcher "$state" "$fakebin" "$dir/watch.out"
-  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$WATCH_ARM" --stop 2>&1); status=$?
+  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_STATE_OVERRIDE="$state" bash "$WATCH_ARM" --stop 2>&1); status=$?
   expect_code 0 "$status" "--stop of a live home watcher must succeed"
   assert_contains "$out" "watcher: stopped pid=$SEED_PID" "--stop must name the watcher it stopped"
   wait_for_exit "$SEED_PID" 50 >/dev/null 2>&1 || true
@@ -1184,7 +1184,7 @@ test_stop_ends_the_home_watcher_and_publishes_downtime() {
     pending:downtime:*|announced:downtime:*) ;;
     *) fail "--stop did not leave downtime published: $(cat "$state/.watcher-down" 2>/dev/null)" ;;
   esac
-  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$WATCH_ARM" --stop 2>&1); status=$?
+  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_STATE_OVERRIDE="$state" bash "$WATCH_ARM" --stop 2>&1); status=$?
   expect_code 0 "$status" "--stop with no watcher must succeed"
   assert_contains "$out" "watcher: none running" "--stop with no watcher must say so"
   pass "watch-arm: --stop ends only this home's watcher, publishes downtime, and reports when none runs"
@@ -1202,11 +1202,11 @@ test_take_over_attaches_to_a_cycle_the_named_arm_does_not_own() {
   FM_HOME="$dir" start_seed_watcher "$state" "$fakebin" "$dir/watch.out"
   sleep 60 &
   other=$!
-  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" "$WATCH_ARM" --take-over 2>/dev/null
+  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" bash "$WATCH_ARM" --take-over 2>/dev/null
   status=$?
   expect_code 2 "$status" "--take-over without an arm pid must be refused"
   PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_ARM_ATTACH_POLL=0.1 \
-    "$WATCH_ARM" --take-over "$other" > "$armout" &
+    bash "$WATCH_ARM" --take-over "$other" > "$armout" &
   ARM_PID=$!
   wait_for_file_text "$armout" "watcher: attached pid=$SEED_PID" \
     || fail "--take-over of a cycle the named arm does not own did not attach: $(cat "$armout")"
@@ -1239,7 +1239,7 @@ test_take_over_owns_a_fresh_cycle_and_keeps_queued_work_surfacing() {
   case "$(cat "$state/.watcher-down" 2>/dev/null)" in acked:*) ;; *) fail "fixture: the episode was not acknowledged" ;; esac
   PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" \
     FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    "$WATCH_ARM" --take-over "$owner" > "$armout" &
+    bash "$WATCH_ARM" --take-over "$owner" > "$armout" &
   ARM_PID=$!
   wait_for_file_text "$armout" 'watcher: started pid=' \
     || fail "--take-over did not own a fresh cycle: $(cat "$armout")"
@@ -1264,7 +1264,7 @@ test_take_over_owns_a_fresh_cycle_and_keeps_queued_work_surfacing() {
   append_wake "$state" signal take-over "signal: fixture still queued for main"
   PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" \
     FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    FM_ARM_CONFIRM_TIMEOUT="$REARM_CONFIRM_SECONDS" "$WATCH_ARM" --take-over "$owner" > "$armout" &
+    FM_ARM_CONFIRM_TIMEOUT="$REARM_CONFIRM_SECONDS" bash "$WATCH_ARM" --take-over "$owner" > "$armout" &
   ARM_PID=$!
   wait_for_exit "$ARM_PID" "$REARM_EXIT_POLLS"
   status=$?
@@ -1335,7 +1335,7 @@ test_take_over_confirms_a_watcher_stopped_inside_its_event_wait() {
       FM_BUSY_TURN_MAX_SECS=999999 FM_STALE_ESCALATE_SECS=999999 \
       FM_BACKEND_HERDR_EVENTS_FORCE=1 FM_BACKEND_HERDR_EVENT_READER="$dir/quiet-reader" \
       FM_FAKE_HERDR_LOG="$dir/herdr.log" FM_WATCH_PREDECESSOR_ARM_PID="$pred" \
-      "$WATCH_ARM" "$@"
+      bash "$WATCH_ARM" "$@"
   }
   # The successor a pass-through leaves running for main; main acknowledges.
   event_arm "$$" > "$dir/owner.out" &
@@ -1424,7 +1424,7 @@ test_take_over_preserves_downtime_from_watcher_self_exit() {
   PATH="$dir/barrier-bin:$fakebin:$PATH" FM_HOME="$home" FM_STATE_OVERRIDE="$state" \
     FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
     FM_ARM_CONFIRM_TIMEOUT="$REARM_CONFIRM_SECONDS" \
-    "$WATCH_ARM" --take-over "$owner" > "$armout" &
+    bash "$WATCH_ARM" --take-over "$owner" > "$armout" &
   ARM_PID=$!
   i=0
   while [ "$i" -lt 200 ] && [ ! -e "$dir/snapshot-read" ]; do
@@ -1505,7 +1505,7 @@ test_arm_refuses_an_unusable_launch_confirm_window() {
   PATH="$fakebin:$PATH" FM_HOME="$home" FM_STATE_OVERRIDE="$state" \
     FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
     FM_ARM_CONFIRM_TIMEOUT=5 FM_PROCEVENT_LAUNCH_CONFIRM_SECONDS=5s \
-    "$WATCH_ARM" > "$armout" 2>&1 &
+    bash "$WATCH_ARM" > "$armout" 2>&1 &
   ARM_PID=$!
   wait_for_exit "$ARM_PID" 200
   status=$?
@@ -1546,7 +1546,7 @@ test_arm_refuses_a_disposable_validation_checkout() {
 
   PATH="$fakebin:$PATH" FM_HOME="$home" FM_STATE_OVERRIDE="$state" FM_GATE_REFUSE_BYPASS='' \
     FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    FM_ARM_CONFIRM_TIMEOUT=5 "$link/bin/fm-watch-arm.sh" > "$armout" 2>&1 &
+    FM_ARM_CONFIRM_TIMEOUT=5 bash "$link/bin/fm-watch-arm.sh" > "$armout" 2>&1 &
   ARM_PID=$!
   wait_for_exit "$ARM_PID" 200
   status=$?
@@ -1573,7 +1573,7 @@ start_owned_watcher() {  # <home> <state> <fakebin> <arm-out>
   local home=$1 state=$2 fakebin=$3 armout=$4 i
   PATH="$fakebin:$PATH" FM_HOME="$home" FM_STATE_OVERRIDE="$state" \
     FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    FM_ARM_CONFIRM_TIMEOUT=2 "$WATCH_ARM" > "$armout" 2>&1 &
+    FM_ARM_CONFIRM_TIMEOUT=2 bash "$WATCH_ARM" > "$armout" 2>&1 &
   ARM_PID=$!
   i=0
   while [ "$i" -lt 100 ]; do
@@ -1672,7 +1672,7 @@ test_attached_arm_exits_when_its_root_is_removed() {
   owner=$ARM_PID
   [ -d "$state" ] || fail "the owning arm did not create the not-yet-existing state directory"
   PATH="$fakebin:$PATH" FM_HOME="$repo" FM_STATE_OVERRIDE="$state" FM_POLL=1 \
-    FM_ARM_ATTACH_POLL=0.1 FM_ARM_CONFIRM_TIMEOUT=60 "$repo/bin/fm-watch-arm.sh" > "$armout" 2>&1 &
+    FM_ARM_ATTACH_POLL=0.1 FM_ARM_CONFIRM_TIMEOUT=60 bash "$repo/bin/fm-watch-arm.sh" > "$armout" 2>&1 &
   attached=$!
   wait_for_file_text "$armout" "watcher: attached pid=$WATCH_PID" \
     || fail "second arm did not attach to the live watcher: $(cat "$armout")"
@@ -1736,7 +1736,7 @@ test_handling_delivered_accepts_already_acked_generation() {
     || fail "could not publish the fixture downtime episode"
   generation=$(recovery_marker_generation "$state/.watcher-down")
   [ -n "$generation" ] || fail "published episode left no recovery generation"
-  FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$WATCH_ARM" --handling-delivered "$generation" \
+  FM_HOME="$home" FM_STATE_OVERRIDE="$state" bash "$WATCH_ARM" --handling-delivered "$generation" \
     --watcher-pid "$pid" || fail "confirmed prompt delivery did not begin handling"
   FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_recovery_marker_ack "$2" "$3"' \
     _ "$ROOT/bin/fm-wake-lib.sh" "$state/.watcher-down" "$generation" \
@@ -1745,20 +1745,20 @@ test_handling_delivered_accepts_already_acked_generation() {
     acked:handling:"$generation") ;;
     *) fail "acknowledged episode did not retire: $(cat "$state/.watcher-down")" ;;
   esac
-  FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$WATCH_ARM" --handling-delivered "$generation" \
+  FM_HOME="$home" FM_STATE_OVERRIDE="$state" bash "$WATCH_ARM" --handling-delivered "$generation" \
     --watcher-pid "$pid"
   expect_code 0 "$?" "an already-acknowledged confirmation must succeed as a no-op"
-  FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$WATCH_ARM" --handling-delivered "superseded.0.deadbeef" \
+  FM_HOME="$home" FM_STATE_OVERRIDE="$state" bash "$WATCH_ARM" --handling-delivered "superseded.0.deadbeef" \
     --watcher-pid "$pid" 2>/dev/null
   expect_code 3 "$?" "a superseded generation must stay rejected"
   sleep 0 &
   dead=$!
   wait "$dead" 2>/dev/null || true
-  FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$WATCH_ARM" --handling-delivered "$generation" \
+  FM_HOME="$home" FM_STATE_OVERRIDE="$state" bash "$WATCH_ARM" --handling-delivered "$generation" \
     --watcher-pid "$dead" 2>/dev/null
   expect_code 1 "$?" "a dead watcher pid must stay rejected"
   printf 'foreign-identity\n' > "$state/.watch.lock/pid-identity"
-  FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$WATCH_ARM" --handling-delivered "$generation" \
+  FM_HOME="$home" FM_STATE_OVERRIDE="$state" bash "$WATCH_ARM" --handling-delivered "$generation" \
     --watcher-pid "$pid" 2>/dev/null
   status=$?
   printf '%s' "$identity" > "$state/.watch.lock/pid-identity"
@@ -1814,7 +1814,7 @@ test_handling_delivered_rejects_a_superseded_generation() {
   second=$(recovery_marker_generation "$state/.watcher-down")
   [ -n "$second" ] && [ "$second" != "$first" ] \
     || fail "a non-successor arm start did not mint a fresh generation: $(cat "$state/.watcher-down")"
-  FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$WATCH_ARM" --handling-delivered "$first" \
+  FM_HOME="$home" FM_STATE_OVERRIDE="$state" bash "$WATCH_ARM" --handling-delivered "$first" \
     --watcher-pid "$pid" 2>/dev/null
   expect_code 3 "$?" "a confirmation for the churned generation must report a mismatch"
   FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_recovery_marker_arm_check "$2"' \

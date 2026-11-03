@@ -332,7 +332,7 @@ crew_state_json() {  # <id> [<captured-meta>] [<captured-status>]
       FM_DATA_OVERRIDE="$DATA" \
       FM_PROJECTS_OVERRIDE="$PROJECTS" \
       FM_CONFIG_OVERRIDE="$CONFIG" \
-      "$SCRIPT_DIR/fm-crew-state.sh" "$id" 2>/dev/null || true
+      bash "$SCRIPT_DIR/fm-crew-state.sh" "$id" 2>/dev/null || true
   )
   raw=$(printf '%s\n' "$raw" | head -1)
   sep=' · '
@@ -2030,7 +2030,7 @@ printf '%s\n' "$CONTRIBUTION_TASKS_JSON" > "$JSON_TRANSPORT_DIR/contribution-tas
   || { echo "fm-fleet-snapshot: contribution task staging failed" >&2; exit 1; }
 jq -n --slurpfile backlog "$BACKLOG_JSON_FILE" --slurpfile tasks "$JSON_TRANSPORT_DIR/contribution-tasks.json" \
   '{backlog:$backlog[0],tasks:$tasks[0]}' > "$JSON_TRANSPORT_DIR/contribution-input.json"
-FM_CONTRIBUTIONS_NOW="$SNAPSHOT_NOW" "$SCRIPT_DIR/fm-contributions.sh" snapshot \
+FM_CONTRIBUTIONS_NOW="$SNAPSHOT_NOW" bash "$SCRIPT_DIR/fm-contributions.sh" snapshot \
   "$JSON_TRANSPORT_DIR/contribution-input.json" > "$CONTRIBUTIONS_JSON_FILE" \
   || { echo "fm-fleet-snapshot: contribution coverage unavailable" >&2; exit 1; }
 

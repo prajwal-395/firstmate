@@ -82,12 +82,12 @@ backdate_meta() {  # <meta-file>: make the spawn record older than any BUSY_TURN
 # opposite verdict under the same armed generation.
 record_pi_state() {  # <state-dir> <id> <busy|idle>
   local state=$1 id=$2 want=$3 gen event
-  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$state" "$id")
+  gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$state" "$id")
   case "$want" in
     busy) event=agent-start ;;
     *) event=agent-end ;;
   esac
-  "$ROOT/bin/fm-busy-event.sh" apply "$state" "$id" "$want" --gen "$gen" \
+  bash "$ROOT/bin/fm-busy-event.sh" apply "$state" "$id" "$want" --gen "$gen" \
     --source pi-ext --event "$event" >/dev/null
 }
 

@@ -669,7 +669,7 @@ test_peek_output_is_escape_free() {
   home="$dir/home"; mkdir -p "$home/state"
   # Pass an explicit session:window so resolution needs no metadata.
   out=$(PATH="$fb:$PATH" FM_HOME="$home" FM_FAKE_STYLED="$capture" \
-        "$PEEK" "sess:win" 2>/dev/null)
+        bash "$PEEK" "sess:win" 2>/dev/null)
   case "$out" in
     *"$ESC"*) fail "fm-peek surfaced ANSI escape codes into LLM-facing output" ;;
   esac

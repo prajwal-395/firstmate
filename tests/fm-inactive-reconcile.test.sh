@@ -148,7 +148,7 @@ run_reconcile() { # <home> [--startup]
   PATH="$WORLD/fakebin:$PATH" FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" FM_CONFIG_OVERRIDE="$home/config" \
     FM_INACTIVE_RECONCILE_SECS=60 FM_INACTIVE_CREW_STATE_BIN="$WORLD/fakebin/fm-crew-state.sh" \
-    FM_FORGE_LOG="$WORLD/forge.log" "$RECON" scan ${option:+"$option"}
+    FM_FORGE_LOG="$WORLD/forge.log" bash "$RECON" scan ${option:+"$option"}
 }
 
 # The teardown-side entry point: deliver one child's terminal ledger line for a
@@ -158,7 +158,7 @@ run_report() { # <home> <child>
   PATH="$WORLD/fakebin:$PATH" FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" FM_CONFIG_OVERRIDE="$home/config" \
     FM_INACTIVE_CREW_STATE_BIN="$WORLD/fakebin/fm-crew-state.sh" \
-    FM_FORGE_LOG="$WORLD/forge.log" "$RECON" report "$child"
+    FM_FORGE_LOG="$WORLD/forge.log" bash "$RECON" report "$child"
 }
 
 wake_count() { # <home> <key prefix>
@@ -202,11 +202,11 @@ test_main_direct_terminal_presentation_receipt() {
   [ "$(outcome_count "$MAIN" pending)" = 1 ] || fail "main did not retain presentation receipt"
 
   err="$WORLD/drain.err"
-  FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" "$DRAIN" >/dev/null 2> "$err"
+  FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" bash "$DRAIN" >/dev/null 2> "$err"
   seq=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation .*/\1/p' "$err")
   generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$err")
   [ -n "$seq" ] && [ -n "$generation" ] || fail "main presentation did not require durable acknowledgement"
-  FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" "$DRAIN" --ack-through "$seq" --recovery-generation "$generation"
+  FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" bash "$DRAIN" --ack-through "$seq" --recovery-generation "$generation"
   [ "$(outcome_count "$MAIN" presented)" = 1 ] || fail "acknowledged presentation did not receive its own receipt"
   pass "main direct terminal presentation has a durable receipt"
 }
@@ -229,20 +229,20 @@ test_branch_ack_retires_inactive_outcome_receipt() {
   # process as the recorded grant owner.
   seq=$(awk -F '\t' '$4 ~ /^inactive-outcome:/ { print $2 }' "$MAIN/state/.wake-queue" | tail -1)
   case "$seq" in ''|*[!0-9]*) fail "the queued inactive-outcome row had no sequence" ;; esac
-  FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" "$GRANT" activate "$$" branch-ack \
+  FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" bash "$GRANT" activate "$$" branch-ack \
     || fail "branch owner activation failed"
-  FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" "$GRANT" publish branch-ack "$seq" \
+  FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" bash "$GRANT" publish branch-ack "$seq" \
     || fail "branch grant publication failed"
 
   err="$WORLD/branch-drain.err"
   FM_SUPERVISION_ACTOR=branch FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" \
-    FM_CONFIG_OVERRIDE="$MAIN/config" "$DRAIN" >/dev/null 2> "$err"
+    FM_CONFIG_OVERRIDE="$MAIN/config" bash "$DRAIN" >/dev/null 2> "$err"
   seq=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation .*/\1/p' "$err")
   generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$err")
   [ -n "$seq" ] && [ -n "$generation" ] \
     || { cat "$err"; fail "branch presentation did not require durable acknowledgement"; }
   FM_SUPERVISION_ACTOR=branch FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" \
-    FM_CONFIG_OVERRIDE="$MAIN/config" "$DRAIN" --ack-through "$seq" --recovery-generation "$generation" \
+    FM_CONFIG_OVERRIDE="$MAIN/config" bash "$DRAIN" --ack-through "$seq" --recovery-generation "$generation" \
     || fail "branch acknowledgement failed"
 
   [ "$(wake_count "$MAIN" 'inactive-outcome:')" = 0 ] || fail "branch acknowledgement left its check row queued"
@@ -858,11 +858,11 @@ test_invalid_secondmate_marker_wake_does_not_rewake_after_drain() {
   [ -n "$first_key" ] || fail "invalid marker diagnostic queued no key"
 
   err="$WORLD/drain.err"
-  FM_HOME="$MATE" FM_STATE_OVERRIDE="$MATE/state" "$DRAIN" >/dev/null 2> "$err"
+  FM_HOME="$MATE" FM_STATE_OVERRIDE="$MATE/state" bash "$DRAIN" >/dev/null 2> "$err"
   seq=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation .*/\1/p' "$err")
   generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$err")
   [ -n "$seq" ] && [ -n "$generation" ] || fail "invalid marker diagnostic did not require durable acknowledgement"
-  FM_HOME="$MATE" FM_STATE_OVERRIDE="$MATE/state" "$DRAIN" --ack-through "$seq" --recovery-generation "$generation" >/dev/null
+  FM_HOME="$MATE" FM_STATE_OVERRIDE="$MATE/state" bash "$DRAIN" --ack-through "$seq" --recovery-generation "$generation" >/dev/null
 
   FM_FAKE_CREW_STATE='unknown' run_reconcile "$MATE" --startup
   [ "$(wake_count "$MATE" 'inactive-reconcile')" = 0 ] || fail "a drained invalid marker diagnostic woke again on the next scan"
@@ -873,11 +873,11 @@ test_invalid_secondmate_marker_wake_does_not_rewake_after_drain() {
   second_key=$(awk -F '\t' '/inactive-reconcile/ { print $4; exit }' "$MATE/state/.wake-queue")
   [ -n "$second_key" ] && [ "$second_key" != "$first_key" ] || fail "a changed invalid marker reused the drained diagnostic identity"
 
-  FM_HOME="$MATE" FM_STATE_OVERRIDE="$MATE/state" "$DRAIN" >/dev/null 2> "$err"
+  FM_HOME="$MATE" FM_STATE_OVERRIDE="$MATE/state" bash "$DRAIN" >/dev/null 2> "$err"
   seq=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation .*/\1/p' "$err")
   generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$err")
   [ -n "$seq" ] && [ -n "$generation" ] || fail "changed invalid marker diagnostic did not require durable acknowledgement"
-  FM_HOME="$MATE" FM_STATE_OVERRIDE="$MATE/state" "$DRAIN" --ack-through "$seq" --recovery-generation "$generation" >/dev/null
+  FM_HOME="$MATE" FM_STATE_OVERRIDE="$MATE/state" bash "$DRAIN" --ack-through "$seq" --recovery-generation "$generation" >/dev/null
 
   rm -f "$MATE/.fm-secondmate-home"
   FM_FAKE_CREW_STATE='unknown' run_reconcile "$MATE" --startup
@@ -1037,7 +1037,7 @@ test_watcher_hook_and_idle_secondmate_exemption() {
   PATH="$WORLD/fakebin:$PATH" FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" \
     FM_INACTIVE_RECONCILE_SECS=60 FM_INACTIVE_CREW_STATE_BIN="$WORLD/fakebin/fm-crew-state.sh" \
     FM_FORGE_LOG="$WORLD/forge.log" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    FM_FAKE_CREW_STATE='done' "$WATCH" > "$out" 2>&1 &
+    FM_FAKE_CREW_STATE='done' bash "$WATCH" > "$out" 2>&1 &
   pid=$!
   i=0
   while [ "$i" -lt 40 ]; do
@@ -1051,7 +1051,7 @@ test_watcher_hook_and_idle_secondmate_exemption() {
 
   make_world idle-secondmate; bind_secondmate local; write_mate_meta; prime_seen "$MAIN/state" "$MAIN/state/mate.status"
   PATH="$WORLD/fakebin:$PATH" FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" FM_POLL=1 FM_SIGNAL_GRACE=1 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$WORLD/idle.out" 2>&1 &
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 bash "$WATCH" > "$WORLD/idle.out" 2>&1 &
   pid=$!; sleep 2; kill -0 "$pid" 2>/dev/null || fail "idle secondmate watcher exited unexpectedly"; reap "$pid"
   grep -F 'stale:' "$WORLD/idle.out" >/dev/null && fail "idle secondmate was treated as a wedge"
   [ ! -s "$MAIN/state/.wake-queue" ] || fail "idle secondmate emitted a false wake"
@@ -1070,7 +1070,7 @@ test_watcher_poll_delivers_child_ledger_line_to_parent() {
     FM_CONFIG_OVERRIDE="$MATE/config" FM_INACTIVE_RECONCILE_SECS=60 \
     FM_INACTIVE_CREW_STATE_BIN="$WORLD/fakebin/fm-crew-state.sh" FM_FORGE_LOG="$WORLD/forge.log" \
     FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    FM_FAKE_CREW_STATE='unknown' "$WATCH" > "$WORLD/mate-watch.out" 2>&1 &
+    FM_FAKE_CREW_STATE='unknown' bash "$WATCH" > "$WORLD/mate-watch.out" 2>&1 &
   pid=$!
   i=0
   while [ "$i" -lt 100 ]; do
@@ -1189,10 +1189,10 @@ test_notice_recovery_does_not_duplicate_wake() {
   [ "$(wake_count "$MATE" 'inactive-reconcile:')" = 1 ] || fail "recovery duplicated an already queued notice"
 
   err="$WORLD/drain.err"
-  FM_HOME="$MATE" FM_STATE_OVERRIDE="$MATE/state" "$DRAIN" >/dev/null 2> "$err"
+  FM_HOME="$MATE" FM_STATE_OVERRIDE="$MATE/state" bash "$DRAIN" >/dev/null 2> "$err"
   seq=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation .*/\1/p' "$err")
   generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$err")
-  FM_HOME="$MATE" FM_STATE_OVERRIDE="$MATE/state" "$DRAIN" --ack-through "$seq" --recovery-generation "$generation"
+  FM_HOME="$MATE" FM_STATE_OVERRIDE="$MATE/state" bash "$DRAIN" --ack-through "$seq" --recovery-generation "$generation"
   FM_FAKE_CREW_STATE='failed' run_reconcile "$MATE" --startup
   [ "$(wake_count "$MATE" 'inactive-reconcile:')" = 0 ] || fail "acknowledged notice was emitted again"
   pass "notice recovery remains idempotent across queue acknowledgement"

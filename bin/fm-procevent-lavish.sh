@@ -188,7 +188,7 @@ apply_session_host() {  # <artifact>
 
 lavish_reply_compatible() {
   local status=0
-  "$FM_ROOT/bin/fm-bootstrap.sh" lavish-reply-compatible >/dev/null 2>&1 || status=$?
+  bash "$FM_ROOT/bin/fm-bootstrap.sh" lavish-reply-compatible >/dev/null 2>&1 || status=$?
   case "$status" in
     0|1) return "$status" ;;
   esac
@@ -253,20 +253,20 @@ cmd_arm() {
   listener=("$SCRIPT_DIR/fm-procevent-lavish.sh" poll "$real")
   [ -z "$reply_file" ] || listener+=(--agent-reply-file "$reply_file")
   if [ -n "$task" ]; then
-    FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-procevent.sh" register-task lavish "$id" "$task" -- \
+    FM_HOME="$FM_HOME" bash "$SCRIPT_DIR/fm-procevent.sh" register-task lavish "$id" "$task" -- \
       "${listener[@]}" || exit 1
   else
     # This adapter's own listener command, which runs the plain blocking form
     # with no --timeout-ms so completion is a server event, and absorbs only
     # the exact transient interruption.
-    FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-procevent.sh" register lavish "$id" \
+    FM_HOME="$FM_HOME" bash "$SCRIPT_DIR/fm-procevent.sh" register lavish "$id" \
       -- "${listener[@]}" || exit 1
   fi
   # Registration is not a running listener. Readiness is the process-event
   # owner's evidence for this generation; a miss retires a source that never
   # started so arm does not leave it registered.
   listening=0
-  FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-procevent.sh" ensure-listening "$id" || listening=$?
+  FM_HOME="$FM_HOME" bash "$SCRIPT_DIR/fm-procevent.sh" ensure-listening "$id" || listening=$?
   if [ "$listening" -eq 3 ]; then
     printf 'still-listening: %s\n' "$id"
     printf 'artifact: %s\n' "$real"
@@ -275,11 +275,11 @@ cmd_arm() {
     exit 0
   fi
   if [ "$listening" -ne 0 ]; then
-    owner=$(FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-procevent.sh" list 2>/dev/null \
+    owner=$(FM_HOME="$FM_HOME" bash "$SCRIPT_DIR/fm-procevent.sh" list 2>/dev/null \
       | awk -v id="$id" '$1 == id { print $3; exit }')
     case "$owner" in
       live|orphaned|task:*/listening|task:*/round-open) ;;
-      *) FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-procevent.sh" retire "$id" >/dev/null 2>&1 || true ;;
+      *) FM_HOME="$FM_HOME" bash "$SCRIPT_DIR/fm-procevent.sh" retire "$id" >/dev/null 2>&1 || true ;;
     esac
     exit 1
   fi
@@ -299,7 +299,7 @@ cmd_retire() {
   local artifact=${1-} id
   [ -n "$artifact" ] || usage
   id=$(cmd_source_id "$artifact") || exit 1
-  "$SCRIPT_DIR/fm-procevent.sh" retire "$id"
+  bash "$SCRIPT_DIR/fm-procevent.sh" retire "$id"
 }
 
 # The bounded quiet retry described in the header. The bound is a constant

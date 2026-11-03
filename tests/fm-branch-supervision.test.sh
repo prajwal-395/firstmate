@@ -26,12 +26,12 @@ test_branch_prompt_is_byte_stable_and_above_cache_floor() {
   printf 'signal: task-1 done\n' > "$home_a/state/task-1.status"
   printf 'window=x\nharness=pi\n' > "$home_a/state/task-1.meta"
 
-  out_a=$(cd "$TMP_ROOT" && FM_HOME="$home_a" TZ=UTC "$ROOT/bin/fm-branch-prompt.sh") \
+  out_a=$(cd "$TMP_ROOT" && FM_HOME="$home_a" TZ=UTC bash "$ROOT/bin/fm-branch-prompt.sh") \
     || fail "branch prompt generator failed for home A"
-  out_b=$(cd / && FM_HOME="$home_b" TZ=Australia/Eucla "$ROOT/bin/fm-branch-prompt.sh") \
+  out_b=$(cd / && FM_HOME="$home_b" TZ=Australia/Eucla bash "$ROOT/bin/fm-branch-prompt.sh") \
     || fail "branch prompt generator failed for home B"
   sleep 1
-  out_c=$("$ROOT/bin/fm-branch-prompt.sh") || fail "branch prompt generator failed on re-run"
+  out_c=$(bash "$ROOT/bin/fm-branch-prompt.sh") || fail "branch prompt generator failed on re-run"
 
   [ "$out_a" = "$out_b" ] || fail "branch prompt differs across homes/cwd/timezone: prefix stability broken"
   [ "$out_a" = "$out_c" ] || fail "branch prompt differs across runs at different times: prefix stability broken"
@@ -117,11 +117,11 @@ test_outcome_store_is_append_only_with_cursor_reads() {
   mkdir -p "$home/state"
   store="$home/state/branch-outcomes.jsonl"
 
-  seq1=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+  seq1=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-1 --verdict routine --summary 'worker healthy, "quoted" text kept' --wake 'signal: working') \
     || fail "first append failed"
   [ "$seq1" = 1 ] || fail "first outcome seq was $seq1, not 1"
-  seq2=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+  seq2=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-2 --verdict captain --summary 'PR https://example.com/pr/2 checks green') \
     || fail "second append failed"
   [ "$seq2" = 2 ] || fail "second outcome seq was $seq2, not 2"
@@ -138,8 +138,8 @@ PY
 
   # mark-read moves only the cursor sidecar; the log bytes never change.
   snapshot=$(cat "$store")
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" mark-read --through 1 || fail "mark-read failed"
-  unread=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" unread) || fail "unread failed"
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" mark-read --through 1 || fail "mark-read failed"
+  unread=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" unread) || fail "unread failed"
   case "$unread" in
     '{"seq":2,'*) ;;
     *) fail "unread did not return exactly the records above the cursor: $unread" ;;
@@ -148,17 +148,17 @@ PY
 
   # startup-replay must stop before an unread captain row. Only Pi's durable
   # visible entry may acknowledge it, so the cursor cannot skip past it.
-  replay=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" startup-replay) || fail "startup-replay failed"
+  replay=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" startup-replay) || fail "startup-replay failed"
   [ -z "$replay" ] || fail "startup-replay printed a captain row before Pi persisted its visible entry"
-  assert_contains "$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" unread)" \
+  assert_contains "$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" unread)" \
     "https://example.com/pr/2" "startup-replay advanced past an unrendered captain row"
   [ "$(cat "$home/state/.branch-outcomes-cursor")" = 1 ] \
     || fail "startup-replay moved the cursor across the captain row"
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" mark-read --through 2 \
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" mark-read --through 2 \
     || fail "synthetic Pi acknowledgement failed"
 
   # Later appends land strictly after the earlier bytes (append-only merge).
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-3 --verdict routine --summary 'later outcome' >/dev/null || fail "third append failed"
   case "$(cat "$store")" in
     "$snapshot"*) ;;
@@ -167,7 +167,7 @@ PY
 
   printf '{"seq":4,"epoch":' >> "$store"
   snapshot=$(cat "$store")
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-5 --verdict captain --summary 'must remain unrecorded' 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "append accepted a malformed outcome-store tail"
@@ -188,7 +188,7 @@ test_outcome_append_keeps_a_bounded_display_tail() {
   cursor=$(cat "$home/state/.branch-outcomes-cursor")
   [ ! -e "$tail" ] || fail "a display tail existed before any append"
 
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-206 --verdict captain --summary $'PR "ready"\nwith a second line' >/dev/null \
     || fail "append failed on a store with history"
   [ "$(wc -l < "$tail" | tr -d ' ')" = 200 ] || fail "the display tail is not bounded to the newest 200 rows"
@@ -208,7 +208,7 @@ test_outcome_tail_keeps_whole_newest_rows_within_its_byte_budget() {
   tail="$home/state/.branch-outcomes-tail.jsonl"
   jq -nc 'range(1; 6) | {seq: ., epoch: 100, task: "task-\(.)", wake: "", verdict: "routine", summary: ("x" * 307200), silent: false}' \
     > "$store"
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-6 --verdict captain --summary 'small newest' >/dev/null || fail "append failed on a store of large rows"
   [ "$(wc -c < "$tail" | tr -d ' ')" -le 1048576 ] || fail "the display tail exceeded its 1 MiB budget"
   first=$(head -n 1 "$tail" | jq -r .seq) || fail "the display tail's first row is not whole JSON"
@@ -217,7 +217,7 @@ test_outcome_tail_keeps_whole_newest_rows_within_its_byte_budget() {
   [ $(( $(wc -c < "$tail" | tr -d ' ') + before )) -gt 1048576 ] || fail "the display tail dropped a row that fit its budget"
 
   jq -nc '{seq: 7, epoch: 100, task: "task-7", wake: "", verdict: "routine", summary: ("y" * 1100000), silent: false}' >> "$store"
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-8 --verdict routine --summary 'after the oversized row' >/dev/null || fail "append failed after an oversized row"
   [ "$(jq -r .seq "$tail")" = 8 ] || fail "a row larger than the budget did not leave the display tail to the rows after it"
   pass "the display tail keeps only whole newest rows within its 1 MiB budget, never shortening one"
@@ -229,31 +229,31 @@ test_outcome_seed_tail_creates_only_an_absent_display_tail() {
   mkdir -p "$home/state"
   store="$home/state/branch-outcomes.jsonl"
   tail="$home/state/.branch-outcomes-tail.jsonl"
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" seed-tail || fail "seed-tail failed on an empty home"
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" seed-tail || fail "seed-tail failed on an empty home"
   [ ! -e "$tail" ] || fail "seed-tail created a display tail without a store"
 
   jq -nc 'range(1; 206) | {seq: ., epoch: 100, task: "task-\(.)", wake: "", verdict: (if . == 204 then "captain" else "routine" end), summary: "row \(.)", silent: false}' \
     > "$store"
   printf '205\n' > "$home/state/.branch-outcomes-cursor"
   printf '203\n' > "$home/state/.branch-outcomes-processed"
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" present >/dev/null || fail "present failed on a store that predates the tail"
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" present >/dev/null || fail "present failed on a store that predates the tail"
   [ ! -e "$tail" ] || fail "present seeded the display tail; seed-tail is its one seeding owner"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" seed-tail) || fail "seed-tail failed on a store that predates the tail"
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" seed-tail) || fail "seed-tail failed on a store that predates the tail"
   [ -z "$out" ] || fail "seed-tail printed output: $out"
   [ "$(cat "$tail")" = "$(tail -n 200 "$store")" ] || fail "seed-tail did not write the store's newest rows"
   [ "$(cat "$home/state/.branch-outcomes-cursor")" = 205 ] || fail "seeding the display tail moved the read cursor"
   [ "$(cat "$home/state/.branch-outcomes-processed")" = 203 ] || fail "seeding the display tail moved the processed marker"
 
   printf 'kept\n' > "$tail"
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" seed-tail || fail "seed-tail failed with a display tail"
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" seed-tail || fail "seed-tail failed with a display tail"
   [ "$(cat "$tail")" = kept ] || fail "seed-tail rewrote an existing display tail"
 
   printf 'not json\n' >> "$store"
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" seed-tail \
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" seed-tail \
     || fail "seed-tail parsed the store although a display tail already existed"
   [ "$(cat "$tail")" = kept ] || fail "seed-tail rewrote an existing display tail beside a malformed store"
   rm -f "$tail"
-  if FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" seed-tail 2>/dev/null; then
+  if FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" seed-tail 2>/dev/null; then
     fail "seed-tail accepted a malformed store"
   fi
   [ ! -e "$tail" ] || fail "seed-tail copied a malformed store"
@@ -276,7 +276,7 @@ with open(sys.argv[1], 'w') as f:
         f.write(json.dumps(dict(seq=seq, epoch=100, task='task-1', wake='',
                                 verdict='routine', summary='x' * 6000)) + '\n')
 PY
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" seed-tail \
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" seed-tail \
     || fail "seed-tail inspected old malformed history outside the bounded window"
   python3 - "$store" "$tail" <<'PY' || fail "seed-tail did not publish the exact byte- and row-bounded suffix"
 import sys
@@ -290,7 +290,7 @@ assert open(sys.argv[2], 'rb').read() == b''.join(kept)
 PY
   rm -f "$tail"
   printf '{"seq":252,"epoch":100,"task":"task-1","wake":"","verdict":"routine","summary":"ok"}\n' >> "$store"
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" seed-tail \
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" seed-tail \
     || fail "seed-tail failed on a new valid row past malformed old history"
   [ "$(tail -n 1 "$tail" | jq -r .seq)" = 252 ] || fail "seed-tail missed the latest row"
   pass "seed-tail validates and publishes only a bounded newest window, not old malformed history"
@@ -302,7 +302,7 @@ test_outcome_startup_replay_preserves_silence() {
   mkdir -p "$home/state"
   store="$home/state/branch-outcomes.jsonl"
 
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-a --verdict captain --summary 'blocked' --silent true 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "append accepted a silent captain outcome"
@@ -310,36 +310,36 @@ test_outcome_startup_replay_preserves_silence() {
   [ ! -e "$store" ] || fail "refused silent captain outcome changed the durable store"
 
   printf 'working: still building\n' > "$home/state/task-a.status"
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-a --verdict routine --summary 'worker still busy, nothing new, no action taken' --silent true >/dev/null \
     || fail "silent task-scoped routine append failed"
   [ -s "$home/state/.task-a.branch-outcome-index" ] \
     || fail "silent task outcome was omitted from the status-outcome backstop index"
   assert_contains "$(cat "$home/state/.task-a.branch-outcome-index")" \
     "$(printf 'fm-branch-outcome-index-v1\t1\t')" "status-outcome backstop index lost the silent task outcome"
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" append \
     --task fleet --verdict routine --summary 'fleet reviewed, nothing changed' --silent true >/dev/null \
     || fail "silent heartbeat append failed"
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-1 --verdict routine --summary 'worker recovered automatically' >/dev/null \
     || fail "visible outcome append failed"
 
-  replay=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" startup-replay) || fail "mixed startup replay failed"
+  replay=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" startup-replay) || fail "mixed startup replay failed"
   assert_not_contains "$replay" "fleet reviewed, nothing changed" "startup replay printed a silent heartbeat outcome"
   assert_not_contains "$replay" "worker still busy, nothing new, no action taken" "startup replay printed a silent task outcome"
   assert_contains "$replay" "worker recovered automatically" "startup replay lost a visible routine outcome"
-  [ -z "$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" unread)" ] \
+  [ -z "$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" unread)" ] \
     || fail "startup replay did not mark the silent and visible rows read"
 
   printf '%s\n' '{"seq":4,"epoch":1,"task":"task-legacy","wake":"","verdict":"routine","summary":"legacy visible outcome"}' \
     >> "$home/state/branch-outcomes.jsonl"
-  replay=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" startup-replay) || fail "legacy startup replay failed"
+  replay=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" startup-replay) || fail "legacy startup replay failed"
   assert_contains "$replay" "legacy visible outcome" "startup replay hid a legacy row with no silent field"
-  [ -z "$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" unread)" ] \
+  [ -z "$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" unread)" ] \
     || fail "startup replay did not mark the legacy row read"
 
   printf '%s\n' '{"seq":5,"epoch":1,"task":"task-bad","wake":"","verdict":"captain","summary":"poisoned","silent":true}' >> "$store"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" unread 2>&1)
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" unread 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "unread accepted a stored silent captain outcome"
   assert_contains "$out" "malformed or non-sequential" "stored silent captain refusal lost its diagnostic"
@@ -351,19 +351,19 @@ test_outcome_startup_replay_stops_at_captain_barrier() {
   home="$TMP_ROOT/store-captain-barrier-home"
   mkdir -p "$home/state"
 
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-1 --verdict routine --summary 'leading routine' >/dev/null || fail "leading append failed"
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-2 --verdict captain --summary 'captain must render in Pi' >/dev/null || fail "captain append failed"
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-3 --verdict routine --summary 'routine behind captain' >/dev/null || fail "trailing append failed"
 
-  replay=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" startup-replay) || fail "barrier replay failed"
+  replay=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" startup-replay) || fail "barrier replay failed"
   assert_contains "$replay" "leading routine" "startup replay lost the leading routine row"
   assert_not_contains "$replay" "captain must render in Pi" "startup replay rendered the captain row"
   assert_not_contains "$replay" "routine behind captain" "startup replay crossed the captain barrier"
   [ "$(cat "$home/state/.branch-outcomes-cursor")" = 1 ] || fail "cursor crossed the captain barrier"
-  unread=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" unread) || fail "barrier unread failed"
+  unread=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" unread) || fail "barrier unread failed"
   assert_contains "$unread" '"seq":2' "captain row did not remain unread"
   assert_contains "$unread" '"seq":3' "row behind captain did not remain unread"
   pass "startup replay cannot advance the cursor across an unrendered captain outcome"
@@ -375,17 +375,17 @@ test_outcome_cursor_corruption_fails_closed() {
   mkdir -p "$home/state"
   store="$home/state/branch-outcomes.jsonl"
 
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-1 --verdict captain --summary 'captain outcome must remain unread' >/dev/null \
     || fail "captain outcome append failed"
   snapshot=$(cat "$store")
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" mark-read --through 01 2>&1)
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" mark-read --through 01 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "mark-read accepted a noncanonical sequence"
   [ ! -e "$home/state/.branch-outcomes-cursor" ] || fail "noncanonical mark-read created a malformed cursor"
 
   printf '1x2\n' > "$home/state/.branch-outcomes-cursor"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" unread 2>&1)
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" unread 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "unread accepted a malformed cursor and skipped an outcome"
   assert_contains "$out" "outcome cursor is malformed" "malformed cursor refusal lost its diagnostic"
@@ -393,22 +393,22 @@ test_outcome_cursor_corruption_fails_closed() {
   [ "$(cat "$store")" = "$snapshot" ] || fail "failed unread changed the append-only outcome store"
 
   printf '999999999999999999999999999999999\n' > "$home/state/.branch-outcomes-cursor"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" unread 2>&1)
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" unread 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "unread accepted an out-of-range cursor"
   assert_contains "$out" "outcome cursor is out of range" "out-of-range cursor refusal lost its diagnostic"
 
   printf '2\n' > "$home/state/.branch-outcomes-cursor"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" unread 2>&1)
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" unread 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "unread accepted a cursor beyond the outcome-store tail"
   assert_contains "$out" "cursor is ahead of the store" "ahead-of-store refusal lost its diagnostic"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" mark-read --through 1 2>&1)
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" mark-read --through 1 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "mark-read accepted an existing cursor beyond the store"
   assert_contains "$out" "cursor is ahead of the store" "mark-read ahead-cursor refusal lost its diagnostic"
   [ "$(cat "$home/state/.branch-outcomes-cursor")" = 2 ] || fail "refused mark-read changed the ahead cursor"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-2 --verdict captain --summary 'must not remain hidden behind the cursor' 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "append accepted a cursor beyond the outcome-store tail"
@@ -424,23 +424,23 @@ test_cursor_advancement_refuses_ahead_processed_marker() {
   cursor="$home/state/.branch-outcomes-cursor"
   marker="$home/state/.branch-outcomes-processed"
 
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-1 --verdict routine --summary 'already read' >/dev/null || fail "first routine append failed"
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-2 --verdict routine --summary 'replayable second' >/dev/null || fail "second routine append failed"
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-3 --verdict routine --summary 'replayable third' >/dev/null || fail "third routine append failed"
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" mark-read --through 1 || fail "fixture mark-read failed"
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" mark-read --through 1 || fail "fixture mark-read failed"
   printf '3\n' > "$marker"
 
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" mark-read --through 3 2>&1)
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" mark-read --through 3 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "mark-read legitimized an ahead processed marker"
   assert_contains "$out" "processed marker is ahead of the read cursor" "mark-read ahead-marker refusal lost its diagnostic"
   [ "$(cat "$cursor")" = 1 ] || fail "refused mark-read advanced the cursor"
   [ "$(cat "$marker")" = 3 ] || fail "refused mark-read changed the processed marker"
 
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" startup-replay 2>&1)
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" startup-replay 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "startup replay legitimized an ahead processed marker"
   assert_contains "$out" "processed marker is ahead of the read cursor" "startup replay ahead-marker refusal lost its diagnostic"
@@ -461,16 +461,16 @@ test_outcome_sequence_conflicts_fail_closed() {
     > "$store"
   snapshot=$(cat "$store")
 
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" unread 2>&1)
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" unread 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "unread skipped over a conflicting middle sequence"
   assert_contains "$out" "malformed or non-sequential" "sequence-conflict read refusal lost its diagnostic"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-4 --verdict routine --summary 'must remain unrecorded' 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "append continued after a conflicting middle sequence"
   assert_contains "$out" "malformed or non-sequential" "sequence-conflict append refusal lost its diagnostic"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" list --recent 2 2>&1)
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" list --recent 2 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "list exposed rows from a conflicting outcome store"
   assert_contains "$out" "malformed or non-sequential" "sequence-conflict list refusal lost its diagnostic"
@@ -482,21 +482,21 @@ test_outcome_lookup_returns_exact_sequences_and_refuses_missing_rows() {
   local home out status selected
   home="$TMP_ROOT/store-exact-lookup-home"
   mkdir -p "$home/state"
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-1 --verdict routine --summary first >/dev/null || fail "lookup fixture append 1 failed"
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-2 --verdict routine --summary second --silent true >/dev/null || fail "lookup fixture append 2 failed"
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-3 --verdict captain --summary third >/dev/null || fail "lookup fixture append 3 failed"
 
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" lookup --seqs 3,1) \
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" lookup --seqs 3,1) \
     || fail "lookup refused existing sequences 3 and 1"
   selected=$(printf '%s\n' "$out" | jq -sr '[.[].seq] | join(",")')
   [ "$selected" = "3,1" ] || fail "lookup changed requested sequence order: $selected"
   assert_contains "$out" '"task":"task-1"' "lookup omitted the first requested row"
   assert_contains "$out" '"task":"task-3"' "lookup omitted the second requested row"
 
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" lookup --seqs 1,4 2>&1)
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" lookup --seqs 1,4 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "lookup accepted a missing sequence"
   assert_contains "$out" "requested outcome sequences are missing" "missing-row lookup lost its diagnostic"
@@ -515,11 +515,11 @@ test_outcome_non_jsonl_layout_fails_closed() {
     '}' > "$store"
   snapshot=$(cat "$store")
 
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" list 2>&1)
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" list 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "list accepted a multi-line outcome record"
   assert_contains "$out" "malformed or non-sequential" "multi-line record refusal lost its diagnostic"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-2 --verdict routine --summary 'must remain unrecorded' 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "append extended a store containing a multi-line record"
@@ -530,14 +530,14 @@ test_outcome_non_jsonl_layout_fails_closed() {
     '' \
     '{"seq":2,"epoch":2,"task":"task-2","wake":"","verdict":"captain","summary":"second","silent":false}' \
     > "$store"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" unread 2>&1)
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" unread 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "unread accepted a blank physical record"
   assert_contains "$out" "malformed or non-sequential" "blank-record refusal lost its diagnostic"
 
   printf '%s' '{"seq":1,"epoch":1,"task":"task-1","wake":"","verdict":"routine","summary":"unterminated","silent":false}' > "$store"
   snapshot=$(cat "$store")
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-2 --verdict captain --summary 'must remain unrecorded' 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "append accepted an unterminated outcome store"
@@ -554,20 +554,20 @@ test_outcome_present_reads_without_advancing() {
   local home out
   home="$TMP_ROOT/store-present-home"
   mkdir -p "$home/state"
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-1 --verdict routine --summary 'routine first' >/dev/null || fail "routine append failed"
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-2 --verdict captain --summary 'captain second' >/dev/null || fail "captain append failed"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" present) || fail "present failed"
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" present) || fail "present failed"
   [ "$(printf '%s\n' "$out" | jq -r '"\(.seq):\(.unread)"' | tr '\n' ' ')" = "1:true 2:true " ] \
     || fail "present did not print both unread rows: $out"
   assert_absent "$home/state/.branch-outcomes-cursor" "present must not move the read cursor"
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" mark-read --through 2 || fail "the presented rows could not be marked read"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" present) || fail "second present failed"
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" mark-read --through 2 || fail "the presented rows could not be marked read"
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" present) || fail "second present failed"
   [ "$(printf '%s\n' "$out" | jq -r '"\(.seq):\(.unread)"' | tr '\n' ' ')" = "2:false " ] \
     || fail "a second present must repeat only the unprocessed captain row: $out"
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" mark-processed --through 2 || fail "the presented captain row could not be acknowledged"
-  [ -z "$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" present)" ] || fail "an acknowledged store still presented rows"
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" mark-processed --through 2 || fail "the presented captain row could not be acknowledged"
+  [ -z "$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" present)" ] || fail "an acknowledged store still presented rows"
   pass "outcome store: present shows each routine row once and each captain row until it is acknowledged"
 }
 
@@ -591,11 +591,11 @@ test_outcome_rows_carry_their_recorded_age() {
   printf '{"seq":7,"epoch":%s,"task":"task-7","wake":"","verdict":"routine","summary":"row 7","silent":false}\n' \
     "$((now - 86400))" >> "$store"
   snapshot=$(cat "$store")
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" present) || fail "present failed"
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" present) || fail "present failed"
   [ "$(printf '%s\n' "$out" | jq -r '.recordedAgo // "none"' | tr '\n' ' ')" = "0m 2m 1h 47h 2d 6d none " ] \
     || fail "present did not name each captain row's recorded age, and only theirs: $out"
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" mark-read --through 7 || fail "mark-read failed"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" unprocessed) || fail "unprocessed failed"
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" mark-read --through 7 || fail "mark-read failed"
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" unprocessed) || fail "unprocessed failed"
   [ "$(printf '%s\n' "$out" | jq -r '"\(.seq):\(.recordedAgo)"' | tr '\n' ' ')" = "1:0m 2:2m 3:1h 4:47h 5:2d 6:6d " ] \
     || fail "unprocessed did not name each row's recorded age: $out"
   [ "$(cat "$store")" = "$snapshot" ] || fail "reading the age changed the store"
@@ -608,18 +608,18 @@ test_outcome_processed_marker_is_sequence_bound() {
   mkdir -p "$home/state"
   marker="$home/state/.branch-outcomes-processed"
 
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-1 --verdict routine --summary 'routine first' >/dev/null || fail "routine append failed"
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-2 --verdict captain --summary 'captain second' >/dev/null || fail "captain append failed"
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-3 --verdict captain --summary 'captain third' >/dev/null || fail "second captain append failed"
 
   # Nothing is unprocessed until it has been read (its visible entry exists).
-  [ -z "$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" unprocessed)" ] \
+  [ -z "$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" unprocessed)" ] \
     || fail "an unread captain row was reported as unprocessed"
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" mark-read --through 2 || fail "mark-read failed"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" unprocessed) || fail "unprocessed failed"
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" mark-read --through 2 || fail "mark-read failed"
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" unprocessed) || fail "unprocessed failed"
   case "$out" in
     '{"seq":2,'*) ;;
     *) fail "unprocessed did not return exactly the read captain rows: $out" ;;
@@ -627,29 +627,29 @@ test_outcome_processed_marker_is_sequence_bound() {
   assert_not_contains "$out" '"seq":1' "a routine row entered the processing path"
 
   # The marker advances only to a read, currently unprocessed captain row.
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" mark-processed --through 3 2>&1)
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" mark-processed --through 3 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "mark-processed advanced past the read cursor"
   assert_contains "$out" "beyond the read cursor" "past-cursor refusal lost its diagnostic"
   [ ! -e "$marker" ] || fail "a refused acknowledgement created the processed marker"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" mark-processed --through 1 2>&1)
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" mark-processed --through 1 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "mark-processed accepted a routine sequence"
   assert_contains "$out" "not an unprocessed captain outcome" "routine-sequence refusal lost its diagnostic"
   [ ! -e "$marker" ] || fail "a routine-sequence acknowledgement created the processed marker"
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" mark-processed --through 2 || fail "mark-processed failed"
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" mark-processed --through 2 || fail "mark-processed failed"
   [ "$(cat "$marker")" = 2 ] || fail "processed marker was not written"
-  [ -z "$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" unprocessed)" ] \
+  [ -z "$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" unprocessed)" ] \
     || fail "an acknowledged row stayed unprocessed"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" mark-processed --through 1 2>&1)
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" mark-processed --through 1 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "mark-processed accepted an already-processed sequence"
   assert_contains "$out" "already processed" "already-processed refusal lost its diagnostic"
   [ "$(cat "$marker")" = 2 ] || fail "refused backwards acknowledgement moved the processed marker"
 
   # Reading the next captain row reopens exactly that row for processing.
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" mark-read --through 3 || fail "second mark-read failed"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" unprocessed) || fail "second unprocessed failed"
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" mark-read --through 3 || fail "second mark-read failed"
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" unprocessed) || fail "second unprocessed failed"
   case "$out" in
     '{"seq":3,'*) ;;
     *) fail "the newly read captain row was not the only unprocessed row: $out" ;;
@@ -657,25 +657,25 @@ test_outcome_processed_marker_is_sequence_bound() {
 
   # processed-init leaves a present marker alone and fails closed on a
   # malformed one instead of skipping an outcome.
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" processed-init || fail "processed-init failed on a present marker"
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" processed-init || fail "processed-init failed on a present marker"
   [ "$(cat "$marker")" = 2 ] || fail "processed-init rewrote a present marker"
   printf '2x\n' > "$marker"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" unprocessed 2>&1)
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" unprocessed 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "unprocessed accepted a malformed processed marker"
   assert_contains "$out" "processed marker is malformed" "malformed marker refusal lost its diagnostic"
   printf '5\n' > "$marker"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" unprocessed 2>&1)
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" unprocessed 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "unprocessed accepted a marker ahead of the read cursor"
   assert_contains "$out" "ahead of the read cursor" "ahead-of-cursor refusal lost its diagnostic"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" processed-init 2>&1)
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" processed-init 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "processed-init accepted a marker ahead of the read cursor"
   assert_contains "$out" "ahead of the read cursor" "processed-init ahead-marker refusal lost its diagnostic"
   [ "$(cat "$marker")" = 5 ] || fail "refused processed-init rewrote the ahead marker"
   printf '999999999999999999999999999999999\n' > "$marker"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" unprocessed 2>&1)
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" unprocessed 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "unprocessed accepted an out-of-range processed marker"
   assert_contains "$out" "processed marker is out of range" "out-of-range marker refusal lost its diagnostic"
@@ -687,14 +687,14 @@ test_outcome_processed_marker_is_sequence_bound() {
   # absent marker keeps reading as zero, the safe direction.
   home="$TMP_ROOT/store-processed-migration-home"
   mkdir -p "$home/state"
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-old --verdict captain --summary 'delivered before the marker existed' >/dev/null || fail "migration append failed"
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" mark-read --through 1 || fail "migration mark-read failed"
-  assert_contains "$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" unprocessed)" '"seq":1' \
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" mark-read --through 1 || fail "migration mark-read failed"
+  assert_contains "$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" unprocessed)" '"seq":1' \
     "an absent marker hid a delivered captain row instead of reading as zero"
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" processed-init || fail "migration processed-init failed"
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" processed-init || fail "migration processed-init failed"
   [ ! -e "$home/state/.branch-outcomes-processed" ] || fail "processed-init created the marker from the read cursor"
-  assert_contains "$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" unprocessed)" '"seq":1' \
+  assert_contains "$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" unprocessed)" '"seq":1' \
     "processed-init adopted a delivered but unacknowledged captain row as processed"
   pass "the processed marker is sequence-bound, never ahead of the read cursor, never backwards, and never adopts delivered history"
 }
@@ -709,41 +709,41 @@ test_lease_exclusivity_release_stale_and_sweep() {
   printf '%s\n' "$$" > "$home/state/.lock"
 
   # Claim, exclusivity, same-actor refresh.
-  FM_HOME="$home" FM_SUPERVISION_ACTOR=branch FM_LEASE_HOLDER_PID=$$ "$ROOT/bin/fm-lease.sh" claim task-1 --actor branch \
+  FM_HOME="$home" FM_SUPERVISION_ACTOR=branch FM_LEASE_HOLDER_PID=$$ bash "$ROOT/bin/fm-lease.sh" claim task-1 --actor branch \
     || fail "branch claim failed"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-lease.sh" check task-1) || fail "check missed a held lease"
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-lease.sh" check task-1) || fail "check missed a held lease"
   case "$out" in
     "branch $$ "*" live") ;;
     *) fail "check misreported the lease: $out" ;;
   esac
-  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=main FM_LEASE_HOLDER_PID=$$ "$ROOT/bin/fm-lease.sh" claim task-1 2>&1)
+  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=main FM_LEASE_HOLDER_PID=$$ bash "$ROOT/bin/fm-lease.sh" claim task-1 2>&1)
   status=$?
   [ "$status" -eq 6 ] || fail "cross-actor claim exited $status, not the lease refusal 6"
   assert_contains "$out" "leased to the branch supervision actor" "refusal did not name the holder"
-  FM_HOME="$home" FM_SUPERVISION_ACTOR=branch FM_LEASE_HOLDER_PID=$$ "$ROOT/bin/fm-lease.sh" claim task-1 \
+  FM_HOME="$home" FM_SUPERVISION_ACTOR=branch FM_LEASE_HOLDER_PID=$$ bash "$ROOT/bin/fm-lease.sh" claim task-1 \
     || fail "same-actor refresh was refused"
 
   # Release by the calling holder; release of an unheld lease stays a silent no-op.
-  FM_HOME="$home" FM_SUPERVISION_ACTOR=branch "$ROOT/bin/fm-lease.sh" release task-1 --actor branch || fail "release failed"
-  FM_HOME="$home" "$ROOT/bin/fm-lease.sh" check task-1 >/dev/null && fail "released lease still reported"
-  FM_HOME="$home" FM_SUPERVISION_ACTOR=branch "$ROOT/bin/fm-lease.sh" release task-1 --actor branch || fail "idempotent release failed"
+  FM_HOME="$home" FM_SUPERVISION_ACTOR=branch bash "$ROOT/bin/fm-lease.sh" release task-1 --actor branch || fail "release failed"
+  FM_HOME="$home" bash "$ROOT/bin/fm-lease.sh" check task-1 >/dev/null && fail "released lease still reported"
+  FM_HOME="$home" FM_SUPERVISION_ACTOR=branch bash "$ROOT/bin/fm-lease.sh" release task-1 --actor branch || fail "idempotent release failed"
 
   # A lease held by a dead process is stale: claimable by the other actor and
   # removed by the sweep, while a live lease survives the sweep.
   printf 'branch\t999999\t123\n' > "$home/state/.lease-task-dead"
-  FM_HOME="$home" FM_SUPERVISION_ACTOR=main FM_LEASE_HOLDER_PID=$$ "$ROOT/bin/fm-lease.sh" claim task-dead \
+  FM_HOME="$home" FM_SUPERVISION_ACTOR=main FM_LEASE_HOLDER_PID=$$ bash "$ROOT/bin/fm-lease.sh" claim task-dead \
     || fail "stale lease blocked a live claim"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-lease.sh" check task-dead)
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-lease.sh" check task-dead)
   case "$out" in "main $$ "*) ;; *) fail "stale lease was not taken over: $out" ;; esac
   printf 'branch\t999999\t123\n' > "$home/state/.lease-task-dead2"
-  FM_HOME="$home" "$ROOT/bin/fm-lease.sh" sweep || fail "sweep failed"
+  FM_HOME="$home" bash "$ROOT/bin/fm-lease.sh" sweep || fail "sweep failed"
   [ ! -e "$home/state/.lease-task-dead2" ] || fail "sweep left a provably stale lease"
   [ -e "$home/state/.lease-task-dead" ] || fail "sweep removed a live lease"
 
   # The reserved backlog resource claims like any task.
-  FM_HOME="$home" FM_SUPERVISION_ACTOR=branch FM_LEASE_HOLDER_PID=$$ "$ROOT/bin/fm-lease.sh" claim backlog --actor branch \
+  FM_HOME="$home" FM_SUPERVISION_ACTOR=branch FM_LEASE_HOLDER_PID=$$ bash "$ROOT/bin/fm-lease.sh" claim backlog --actor branch \
     || fail "backlog lease claim failed"
-  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=main FM_LEASE_HOLDER_PID=$$ "$ROOT/bin/fm-lease.sh" claim backlog 2>&1)
+  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=main FM_LEASE_HOLDER_PID=$$ bash "$ROOT/bin/fm-lease.sh" claim backlog 2>&1)
   [ $? -eq 6 ] || fail "backlog lease did not enforce exclusivity"
   pass "lease exclusivity, same-actor refresh, release, staleness, and sweep hold"
 }
@@ -760,32 +760,32 @@ test_mutating_scripts_refuse_the_other_actors_lease() {
   git init -q -b main "$root"
   git -C "$root" commit -q --allow-empty -m init
   ln -s "$ROOT/bin" "$root/bin"
-  FM_HOME="$home" FM_SUPERVISION_ACTOR=branch FM_LEASE_HOLDER_PID=$$ "$ROOT/bin/fm-lease.sh" claim task-held --actor branch \
+  FM_HOME="$home" FM_SUPERVISION_ACTOR=branch FM_LEASE_HOLDER_PID=$$ bash "$ROOT/bin/fm-lease.sh" claim task-held --actor branch \
     || fail "fixture lease claim failed"
 
   # fm-control: refused while the branch holds the lease; the ordinary no-task
   # error (a different failure) proves pass-through once the lease is gone.
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-control.sh" task-held interrupt 2>&1)
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-control.sh" task-held interrupt 2>&1)
   status=$?
   [ "$status" -eq 6 ] || fail "leased fm-control exited $status, not 6: $out"
   assert_contains "$out" "leased to the branch supervision actor" "fm-control refusal lost the holder"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-control.sh" task-unheld interrupt 2>&1)
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-control.sh" task-unheld interrupt 2>&1)
   status=$?
   [ "$status" -ne 6 ] || fail "unleased fm-control still hit the lease refusal"
   assert_contains "$out" "no task 'task-unheld'" "unleased fm-control lost its ordinary error"
 
   # fm-teardown: same refusal shape before any teardown work.
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-teardown.sh" task-held 2>&1)
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-teardown.sh" task-held 2>&1)
   status=$?
   [ "$status" -eq 6 ] || fail "leased fm-teardown exited $status, not 6: $out"
   assert_contains "$out" "teardown (fm-teardown) refused" "fm-teardown refusal lost its action label"
 
   # The same lease refuses the BRANCH actor when MAIN holds it - the guard is
   # symmetric, not a branch-only fence.
-  FM_HOME="$home" FM_SUPERVISION_ACTOR=branch "$ROOT/bin/fm-lease.sh" release task-held --actor branch
-  FM_HOME="$home" FM_LEASE_HOLDER_PID=$$ "$ROOT/bin/fm-lease.sh" claim task-held --actor main \
+  FM_HOME="$home" FM_SUPERVISION_ACTOR=branch bash "$ROOT/bin/fm-lease.sh" release task-held --actor branch
+  FM_HOME="$home" FM_LEASE_HOLDER_PID=$$ bash "$ROOT/bin/fm-lease.sh" claim task-held --actor main \
     || fail "main fixture claim failed"
-  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=branch "$ROOT/bin/fm-control.sh" task-held interrupt 2>&1)
+  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=branch bash "$ROOT/bin/fm-control.sh" task-held interrupt 2>&1)
   status=$?
   [ "$status" -eq 6 ] || fail "branch actor bypassed main's lease: $status: $out"
   assert_contains "$out" "leased to the main supervision actor" "symmetric refusal lost the holder"
@@ -801,24 +801,24 @@ test_main_owned_actions_refuse_the_branch_actor() {
   git -C "$root" commit -q --allow-empty -m init
   ln -s "$ROOT/bin" "$root/bin"
 
-  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=branch "$ROOT/bin/fm-pr-merge.sh" task-x https://github.com/o/r/pull/1 2>&1)
+  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=branch bash "$ROOT/bin/fm-pr-merge.sh" task-x https://github.com/o/r/pull/1 2>&1)
   status=$?
   [ "$status" -eq 6 ] || fail "branch fm-pr-merge exited $status, not 6: $out"
   assert_contains "$out" "the supervision branch never performs this action" "pr-merge refusal lost the partition wording"
 
-  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=branch "$ROOT/bin/fm-merge-local.sh" task-x 2>&1)
+  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=branch bash "$ROOT/bin/fm-merge-local.sh" task-x 2>&1)
   status=$?
   [ "$status" -eq 6 ] || fail "branch fm-merge-local exited $status, not 6: $out"
 
   out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" FM_SUPERVISION_ACTOR=branch \
-    "$ROOT/bin/fm-spawn.sh" task-new --mode no-mistakes --yolo off 2>&1)
+    bash "$ROOT/bin/fm-spawn.sh" task-new --mode no-mistakes --yolo off 2>&1)
   status=$?
   [ "$status" -eq 6 ] || fail "branch fm-spawn exited $status, not 6: $out"
   assert_contains "$out" "new-task spawn (fm-spawn) refused" "spawn refusal lost its action label"
 
   # The same calls as MAIN fail on their ORDINARY validation instead - the
   # partition guard never fires for the main actor.
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-merge-local.sh" task-x 2>&1)
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-merge-local.sh" task-x 2>&1)
   status=$?
   [ "$status" -ne 6 ] || fail "main fm-merge-local hit the partition refusal"
   assert_contains "$out" "no meta for task task-x" "main fm-merge-local lost its ordinary error"
@@ -833,11 +833,11 @@ test_home_without_branch_is_untouched() {
   # No lease files, no actor variable: the guard layer must be invisible - the
   # scripts fail (or succeed) exactly on their pre-existing logic, and nothing
   # branch-related appears in state/.
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-control.sh" task-any interrupt 2>&1)
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-control.sh" task-any interrupt 2>&1)
   status=$?
   [ "$status" -ne 6 ] || fail "no-branch home hit a lease refusal in fm-control"
   assert_contains "$out" "no task 'task-any'" "no-branch fm-control lost its ordinary error"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-pr-merge.sh" 2>&1)
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-pr-merge.sh" 2>&1)
   status=$?
   [ "$status" -eq 2 ] || fail "no-branch fm-pr-merge usage error changed: $status: $out"
   [ -z "$(find "$home/state" -name '.lease-*' -o -name 'branch-outcomes*' -o -name '.branch-*' 2>/dev/null)" ] \
@@ -894,27 +894,27 @@ test_unmarked_main_honors_a_live_branch_lease() {
   chmod +x "$fakebin/tmux"
 
   env -u PI_CODING_AGENT FM_HOME="$home" FM_SUPERVISION_ACTOR=branch FM_LEASE_HOLDER_PID=$$ \
-    "$ROOT/bin/fm-lease.sh" claim task-held --actor branch || fail "the branch process could not claim its lease"
+    bash "$ROOT/bin/fm-lease.sh" claim task-held --actor branch || fail "the branch process could not claim its lease"
   lease_before=$(cat "$home/state/.lease-task-held")
 
   out=$(env -u PI_CODING_AGENT -u FM_SUPERVISION_ACTOR CLAUDECODE=1 FM_HOME="$home" \
-    "$ROOT/bin/fm-lease.sh" check task-held) || fail "an unmarked main could not see the branch lease"
+    bash "$ROOT/bin/fm-lease.sh" check task-held) || fail "an unmarked main could not see the branch lease"
   case "$out" in
     "branch $$ "*" live") ;;
     *) fail "an unmarked main read the live branch lease as: $out" ;;
   esac
 
   out=$(env -u PI_CODING_AGENT -u FM_SUPERVISION_ACTOR CLAUDECODE=1 FM_HOME="$home" FM_LEASE_HOLDER_PID=$$ \
-    "$ROOT/bin/fm-lease.sh" claim task-held 2>&1)
+    bash "$ROOT/bin/fm-lease.sh" claim task-held 2>&1)
   status=$?
   [ "$status" -eq 6 ] || fail "an unmarked main claim over the live branch lease exited $status, not 6: $out"
   env -u PI_CODING_AGENT -u FM_SUPERVISION_ACTOR CLAUDECODE=1 FM_HOME="$home" \
-    "$ROOT/bin/fm-lease.sh" sweep || fail "sweep from an unmarked main failed"
+    bash "$ROOT/bin/fm-lease.sh" sweep || fail "sweep from an unmarked main failed"
   [ "$(cat "$home/state/.lease-task-held")" = "$lease_before" ] \
     || fail "an unmarked main overwrote or swept the live branch lease"
 
   out=$(env -u PI_CODING_AGENT -u FM_SUPERVISION_ACTOR CLAUDECODE=1 FM_HOME="$home" PATH="$fakebin:$PATH" \
-    "$ROOT/bin/fm-send.sh" fm-task-held "steer while leased" 2>&1)
+    bash "$ROOT/bin/fm-send.sh" fm-task-held "steer while leased" 2>&1)
   status=$?
   [ "$status" -eq 6 ] || fail "an unmarked main steer through the live branch lease exited $status, not 6: $out"
   assert_contains "$out" "steer (fm-send) refused" "the fm-send refusal lost its action label"
@@ -923,29 +923,29 @@ test_unmarked_main_honors_a_live_branch_lease() {
     || fail "the refused steer still wrote an inbox record"
 
   out=$(env -u PI_CODING_AGENT -u FM_SUPERVISION_ACTOR CLAUDECODE=1 FM_HOME="$home" PATH="$fakebin:$PATH" \
-    "$ROOT/bin/fm-control.sh" task-held interrupt 2>&1)
+    bash "$ROOT/bin/fm-control.sh" task-held interrupt 2>&1)
   status=$?
   [ "$status" -eq 6 ] || fail "an unmarked main fm-control exited $status, not 6: $out"
   assert_contains "$out" "leased to the branch supervision actor" "the fm-control refusal lost the holder"
   out=$(env -u PI_CODING_AGENT -u FM_SUPERVISION_ACTOR CLAUDECODE=1 FM_HOME="$home" PATH="$fakebin:$PATH" \
-    "$ROOT/bin/fm-teardown.sh" task-held 2>&1)
+    bash "$ROOT/bin/fm-teardown.sh" task-held 2>&1)
   status=$?
   [ "$status" -eq 6 ] || fail "an unmarked main fm-teardown exited $status, not 6: $out"
   [ -e "$home/state/task-held.meta" ] || fail "the refused teardown still removed the task record"
 
   # Once the branch releases, the same unmarked main proceeds.
   env -u PI_CODING_AGENT FM_HOME="$home" FM_SUPERVISION_ACTOR=branch \
-    "$ROOT/bin/fm-lease.sh" release task-held --actor branch || fail "branch release failed"
+    bash "$ROOT/bin/fm-lease.sh" release task-held --actor branch || fail "branch release failed"
   env -u PI_CODING_AGENT -u FM_SUPERVISION_ACTOR CLAUDECODE=1 FM_HOME="$home" FM_LEASE_HOLDER_PID=$$ \
-    "$ROOT/bin/fm-lease.sh" claim task-held || fail "an unmarked main could not claim after the branch released"
+    bash "$ROOT/bin/fm-lease.sh" claim task-held || fail "an unmarked main could not claim after the branch released"
 
   # A new session owning the lock makes the old session's lease stale for the
   # unmarked main too, and its guard clears it.
   env -u PI_CODING_AGENT FM_HOME="$home" FM_SUPERVISION_ACTOR=branch FM_LEASE_HOLDER_PID=$$ \
-    "$ROOT/bin/fm-lease.sh" claim task-old --actor branch || fail "branch claim for the old session failed"
+    bash "$ROOT/bin/fm-lease.sh" claim task-old --actor branch || fail "branch claim for the old session failed"
   printf '%s\n' "$PPID" > "$home/state/.lock"
   out=$(env -u PI_CODING_AGENT -u FM_SUPERVISION_ACTOR CLAUDECODE=1 FM_HOME="$home" \
-    "$ROOT/bin/fm-lease.sh" check task-old) || fail "check missed the old session's lease"
+    bash "$ROOT/bin/fm-lease.sh" check task-old) || fail "check missed the old session's lease"
   case "$out" in
     *" stale") ;;
     *) fail "a lease from a session that no longer holds the lock read as: $out" ;;
@@ -980,7 +980,7 @@ test_unmarked_guard_with_a_lease_file_holds_exclusivity_through_mutation() {
   [ ! -e "$home/state/.lease-task-race" ] || fail "the unmarked guard kept the dead session's lease"
 
   env -u PI_CODING_AGENT FM_HOME="$home" FM_SUPERVISION_ACTOR=branch FM_LEASE_HOLDER_PID=$$ \
-    "$ROOT/bin/fm-lease.sh" claim task-race --actor branch >/dev/null 2>&1 &
+    bash "$ROOT/bin/fm-lease.sh" claim task-race --actor branch >/dev/null 2>&1 &
   claim_pid=$!
   sleep 0.2
   kill -0 "$claim_pid" 2>/dev/null \
@@ -1048,7 +1048,7 @@ test_host_home_unmarked_guard_excludes_the_first_claim() {
   [ ! -e "$home/state/.lease-task-first" ] || fail "the guard created a lease for an unleased task"
 
   env -u PI_CODING_AGENT FM_HOME="$home" FM_SUPERVISION_ACTOR=branch FM_LEASE_HOLDER_PID=$$ \
-    "$ROOT/bin/fm-lease.sh" claim task-first --actor branch >/dev/null 2>&1 &
+    bash "$ROOT/bin/fm-lease.sh" claim task-first --actor branch >/dev/null 2>&1 &
   claim_pid=$!
   sleep 0.2
   kill -0 "$claim_pid" 2>/dev/null \
@@ -1060,7 +1060,7 @@ test_host_home_unmarked_guard_excludes_the_first_claim() {
   wait "$operation_pid" || fail "host-home guarded mutation fixture failed"
   wait "$claim_pid"; claim_status=$?
   [ "$claim_status" -eq 0 ] || fail "the first claim did not proceed after main's guarded mutation ended: $claim_status"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-lease.sh" check task-first) || fail "the first claim left no lease"
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-lease.sh" check task-first) || fail "the first claim left no lease"
   case "$out" in
     "branch $$ "*" live") ;;
     *) fail "the first claim recorded: $out" ;;
@@ -1082,30 +1082,30 @@ test_lease_liveness_binds_to_the_session_lock() {
   printf '%s\n' "$$" > "$home/state/.lock.other"
   printf 'branch\t%s\t123\n' "$PPID" > "$home/state/.lease-task-reused"
   printf '%s\n' "$$" > "$home/state/.lock"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-lease.sh" check task-reused) || fail "check missed the leftover lease"
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-lease.sh" check task-reused) || fail "check missed the leftover lease"
   case "$out" in
     *" stale") ;;
     *) fail "an alive non-lock-holder pid read as live: $out" ;;
   esac
-  FM_HOME="$home" "$ROOT/bin/fm-lease.sh" sweep || fail "sweep failed"
+  FM_HOME="$home" bash "$ROOT/bin/fm-lease.sh" sweep || fail "sweep failed"
   [ ! -e "$home/state/.lease-task-reused" ] || fail "sweep kept a lease whose pid is not the lock holder"
 
   # The same pid IS live while the lock names it.
-  FM_HOME="$home" FM_LEASE_HOLDER_PID=$$ "$ROOT/bin/fm-lease.sh" claim task-current --actor main \
+  FM_HOME="$home" FM_LEASE_HOLDER_PID=$$ bash "$ROOT/bin/fm-lease.sh" claim task-current --actor main \
     || fail "claim under the current lock holder failed"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-lease.sh" check task-current)
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-lease.sh" check task-current)
   case "$out" in
     "main $$ "*" live") ;;
     *) fail "the current lock holder's lease did not read live: $out" ;;
   esac
 
   printf '%sjunk\n' "$$" > "$home/state/.lock"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-lease.sh" check task-current) || fail "check missed the lease under a malformed lock"
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-lease.sh" check task-current) || fail "check missed the lease under a malformed lock"
   case "$out" in
     *" stale") ;;
     *) fail "a malformed lock proved lease liveness: $out" ;;
   esac
-  FM_HOME="$home" "$ROOT/bin/fm-lease.sh" sweep || fail "sweep under malformed lock failed"
+  FM_HOME="$home" bash "$ROOT/bin/fm-lease.sh" sweep || fail "sweep under malformed lock failed"
   [ ! -e "$home/state/.lease-task-current" ] || fail "sweep kept a lease proven only by a malformed lock"
   pass "lease liveness requires an exact valid session-lock pid"
 }
@@ -1119,24 +1119,24 @@ test_claim_with_a_holder_pinned_before_a_reanchor_records_the_lock_holder() {
   # The branch turn pinned $PPID, then a same-session re-anchor moved line 1 to
   # $$ while $PPID stayed alive: a new claim and a refresh record line 1.
   printf '%s\n' "$$" > "$home/state/.lock"
-  FM_HOME="$home" FM_SUPERVISION_ACTOR=branch FM_LEASE_HOLDER_PID=$PPID "$ROOT/bin/fm-lease.sh" claim task-1 --actor branch \
+  FM_HOME="$home" FM_SUPERVISION_ACTOR=branch FM_LEASE_HOLDER_PID=$PPID bash "$ROOT/bin/fm-lease.sh" claim task-1 --actor branch \
     || fail "branch claim with the pinned pre-re-anchor holder failed"
-  FM_HOME="$home" FM_SUPERVISION_ACTOR=branch FM_LEASE_HOLDER_PID=$PPID "$ROOT/bin/fm-lease.sh" claim task-1 --actor branch \
+  FM_HOME="$home" FM_SUPERVISION_ACTOR=branch FM_LEASE_HOLDER_PID=$PPID bash "$ROOT/bin/fm-lease.sh" claim task-1 --actor branch \
     || fail "branch refresh with the pinned pre-re-anchor holder failed"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-lease.sh" check task-1)
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-lease.sh" check task-1)
   case "$out" in
     "branch $$ "*" live") ;;
     *) fail "a claim pinned before the re-anchor did not record the live lock holder: $out" ;;
   esac
-  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=main "$ROOT/bin/fm-lease.sh" claim task-1 2>&1)
+  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=main bash "$ROOT/bin/fm-lease.sh" claim task-1 2>&1)
   status=$?
   [ "$status" -eq 6 ] || fail "main claimed the branch's task after the re-anchor: $status: $out"
 
   # A dead pinned holder means another session took the lock: the claim keeps
   # the dead pid, so the lease stays stale.
-  FM_HOME="$home" FM_SUPERVISION_ACTOR=branch FM_LEASE_HOLDER_PID=999999 "$ROOT/bin/fm-lease.sh" claim task-2 --actor branch \
+  FM_HOME="$home" FM_SUPERVISION_ACTOR=branch FM_LEASE_HOLDER_PID=999999 bash "$ROOT/bin/fm-lease.sh" claim task-2 --actor branch \
     || fail "branch claim with a dead pinned holder failed"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-lease.sh" check task-2)
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-lease.sh" check task-2)
   case "$out" in
     "branch 999999 "*" stale") ;;
     *) fail "a dead pinned holder was replaced by the lock holder: $out" ;;
@@ -1166,12 +1166,12 @@ SH
 
   PATH="$fakebin:$PATH" FM_HOME="$home" FM_SUPERVISION_ACTOR=branch FM_LEASE_HOLDER_PID=$$ \
     FM_TEST_REAL_MV="$real_mv" FM_TEST_LEASE_PATH="$home/state/.lease-task-race" FM_TEST_GATE="$home/state/gate" \
-    "$ROOT/bin/fm-lease.sh" claim task-race --actor branch >/dev/null 2>&1 &
+    bash "$ROOT/bin/fm-lease.sh" claim task-race --actor branch >/dev/null 2>&1 &
   branch_pid=$!
   while [ ! -e "$home/state/gate.ready" ]; do sleep 0.01; done
   PATH="$fakebin:$PATH" FM_HOME="$home" FM_SUPERVISION_ACTOR=main FM_LEASE_HOLDER_PID=$$ \
     FM_TEST_REAL_MV="$real_mv" FM_TEST_LEASE_PATH="$home/state/.lease-task-race" FM_TEST_GATE="$home/state/gate" \
-    "$ROOT/bin/fm-lease.sh" claim task-race --actor main >/dev/null 2>&1 &
+    bash "$ROOT/bin/fm-lease.sh" claim task-race --actor main >/dev/null 2>&1 &
   main_pid=$!
   sleep 0.1
   : > "$home/state/gate.release"
@@ -1209,7 +1209,7 @@ SH
   while [ ! -e "$home/state/gate.ready" ]; do sleep 0.01; done
   PATH="$fakebin:$PATH" FM_HOME="$home" FM_SUPERVISION_ACTOR=branch FM_LEASE_HOLDER_PID=$$ \
     FM_TEST_REAL_RM="$real_rm" FM_TEST_STALE_PATH="$home/state/.lease-task-race" FM_TEST_GATE="$home/state/gate" \
-    "$ROOT/bin/fm-lease.sh" claim task-race --actor branch >/dev/null 2>&1 &
+    bash "$ROOT/bin/fm-lease.sh" claim task-race --actor branch >/dev/null 2>&1 &
   claim_pid=$!
   sleep 0.1
   : > "$home/state/gate.release"
@@ -1217,7 +1217,7 @@ SH
   wait "$claim_pid"; claim_status=$?
   [ "$guard_status" -eq 0 ] || fail "guard stale cleanup failed with $guard_status"
   [ "$claim_status" -eq 0 ] || fail "serialized claim failed with $claim_status"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-lease.sh" check task-race) || fail "guard deleted the newer lease claim"
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-lease.sh" check task-race) || fail "guard deleted the newer lease claim"
   case "$out" in
     "branch $$ "*" live") ;;
     *) fail "newer claim was not preserved as live: $out" ;;
@@ -1243,7 +1243,7 @@ test_guard_holds_exclusivity_through_mutation() {
   while [ ! -e "$home/operation-ready" ]; do sleep 0.01; done
 
   PI_CODING_AGENT=true FM_HOME="$home" FM_SUPERVISION_ACTOR=branch FM_LEASE_HOLDER_PID=$$ \
-    "$ROOT/bin/fm-lease.sh" claim task-race --actor branch >/dev/null 2>&1 &
+    bash "$ROOT/bin/fm-lease.sh" claim task-race --actor branch >/dev/null 2>&1 &
   claim_pid=$!
   sleep 0.2
   kill -0 "$claim_pid" 2>/dev/null \
@@ -1263,7 +1263,7 @@ test_claim_refuses_the_other_actors_name_loudly() {
   home="$TMP_ROOT/claim-guard-home"
   mkdir -p "$home/state"
   out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=branch FM_LEASE_HOLDER_PID=$$ \
-    "$ROOT/bin/fm-lease.sh" claim task-z --actor main 2>&1)
+    bash "$ROOT/bin/fm-lease.sh" claim task-z --actor main 2>&1)
   status=$?
   [ "$status" -eq 6 ] || fail "cross-actor claim exited $status, not 6: $out"
   assert_contains "$out" "cannot claim a lease as main" "accidental-override refusal lost its wording"
@@ -1277,23 +1277,23 @@ test_release_actor_drops_only_that_actors_leases() {
   home="$TMP_ROOT/release-actor-home"
   mkdir -p "$home/state"
   printf '%s\n' "$$" > "$home/state/.lock"
-  FM_HOME="$home" FM_SUPERVISION_ACTOR=branch FM_LEASE_HOLDER_PID=$$ "$ROOT/bin/fm-lease.sh" claim task-a --actor branch \
+  FM_HOME="$home" FM_SUPERVISION_ACTOR=branch FM_LEASE_HOLDER_PID=$$ bash "$ROOT/bin/fm-lease.sh" claim task-a --actor branch \
     || fail "branch claim failed"
-  FM_HOME="$home" FM_LEASE_HOLDER_PID=$$ "$ROOT/bin/fm-lease.sh" claim task-b --actor main \
+  FM_HOME="$home" FM_LEASE_HOLDER_PID=$$ bash "$ROOT/bin/fm-lease.sh" claim task-b --actor main \
     || fail "main claim failed"
-  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=branch "$ROOT/bin/fm-lease.sh" release task-b --actor main 2>&1)
+  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=branch bash "$ROOT/bin/fm-lease.sh" release task-b --actor main 2>&1)
   status=$?
   [ "$status" -eq 6 ] || fail "branch release of main lease exited $status, not 6: $out"
   assert_contains "$out" "cannot release a lease as main" "cross-actor release refusal lost its diagnostic"
   [ -e "$home/state/.lease-task-b" ] || fail "refused release removed main's lease"
 
-  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=branch "$ROOT/bin/fm-lease.sh" release-actor --actor main 2>&1)
+  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=branch bash "$ROOT/bin/fm-lease.sh" release-actor --actor main 2>&1)
   status=$?
   [ "$status" -eq 6 ] || fail "branch release-actor of main leases exited $status, not 6: $out"
   assert_contains "$out" "cannot release leases as main" "cross-actor bulk release refusal lost its diagnostic"
   [ -e "$home/state/.lease-task-b" ] || fail "refused bulk release removed main's lease"
 
-  FM_HOME="$home" FM_SUPERVISION_ACTOR=branch "$ROOT/bin/fm-lease.sh" release-actor --actor branch || fail "release-actor failed"
+  FM_HOME="$home" FM_SUPERVISION_ACTOR=branch bash "$ROOT/bin/fm-lease.sh" release-actor --actor branch || fail "release-actor failed"
   [ ! -e "$home/state/.lease-task-a" ] || fail "release-actor kept the branch lease"
   [ -e "$home/state/.lease-task-b" ] || fail "release-actor dropped main's lease"
   pass "release commands authorize the caller and bulk release drops only that actor's leases"
@@ -1311,20 +1311,20 @@ test_branch_cannot_force_teardown_or_directly_relaunch() {
   ln -s "$ROOT/bin" "$root/bin"
 
   # Forced teardown discards work; the branch never discards anything.
-  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=branch "$ROOT/bin/fm-teardown.sh" task-x --force 2>&1)
+  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=branch bash "$ROOT/bin/fm-teardown.sh" task-x --force 2>&1)
   status=$?
   [ "$status" -eq 6 ] || fail "branch forced teardown exited $status, not 6: $out"
   assert_contains "$out" "cannot discard work" "forced-teardown refusal lost its wording"
   # An ORDINARY branch teardown is not blocked by this guard (it fails later
   # on its ordinary no-task validation instead).
-  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=branch "$ROOT/bin/fm-teardown.sh" task-x 2>&1)
+  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=branch bash "$ROOT/bin/fm-teardown.sh" task-x 2>&1)
   status=$?
   [ "$status" -ne 6 ] || fail "ordinary branch teardown hit the forced-discard refusal: $out"
 
   # A branch relaunch is legal only through fm-control's owned transaction,
   # never by direct fm-spawn invocation.
   out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" FM_SUPERVISION_ACTOR=branch \
-    "$ROOT/bin/fm-spawn.sh" task-x --relaunch 2>&1)
+    bash "$ROOT/bin/fm-spawn.sh" task-x --relaunch 2>&1)
   status=$?
   [ "$status" -eq 6 ] || fail "direct branch relaunch exited $status, not 6: $out"
   assert_contains "$out" "must relaunch through fm-control" "relaunch refusal lost its wording"
@@ -1350,24 +1350,24 @@ test_away_record_relocates_main_owned_actions_to_the_branch() {
   refusal="error: PR merge (fm-pr-merge) refused - the supervision branch never performs this action; report the outcome and leave it to main (role partition: docs/pi-supervision-branch.md)"
 
   # Attended: the refusal wording every caller already pins.
-  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=branch "$ROOT/bin/fm-pr-merge.sh" task-x https://github.com/o/r/pull/1 2>&1)
+  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=branch bash "$ROOT/bin/fm-pr-merge.sh" task-x https://github.com/o/r/pull/1 2>&1)
   status=$?
   [ "$status" -eq 6 ] || fail "attended branch fm-pr-merge exited $status, not 6: $out"
   assert_contains "$out" "$refusal" "attended refusal lost its wording"
 
   # /afk is the go: the one entry call writes the record that relocates.
-  FM_HOME="$home" "$ROOT/bin/fm-afk-contract.sh" enter --spend 2 >/dev/null || fail "away entry failed"
+  FM_HOME="$home" bash "$ROOT/bin/fm-afk-contract.sh" enter --spend 2 >/dev/null || fail "away entry failed"
 
   # Under the record the partition passes and the merge script reaches its
   # OWN gate (no task record here), never the partition refusal.
-  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=branch "$ROOT/bin/fm-pr-merge.sh" task-x https://github.com/o/r/pull/1 2>&1)
+  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=branch bash "$ROOT/bin/fm-pr-merge.sh" task-x https://github.com/o/r/pull/1 2>&1)
   status=$?
   [ "$status" -ne 6 ] || fail "branch fm-pr-merge still hit the partition under the record: $out"
   assert_contains "$out" "main is parked" "the relocation did not announce itself"
   assert_contains "$out" "task metadata is unavailable" "the merge did not reach its own gate under the record"
 
   # Local-only landing is never relocated: it has no record-side gate.
-  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=branch "$ROOT/bin/fm-merge-local.sh" task-x 2>&1)
+  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=branch bash "$ROOT/bin/fm-merge-local.sh" task-x 2>&1)
   status=$?
   [ "$status" -eq 6 ] || fail "branch fm-merge-local was relocated under the record (exit $status): $out"
   assert_contains "$out" "local-only landing (fm-merge-local) refused" "merge-local refusal lost its wording under the record"
@@ -1379,7 +1379,7 @@ test_away_record_relocates_main_owned_actions_to_the_branch() {
   fm_write_meta "$home/state/task-a.meta" "window=fm-task-a" "kind=ship"
   fm_write_meta "$home/state/mate-1.meta" "window=remote:mate-1" "kind=secondmate"
   out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" FM_SUPERVISION_ACTOR=branch \
-    "$ROOT/bin/fm-spawn.sh" task-new projects/alpha --mode no-mistakes --yolo off 2>&1)
+    bash "$ROOT/bin/fm-spawn.sh" task-new projects/alpha --mode no-mistakes --yolo off 2>&1)
   status=$?
   [ "$status" -ne 6 ] || fail "branch fm-spawn still hit the partition under the record: $out"
   assert_contains "$out" "main is parked" "the spawn relocation did not announce itself"
@@ -1387,12 +1387,12 @@ test_away_record_relocates_main_owned_actions_to_the_branch() {
   assert_not_contains "$out" "caps concurrent workers" "one ordinary task under a cap of 2 was refused"
   fm_write_meta "$home/state/task-b.meta" "window=fm-task-b" "kind=ship"
   out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" FM_SUPERVISION_ACTOR=branch \
-    "$ROOT/bin/fm-spawn.sh" task-new projects/alpha --mode no-mistakes --yolo off 2>&1)
+    bash "$ROOT/bin/fm-spawn.sh" task-new projects/alpha --mode no-mistakes --yolo off 2>&1)
   status=$?
   [ "$status" -eq 1 ] || fail "spend-cap refusal exited $status, not 1: $out"
   assert_contains "$out" "caps concurrent workers at 2 and 2 ordinary task(s) are live" "spend-cap refusal lost its count"
   # The cap binds main too: the posture, not the actor, is what caps spend.
-  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" "$ROOT/bin/fm-spawn.sh" task-new projects/alpha --mode no-mistakes --yolo off 2>&1)
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" bash "$ROOT/bin/fm-spawn.sh" task-new projects/alpha --mode no-mistakes --yolo off 2>&1)
   status=$?
   [ "$status" -eq 1 ] || fail "main spawn past the cap exited $status, not 1: $out"
   assert_contains "$out" "caps concurrent workers" "main was not held to the spend cap"
@@ -1418,35 +1418,35 @@ fi
 exec "\$REAL" "\$@"
 WRAPPER
   chmod +x "$root/bin/fm-afk-contract.sh"
-  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" "$root/bin/fm-spawn.sh" task-new --mode no-mistakes --yolo off 2>&1) || true
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" bash "$root/bin/fm-spawn.sh" task-new --mode no-mistakes --yolo off 2>&1) || true
   assert_not_contains "$out" "caps concurrent workers" "a field-read after archive refused a main spawn via the spend cap"
   assert_not_contains "$out" "no readable spend cap" "a field-read after archive killed the spawn instead of restoring attended behavior"
-  FM_HOME="$home" "$ROOT/bin/fm-afk-contract.sh" enter --spend 2 >/dev/null || fail "away re-entry failed"
+  FM_HOME="$home" bash "$ROOT/bin/fm-afk-contract.sh" enter --spend 2 >/dev/null || fail "away re-entry failed"
 
   # Archive is absence: the attended refusal returns, byte for byte.
-  FM_HOME="$home" "$ROOT/bin/fm-afk-contract.sh" archive >/dev/null || fail "away archive failed"
-  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=branch "$ROOT/bin/fm-pr-merge.sh" task-x https://github.com/o/r/pull/1 2>&1)
+  FM_HOME="$home" bash "$ROOT/bin/fm-afk-contract.sh" archive >/dev/null || fail "away archive failed"
+  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=branch bash "$ROOT/bin/fm-pr-merge.sh" task-x https://github.com/o/r/pull/1 2>&1)
   status=$?
   [ "$status" -eq 6 ] || fail "an archived record still relocated the merge (exit $status): $out"
   assert_contains "$out" "$refusal" "the attended refusal changed after archive"
   assert_not_contains "$out" "main is parked" "an archived record still announced a relocation"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-spawn.sh" task-new --mode no-mistakes --yolo off 2>&1)
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-spawn.sh" task-new --mode no-mistakes --yolo off 2>&1)
   assert_not_contains "$out" "caps concurrent workers" "the spend cap outlived the record"
   # A record that no longer validates is absence too.
   printf 'version: 99\n' > "$home/state/.afk-contract"
-  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=branch "$ROOT/bin/fm-pr-merge.sh" task-x https://github.com/o/r/pull/1 2>&1)
+  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=branch bash "$ROOT/bin/fm-pr-merge.sh" task-x https://github.com/o/r/pull/1 2>&1)
   status=$?
   [ "$status" -eq 6 ] || fail "an invalid record relocated the merge (exit $status): $out"
   assert_contains "$out" "$refusal" "the attended refusal changed under an invalid record"
-  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" "$ROOT/bin/fm-spawn.sh" task-new --mode no-mistakes --yolo off 2>&1)
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" bash "$ROOT/bin/fm-spawn.sh" task-new --mode no-mistakes --yolo off 2>&1)
   assert_not_contains "$out" "caps concurrent workers" "an invalid record refused a main spawn via the spend cap"
   assert_not_contains "$out" "no readable spend cap" "an invalid record refused a main spawn for an unreadable cap"
   # Quiet mode's record is a present captain (bin/fm-afk-contract.sh AWAY OR
   # QUIET), so it relocates nothing: main keeps its standing authority.
   rm -f "$home/state/.afk-contract"
-  FM_HOME="$home" FM_AFK_MODE=quiet "$ROOT/bin/fm-afk-contract.sh" enter --words 'keep routine wakes off my main' >/dev/null \
+  FM_HOME="$home" FM_AFK_MODE=quiet bash "$ROOT/bin/fm-afk-contract.sh" enter --words 'keep routine wakes off my main' >/dev/null \
     || fail "quiet entry failed"
-  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=branch "$ROOT/bin/fm-pr-merge.sh" task-x https://github.com/o/r/pull/1 2>&1)
+  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=branch bash "$ROOT/bin/fm-pr-merge.sh" task-x https://github.com/o/r/pull/1 2>&1)
   status=$?
   [ "$status" -eq 6 ] || fail "quiet mode's record relocated the merge to the branch (exit $status): $out"
   assert_contains "$out" "$refusal" "the attended refusal changed under quiet mode's record"
@@ -1473,29 +1473,29 @@ test_away_branch_spawn_requires_queued_dispatchable_work() {
 
 ## Done
 EOF
-  FM_HOME="$home" "$ROOT/bin/fm-afk-contract.sh" enter --spend 2 >/dev/null || fail "away entry failed"
+  FM_HOME="$home" bash "$ROOT/bin/fm-afk-contract.sh" enter --spend 2 >/dev/null || fail "away entry failed"
 
   out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" FM_SUPERVISION_ACTOR=branch \
-    "$ROOT/bin/fm-spawn.sh" task-arbitrary projects/alpha --mode no-mistakes --yolo off 2>&1)
+    bash "$ROOT/bin/fm-spawn.sh" task-arbitrary projects/alpha --mode no-mistakes --yolo off 2>&1)
   status=$?
   [ "$status" -eq 1 ] || fail "an arbitrary branch spawn exited $status, not 1: $out"
   assert_contains "$out" "queued unblocked work" "an arbitrary id was dispatched under the record"
 
   out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" FM_SUPERVISION_ACTOR=branch \
-    "$ROOT/bin/fm-spawn.sh" task-queued projects/alpha --mode no-mistakes --yolo off 2>&1)
+    bash "$ROOT/bin/fm-spawn.sh" task-queued projects/alpha --mode no-mistakes --yolo off 2>&1)
   status=$?
   assert_not_contains "$out" "queued unblocked work" "a queued item was refused as if it were arbitrary: $out"
   [ "$status" -ne 6 ] || fail "a queued branch spawn hit the partition: $out"
   assert_contains "$out" "main is parked" "the queued spawn lost its relocation note"
 
   out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" FM_SUPERVISION_ACTOR=branch \
-    "$ROOT/bin/fm-spawn.sh" task-inflight projects/alpha --mode no-mistakes --yolo off 2>&1)
+    bash "$ROOT/bin/fm-spawn.sh" task-inflight projects/alpha --mode no-mistakes --yolo off 2>&1)
   status=$?
   [ "$status" -eq 1 ] || fail "an in-flight branch spawn exited $status, not 1: $out"
   assert_contains "$out" "queued unblocked work" "an in-flight row was dispatched by the away branch"
 
   out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" FM_SUPERVISION_ACTOR=branch \
-    "$ROOT/bin/fm-spawn.sh" mate-new --secondmate 2>&1)
+    bash "$ROOT/bin/fm-spawn.sh" mate-new --secondmate 2>&1)
   status=$?
   [ "$status" -eq 6 ] || fail "a branch secondmate spawn exited $status, not 6: $out"
   assert_contains "$out" "the supervision branch never performs this action" "a branch secondmate spawn was not refused at the partition"
@@ -1524,14 +1524,14 @@ exec "\$REAL" "\$@"
 WRAPPER
   chmod +x "$root/bin/fm-afk-contract.sh"
   out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" FM_SUPERVISION_ACTOR=branch \
-    "$root/bin/fm-spawn.sh" task-queued projects/alpha --mode no-mistakes --yolo off 2>&1)
+    bash "$root/bin/fm-spawn.sh" task-queued projects/alpha --mode no-mistakes --yolo off 2>&1)
   status=$?
   [ "$status" -eq 6 ] || fail "an archived-after-early-guard spawn exited $status, not 6: $out"
   assert_contains "$out" "the supervision branch never performs this action" \
     "archiving between the early guard and the gate did not restore the attended refusal"
 
   out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" \
-    "$ROOT/bin/fm-spawn.sh" task-arbitrary --mode no-mistakes --yolo off 2>&1)
+    bash "$ROOT/bin/fm-spawn.sh" task-arbitrary --mode no-mistakes --yolo off 2>&1)
   assert_not_contains "$out" "queued unblocked work" "main's attended spawn was held to the branch queued-work gate"
   pass "relocated branch spawn admits only already-queued dispatchable work, including on a manual-backend home"
 }
@@ -1545,13 +1545,13 @@ test_quiet_record_never_caps_a_present_captains_spawn() {
   mkdir -p "$home/state" "$root/bin"
   git init -q -b main "$root"
   git -C "$root" commit -q --allow-empty -m init
-  FM_AFK_MODE=quiet FM_HOME="$home" "$ROOT/bin/fm-afk-contract.sh" enter --spend 1 >/dev/null || fail "quiet entry failed"
+  FM_AFK_MODE=quiet FM_HOME="$home" bash "$ROOT/bin/fm-afk-contract.sh" enter --spend 1 >/dev/null || fail "quiet entry failed"
   fm_write_meta "$home/state/task-a.meta" "window=fm-task-a" "kind=ship"
   fm_write_meta "$home/state/task-b.meta" "window=fm-task-b" "kind=ship"
-  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" "$ROOT/bin/fm-spawn.sh" task-new projects/alpha --mode no-mistakes --yolo off 2>&1)
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" bash "$ROOT/bin/fm-spawn.sh" task-new projects/alpha --mode no-mistakes --yolo off 2>&1)
   assert_not_contains "$out" "caps concurrent workers" "a quiet record capped a present captain's spawn"
-  FM_HOME="$home" "$ROOT/bin/fm-afk-contract.sh" enter --spend 1 >/dev/null 2>&1 || fail "away entry over quiet failed"
-  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" "$ROOT/bin/fm-spawn.sh" task-new projects/alpha --mode no-mistakes --yolo off 2>&1)
+  FM_HOME="$home" bash "$ROOT/bin/fm-afk-contract.sh" enter --spend 1 >/dev/null 2>&1 || fail "away entry over quiet failed"
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" bash "$ROOT/bin/fm-spawn.sh" task-new projects/alpha --mode no-mistakes --yolo off 2>&1)
   assert_contains "$out" "caps concurrent workers at 1 and 2 ordinary task(s) are live" "the away record's cap no longer binds"
   pass "a quiet-mode record never caps a present captain's spawn, while the away record's cap still binds"
 }
@@ -1590,10 +1590,10 @@ fi
 exec "\$REAL" "\$@"
 WRAPPER
   chmod +x "$root/bin/fm-afk-contract.sh"
-  FM_HOME="$home" "$ROOT/bin/fm-afk-contract.sh" enter --spend 1 >/dev/null || fail "away entry failed"
+  FM_HOME="$home" bash "$ROOT/bin/fm-afk-contract.sh" enter --spend 1 >/dev/null || fail "away entry failed"
 
   FM_HOME="$home" FM_ROOT_OVERRIDE="$root" \
-    "$root/bin/fm-spawn.sh" task-q1 projects/alpha --mode no-mistakes --yolo off \
+    bash "$root/bin/fm-spawn.sh" task-q1 projects/alpha --mode no-mistakes --yolo off \
     > "$home/q1.out" 2>&1 &
   i=0
   while [ ! -f "$home/early-cap-passed" ]; do

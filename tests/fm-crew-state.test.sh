@@ -396,7 +396,7 @@ make_no_timeout_toolbin() {  # <dir> -> echoes toolbin path
 # Run the helper for one case dir. FM_FAKE_* env (run output, busy flag) are read
 # from the caller's environment by the fakes above.
 run_crew_state() {  # <case-dir> <id>
-  PATH="$1/fakebin:$PATH" FM_STATE_OVERRIDE="$1/state" "$CREW_STATE" "$2"
+  PATH="$1/fakebin:$PATH" FM_STATE_OVERRIDE="$1/state" bash "$CREW_STATE" "$2"
 }
 
 new_case() {  # <name> -> echoes case dir with an empty state/
@@ -407,8 +407,8 @@ new_case() {  # <name> -> echoes case dir with an empty state/
 
 arm_idle_record() {  # <state-dir> <id>
   local state=$1 id=$2 gen
-  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$state" "$id")
-  "$ROOT/bin/fm-busy-event.sh" apply "$state" "$id" idle --gen "$gen" \
+  gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$state" "$id")
+  bash "$ROOT/bin/fm-busy-event.sh" apply "$state" "$id" idle --gen "$gen" \
     --source claude-hook --event stop
 }
 
@@ -2142,7 +2142,7 @@ EOF
   assert_not_contains "$out" 'state: failed' "$scenario cancellation is not a failure"
   assert_not_contains "$out" 'held for merge' "$scenario has no positive delivery evidence"
   summary=$(PATH="$d/fakebin:$PATH" FM_HOME="$d" FM_ROOT_OVERRIDE="$d/fixture-root" \
-    "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary)
+    bash "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary)
   printf '%s' "$summary" | jq -e '
     .state == "unknown" and .valid == false
     and .invalidity == {kind:"child_current_unavailable",ids:["cancelled"]}
@@ -2703,8 +2703,8 @@ test_no_run_busy_pane() {
   FM_FAKE_AXI_STATUS=""
   FM_FAKE_RUNS_LIST=""
   FM_FAKE_BUSY=1
-  local gen; gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" feat-h)
-  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" feat-h busy --gen "$gen" \
+  local gen; gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$d/state" feat-h)
+  bash "$ROOT/bin/fm-busy-event.sh" apply "$d/state" feat-h busy --gen "$gen" \
     --source claude-hook --event user-prompt-submit
   local out; out=$(run_crew_state "$d" feat-h)
   assert_contains "$out" "state: working" "busy record -> working"
@@ -2799,7 +2799,7 @@ Enter to confirm . Esc to cancel'
   export FM_FAKE_BUSY_TEXT
   # arm only, never apply: the launch turn has never advanced past the seed
   # fm-spawn.sh writes at spawn time.
-  "$ROOT/bin/fm-busy-event.sh" arm "$d/state" feat-lp >/dev/null
+  bash "$ROOT/bin/fm-busy-event.sh" arm "$d/state" feat-lp >/dev/null
   local out; out=$(run_crew_state "$d" feat-lp)
   assert_not_contains "$out" "state: working" "a launch parked on its trust dialog must never read working"
   assert_contains "$out" "state: unknown" "a parked launch reads unknown, not busy or idle"
@@ -3027,8 +3027,8 @@ test_no_run_herdr_idle_agent_status_outranked_by_record() {
   FM_FAKE_TMUX_MISSING=1
   FM_FAKE_HERDR_AGENT_STATUS=idle
   FM_FAKE_HERDR_BUSY=0
-  local gen; gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" feat-herdr-idle)
-  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" feat-herdr-idle busy --gen "$gen" \
+  local gen; gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$d/state" feat-herdr-idle)
+  bash "$ROOT/bin/fm-busy-event.sh" apply "$d/state" feat-herdr-idle busy --gen "$gen" \
     --source claude-hook --event user-prompt-submit
   local out; out=$(run_crew_state "$d" feat-herdr-idle)
   assert_contains "$out" "state: working" "a busy record with herdr idle agent_status -> working"
@@ -3052,8 +3052,8 @@ test_no_run_herdr_idle_agent_status_and_idle_record_stays_idle() {
   FM_FAKE_TMUX_MISSING=1
   FM_FAKE_HERDR_AGENT_STATUS=idle
   FM_FAKE_HERDR_BUSY=0
-  local gen; gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" feat-herdr-stopped)
-  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" feat-herdr-stopped idle --gen "$gen" \
+  local gen; gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$d/state" feat-herdr-stopped)
+  bash "$ROOT/bin/fm-busy-event.sh" apply "$d/state" feat-herdr-stopped idle --gen "$gen" \
     --source claude-hook --event stop
   local out; out=$(run_crew_state "$d" feat-herdr-stopped)
   assert_not_contains "$out" "source: pane" "an idle record must not read as busy"
@@ -3135,8 +3135,8 @@ test_no_run_pi_idle_paused_status_is_current() {
     "$now" > "$d/state/pi-idle-paused.status"
   FM_FAKE_AXI_STATUS=""
   FM_FAKE_BUSY=0
-  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" pi-idle-paused)
-  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" pi-idle-paused idle --gen "$gen" \
+  gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$d/state" pi-idle-paused)
+  bash "$ROOT/bin/fm-busy-event.sh" apply "$d/state" pi-idle-paused idle --gen "$gen" \
     --source pi-ext --event stop
   out=$(run_crew_state "$d" pi-idle-paused)
   assert_contains "$out" 'state: paused' 'Pi idle pane keeps its declared pause'
@@ -3176,8 +3176,8 @@ test_secondmate_open_block_survives_unrelated_append() {
   mkdir -p "$d/wt"
   make_fakebin "$d" >/dev/null
   fm_write_meta "$d/state/mate.meta" "window=fm:fm-mate" "worktree=$d/wt" "kind=secondmate" "harness=claude"
-  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" mate)
-  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" mate busy --gen "$gen" --source claude-hook --event user-prompt-submit
+  gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$d/state" mate)
+  bash "$ROOT/bin/fm-busy-event.sh" apply "$d/state" mate busy --gen "$gen" --source claude-hook --event user-prompt-submit
   for suffix in '' 'note: unrelated progress' 'resolved [key=other]: unrelated answer' 'working: continuing another task' 'done: another task completed' 'failed: another task failed' $'done: another task completed\nnote: cleanup complete' $'failed: another task failed\nnote: cleanup complete'; do
     printf 'blocked [key=access]: need release access\n%s\n' "$suffix" > "$d/state/mate.status"
     out=$(run_crew_state "$d" mate)
@@ -3198,8 +3198,8 @@ test_newest_open_decision_supplies_the_reported_detail() {
   mkdir -p "$d/wt"
   make_fakebin "$d" >/dev/null
   fm_write_meta "$d/state/mate.meta" "window=fm:fm-mate" "worktree=$d/wt" "kind=secondmate" "harness=claude"
-  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" mate)
-  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" mate busy --gen "$gen" --source claude-hook --event user-prompt-submit
+  gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$d/state" mate)
+  bash "$ROOT/bin/fm-busy-event.sh" apply "$d/state" mate busy --gen "$gen" --source claude-hook --event user-prompt-submit
   printf 'blocked [key=a]: staging is down\nneeds-decision [key=b]: pick a rollout order\n' > "$d/state/mate.status"
   out=$(run_crew_state "$d" mate)
   assert_contains "$out" "state: parked" "the newer open decision is the reported state"
@@ -3488,11 +3488,11 @@ SH
   fm_write_meta "$d/state/feat-timeout.meta" "window=fm:fm-feat-timeout" "worktree=$d/wt" "kind=ship" \
     "harness=claude"
   FM_FAKE_BUSY=1
-  local gen; gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" feat-timeout)
-  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" feat-timeout busy --gen "$gen" \
+  local gen; gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$d/state" feat-timeout)
+  bash "$ROOT/bin/fm-busy-event.sh" apply "$d/state" feat-timeout busy --gen "$gen" \
     --source claude-hook --event user-prompt-submit
   start=$SECONDS
-  out=$(FM_FAKE_NM_CALLS="$calls_file" PATH="$d/fakebin:$toolbin" FM_STATE_OVERRIDE="$d/state" FM_CREW_STATE_NM_TIMEOUT=1 "$CREW_STATE" feat-timeout)
+  out=$(FM_FAKE_NM_CALLS="$calls_file" PATH="$d/fakebin:$toolbin" FM_STATE_OVERRIDE="$d/state" FM_CREW_STATE_NM_TIMEOUT=1 bash "$CREW_STATE" feat-timeout)
   elapsed=$((SECONDS - start))
   assert_contains "$out" "state: working" "timed-out no-mistakes falls back to pane"
   assert_contains "$out" "source: pane" "timed-out no-mistakes -> pane source"
@@ -3513,8 +3513,8 @@ test_scout_skips_run_lookup() {
   # Even if a run existed on this branch, a scout must not read it.
   FM_FAKE_AXI_STATUS="$(run_running fm/scout-j)"
   FM_FAKE_BUSY=1
-  local gen; gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" scout-j)
-  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" scout-j busy --gen "$gen" \
+  local gen; gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$d/state" scout-j)
+  bash "$ROOT/bin/fm-busy-event.sh" apply "$d/state" scout-j busy --gen "$gen" \
     --source claude-hook --event user-prompt-submit
   local out; out=$(run_crew_state "$d" scout-j)
   assert_not_contains "$out" "source: run-step" "scout ignores no-mistakes run-step"
@@ -3576,7 +3576,7 @@ SH
 
 run_remote_crew_state() {  # <case-dir> <id>
   PATH="$1/fakebin:$PATH" FM_HOME="$1" FM_STATE_OVERRIDE="$1/state" \
-    FM_SSH_BIN="$1/fakebin/fake-ssh" "$CREW_STATE" "$2"
+    FM_SSH_BIN="$1/fakebin/fake-ssh" bash "$CREW_STATE" "$2"
 }
 
 test_remote_alive_with_log_uses_status_log() {
@@ -4216,11 +4216,11 @@ test_generic_dispatch_exhaustion_blocks_any_harness() {
     "dispatch_route_provider=test-provider" "dispatch_route_workspace=test-account"
   FM_FAKE_AXI_STATUS=""
   FM_FAKE_RUNS_LIST=""
-  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" feat-generic-exhaustion)
-  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" feat-generic-exhaustion busy --gen "$gen" \
+  gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$d/state" feat-generic-exhaustion)
+  bash "$ROOT/bin/fm-busy-event.sh" apply "$d/state" feat-generic-exhaustion busy --gen "$gen" \
     --source claude-hook --event user-prompt-submit
   reset_ms=$(( ($(date +%s) + 79200) * 1000 ))
-  "$ROOT/bin/fm-dispatch-reset.sh" record "$d/state" test-provider test-model test-account \
+  bash "$ROOT/bin/fm-dispatch-reset.sh" record "$d/state" test-provider test-model test-account \
     "$reset_ms" provider-refusal || fail "generic reset record refused the exhaustion fixture"
   out=$(run_crew_state "$d" feat-generic-exhaustion)
   assert_contains "$out" "state: blocked" "active generic exhaustion -> blocked"
@@ -4240,11 +4240,11 @@ test_expired_generic_dispatch_exhaustion_does_not_block() {
     "dispatch_route_provider=test-provider" "dispatch_route_workspace=test-account"
   FM_FAKE_AXI_STATUS=""
   FM_FAKE_RUNS_LIST=""
-  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" feat-generic-expired)
-  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" feat-generic-expired busy --gen "$gen" \
+  gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$d/state" feat-generic-expired)
+  bash "$ROOT/bin/fm-busy-event.sh" apply "$d/state" feat-generic-expired busy --gen "$gen" \
     --source opencode-plugin --event session-retry
   reset_ms=$(( ($(date +%s) - 3600) * 1000 ))
-  "$ROOT/bin/fm-dispatch-reset.sh" record "$d/state" test-provider test-model test-account \
+  bash "$ROOT/bin/fm-dispatch-reset.sh" record "$d/state" test-provider test-model test-account \
     "$reset_ms" provider-refusal || fail "generic reset record refused the expired fixture"
   out=$(run_crew_state "$d" feat-generic-expired)
   assert_contains "$out" "state: working" "expired generic record -> working"
@@ -4561,8 +4561,8 @@ test_stale_status_log_is_ignored() {
   touch "$d/state/stale-status.meta"
   FM_FAKE_AXI_STATUS=""
   FM_FAKE_RUNS_LIST=""
-  local gen; gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" stale-status)
-  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" stale-status idle --gen "$gen" --source claude-hook --event stop >/dev/null
+  local gen; gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$d/state" stale-status)
+  bash "$ROOT/bin/fm-busy-event.sh" apply "$d/state" stale-status idle --gen "$gen" --source claude-hook --event stop >/dev/null
   local out; out=$(run_crew_state "$d" stale-status)
   assert_not_contains "$out" "state: done" "stale status log must not be read"
   assert_contains "$out" "state: unknown" "ignores stale status log"
@@ -4577,9 +4577,9 @@ test_unknown_semantic_state_falls_through_to_valid_status_log() {
   fm_write_meta "$d/state/unknown-semantic.meta" "window=fm:fm-unknown-semantic" "worktree=$d/wt" "kind=scout" "harness=herdr"
   FM_FAKE_AXI_STATUS=""
   FM_FAKE_RUNS_LIST=""
-  local gen; gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" unknown-semantic)
+  local gen; gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$d/state" unknown-semantic)
   # Herdr returns idle natively if it's running a shell command, which is rejected as unknown by busy-event
-  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" unknown-semantic idle --gen "$gen" --source herdr --event stop >/dev/null
+  bash "$ROOT/bin/fm-busy-event.sh" apply "$d/state" unknown-semantic idle --gen "$gen" --source herdr --event stop >/dev/null
   # But the agent wrote a valid status log
   echo "working: running shell command" > "$d/state/unknown-semantic.status"
   local out; out=$(run_crew_state "$d" unknown-semantic)
@@ -4592,7 +4592,7 @@ test_unknown_semantic_state_falls_through_to_valid_status_log() {
 test_usage_error() {
   reset_fakes
   local rc
-  "$CREW_STATE" >/dev/null 2>&1; rc=$?
+  bash "$CREW_STATE" >/dev/null 2>&1; rc=$?
   expect_code 2 "$rc" "no-arg usage error exits 2"
   pass "usage error exits 2"
 }
@@ -4762,8 +4762,8 @@ test_coarse_unresolvable_active_row_never_falls_to_older_row() {
 EOF
 )"
   FM_FAKE_BUSY=1
-  local gen; gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" feat-f10c)
-  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" feat-f10c busy --gen "$gen" \
+  local gen; gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$d/state" feat-f10c)
+  bash "$ROOT/bin/fm-busy-event.sh" apply "$d/state" feat-f10c busy --gen "$gen" \
     --source claude-hook --event user-prompt-submit
   local out; out=$(run_crew_state "$d" feat-f10c)
   assert_not_contains "$out" "state: failed" "an unresolvable active row must not fall to the older failed row"
@@ -4794,8 +4794,8 @@ test_coarse_mismatched_anchor_falls_to_pane_not_older_row() {
 EOF
 )"
   FM_FAKE_BUSY=1
-  local gen; gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" feat-f10g)
-  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" feat-f10g busy --gen "$gen" \
+  local gen; gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$d/state" feat-f10g)
+  bash "$ROOT/bin/fm-busy-event.sh" apply "$d/state" feat-f10g busy --gen "$gen" \
     --source claude-hook --event user-prompt-submit
   local out; out=$(run_crew_state "$d" feat-f10g)
   assert_not_contains "$out" "state: failed" "a mismatched anchor must not fall to the older failed row"
@@ -5202,8 +5202,8 @@ PY
 )
   FM_FAKE_RUNS_LIST=""
   FM_FAKE_BUSY=1
-  local gen; gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" orphan)
-  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" orphan busy --gen "$gen" \
+  local gen; gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$d/state" orphan)
+  bash "$ROOT/bin/fm-busy-event.sh" apply "$d/state" orphan busy --gen "$gen" \
     --source claude-hook --event user-prompt-submit
   local out; out=$(run_crew_state "$d" orphan)
   assert_not_contains "$out" "state: unknown" 'a zero-row branch in a capped overview is absent, not unreadable'
@@ -5255,8 +5255,8 @@ PY
   FM_FAKE_AXI_STATUS=$(run_running fm/other-0)
   FM_FAKE_RUNS_LIST=""
   FM_FAKE_BUSY=1
-  local gen; gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" orphan)
-  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" orphan busy --gen "$gen" \
+  local gen; gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$d/state" orphan)
+  bash "$ROOT/bin/fm-busy-event.sh" apply "$d/state" orphan busy --gen "$gen" \
     --source claude-hook --event user-prompt-submit
   local out; out=$(run_crew_state "$d" orphan)
   assert_not_contains "$out" "unreadable" 'a branch with no run of its own is not an unreadable runs table'
@@ -5460,12 +5460,12 @@ test_complete_inventory_ignores_unrelated_semantics() {
     FM_FAKE_AXI_STATUS="$(run_running fm/competing | sed 's/01RUN/01NEW/')"
     FM_FAKE_AXI_STATUS_RUN="$(run_parked fm/competing | sed 's/01RUN/01NEW/')"
     toolbin=$(make_no_python_toolbin "$d")
-    out=$(PATH="$d/fakebin:$toolbin" FM_STATE_OVERRIDE="$d/state" "$CREW_STATE" competing)
+    out=$(PATH="$d/fakebin:$toolbin" FM_STATE_OVERRIDE="$d/state" bash "$CREW_STATE" competing)
     assert_contains "$out" 'state: parked' 'R6 unrelated branch syntax must not suppress the requested gate'
     assert_contains "$out" '01NEW' 'selection retains the requested run identity'
     FM_FAKE_AXI_HOME="$(printf '%s\n' "$FM_FAKE_AXI_HOME" | sed '/^  01OTHER,/d')
   foreign.id,$encoded,FUTURE,unresolved,\"\""
-    out=$(PATH="$d/fakebin:$toolbin" FM_STATE_OVERRIDE="$d/state" "$CREW_STATE" competing)
+    out=$(PATH="$d/fakebin:$toolbin" FM_STATE_OVERRIDE="$d/state" bash "$CREW_STATE" competing)
     assert_contains "$out" 'state: parked' 'unrelated id status and head semantics cannot suppress the requested gate'
     assert_not_contains "$out" 'foreign.id' 'unrelated identities are not candidates'
   done
@@ -5563,7 +5563,7 @@ test_complete_inventory_without_python_keeps_gate() {
   toolbin=$(make_no_python_toolbin "$d")
   FM_FAKE_AXI_STATUS="$(run_failed fm/competing | sed 's/01RUN/01OLD/; s/failed/cancelled/')"
   FM_FAKE_AXI_STATUS_RUN="$(run_parked fm/competing | sed 's/01RUN/01NEW/')"
-  out=$(PATH="$d/fakebin:$toolbin" FM_STATE_OVERRIDE="$d/state" "$CREW_STATE" competing)
+  out=$(PATH="$d/fakebin:$toolbin" FM_STATE_OVERRIDE="$d/state" bash "$CREW_STATE" competing)
   assert_contains "$out" 'state: parked' 'R5 complete inventory keeps its gate without Python'
   assert_contains "$out" 'parked at review: 2 finding(s)' 'optional dependencies do not remove gate detail'
   assert_contains "$out" '01NEW' 'complete inventory retains the selected id without Python'
@@ -5575,7 +5575,7 @@ test_complete_ambiguity_without_python_names_both_ids() {
   local d=$TMP_ROOT/no-python-ambiguous toolbin out
   toolbin=$(make_no_python_toolbin "$d")
   FM_FAKE_AXI_STATUS="$(run_running fm/competing | sed 's/01RUN/01NEW/')"
-  out=$(PATH="$d/fakebin:$toolbin" FM_STATE_OVERRIDE="$d/state" "$CREW_STATE" competing)
+  out=$(PATH="$d/fakebin:$toolbin" FM_STATE_OVERRIDE="$d/state" bash "$CREW_STATE" competing)
   assert_contains "$out" 'state: unknown' 'complete competing runs remain ambiguous without Python'
   assert_contains "$out" '01NEW' 'R5 complete ambiguity retains the newer id without Python'
   assert_contains "$out" '01OLD' 'complete ambiguity retains the older id without Python'
@@ -5588,7 +5588,7 @@ test_capped_without_python_preserves_available_ids() {
     make_capped_runs_case "no-python-capped-$placement" running pending "$placement"
     d=$TMP_ROOT/no-python-capped-$placement
     toolbin=$(make_no_python_toolbin "$d")
-    out=$(PATH="$d/fakebin:$toolbin" FM_STATE_OVERRIDE="$d/state" "$CREW_STATE" competing)
+    out=$(PATH="$d/fakebin:$toolbin" FM_STATE_OVERRIDE="$d/state" bash "$CREW_STATE" competing)
     assert_contains "$out" 'state: unknown' 'unreadable complete inventory must fail closed'
     assert_contains "$out" '01NEW' 'R5 capped lookup retains available ids without Python'
     assert_contains "$out" 'inventory' 'unknown explains that complete inventory could not be read'
@@ -5637,8 +5637,8 @@ make_uninitialized_worker_case() {
   FM_FAKE_AXI_STATUS_ERROR=1
   FM_FAKE_AXI_HOME_ERROR=1
   printf 'working: implementation continues\n' > "$d/state/worker.status"
-  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" worker)
-  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" worker "$2" --gen "$gen" \
+  gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$d/state" worker)
+  bash "$ROOT/bin/fm-busy-event.sh" apply "$d/state" worker "$2" --gen "$gen" \
     --source claude-hook --event "${3:-stop}"
 }
 
@@ -5673,8 +5673,8 @@ make_historical_inventory_case() {
   git -C "$d/wt" commit -q --allow-empty -m 'current work after completed validation'
   fm_write_meta "$d/state/competing.meta" "window=fm:fm-competing" "worktree=$d/wt" "kind=ship" "harness=claude"
   printf 'working: implementation after validation\n' > "$d/state/competing.status"
-  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" competing)
-  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" competing "$2" --gen "$gen" \
+  gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$d/state" competing)
+  bash "$ROOT/bin/fm-busy-event.sh" apply "$d/state" competing "$2" --gen "$gen" \
     --source claude-hook --event "${3:-stop}"
 }
 
@@ -5996,8 +5996,8 @@ branch_sync:
   FM_FAKE_RUNS_LIST=""
   FM_FAKE_DAEMON_DOWN=1
   FM_FAKE_BUSY=1
-  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" feat-unproven)
-  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" feat-unproven busy --gen "$gen" \
+  gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$d/state" feat-unproven)
+  bash "$ROOT/bin/fm-busy-event.sh" apply "$d/state" feat-unproven busy --gen "$gen" \
     --source claude-hook --event user-prompt-submit
   out=$(run_crew_state "$d" feat-unproven)
   assert_contains "$out" "state: working" "a busy crew keeps reading working"
@@ -6958,7 +6958,7 @@ test_captured_axi_status_shapes() {
       assert_contains "$out" ' · ask-user: authority decision' \
         'the captured gate mints the human-decision component from the real column layout'
       toolbin=$(make_no_python_toolbin "$d")
-      out=$(PATH="$d/fakebin:$toolbin" FM_STATE_OVERRIDE="$d/state" "$CREW_STATE" competing)
+      out=$(PATH="$d/fakebin:$toolbin" FM_STATE_OVERRIDE="$d/state" bash "$CREW_STATE" competing)
       assert_contains "$out" 'parked at test: 1 finding(s)' 'a complete captured gate remains readable without Python'
       assert_contains "$out" ' · ask-user: authority decision' \
         'the captured gate mints the human-decision component without Python'
@@ -7010,7 +7010,7 @@ PY
   assert_contains "$out" "$newer" 'captured ambiguity retains the visible id'
   assert_contains "$out" "$older" 'captured ambiguity retains the hidden id'
   toolbin=$(make_no_python_toolbin "$d")
-  out=$(PATH="$d/fakebin:$toolbin" FM_STATE_OVERRIDE="$d/state" "$CREW_STATE" competing)
+  out=$(PATH="$d/fakebin:$toolbin" FM_STATE_OVERRIDE="$d/state" bash "$CREW_STATE" competing)
   assert_contains "$out" 'state: unknown' 'missing optional lookup cannot imply exclusive authority'
   assert_contains "$out" "$newer" 'unavailable lookup retains the captured visible id'
   assert_contains "$out" 'inventory' 'unavailable lookup reports its evidence gap'

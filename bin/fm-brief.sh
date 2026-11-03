@@ -733,7 +733,7 @@ if [ "$FROM_TASK" -eq 1 ]; then
   SPEC_OUT="$RENDER_TMP/spec.txt"
   # tasks-axi reports failures on stdout, so capture the stream first and only
   # then publish it for parsing.
-  SHOW_CAPTURED=$("$SCRIPT_DIR/fm-tasks-axi.sh" show "$RECORD_ID" --full 2>&1) || {
+  SHOW_CAPTURED=$(bash "$SCRIPT_DIR/fm-tasks-axi.sh" show "$RECORD_ID" --full 2>&1) || {
     [ -n "$SHOW_CAPTURED" ] && printf '%s\n' "$SHOW_CAPTURED" >&2
     echo "error: cannot render from task record $RECORD_ID: the record could not be read; compose ## Captain's intent and ## Firstmate spec by hand" >&2
     exit 1
@@ -1049,7 +1049,7 @@ else
 fi
 
 if [ "$KIND" = scout ]; then
-if "$SCRIPT_DIR/fm-bootstrap.sh" lavish-compatible >/dev/null 2>&1; then
+if bash "$SCRIPT_DIR/fm-bootstrap.sh" lavish-compatible >/dev/null 2>&1; then
   LAVISH_LINE='If your deliverable is a visual artifact the captain will review and iterate on, use the lavish-axi rule: arm your board with bin/fm-procevent-lavish.sh arm <artifact.html> --for <task-id>; never run lavish-axi poll yourself. Re-arm with the reply after each nonterminal round to acknowledge it, route the board feedback through your steering inbox, write needs-decision [key=board-review] with the live board URL when the captain owes a decision, and stop at session_ended or an empty End without re-arming - acknowledge that final round with bin/fm-procevent.sh handled <source-id> <sequence> to conclude and retire your board.'
 else
   LAVISH_LINE='Lavish is unavailable (lavish-axi is missing or below its supported version floor), so deliver your findings as a text report without Lavish, even for a visual deliverable.'

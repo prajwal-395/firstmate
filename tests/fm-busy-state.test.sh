@@ -31,7 +31,7 @@ new_state_dir() {  # <name>
 test_arm_seeds_busy_spawn() {
   local state gen out
   state=$(new_state_dir arm-seed)
-  gen=$("$EV" arm "$state" t1) || fail "arm failed"
+  gen=$(bash "$EV" arm "$state" t1) || fail "arm failed"
   [ -f "$state/t1.busy-gen" ] || fail "arm did not write the gen sidecar"
   [ "$(cat "$state/t1.busy-gen")" = "$gen" ] || fail "sidecar gen does not match printed gen"
   out=$(fm_busy_classify tmux w1 claude t1 "$state")
@@ -42,12 +42,12 @@ test_arm_seeds_busy_spawn() {
 test_apply_advances_seq_and_source() {
   local state gen out seq
   state=$(new_state_dir apply-seq)
-  gen=$("$EV" arm "$state" t1)
-  "$EV" apply "$state" t1 idle --gen "$gen" --source claude-hook --event stop \
+  gen=$(bash "$EV" arm "$state" t1)
+  bash "$EV" apply "$state" t1 idle --gen "$gen" --source claude-hook --event stop \
     || fail "apply idle failed"
   out=$(fm_busy_classify tmux w1 claude t1 "$state")
   [ "$out" = "idle claude-hook" ] || fail "expected 'idle claude-hook', got '$out'"
-  "$EV" apply "$state" t1 busy --gen "$gen" --source claude-hook --event user-prompt-submit \
+  bash "$EV" apply "$state" t1 busy --gen "$gen" --source claude-hook --event user-prompt-submit \
     || fail "apply busy failed"
   out=$(fm_busy_classify tmux w1 claude t1 "$state")
   [ "$out" = "busy claude-hook" ] || fail "expected 'busy claude-hook', got '$out'"
@@ -59,12 +59,12 @@ test_apply_advances_seq_and_source() {
 test_apply_current_gen_reset() {
   local state out
   state=$(new_state_dir apply-current)
-  "$EV" arm "$state" t1 >/dev/null
-  "$EV" apply "$state" t1 idle --current-gen --source fm-interrupt --event interrupt \
+  bash "$EV" arm "$state" t1 >/dev/null
+  bash "$EV" apply "$state" t1 idle --current-gen --source fm-interrupt --event interrupt \
     || fail "apply --current-gen failed"
   out=$(fm_busy_classify tmux w1 pi t1 "$state")
   [ "$out" = "idle fm-interrupt" ] || fail "expected 'idle fm-interrupt', got '$out'"
-  "$EV" apply "$state" t1 unknown --current-gen --source fm-recovery --event relaunch \
+  bash "$EV" apply "$state" t1 unknown --current-gen --source fm-recovery --event relaunch \
     || fail "apply unknown failed"
   out=$(fm_busy_classify tmux w1 pi t1 "$state")
   [ "$out" = "unknown fm-recovery" ] || fail "expected 'unknown fm-recovery', got '$out'"
@@ -74,7 +74,7 @@ test_apply_current_gen_reset() {
 test_apply_unarmed_refused() {
   local state
   state=$(new_state_dir apply-unarmed)
-  if "$EV" apply "$state" t1 busy --gen g1.2.3 --source claude-hook --event x 2>/dev/null; then
+  if bash "$EV" apply "$state" t1 busy --gen g1.2.3 --source claude-hook --event x 2>/dev/null; then
     fail "apply against an unarmed task must be refused"
   fi
   [ ! -f "$state/t1.busy-state" ] || fail "refused apply must not write a record"
@@ -84,9 +84,9 @@ test_apply_unarmed_refused() {
 test_retire_serializes_and_rejects_stale_gen() {
   local state old_gen new_gen out retire_pid i=0
   state=$(new_state_dir retire)
-  old_gen=$("$EV" arm "$state" t1)
+  old_gen=$(bash "$EV" arm "$state" t1)
   mkdir "$state/t1.busy-state.lock"
-  "$EV" retire "$state" t1 --gen "$old_gen" >/dev/null 2>&1 &
+  bash "$EV" retire "$state" t1 --gen "$old_gen" >/dev/null 2>&1 &
   retire_pid=$!
   while [ "$i" -lt 20 ] && ! kill -0 "$retire_pid" 2>/dev/null; do
     i=$((i + 1))
@@ -97,8 +97,8 @@ test_retire_serializes_and_rejects_stale_gen() {
   [ ! -e "$state/t1.busy-state" ] || fail "retire left the record behind"
   [ ! -e "$state/t1.busy-gen" ] || fail "retire left the gen sidecar behind"
 
-  new_gen=$("$EV" arm "$state" t1)
-  if "$EV" retire "$state" t1 --gen "$old_gen" 2>/dev/null; then
+  new_gen=$(bash "$EV" arm "$state" t1)
+  if bash "$EV" retire "$state" t1 --gen "$old_gen" 2>/dev/null; then
     fail "retire accepted a superseded incarnation"
   fi
   out=$(fm_busy_classify tmux w1 claude t1 "$state")
@@ -122,7 +122,7 @@ test_retire_serializes_and_rejects_stale_gen() {
 test_stale_lock_broken_under_gnu_stat() {
   local state gen fakebin real_uname out status
   state=$(new_state_dir gnu-stat-lock)
-  gen=$("$EV" arm "$state" t1)
+  gen=$(bash "$EV" arm "$state" t1)
   fakebin=$(fm_fakebin "$TMP_ROOT/gnu-stat-lock")
   real_uname=$(command -v uname)
 
@@ -150,7 +150,7 @@ SH
   chmod +x "$fakebin/uname"
 
   mkdir "$state/t1.busy-state.lock"
-  out=$(PATH="$fakebin:$PATH" "$EV" retire "$state" t1 --gen "$gen" 2>&1) && status=0 || status=$?
+  out=$(PATH="$fakebin:$PATH" bash "$EV" retire "$state" t1 --gen "$gen" 2>&1) && status=0 || status=$?
   case "$out" in
     *'unbound variable'*) fail "the writer still dies on GNU stat output: $out" ;;
   esac
@@ -160,7 +160,7 @@ SH
   [ ! -e "$state/t1.busy-state.lock" ] || fail "retire left the stale lock behind"
 
   # Teardown must be able to run again over the same task without failing.
-  PATH="$fakebin:$PATH" "$EV" retire "$state" t1 --current-gen \
+  PATH="$fakebin:$PATH" bash "$EV" retire "$state" t1 --current-gen \
     || fail "a repeated retire over already-cleaned state was not idempotent"
   pass "the writer breaks a stale lock instead of dying on GNU stat output"
 }
@@ -168,17 +168,17 @@ SH
 test_retire_missing_sidecar_is_idempotent() {
   local state gen
   state=$(new_state_dir retire-missing)
-  gen=$("$EV" arm "$state" t1)
+  gen=$(bash "$EV" arm "$state" t1)
   rm -f "$state/t1.busy-gen"
 
-  "$EV" retire "$state" t1 --gen "$gen" || fail "exact-gen retire rejected a missing sidecar"
+  bash "$EV" retire "$state" t1 --gen "$gen" || fail "exact-gen retire rejected a missing sidecar"
   [ ! -e "$state/t1.busy-state" ] || fail "retire left an orphan record behind"
-  "$EV" retire "$state" t1 --gen "$gen" || fail "repeated exact-gen retire was not idempotent"
-  "$EV" retire "$state" t1 --current-gen || fail "current-gen retire was not idempotent"
+  bash "$EV" retire "$state" t1 --gen "$gen" || fail "repeated exact-gen retire was not idempotent"
+  bash "$EV" retire "$state" t1 --current-gen || fail "current-gen retire was not idempotent"
 
   printf 'malformed gen\n' > "$state/t1.busy-gen"
   printf 'orphan\n' > "$state/t1.busy-state"
-  if "$EV" retire "$state" t1 --gen "$gen" 2>/dev/null; then
+  if bash "$EV" retire "$state" t1 --gen "$gen" 2>/dev/null; then
     fail "retire accepted a malformed existing sidecar"
   fi
   [ -e "$state/t1.busy-state" ] || fail "retire removed the record for a malformed existing sidecar"
@@ -190,10 +190,10 @@ test_retire_missing_sidecar_is_idempotent() {
 test_stale_gen_event_rejected() {
   local state old_gen new_gen out
   state=$(new_state_dir stale-event)
-  old_gen=$("$EV" arm "$state" t1)
-  new_gen=$("$EV" arm "$state" t1)
+  old_gen=$(bash "$EV" arm "$state" t1)
+  new_gen=$(bash "$EV" arm "$state" t1)
   [ "$old_gen" != "$new_gen" ] || fail "re-arm must mint a fresh gen"
-  if "$EV" apply "$state" t1 idle --gen "$old_gen" --source claude-hook --event stop 2>/dev/null; then
+  if bash "$EV" apply "$state" t1 idle --gen "$old_gen" --source claude-hook --event stop 2>/dev/null; then
     fail "an event carrying a stale gen must be rejected"
   fi
   out=$(fm_busy_classify tmux w1 claude t1 "$state")
@@ -204,7 +204,7 @@ test_stale_gen_event_rejected() {
 test_stale_gen_record_unknown() {
   local state gen out
   state=$(new_state_dir stale-record)
-  gen=$("$EV" arm "$state" t1)
+  gen=$(bash "$EV" arm "$state" t1)
   # Simulate a record left behind by a superseded incarnation.
   printf 'g-superseded.1.1\n' > "$state/t1.busy-gen.new"
   mv "$state/t1.busy-gen.new" "$state/t1.busy-gen"
@@ -230,7 +230,7 @@ test_missing_record_unknown_not_idle() {
 test_malformed_record_unknown() {
   local state gen out
   state=$(new_state_dir malformed)
-  gen=$("$EV" arm "$state" t1)
+  gen=$(bash "$EV" arm "$state" t1)
   for bad in \
     'garbage' \
     "v0 gen=$gen seq=1 state=busy source=claude-hook event=x ts=1" \
@@ -262,8 +262,8 @@ test_record_without_sidecar_unknown() {
 test_source_mismatch_cross_adapter() {
   local state gen out
   state=$(new_state_dir cross-adapter)
-  gen=$("$EV" arm "$state" t1)
-  "$EV" apply "$state" t1 busy --gen "$gen" --source pi-ext --event agent-start
+  gen=$(bash "$EV" arm "$state" t1)
+  bash "$EV" apply "$state" t1 busy --gen "$gen" --source pi-ext --event agent-start
   out=$(fm_busy_classify tmux w1 claude t1 "$state")
   [ "$out" = "unknown source-mismatch" ] || fail "pi-ext record on a claude task must be untrusted, got '$out'"
   out=$(fm_busy_classify tmux w1 pi t1 "$state")
@@ -295,7 +295,7 @@ Ctrl+c:cancel'
 test_launch_prompt_claude_trust_dialog() {
   local state out
   state=$(new_state_dir launch-prompt-claude)
-  "$EV" arm "$state" t1 >/dev/null
+  bash "$EV" arm "$state" t1 >/dev/null
   out=$(fm_busy_classify tmux w1 claude t1 "$state" 'Accessing workspace: /tmp/wt-a
 Quick safety check: Is this a project you created or one you trust?
 Claude Code'"'"'ll be able to read, edit, and execute files here.
@@ -317,7 +317,7 @@ test_launch_prompt_pi_trust_dialog() {
   local state out h
   for h in pi pi-signed omp; do
     state=$(new_state_dir "launch-prompt-$h")
-    "$EV" arm "$state" t1 >/dev/null
+    bash "$EV" arm "$state" t1 >/dev/null
     out=$(fm_busy_classify tmux w1 "$h" t1 "$state" ' Trust project folder?
  /tmp/fm-pi-trust-check/wt
 
@@ -339,7 +339,7 @@ test_launch_prompt_pi_trust_dialog() {
 test_launch_prompt_pi_requires_both_markers() {
   local state out
   state=$(new_state_dir launch-prompt-pi-partial)
-  "$EV" arm "$state" t1 >/dev/null
+  bash "$EV" arm "$state" t1 >/dev/null
   # "trust" alone, with neither the dialog heading nor its decline option, must
   # not be read as the dialog - it is an ordinary word a worker's own output
   # could easily contain.
@@ -352,7 +352,7 @@ test_launch_prompt_pi_requires_both_markers() {
 test_launch_prompt_gemini_dialogs() {
   local state out
   state=$(new_state_dir launch-prompt-gemini-trust)
-  "$EV" arm "$state" t1 >/dev/null
+  bash "$EV" arm "$state" t1 >/dev/null
   out=$(fm_busy_classify tmux w1 gemini t1 "$state" 'Do you trust the files in this folder?
 ● 1. Trust folder (worktree)
   2. Trust parent folder (project)
@@ -361,14 +361,14 @@ test_launch_prompt_gemini_dialogs() {
     || fail "a Gemini launch parked on the workspace-trust dialog must classify unknown launch-prompt, got '$out'"
 
   state=$(new_state_dir launch-prompt-gemini-auth)
-  "$EV" arm "$state" t1 >/dev/null
+  bash "$EV" arm "$state" t1 >/dev/null
   out=$(fm_busy_classify tmux w1 gemini t1 "$state" 'How would you like to authenticate for this project?
 ● 2. Use Gemini API Key')
   [ "$out" = "unknown launch-prompt" ] \
     || fail "a Gemini launch parked on the auth-method picker must classify unknown launch-prompt, got '$out'"
 
   state=$(new_state_dir launch-prompt-gemini-apikey)
-  "$EV" arm "$state" t1 >/dev/null
+  bash "$EV" arm "$state" t1 >/dev/null
   out=$(fm_busy_classify tmux w1 gemini t1 "$state" 'Enter Gemini API Key
 > ')
   [ "$out" = "unknown launch-prompt" ] \
@@ -379,7 +379,7 @@ test_launch_prompt_gemini_dialogs() {
 test_launch_prompt_never_shortens_a_working_launch() {
   local state out
   state=$(new_state_dir launch-prompt-working)
-  "$EV" arm "$state" t1 >/dev/null
+  bash "$EV" arm "$state" t1 >/dev/null
   # A genuinely working launch (Claude's ordinary busy footer, rendered before
   # its own hook has posted a single event yet) must keep the normal busy
   # bound rather than being shortened by this backstop.
@@ -394,7 +394,7 @@ test_launch_prompt_scoped_to_armed_harnesses() {
   # opencode ships no trust dialog (fm-busy-lib.sh header), so it has no
   # signature at all: even Claude's own dialog text must not reclassify it.
   state=$(new_state_dir launch-prompt-opencode)
-  "$EV" arm "$state" t1 >/dev/null
+  bash "$EV" arm "$state" t1 >/dev/null
   out=$(fm_busy_classify tmux w1 opencode t1 "$state" \
     'Quick safety check: Is this a project you created or one you trust?')
   [ "$out" = "busy fm-spawn" ] \
@@ -405,8 +405,8 @@ test_launch_prompt_scoped_to_armed_harnesses() {
 test_launch_prompt_never_reclassifies_an_advanced_record() {
   local state gen out
   state=$(new_state_dir launch-prompt-advanced)
-  gen=$("$EV" arm "$state" t1)
-  "$EV" apply "$state" t1 busy --gen "$gen" --source claude-hook --event user-prompt-submit
+  gen=$(bash "$EV" arm "$state" t1)
+  bash "$EV" apply "$state" t1 busy --gen "$gen" --source claude-hook --event user-prompt-submit
   out=$(fm_busy_classify tmux w1 claude t1 "$state" \
     'Quick safety check: Is this a project you created or one you trust?')
   [ "$out" = "busy claude-hook" ] \
@@ -417,7 +417,7 @@ test_launch_prompt_never_reclassifies_an_advanced_record() {
 test_launch_prompt_requires_a_captured_tail() {
   local state out
   state=$(new_state_dir launch-prompt-no-tail)
-  "$EV" arm "$state" t1 >/dev/null
+  bash "$EV" arm "$state" t1 >/dev/null
   out=$(fm_busy_classify tmux w1 claude t1 "$state")
   [ "$out" = "busy fm-spawn" ] \
     || fail "with no captured tail the record's own state must stand, got '$out'"
@@ -444,8 +444,8 @@ Ctrl+c:cancel')
 test_codex_unverified_gate() {
   local state gen out
   state=$(new_state_dir codex-gate)
-  gen=$("$EV" arm "$state" t1)
-  "$EV" apply "$state" t1 busy --gen "$gen" --source codex-hook --event user-prompt-submit
+  gen=$(bash "$EV" arm "$state" t1)
+  bash "$EV" apply "$state" t1 busy --gen "$gen" --source codex-hook --event user-prompt-submit
   out=$(fm_busy_classify tmux w1 codex t1 "$state")
   [ "$out" = "unknown codex-unverified" ] || fail "unverified codex must classify unknown, got '$out'"
   [ -z "$(fm_busy_sources_for_harness codex)" ] \
@@ -456,8 +456,8 @@ test_codex_unverified_gate() {
 test_kimi_unverified_gate() {
   local state gen out
   state=$(new_state_dir kimi-gate)
-  gen=$("$EV" arm "$state" t1)
-  "$EV" apply "$state" t1 busy --gen "$gen" --source kimi-hook --event user-prompt-submit
+  gen=$(bash "$EV" arm "$state" t1)
+  bash "$EV" apply "$state" t1 busy --gen "$gen" --source kimi-hook --event user-prompt-submit
   out=$(fm_busy_classify tmux w1 kimi t1 "$state")
   [ "$out" = "unknown kimi-unverified" ] || fail "unverified kimi must classify unknown, got '$out'"
   out=$(fm_busy_classify tmux w1 kimi t1 "$state" '🌒 · thinking')
@@ -507,7 +507,7 @@ test_cursor_ignores_rendered_and_native_signals() {
 test_dead_endpoint_overrides() {
   local state gen out
   state=$(new_state_dir dead)
-  gen=$("$EV" arm "$state" t1)
+  gen=$(bash "$EV" arm "$state" t1)
   # shellcheck disable=SC2329 # invoked indirectly through fm_busy_classify_live
   fm_backend_target_exists() { return 1; }
   out=$(fm_busy_classify_live tmux w1 claude t1 "$state")
@@ -535,8 +535,8 @@ test_herdr_native_busy_only() {
   [ "$out" = "unknown missing" ] || fail "native idle must NOT classify idle, got '$out'"
   # A valid record outranks the native verdict.
   local gen
-  gen=$("$EV" arm "$state" t1)
-  "$EV" apply "$state" t1 idle --gen "$gen" --source claude-hook --event stop
+  gen=$(bash "$EV" arm "$state" t1)
+  bash "$EV" apply "$state" t1 idle --gen "$gen" --source claude-hook --event stop
   FAKE_NATIVE=busy
   out=$(fm_busy_classify herdr s:p claude t1 "$state")
   [ "$out" = "idle claude-hook" ] || fail "the adapter record must outrank herdr's native verdict, got '$out'"
@@ -558,8 +558,8 @@ test_tern_native_busy_only() {
     [ "$out" = "unknown missing" ] || fail "tern native '$verdict' must NOT classify as a verdict, got '$out'"
   done
   # A valid record outranks the native verdict.
-  gen=$("$EV" arm "$state" t1)
-  "$EV" apply "$state" t1 idle --gen "$gen" --source claude-hook --event stop
+  gen=$(bash "$EV" arm "$state" t1)
+  bash "$EV" apply "$state" t1 idle --gen "$gen" --source claude-hook --event stop
   FAKE_NATIVE=busy
   out=$(fm_busy_classify tern 7:9 claude t1 "$state")
   [ "$out" = "idle claude-hook" ] || fail "the adapter record must outrank tern's native verdict, got '$out'"
@@ -573,7 +573,7 @@ test_tern_native_busy_only() {
 test_record_read_leaves_caller_shell_intact() {
   local state out
   state=$(new_state_dir parser-isolation)
-  "$EV" arm "$state" t1 >/dev/null
+  bash "$EV" arm "$state" t1 >/dev/null
   out=$(bash -c '
     set -f
     . "$1/bin/fm-busy-lib.sh"
@@ -596,9 +596,9 @@ test_record_read_leaves_caller_shell_intact() {
 test_boolean_view_never_promotes_unknown() {
   local state gen
   state=$(new_state_dir boolean)
-  gen=$("$EV" arm "$state" t1)
+  gen=$(bash "$EV" arm "$state" t1)
   fm_busy_is_busy tmux w1 claude t1 "$state" || fail "busy record must read busy"
-  "$EV" apply "$state" t1 idle --gen "$gen" --source claude-hook --event stop
+  bash "$EV" apply "$state" t1 idle --gen "$gen" --source claude-hook --event stop
   if fm_busy_is_busy tmux w1 claude t1 "$state"; then
     fail "idle record must not read busy"
   fi
@@ -612,18 +612,18 @@ test_boolean_view_never_promotes_unknown() {
 test_progress_is_generation_bound_and_not_semantic_state() {
   local state gen replacement before
   state=$(new_state_dir native-progress)
-  gen=$("$EV" arm "$state" t1)
+  gen=$(bash "$EV" arm "$state" t1)
   before=$(cat "$state/t1.busy-state")
-  "$EV" progress "$state" t1 --gen "$gen" || fail "current progress was refused"
+  bash "$EV" progress "$state" t1 --gen "$gen" || fail "current progress was refused"
   [ -f "$state/t1.progress" ] || fail "progress marker missing"
   [ ! -e "$state/t1.turn-ended" ] || fail "progress emitted a completed turn"
   [ "$(cat "$state/t1.busy-state")" = "$before" ] || fail "progress changed semantic state"
-  replacement=$("$EV" arm "$state" t1)
+  replacement=$(bash "$EV" arm "$state" t1)
   [ ! -e "$state/t1.progress" ] || fail "arm retained the previous incarnation's progress"
-  if "$EV" progress "$state" t1 --gen "$gen" 2>/dev/null; then fail "stale progress was accepted"; fi
+  if bash "$EV" progress "$state" t1 --gen "$gen" 2>/dev/null; then fail "stale progress was accepted"; fi
   [ ! -e "$state/t1.progress" ] || fail "stale progress wrote a marker"
-  "$EV" progress "$state" t1 --gen "$replacement" || fail "replacement progress was refused"
-  "$EV" retire "$state" t1 --gen "$replacement" || fail "retire failed"
+  bash "$EV" progress "$state" t1 --gen "$replacement" || fail "replacement progress was refused"
+  bash "$EV" retire "$state" t1 --gen "$replacement" || fail "retire failed"
   [ ! -e "$state/t1.progress" ] || fail "retire retained progress"
   pass "native progress is generation-bound, separately recorded, and cleared on arm and retire"
 }
@@ -631,67 +631,67 @@ test_progress_is_generation_bound_and_not_semantic_state() {
 test_turn_ended_notification_is_generation_bound() {
   local state gen
   state=$(new_state_dir turn-ended)
-  gen=$("$EV" arm "$state" t1)
-  "$EV" apply "$state" t1 idle --gen "$gen" --source commandcode-mod --event run-end \
+  gen=$(bash "$EV" arm "$state" t1)
+  bash "$EV" apply "$state" t1 idle --gen "$gen" --source commandcode-mod --event run-end \
     || fail "current idle event was refused"
   [ ! -e "$state/t1.turn-ended" ] || fail "an idle event without --turn-ended notified"
-  "$EV" apply "$state" t1 idle --gen "$gen" --source commandcode-mod --event run-end --turn-ended \
+  bash "$EV" apply "$state" t1 idle --gen "$gen" --source commandcode-mod --event run-end --turn-ended \
     || fail "current turn-ended event was refused"
   [ -f "$state/t1.turn-ended" ] || fail "turn-ended notification missing"
   rm "$state/t1.turn-ended"
-  "$EV" arm "$state" t1 >/dev/null
-  if "$EV" apply "$state" t1 idle --gen "$gen" --source commandcode-mod --event run-end --turn-ended 2>/dev/null; then
+  bash "$EV" arm "$state" t1 >/dev/null
+  if bash "$EV" apply "$state" t1 idle --gen "$gen" --source commandcode-mod --event run-end --turn-ended 2>/dev/null; then
     fail "stale turn-ended event was accepted"
   fi
   [ ! -e "$state/t1.turn-ended" ] || fail "stale turn-ended event woke the replacement"
-  if "$EV" progress "$state" t1 --gen "$gen" --turn-ended 2>/dev/null; then fail "--turn-ended accepted outside apply"; fi
+  if bash "$EV" progress "$state" t1 --gen "$gen" --turn-ended 2>/dev/null; then fail "--turn-ended accepted outside apply"; fi
   pass "the turn-ended notification rides the apply generation check"
 }
 
 test_model_stream_lifecycle_is_fenced() {
   local state gen next before snapshot
   state=$(new_state_dir model-stream)
-  gen=$("$EV" arm "$state" t1)
-  "$EV" apply "$state" t1 busy --gen "$gen" --source pi-ext --event agent-start
+  gen=$(bash "$EV" arm "$state" t1)
+  bash "$EV" apply "$state" t1 busy --gen "$gen" --source pi-ext --event agent-start
   before=$(cat "$state/t1.busy-state")
-  "$EV" stream "$state" t1 open --gen "$gen" --request 1 || fail "current stream open refused"
+  bash "$EV" stream "$state" t1 open --gen "$gen" --request 1 || fail "current stream open refused"
   snapshot=$(fm_busy_stream_read "$state" t1 pi) || fail "current stream unreadable"
-  "$EV" stream "$state" t1 progress --gen "$gen" --request 1 || fail "current progress refused"
+  bash "$EV" stream "$state" t1 progress --gen "$gen" --request 1 || fail "current progress refused"
   [ "$(fm_busy_stream_read "$state" t1 pi)" != "$snapshot" ] || fail "progress did not advance evidence"
   [ -f "$state/t1.model-progress" ] || fail "model progress anchor missing"
   [ ! -e "$state/t1.progress" ] || fail "model stream changed the default native anchor"
   [ "$(cat "$state/t1.busy-state")" = "$before" ] || fail "stream changed busy state"
   [ ! -e "$state/t1.turn-ended" ] || fail "stream fabricated completion"
   if fm_busy_stream_read "$state" t1 claude >/dev/null; then fail "foreign harness trusted stream"; fi
-  "$EV" stream "$state" t1 close --gen "$gen" --request 1 || fail "stream close refused"
+  bash "$EV" stream "$state" t1 close --gen "$gen" --request 1 || fail "stream close refused"
   [ ! -e "$state/t1.model-stream" ] || fail "close retained active marker"
-  if "$EV" stream "$state" t1 progress --gen "$gen" --request 1 2>/dev/null; then fail "closed progress accepted"; fi
-  if "$EV" stream "$state" t1 open --gen "$gen" --request 1 2>/dev/null; then fail "closed request reopened"; fi
-  "$EV" stream "$state" t1 open --gen "$gen" --request 2 || fail "retry open refused"
+  if bash "$EV" stream "$state" t1 progress --gen "$gen" --request 1 2>/dev/null; then fail "closed progress accepted"; fi
+  if bash "$EV" stream "$state" t1 open --gen "$gen" --request 1 2>/dev/null; then fail "closed request reopened"; fi
+  bash "$EV" stream "$state" t1 open --gen "$gen" --request 2 || fail "retry open refused"
   snapshot=$(fm_busy_stream_read "$state" t1 pi)
-  if "$EV" stream "$state" t1 close --gen "$gen" --request 1 2>/dev/null; then fail "old close accepted"; fi
+  if bash "$EV" stream "$state" t1 close --gen "$gen" --request 1 2>/dev/null; then fail "old close accepted"; fi
   [ "$(fm_busy_stream_read "$state" t1 pi)" = "$snapshot" ] || fail "old close changed retry"
-  "$EV" apply "$state" t1 idle --gen "$gen" --source pi-ext --event agent-settled
+  bash "$EV" apply "$state" t1 idle --gen "$gen" --source pi-ext --event agent-settled
   [ ! -e "$state/t1.model-stream" ] || fail "settled record retained stream"
-  if "$EV" stream "$state" t1 progress --gen "$gen" --request 2 2>/dev/null; then fail "idle progress accepted"; fi
-  next=$("$EV" arm "$state" t1)
+  if bash "$EV" stream "$state" t1 progress --gen "$gen" --request 2 2>/dev/null; then fail "idle progress accepted"; fi
+  next=$(bash "$EV" arm "$state" t1)
   [ ! -e "$state/t1.model-stream-order" ] || fail "replacement retained stream ordering"
   [ ! -e "$state/t1.model-progress" ] || fail "replacement retained model progress"
-  if "$EV" stream "$state" t1 open --gen "$gen" --request 3 2>/dev/null; then fail "stale open accepted"; fi
-  "$EV" apply "$state" t1 busy --gen "$next" --source pi-ext --event agent-start
-  "$EV" stream "$state" t1 open --gen "$next" --request 1
-  "$EV" retire "$state" t1 --gen "$next"
+  if bash "$EV" stream "$state" t1 open --gen "$gen" --request 3 2>/dev/null; then fail "stale open accepted"; fi
+  bash "$EV" apply "$state" t1 busy --gen "$next" --source pi-ext --event agent-start
+  bash "$EV" stream "$state" t1 open --gen "$next" --request 1
+  bash "$EV" retire "$state" t1 --gen "$next"
   [ ! -e "$state/t1.model-stream" ] && [ ! -e "$state/t1.model-stream-order" ] && [ ! -e "$state/t1.model-progress" ] || fail "retire left stream evidence"
-  if "$EV" stream "$state" t1 open --gen "$next" --request 2 2>/dev/null; then fail "unarmed open accepted"; fi
+  if bash "$EV" stream "$state" t1 open --gen "$next" --request 2 2>/dev/null; then fail "unarmed open accepted"; fi
   pass "model streams preserve state and reject stale, closed, superseded, foreign, and retired events"
 }
 
 test_model_stream_close_failure_invalidates_observation() {
   local state gen fakebin real_mv
   state=$(new_state_dir model-stream-close-failure)
-  gen=$("$EV" arm "$state" t1)
-  "$EV" apply "$state" t1 busy --gen "$gen" --source pi-ext --event agent-start
-  "$EV" stream "$state" t1 open --gen "$gen" --request 1
+  gen=$(bash "$EV" arm "$state" t1)
+  bash "$EV" apply "$state" t1 busy --gen "$gen" --source pi-ext --event agent-start
+  bash "$EV" stream "$state" t1 open --gen "$gen" --request 1
   fakebin=$(fm_fakebin "$TMP_ROOT/model-stream-close-failure")
   real_mv=$(command -v mv)
   cat > "$fakebin/mv" <<SH
@@ -700,13 +700,13 @@ case "\${!#}" in *.model-stream-order) exit 1 ;; esac
 exec "$real_mv" "\$@"
 SH
   chmod +x "$fakebin/mv"
-  if PATH="$fakebin:$PATH" "$EV" stream "$state" t1 close --gen "$gen" --request 1; then
+  if PATH="$fakebin:$PATH" bash "$EV" stream "$state" t1 close --gen "$gen" --request 1; then
     fail "faulted close reported success"
   fi
   if fm_busy_stream_read "$state" t1 pi >/dev/null; then fail "failed close left active observation"; fi
-  if "$EV" stream "$state" t1 progress --gen "$gen" --request 1; then fail "late progress resurrected failed close"; fi
-  if "$EV" stream "$state" t1 open --gen "$gen" --request 1; then fail "failed close admitted duplicate request"; fi
-  "$EV" stream "$state" t1 open --gen "$gen" --request 2 || fail "new request after failed close refused"
+  if bash "$EV" stream "$state" t1 progress --gen "$gen" --request 1; then fail "late progress resurrected failed close"; fi
+  if bash "$EV" stream "$state" t1 open --gen "$gen" --request 1; then fail "failed close admitted duplicate request"; fi
+  bash "$EV" stream "$state" t1 open --gen "$gen" --request 2 || fail "new request after failed close refused"
   pass "failed close invalidates observation before persistence and denies late replay"
 }
 

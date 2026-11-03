@@ -22,7 +22,7 @@ fm_live_gate opt-in FM_POSTURE_REPAIR_LIVE_E2E herdr jq opencode
   || fail "FM_POSTURE_REPAIR_LIVE_E2E=1 but the Herdr lab helper is not executable at $HERDR_LAB_HELPER"
 
 ORIGINAL_PATH=$PATH
-HERDR_LAB_SESSION=$("$HERDR_LAB_HELPER" name fm-posture-repair-live-e2e)
+HERDR_LAB_SESSION=$(bash "$HERDR_LAB_HELPER" name fm-posture-repair-live-e2e)
 TMP_ROOT=$(mktemp -d "$(cd "${TMPDIR:-/tmp}" && pwd -P)/fm-posture-repair-live-e2e.XXXXXX")
 FAKEBIN="$TMP_ROOT/fakebin"
 BG_PID_FILE="$TMP_ROOT/background.pid"
@@ -30,7 +30,7 @@ mkdir -p "$FAKEBIN"
 PANE=
 BG_PID=
 
-lab() { env PATH="$ORIGINAL_PATH" "$HERDR_LAB_HELPER" run "$HERDR_LAB_SESSION" "$@"; }
+lab() { env PATH="$ORIGINAL_PATH" bash "$HERDR_LAB_HELPER" run "$HERDR_LAB_SESSION" "$@"; }
 
 cleanup() {
   local rc=$? screen=''
@@ -49,7 +49,7 @@ cleanup() {
     ''|*[!0-9]*) ;;
     *) kill "$BG_PID" 2>/dev/null || true ;;
   esac
-  if ! PATH="$ORIGINAL_PATH" "$HERDR_LAB_HELPER" teardown "$HERDR_LAB_SESSION"; then
+  if ! PATH="$ORIGINAL_PATH" bash "$HERDR_LAB_HELPER" teardown "$HERDR_LAB_SESSION"; then
     rc=1
   fi
   rm -rf "$TMP_ROOT"
@@ -74,7 +74,7 @@ exec env PATH="$ORIGINAL_PATH" "$HERDR_LAB_HELPER" run "$HERDR_LAB_SESSION" "${a
 EOF
 chmod +x "$FAKEBIN/herdr"
 
-"$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION" \
+bash "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION" \
   || fail "could not provision the isolated Herdr lab"
 export PATH="$FAKEBIN:$ORIGINAL_PATH"
 export HERDR_SESSION="$HERDR_LAB_SESSION"

@@ -240,7 +240,7 @@ run_update_in_case() {
   env PATH="$dir/fakebin:$PATH" FM_FAKE_DIR="$dir/fake" \
     FM_ROOT_OVERRIDE="$dir/fmrepo" FM_HOME="$dir/home" \
     FM_SSH_BIN="${FM_TEST_SSH_BIN:-ssh}" \
-    "$ROOT/bin/fm-update.sh" 2>/dev/null
+    bash "$ROOT/bin/fm-update.sh" 2>/dev/null
 }
 
 # arm_answer <case-dir> <id>: make the modelled mate answer the persist request.
@@ -257,7 +257,7 @@ run_restart() {  # <case-dir> <args...>
     FM_SECONDMATE_PERSIST_WAIT="${FM_TEST_PERSIST_WAIT:-30}" \
     FM_CONTROL_POLL=0.01 FM_CONTROL_EXIT_WAIT=0.05 FM_CONTROL_LAUNCH_WAIT=0.05 \
     FM_SSH_BIN="${FM_TEST_SSH_BIN:-ssh}" \
-    "$RESTART" "$@" 2>&1
+    bash "$RESTART" "$@" 2>&1
 }
 
 # --- T1: the persist request is the task subset of /stow, and it gates --------
@@ -1083,7 +1083,7 @@ test_remote_ack_verb_retires_only_the_matching_record() {
     printf 'an unrelated later steer\n'
   } > "$inbox/002.msg"
 
-  out=$(FM_HOME="$rhome" "$ROOT/bin/fm-remote-secondmate-control.sh" ack rm1 "$corr" 2>&1); rc=$?
+  out=$(FM_HOME="$rhome" bash "$ROOT/bin/fm-remote-secondmate-control.sh" ack rm1 "$corr" 2>&1); rc=$?
 
   expect_code 0 "$rc" "the ack verb should retire the answered record"$'\n'"$out"
   assert_present "$inbox/handled/001.msg" "the answered record was not retired to handled/"
@@ -1091,10 +1091,10 @@ test_remote_ack_verb_retires_only_the_matching_record() {
   assert_absent "$inbox/001.msg" "the retired record is still pending for the replacement"
 
   # Retiring twice is a no-op success: the mate may have acknowledged itself.
-  out=$(FM_HOME="$rhome" "$ROOT/bin/fm-remote-secondmate-control.sh" ack rm1 "$corr" 2>&1); rc=$?
+  out=$(FM_HOME="$rhome" bash "$ROOT/bin/fm-remote-secondmate-control.sh" ack rm1 "$corr" 2>&1); rc=$?
   expect_code 0 "$rc" "a repeated ack must stay a no-op success"$'\n'"$out"
 
-  out=$(FM_HOME="$rhome" "$ROOT/bin/fm-remote-secondmate-control.sh" ack rm1 not-a-corr 2>&1); rc=$?
+  out=$(FM_HOME="$rhome" bash "$ROOT/bin/fm-remote-secondmate-control.sh" ack rm1 not-a-corr 2>&1); rc=$?
   [ "$rc" -ne 0 ] || fail "a malformed correlation was accepted"
   pass "T20 the remote ack verb retires only the answered record"
 }

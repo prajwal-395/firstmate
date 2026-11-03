@@ -274,10 +274,10 @@ fm_test_reap_procevent_homes() {
     [ -d "$home/state/procevent" ] || continue
     if [ -n "$claim_root" ]; then
       FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" FM_PROCEVENT_CLAIM_ROOT="$claim_root" \
-        "$ROOT/bin/fm-procevent.sh" sweep-home >/dev/null 2>&1 || true
+        bash "$ROOT/bin/fm-procevent.sh" sweep-home >/dev/null 2>&1 || true
     else
       FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
-        "$ROOT/bin/fm-procevent.sh" sweep-home >/dev/null 2>&1 || true
+        bash "$ROOT/bin/fm-procevent.sh" sweep-home >/dev/null 2>&1 || true
     fi
   done < "$FM_TEST_PROCEVENT_REGISTRY"
   rm -f "$FM_TEST_PROCEVENT_REGISTRY"
@@ -319,7 +319,7 @@ fm_test_reap_watchers() {
     lock_home=$(cat "$state/.watch.lock/fm-home" 2>/dev/null || true)
     [ -n "$lock_home" ] || continue
     FM_HOME="$lock_home" FM_STATE_OVERRIDE="$state" \
-      "$ROOT/bin/fm-watch-arm.sh" --stop >/dev/null 2>&1 || true
+      bash "$ROOT/bin/fm-watch-arm.sh" --stop >/dev/null 2>&1 || true
   done < "$FM_TEST_WATCHER_REGISTRY"
   rm -f "$FM_TEST_WATCHER_REGISTRY"
 }

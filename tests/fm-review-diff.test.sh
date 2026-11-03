@@ -106,7 +106,7 @@ run_review_diff() {
   FM_ROOT_OVERRIDE="$ROOT" \
   FM_STATE_OVERRIDE="$case_dir/state" \
   FM_CONFIG_OVERRIDE="$case_dir/config" \
-    "$REVIEW_DIFF" "$@"
+    bash "$REVIEW_DIFF" "$@"
 }
 
 # origin.git with a baseline commit and a project clone of it, with no task

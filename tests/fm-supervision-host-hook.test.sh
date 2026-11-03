@@ -238,7 +238,7 @@ test_claude_stop_hook_rewakes_main_for_an_inbox_note_after_a_handled_wake() {
   wait_until 150 watcher_live "$home" || fail "inbox after handled: the host is not parked on a live successor"
   sleep 2
   hook_exited "$home" && fail "fixture: the handled routine wake reached main: $(cat "$home/hook.err")"
-  FM_HOME="$home" "$ROOT/bin/fm-inbox.sh" note "the captain sent this from Basecamp" >/dev/null \
+  FM_HOME="$home" bash "$ROOT/bin/fm-inbox.sh" note "the captain sent this from Basecamp" >/dev/null \
     || fail "fixture: the inbox note was not saved and announced"
   assert_grep 'check: captain inbox note' "$home/state/.wake-queue" "fixture: the note queued no wake row"
   wait_until_deadline 60 hook_exited "$home" \

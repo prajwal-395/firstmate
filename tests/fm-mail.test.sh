@@ -19,7 +19,7 @@ mkdir -p "$HOME_DIR"
 test_missing_secret_fails_cleanly() {
   local out rc
   env -u FM_MAIL_USER -u FM_MAIL_PASS -u FM_IMAP_HOST -u FM_SMTP_HOST \
-    FM_HOME="$HOME_DIR" "$MAIL" status >"$TMP_ROOT/out" 2>"$TMP_ROOT/err"
+    FM_HOME="$HOME_DIR" bash "$MAIL" status >"$TMP_ROOT/out" 2>"$TMP_ROOT/err"
   rc=$?
   expect_code 1 "$rc" "status without configuration must fail"
   out=$(cat "$TMP_ROOT/err")
@@ -40,11 +40,11 @@ FM_IMAP_HOST=imap.file.invalid
 FM_SMTP_HOST=smtp.file.invalid
 EOF
   # No environment: .env supplies the configuration.
-  out=$(FM_HOME="$env_home" "$MAIL" status 2>&1)
+  out=$(FM_HOME="$env_home" bash "$MAIL" status 2>&1)
   assert_contains "$out" "mail account: fromfile@example.com" "status uses .env when environment is unset"
   # A single environment value wins for that key; the other keys still come
   # from .env, matching the Relay/FMX "env wins over .env" contract.
-  out=$(FM_MAIL_USER=fromenv@example.com FM_HOME="$env_home" "$MAIL" status 2>&1)
+  out=$(FM_MAIL_USER=fromenv@example.com FM_HOME="$env_home" bash "$MAIL" status 2>&1)
   assert_contains "$out" "mail account: fromenv@example.com" "environment overrides .env for a direct invocation"
   pass "fm-mail: environment values override the .env file"
 }
@@ -53,7 +53,7 @@ test_status_without_network() {
   local out rc
   out=$(FM_MAIL_USER="test@example.com" FM_MAIL_PASS="test-pass" \
     FM_IMAP_HOST="imap.test.invalid" FM_SMTP_HOST="smtp.test.invalid" \
-    FM_HOME="$HOME_DIR" "$MAIL" status 2>&1)
+    FM_HOME="$HOME_DIR" bash "$MAIL" status 2>&1)
   rc=$?
   expect_code 0 "$rc" "status with configuration must succeed without network"
   assert_contains "$out" "mail account: test@example.com" "status prints the configured account"
@@ -67,7 +67,7 @@ test_help_plumbing() {
   local out rc
   out=$(FM_MAIL_USER="test@example.com" FM_MAIL_PASS="test-pass" \
     FM_IMAP_HOST="imap.test.invalid" FM_SMTP_HOST="smtp.test.invalid" \
-    FM_HOME="$HOME_DIR" "$MAIL" --help 2>&1)
+    FM_HOME="$HOME_DIR" bash "$MAIL" --help 2>&1)
   rc=$?
   expect_code 0 "$rc" "--help must exit 0"
   assert_contains "$out" "read" "--help lists the read subcommand"
@@ -81,7 +81,7 @@ test_unknown_subcommand_prints_usage() {
   local out rc
   out=$(FM_MAIL_USER="test@example.com" FM_MAIL_PASS="test-pass" \
     FM_IMAP_HOST="imap.test.invalid" FM_SMTP_HOST="smtp.test.invalid" \
-    FM_HOME="$HOME_DIR" "$MAIL" bogus 2>&1)
+    FM_HOME="$HOME_DIR" bash "$MAIL" bogus 2>&1)
   rc=$?
   expect_code 1 "$rc" "unknown subcommand must exit 1"
   assert_contains "$out" "read" "unknown subcommand prints usage"
@@ -93,7 +93,7 @@ test_no_secret_leaked_to_status() {
   local out
   out=$(FM_MAIL_USER="test@example.com" FM_MAIL_PASS="test-pass" \
     FM_IMAP_HOST="imap.test.invalid" FM_SMTP_HOST="smtp.test.invalid" \
-    FM_HOME="$HOME_DIR" "$MAIL" status 2>&1)
+    FM_HOME="$HOME_DIR" bash "$MAIL" status 2>&1)
   assert_not_contains "$out" "test-pass" "status must never print the password"
   pass "fm-mail: status never prints the password"
 }
@@ -117,7 +117,7 @@ SH
   local out rc=0
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=h FM_SMTP_HOST=h \
     FM_HOME="$HOME_DIR" PATH="$fakebin:$PATH" \
-    "$MAIL" send to@example.com subj "hello world" 2>&1) || rc=$?
+    bash "$MAIL" send to@example.com subj "hello world" 2>&1) || rc=$?
   expect_code 0 "$rc" "send with body must succeed"
   local captured
   captured=$(cat "$stdin_file" 2>/dev/null || echo "")
@@ -144,7 +144,7 @@ SH
   out=$(env -u FM_MAIL_USER -u FM_MAIL_PASS -u FM_IMAP_HOST -u FM_SMTP_HOST \
     FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$HOME_DIR" PATH="$fakebin:$PATH" \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 1 "$rc" "poll must propagate python3 errors"
   assert_contains "$out" "connection refused" "poll error message is visible"
   pass "fm-mail: poll propagates errors instead of swallowing them"
@@ -172,7 +172,7 @@ SH
   local out rc=0
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$HOME_DIR" PATH="$fakebin:$PATH" \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 0 "$rc" "poll must succeed when python3 lists mail"
   assert_contains "$out" "woke for 42" "first poll wakes the new uid"
   local wakeq="$HOME_DIR/state/.wake-queue"
@@ -181,7 +181,7 @@ SH
 
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$HOME_DIR" PATH="$fakebin:$PATH" \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 0 "$rc" "second poll must succeed"
   assert_not_contains "$out" "woke for 42" "re-polling the same uid must not re-wake"
   assert_contains "$out" "no new mail" "second poll reports no new mail"
@@ -208,7 +208,7 @@ SH
   local out rc=0
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$HOME_DIR" PATH="$fakebin:$PATH" \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 0 "$rc" "first-generation poll must succeed"
   assert_contains "$out" "woke for 77" "first generation wakes uid 77"
 
@@ -222,7 +222,7 @@ SH
 
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$HOME_DIR" PATH="$fakebin:$PATH" \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 0 "$rc" "second-generation poll must succeed"
   assert_contains "$out" "woke for 77" "reused uid wakes again under a new generation"
   pass "fm-mail: generation change prevents a reused uid from being suppressed"
@@ -246,7 +246,7 @@ SH
   local out rc=0
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$HOME_DIR" PATH="$fakebin:$PATH" \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 0 "$rc" "first poll must succeed"
   assert_contains "$out" "woke for 99" "first poll wakes uid 99"
 
@@ -256,7 +256,7 @@ SH
 
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$HOME_DIR" PATH="$fakebin:$PATH" \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 0 "$rc" "healing poll must succeed"
   assert_not_contains "$out" "woke for 99" "healing poll must not re-wake the queued mail"
   assert_contains "$(cat "$HOME_DIR/state/.mail-seen" 2>/dev/null)" "99" "healing poll restores the cursor record"
@@ -286,10 +286,10 @@ SH
   local combined woke_count
   FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$HOME_DIR" PATH="$fakebin:$PATH" \
-    "$MAIL" poll >"$TMP_ROOT/poll-a.out" 2>&1 &
+    bash "$MAIL" poll >"$TMP_ROOT/poll-a.out" 2>&1 &
   FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$HOME_DIR" PATH="$fakebin:$PATH" \
-    "$MAIL" poll >"$TMP_ROOT/poll-b.out" 2>&1 &
+    bash "$MAIL" poll >"$TMP_ROOT/poll-b.out" 2>&1 &
   wait
 
   combined="$(cat "$TMP_ROOT/poll-a.out" "$TMP_ROOT/poll-b.out")"
@@ -318,7 +318,7 @@ SH
   local out rc=0
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$HOME_DIR" PATH="$fakebin:$PATH" \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 0 "$rc" "first poll must succeed"
   assert_contains "$out" "woke for 55" "first poll wakes uid 55"
 
@@ -333,7 +333,7 @@ SH
 
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$HOME_DIR" PATH="$fakebin:$PATH" \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 0 "$rc" "recovery poll must succeed"
   assert_not_contains "$out" "woke for 55" "recovery must not re-wake the acked mail"
   assert_contains "$(cat "$HOME_DIR/state/.mail-seen" 2>/dev/null)" "55" "journal heal restores the cursor record"
@@ -364,7 +364,7 @@ SH
   # First poll appends the wake and writes the evidence.
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$interrupted_home" PATH="$fakebin:$PATH" \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 0 "$rc" "first poll must succeed"
   assert_contains "$out" "woke for 33" "first poll wakes uid 33"
   assert_contains "$(cat "$interrupted_home/state/.mail-woken" 2>/dev/null)" "80008" \
@@ -382,7 +382,7 @@ SH
   rc=0
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$interrupted_home" PATH="$fakebin:$PATH" \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 0 "$rc" "healing poll must succeed"
   assert_not_contains "$out" "woke for 33" "healing poll must not duplicate the queued mail"
   assert_contains "$(cat "$interrupted_home/state/.mail-seen" 2>/dev/null)" "33" \
@@ -413,7 +413,7 @@ SH
 
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$acked_home" PATH="$fakebin:$PATH" \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 0 "$rc" "first poll must succeed"
   assert_contains "$out" "woke for 44" "first poll wakes uid 44"
 
@@ -426,7 +426,7 @@ SH
   rc=0
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$acked_home" PATH="$fakebin:$PATH" \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 0 "$rc" "recovery poll must succeed"
   assert_not_contains "$out" "woke for 44" "recovery must not re-wake the acknowledged mail"
   assert_contains "$(cat "$acked_home/state/.mail-seen" 2>/dev/null)" "44" \
@@ -462,7 +462,7 @@ SH
   local out rc=0
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$HOME_DIR" PATH="$fakebin:$PATH" \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 0 "$rc" "poll with a queued legacy wake must succeed"
   assert_contains "$out" "woke for 42" "a reused uid must still wake under the current generation"
   pass "fm-mail: a legacy generation-less wake never marks a reused uid surfaced"
@@ -490,7 +490,7 @@ SH
   local out rc=0
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$miss_home" PATH="$fakebin:$PATH" \
-    "$miss_bin/fm-mail.sh" poll 2>&1) || rc=$?
+    bash "$miss_bin/fm-mail.sh" poll 2>&1) || rc=$?
   expect_code 1 "$rc" "poll must stop when the wake library is missing"
   assert_contains "$out" "fm-wake-lib.sh missing" "missing-lib error names the wake library"
   assert_not_contains "$(cat "$miss_home/state/.mail-seen" 2>/dev/null)" "33" "a failed wake must never be committed to the cursor"
@@ -526,7 +526,7 @@ SH
   local out rc=0
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$roll_home" PATH="$fakebin:$PATH" \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 1 "$rc" "poll must fail when no durable record can be written"
   assert_contains "$out" "rolled back" "poll reports the wake was rolled back"
   local wakeq
@@ -539,7 +539,7 @@ SH
   rc=0
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$roll_home" PATH="$fakebin:$PATH" \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 0 "$rc" "retry poll must succeed"
   assert_contains "$out" "woke for 66" "retry poll surfaces the mail exactly once"
   wakeq=$(grep -c "check: mail 66" "$roll_home/state/.wake-queue" 2>/dev/null || true)
@@ -577,7 +577,7 @@ SH
   local out rc=0
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$roll_home" PATH="$fakebin:$PATH" \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 1 "$rc" "poll must fail when the wake can be neither recorded nor rolled back"
   assert_not_contains "$out" "rolled back (journal and cursor writes failed)" "poll must not report a rollback it did not achieve"
   assert_contains "$out" "could not be rolled back or durably recorded" "poll reports the honest rollback-failure outcome"
@@ -590,7 +590,7 @@ SH
   rc=0
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$roll_home" PATH="$fakebin:$PATH" \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 0 "$rc" "retry poll must succeed after access is restored"
   assert_contains "$out" "no new mail" "retry poll heals the retained wake without re-waking"
   assert_not_contains "$out" "woke for 88" "retry poll must not surface the mail a second time"
@@ -854,7 +854,7 @@ SH
 
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$HOME_DIR" PATH="$fakebin:$PATH" \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 1 "$rc" "poll must fail when the recovered wake cannot be appended"
   assert_contains "$(cat "$HOME_DIR/state/.mail-retry" 2>/dev/null)" "77" "the retry record is restored so the recovered metadata can be re-fetched"
   chmod 0600 "$HOME_DIR/state/.wake-queue.seq"
@@ -893,7 +893,7 @@ SH
 
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$test_home" PATH="$fakebin:$PATH" \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 1 "$rc" "poll must fail closed when the recovered wake cannot be published"
   assert_contains "$out" "wake append failed for 77" "poll reports the failed wake append"
   assert_grep "77" "$test_home/state/.mail-retry" "retry entry survives a failed publish"
@@ -905,7 +905,7 @@ SH
   rc=0
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$test_home" PATH="$fakebin:$PATH" \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 0 "$rc" "follow-up poll must succeed and recover the metadata"
   assert_contains "$out" "woke for 77" "follow-up poll re-surfaces the recovered uid"
   assert_contains "$(cat "$test_home/state/.mail-seen" 2>/dev/null)" "77" \
@@ -936,7 +936,7 @@ SH
   out=$(FM_POLL_FAIL_MARKER="$HOME_DIR/fail.marker" FM_MAIL_USER=test FM_MAIL_PASS=pass \
     FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$HOME_DIR" PATH="$fakebin:$PATH" \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 1 "$rc" "poll must fail when poll_list fails"
   assert_not_contains "$out" "woke for 7" "nothing is woken from a failed poll_list"
   assert_not_contains "$out" "no new mail" "a failed poll is not reported as no new mail"
@@ -946,7 +946,7 @@ SH
   out=$(FM_POLL_FAIL_MARKER="$HOME_DIR/fail.marker" FM_MAIL_USER=test FM_MAIL_PASS=pass \
     FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$HOME_DIR" PATH="$fakebin:$PATH" \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 0 "$rc" "a later poll must succeed, proving the mail-seen lock was released"
   assert_contains "$out" "woke for 7" "the later poll wakes the new mail"
   pass "fm-mail: a failed poll_list fails closed, wakes nothing, and releases the lock"
@@ -974,7 +974,7 @@ SH
 
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$test_home" PATH="$fakebin:$PATH" \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 1 "$rc" "poll must fail when the retry record cannot be cleared"
   assert_contains "$out" "could not clear retry for recovered 77 after publish" "failure names the post-publish retry cleanup"
   assert_grep "check: mail 77" "$test_home/state/.wake-queue" "the recovery wake was already published before the cleanup failed"
@@ -984,7 +984,7 @@ SH
   rc=0
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$test_home" PATH="$fakebin:$PATH" \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 1 "$rc" "a later poll must still fail closed while the retry record cannot be cleared"
   assert_not_contains "$out" "woke for 77" "a later poll must not re-append a recovery wake"
   wakeq=$(grep -c "check: mail 77" "$test_home/state/.wake-queue" 2>/dev/null || true)
@@ -995,7 +995,7 @@ SH
   rc=0
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$test_home" PATH="$fakebin:$PATH" \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 0 "$rc" "poll must succeed once the retry record can be cleared"
   assert_not_contains "$out" "woke for 77" "clearing the retry record must not re-wake the uid"
   assert_not_contains "$(cat "$test_home/state/.mail-retry" 2>/dev/null || true)" "77" \
@@ -1027,7 +1027,7 @@ SH
 
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$test_home" PATH="$fakebin:$PATH" \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 1 "$rc" "poll must fail when a stale retry cannot be cleared after wake"
   assert_contains "$out" "could not clear retry for recovered 77 after publish" "failure names the post-publish retry cleanup"
   assert_grep "check: mail 77" "$test_home/state/.wake-queue" "the wake already landed before the cleanup failure"
@@ -1065,7 +1065,7 @@ SH
 
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$HOME_DIR" PATH="$fakebin:$PATH" \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 1 "$rc" "poll must fail when the retry record cannot be written"
   assert_not_contains "$out" "woke for 77" "no wake is emitted before the retry record"
   assert_not_contains "$(cat "$HOME_DIR/state/.mail-seen" 2>/dev/null)" "77" "a failed retry write must not cursor-record the uid"
@@ -1096,7 +1096,7 @@ SH
 
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$HOME_DIR" PATH="$fakebin:$PATH" \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 1 "$rc" "poll must fail when the journal cannot be written"
   assert_not_contains "$out" "woke for 78" "no wake is emitted before the journal commits"
   assert_not_contains "$(cat "$HOME_DIR/state/.mail-seen" 2>/dev/null)" "78" \
@@ -2176,7 +2176,7 @@ EOF
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$retry_home" PATH="$fakebin:$PATH" \
     FM_MAIL_TEST_FETCH_COUNT="$control" \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 0 "$rc" "first poll of a failing fetch must succeed"
   assert_contains "$out" "woke for 41" "failed fetch still wakes once, never missed"
   assert_contains "$(cat "$retry_home/state/.wake-queue")" "(no header)" \
@@ -2192,7 +2192,7 @@ EOF
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$retry_home" PATH="$fakebin:$PATH" \
     FM_MAIL_TEST_FETCH_COUNT="$control" \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 0 "$rc" "still-failing retry poll must succeed"
   assert_not_contains "$out" "woke for 41" "a still-unfetchable retry uid must not re-wake"
   assert_contains "$out" "no new mail" "a still-unfetchable retry poll reports no new mail"
@@ -2205,7 +2205,7 @@ EOF
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$retry_home" PATH="$fakebin:$PATH" \
     FM_MAIL_TEST_FETCH_COUNT="$control" \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   if [ "$rc" != 0 ]; then
     printf 'poll output on failure:\n%s\n' "$out" >&2
     fail "recovered fetch poll must succeed: expected exit 0, got $rc"
@@ -2241,7 +2241,7 @@ SH
 
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$HOME_DIR" PATH="$fakebin:$PATH" \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 1 "$rc" "poll must fail when the heal cannot record a uid"
   assert_contains "$out" "heal could not record a uid" "poll reports the unrecordable heal"
   assert_contains "$(cat "$HOME_DIR/state/.mail-woken" 2>/dev/null)" "55" "journal evidence survives an unrecordable heal"
@@ -2273,7 +2273,7 @@ SH
 
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$heal_home" PATH="$fakebin:$PATH" \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 1 "$rc" "heal failure with unseen mail must fail the poll"
   assert_not_contains "$out" "woke for 55" "heal failure must not re-wake a journaled uid"
   assert_contains "$(cat "$heal_home/state/.mail-woken" 2>/dev/null)" "55" "journal evidence is kept"
@@ -2421,13 +2421,13 @@ PYEOF
 test_invalid_port_fails_cleanly() {
   local out rc=0
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=h FM_SMTP_HOST=h \
-    FM_IMAP_PORT=abc FM_HOME="$HOME_DIR" "$MAIL" status 2>&1) || rc=$?
+    FM_IMAP_PORT=abc FM_HOME="$HOME_DIR" bash "$MAIL" status 2>&1) || rc=$?
   expect_code 1 "$rc" "a non-numeric IMAP port must fail"
   assert_contains "$out" "FM_IMAP_PORT" "invalid IMAP port names the variable"
   assert_not_contains "$out" "ValueError" "invalid port must not leak a python traceback"
   rc=0
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=h FM_SMTP_HOST=h \
-    FM_SMTP_PORT=abc FM_HOME="$HOME_DIR" "$MAIL" status 2>&1) || rc=$?
+    FM_SMTP_PORT=abc FM_HOME="$HOME_DIR" bash "$MAIL" status 2>&1) || rc=$?
   expect_code 1 "$rc" "a non-numeric SMTP port must fail"
   assert_contains "$out" "FM_SMTP_PORT" "invalid SMTP port names the variable"
   pass "fm-mail: a non-numeric port fails cleanly in bash"
@@ -2456,7 +2456,7 @@ SH
   local out rc=0 wakeq
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$HOME_DIR" PATH="$fakebin:$PATH" FM_MAIL_POLL_MAX_WAKES=2 \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 0 "$rc" "capped poll must succeed"
   assert_contains "$out" "woke for 71" "first message wakes within the cap"
   assert_contains "$out" "woke for 72" "second message wakes within the cap"
@@ -2469,7 +2469,7 @@ SH
   rc=0
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$HOME_DIR" PATH="$fakebin:$PATH" FM_MAIL_POLL_MAX_WAKES=2 \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 0 "$rc" "follow-up poll must succeed"
   assert_contains "$out" "woke for 73" "deferred message wakes on the next poll"
   pass "fm-mail: per-poll wake cap bounds the durable queue without missing mail"
@@ -2531,7 +2531,7 @@ EOF
   local out rc=0 wakeq
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$HOME_DIR" PATH="$fakebin:$PATH" \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 0 "$rc" "sanitizing poll must succeed"
   assert_contains "$out" "woke for 60" "tab-bearing subject still wakes once"
   assert_contains "$out" "woke for 61" "newline-bearing subject still wakes once"
@@ -2577,7 +2577,7 @@ SH
   local out rc=0
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$HOME_DIR" PATH="$fakebin:$PATH" FM_MAIL_POLL_MAX_WAKES=2 \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 0 "$rc" "first bounded poll must succeed"
   assert_contains "$out" "woke for 91" "first batch surfaces 91"
   assert_contains "$out" "woke for 92" "first batch surfaces 92"
@@ -2585,7 +2585,7 @@ SH
   rc=0
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$HOME_DIR" PATH="$fakebin:$PATH" FM_MAIL_POLL_MAX_WAKES=2 \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 0 "$rc" "second bounded poll must succeed"
   assert_contains "$out" "woke for 93" "second batch surfaces 93"
   assert_contains "$out" "woke for 94" "second batch surfaces 94"
@@ -2593,7 +2593,7 @@ SH
   rc=0
   out=$(FM_MAIL_USER=test FM_MAIL_PASS=pass FM_IMAP_HOST=imap.test FM_SMTP_HOST=smtp.test \
     FM_HOME="$HOME_DIR" PATH="$fakebin:$PATH" FM_MAIL_POLL_MAX_WAKES=2 \
-    "$MAIL" poll 2>&1) || rc=$?
+    bash "$MAIL" poll 2>&1) || rc=$?
   expect_code 0 "$rc" "third bounded poll must succeed"
   assert_contains "$out" "woke for 95" "tail batch surfaces 95"
   assert_not_contains "$out" "woke for 91" "already-surfaced mail never re-wakes"

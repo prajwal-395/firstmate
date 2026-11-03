@@ -22,7 +22,7 @@ make_home() {  # <name>
 run_export() {  # <home> <args...>
   local home=$1
   shift
-  FM_HOME="$home" "$EXPORTER" "$@"
+  FM_HOME="$home" bash "$EXPORTER" "$@"
 }
 
 test_sync_is_off_when_config_is_absent() {

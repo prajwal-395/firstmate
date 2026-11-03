@@ -3015,7 +3015,7 @@ task_captain_call_open() {  # <task>
   local task=$1
   CAPTAIN_CALL_IDENTITY=
   [ -n "$task" ] || return 1
-  CAPTAIN_CALL_IDENTITY=$(FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-captain-hold.sh" \
+  CAPTAIN_CALL_IDENTITY=$(FM_HOME="$FM_HOME" bash "$SCRIPT_DIR/fm-captain-hold.sh" \
     open "$task" --identity 2>/dev/null) || return 1
   return 0
 }
@@ -3962,7 +3962,7 @@ reconcile_requests_detached() {
     RECONCILE_REQUEST_PID=
   fi
   FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
-    "$SCRIPT_DIR/fm-secondmate-reconcile.sh" process-requests </dev/null >/dev/null 2>&1 &
+    bash "$SCRIPT_DIR/fm-secondmate-reconcile.sh" process-requests </dev/null >/dev/null 2>&1 &
   RECONCILE_REQUEST_PID=$!
 }
 
@@ -4090,7 +4090,7 @@ home_summary_refresh_detached() {
     HOME_SUMMARY_PID=
   fi
   FM_HOME_SUMMARY_IF_IDLE=1 \
-    "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort </dev/null >/dev/null 2>&1 &
+    bash "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort </dev/null >/dev/null 2>&1 &
   HOME_SUMMARY_PID=$!
 }
 
@@ -4107,7 +4107,7 @@ lane_capacity_publish_detached() {
     LANE_CAPACITY_PID=
   fi
   FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG \
-    "$SCRIPT_DIR/fm-capacity.sh" --publish </dev/null >/dev/null 2>&1 &
+    bash "$SCRIPT_DIR/fm-capacity.sh" --publish </dev/null >/dev/null 2>&1 &
   LANE_CAPACITY_PID=$!
 }
 
@@ -4229,17 +4229,17 @@ while :; do
 
   # Opt-in fleet activity ledger (docs/fleet-ledger.md): pick up newly appended
   # status lines before this cycle can exit on a wake. Off costs one file test.
-  [ ! -e "$CONFIG/fleet-ledger" ] || FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG "$SCRIPT_DIR/fm-fleet-ledger.sh" capture || true
+  [ ! -e "$CONFIG/fleet-ledger" ] || FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG bash "$SCRIPT_DIR/fm-fleet-ledger.sh" capture || true
   # Opt-in Herdr project groups (docs/herdr-backend.md "Project groups"):
   # display-only tags and agents view, never a wake. Off costs one file test.
-  [ ! -e "$CONFIG/herdr-project-groups" ] || FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG "$SCRIPT_DIR/fm-herdr-groups.sh" sync || true
+  [ ! -e "$CONFIG/herdr-project-groups" ] || FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG bash "$SCRIPT_DIR/fm-herdr-groups.sh" sync || true
   # Opt-in Rex attention marks, validation progress, and tint (docs/rex-backend.md
   # "Attention marks"): display and desktop notification only, never a wake.
   # Off (no config file and no cached record) costs two file tests and a glob.
   if [ -e "$CONFIG/rex-status-marks" ] || [ -e "$CONFIG/rex-tint" ] \
     || compgen -G "$STATE/.rex-mark-*" >/dev/null || compgen -G "$STATE/.rex-progress-*" >/dev/null \
     || compgen -G "$STATE/.rex-tint-*" >/dev/null; then
-    FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG "$SCRIPT_DIR/fm-rex-marks.sh" sync >/dev/null 2>&1 || true
+    FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG bash "$SCRIPT_DIR/fm-rex-marks.sh" sync >/dev/null 2>&1 || true
   fi
 
   if [ "$(age_of "$STATE/home-summary.json")" -ge "$HOME_SUMMARY_INTERVAL" ]; then
@@ -4271,7 +4271,7 @@ while :; do
     fm_wake_append check dispatch-descent "$dispatch_reason" || exit 1
     wake "$dispatch_reason"
   done < <(FM_HOME="$FM_HOME" FM_CONFIG_OVERRIDE="$CONFIG" FM_STATE_OVERRIDE="$STATE" \
-    "$SCRIPT_DIR/fm-dispatch-descent.sh" "$STATE" 2>/dev/null || true)
+    bash "$SCRIPT_DIR/fm-dispatch-descent.sh" "$STATE" 2>/dev/null || true)
 
   # A live secondmate endpoint does not prove that its own wake loop is alive.
   # Observe the foreign queue before the rest of this cycle so an aged row wakes
@@ -4313,7 +4313,7 @@ while :; do
   posture_out=
   posture_rc=0
   posture_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
-    "$SCRIPT_DIR/fm-posture-sweep.sh" 2>&1) || posture_rc=$?
+    bash "$SCRIPT_DIR/fm-posture-sweep.sh" 2>&1) || posture_rc=$?
   if [ -n "$posture_out" ]; then
     while IFS= read -r posture_line; do
       case "$posture_line" in
@@ -4333,7 +4333,7 @@ EOF
   # only republishes results already captured durably and restarts a source
   # whose owner is gone. It is a no-op with nothing registered.
   if [ -d "$STATE/procevent" ]; then
-    FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-procevent.sh" reconcile >/dev/null 2>&1 || true
+    FM_HOME="$FM_HOME" bash "$SCRIPT_DIR/fm-procevent.sh" reconcile >/dev/null 2>&1 || true
   fi
   # Then deliver any queued-but-unsurfaced result, including one a runner
   # published while this watcher was between cycles.
@@ -4348,7 +4348,7 @@ EOF
   # was created, so quiet cycles never wake firstmate or consume model tokens.
   inactive_out=
   if inactive_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
-    "$SCRIPT_DIR/fm-inactive-reconcile.sh" scan 2>/dev/null); then
+    bash "$SCRIPT_DIR/fm-inactive-reconcile.sh" scan 2>/dev/null); then
     if [ -n "$inactive_out" ]; then
       wake "check: inactive-outcome"
     fi

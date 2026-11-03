@@ -125,7 +125,7 @@ watch_bg() {  # <state> <fakebin> <out> [extra env assignments...]
     FM_FAKE_CREW_STATE='state: working · source: run-step · validating (running)' \
     FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
     FM_TASK_INBOX_GRACE_SECS=1 \
-    env "$@" "$WATCH" > "$out" 2>/dev/null &
+    env "$@" bash "$WATCH" > "$out" 2>/dev/null &
 }
 
 wait_watcher_gone() {  # <pid> [limit-ticks]

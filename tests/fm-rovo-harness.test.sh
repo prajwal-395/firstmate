@@ -195,7 +195,7 @@ run_spawn() {
     FM_FAKE_ROVO_DELIVERY="${FM_FAKE_ROVO_DELIVERY:-yes}" \
     FM_ROVO_READY_POLLS=3 FM_ROVO_DELIVERY_POLLS=3 FM_ROVO_POLL_INTERVAL=0 \
     PATH="$fakebin:$BASE_PATH" \
-    "$SPAWN" "$id" "$proj" --harness rovo --mode no-mistakes --yolo off "$@" 2>&1
+    bash "$SPAWN" "$id" "$proj" --harness rovo --mode no-mistakes --yolo off "$@" 2>&1
 }
 
 test_rovo_launch_then_send_is_verified() {
@@ -366,7 +366,7 @@ test_rovo_secondmate_is_refused() {
     FM_STATE_OVERRIDE="$HOME_DIR/state" FM_DATA_OVERRIDE="$HOME_DIR/data" \
     FM_PROJECTS_OVERRIDE="$HOME_DIR/projects" FM_CONFIG_OVERRIDE="$HOME_DIR/config" \
     FM_SPAWN_NO_GUARD=1 PATH="$FAKEBIN_DIR:$BASE_PATH" \
-    "$SPAWN" "$id" --secondmate rovo 2>&1) || rc=$?
+    bash "$SPAWN" "$id" --secondmate rovo 2>&1) || rc=$?
   [ "$rc" -ne 0 ] || fail "a rovo secondmate spawn should be refused"
   assert_contains "$out" "rovo is a verified crewmate/scout adapter only" \
     "rovo secondmate refusal lacked its concrete reason"
@@ -402,17 +402,17 @@ SH
 
   out=$(env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
     -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u ATLASSIAN_AGENT_TYPE -u ROVODEV_CLI \
-    PATH="$fakebin:$BASE_PATH" FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh")
+    PATH="$fakebin:$BASE_PATH" FM_CONFIG_OVERRIDE="$cfg" bash "$ROOT/bin/fm-harness.sh")
   [ "$out" = rovo ] || fail "rovo ancestry detection returned '$out'"
 
   out=$(env -u CURSOR_AGENT -u CURSOR_INVOKED_AS \
     ATLASSIAN_AGENT_TYPE=rovo CLAUDECODE=1 \
-    PATH="$fakebin:$BASE_PATH" FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh")
+    PATH="$fakebin:$BASE_PATH" FM_CONFIG_OVERRIDE="$cfg" bash "$ROOT/bin/fm-harness.sh")
   [ "$out" = rovo ] || fail "rovo's ATLASSIAN_AGENT_TYPE marker did not outrank an inherited CLAUDECODE, got '$out'"
 
   out=$(env -u CURSOR_AGENT -u CURSOR_INVOKED_AS \
     ROVODEV_CLI=1 CLAUDECODE=1 \
-    PATH="$fakebin:$BASE_PATH" FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh")
+    PATH="$fakebin:$BASE_PATH" FM_CONFIG_OVERRIDE="$cfg" bash "$ROOT/bin/fm-harness.sh")
   [ "$out" = rovo ] || fail "rovo's ROVODEV_CLI marker did not outrank an inherited CLAUDECODE, got '$out'"
 
   # CLAUDECODE alone, with no rovo marker, is a marker-layer question, not an
@@ -423,7 +423,7 @@ SH
   blind_fakebin=$(fm_fakebin "$dir/blind-ancestry")
   fm_fake_blind_ancestry "$blind_fakebin"
   out=$(env -u CURSOR_AGENT -u CURSOR_INVOKED_AS \
-    CLAUDECODE=1 PATH="$blind_fakebin:$BASE_PATH" FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh")
+    CLAUDECODE=1 PATH="$blind_fakebin:$BASE_PATH" FM_CONFIG_OVERRIDE="$cfg" bash "$ROOT/bin/fm-harness.sh")
   [ "$out" = claude ] || fail "verified env-marker precedence changed, got '$out'"
   pass "fm-harness: rovo's markers outrank an inherited CLAUDECODE, and markerless ancestry still resolves rovo"
 }

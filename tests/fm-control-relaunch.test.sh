@@ -275,7 +275,7 @@ run_control() {  # <case-dir> <args...>
     FM_FAKE_COMPOSER_READ_FAIL="${FM_FAKE_COMPOSER_READ_FAIL:-}" \
     FM_FAKE_META_WRITER_READY="${FM_FAKE_META_WRITER_READY:-}" \
     FM_FAKE_TRACE_EXPORTED="${FM_FAKE_TRACE_EXPORTED:-}" \
-    "$CONTROL" "$@" 2>&1
+    bash "$CONTROL" "$@" 2>&1
 }
 
 run_spawn() {  # <case-dir> <args...>
@@ -289,7 +289,7 @@ run_spawn() {  # <case-dir> <args...>
     PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
     HOME="$dir/user-home" CLAUDE_CONFIG_DIR='' \
     FM_SPAWN_NO_GUARD=1 GROK_HOME="$dir/grokhome" \
-    "$SPAWN" "$@" 2>&1
+    bash "$SPAWN" "$@" 2>&1
 }
 
 meta_field() {  # <case-dir> <id> <key>
@@ -395,7 +395,7 @@ test_same_harness_relaunch_keeps_identity_and_reuses_the_endpoint() {
   local dir out rc gen_before gen_after
   dir=$(new_case same rl1)
   add_ship_task "$dir" rl1 claude
-  gen_before=$("$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" rl1)
+  gen_before=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" rl1)
   printf 'busy_gen=%s\n' "$gen_before" >> "$dir/home/state/rl1.meta"
   out=$(run_control "$dir" rl1 relaunch --note "stopped mid-refactor"); rc=$?
   expect_code 0 "$rc" "a same-harness relaunch should succeed"$'\n'"$out"
@@ -630,7 +630,7 @@ test_relaunch_serializes_concurrent_durable_metadata_publication() {
     FM_FAKE_META_WRITER_TARGET="$dir/home/state/rl28.meta" \
     FM_FAKE_META_WRITER_READY="$ready" \
     FM_FAKE_META_WRITER_RELEASE="$release" \
-    "$X_LINK" rl28 request-28 --carry-count 1 --carry-ts 1700000000 \
+    bash "$X_LINK" rl28 request-28 --carry-count 1 --carry-ts 1700000000 \
       --carry-platform x --carry-max 280 > "$dir/link.out" 2>&1 &
   link_pid=$!
   i=0
@@ -1718,7 +1718,7 @@ test_promoted_scout_relaunch_receives_the_current_delivery_contract() {
     dir=$(new_case "promoted-scout-$mode" "$id")
     home="$dir/home"
     fm_git_worktree "$dir/proj" "$dir/wt" "task-$id"
-    FM_HOME="$home" "$BRIEF" "$id" firstmate --scout >/dev/null \
+    FM_HOME="$home" bash "$BRIEF" "$id" firstmate --scout >/dev/null \
       || fail "$mode: could not scaffold the scout brief"
     brief="$home/data/$id/brief.md"
     sed 's/{TASK}/Fix the promotion relaunch contract./; s/{FIRSTMATE_SPEC}/Preserve the current delivery mode./' \
@@ -1739,7 +1739,7 @@ test_promoted_scout_relaunch_receives_the_current_delivery_contract() {
     printf '%s' "$dir/wt" > "$dir/fake/cwd"
 
     out=$(FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
-      "$PROMOTE" "$id" --mode "$mode" --yolo off 2>&1) \
+      bash "$PROMOTE" "$id" --mode "$mode" --yolo off 2>&1) \
       || fail "$mode: scout promotion should succeed: $out"
     assert_grep 'This is a SCOUT task' "$brief" \
       "$mode: the reproduction fixture lost the original scout delivery text"
@@ -1941,7 +1941,7 @@ test_prepublication_failure_keeps_concurrent_durable_metadata() {
     fail "relaunch did not reach its pre-publication endpoint check"
   }
   link_out=$(env PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" \
-    "$X_LINK" rl30 request-30 --carry-count 2 --carry-ts 1700000000 \
+    bash "$X_LINK" rl30 request-30 --carry-count 2 --carry-ts 1700000000 \
       --carry-platform x --carry-max 280 2>&1); rc=$?
   expect_code 0 "$rc" "concurrent durable metadata publication should succeed"$'\n'"$link_out"
   wait "$control_pid"; rc=$?
@@ -2298,7 +2298,7 @@ test_promotion_participates_in_the_lifecycle_lock_before_metadata_resolution() {
     i=$((i + 1))
   done
   [ -e "$lock" ] || fail "could not stage the promotion lifecycle lock"
-  out=$(FM_HOME="$dir/home" "$PROMOTE" rl29 --mode direct-PR --yolo on 2>&1); rc=$?
+  out=$(FM_HOME="$dir/home" bash "$PROMOTE" rl29 --mode direct-PR --yolo on 2>&1); rc=$?
   kill "$holder" 2>/dev/null || true
   wait "$holder" 2>/dev/null || true
   expect_code 1 "$rc" "promotion should refuse a concurrent lifecycle action"
@@ -2887,7 +2887,7 @@ test_herdr_reclaim_keeps_the_task_whole() {
   printf '%s\n' "pr=https://example.invalid/pr/7" >> "$dir/home/state/rl75.meta"
   printf '%s\n' '#!/usr/bin/env bash' 'exit 0' > "$dir/home/state/rl75.check.sh"
   chmod 0700 "$dir/home/state/rl75.check.sh"
-  FM_HOME="$dir/home" "$ROOT/bin/fm-check-register.sh" rl75 >/dev/null \
+  FM_HOME="$dir/home" bash "$ROOT/bin/fm-check-register.sh" rl75 >/dev/null \
     || fail "could not arm a custom check for the reclaim fixture"
   printf 'working: parked on an approval nobody can answer\n' >> "$dir/home/state/rl75.status"
 
@@ -3017,7 +3017,7 @@ test_away_branch_relaunch_accepts_existing_dispatchable_items() {
     dir=$(new_case "away-$state" "$id")
     add_ship_task "$dir" "$id" claude
     seed_backlog "$dir" "$id" "$state"
-    FM_HOME="$dir/home" "$ROOT/bin/fm-afk-contract.sh" enter --spend 1 >/dev/null \
+    FM_HOME="$dir/home" bash "$ROOT/bin/fm-afk-contract.sh" enter --spend 1 >/dev/null \
       || fail "away entry failed for a $state relaunch"
 
     rc=0

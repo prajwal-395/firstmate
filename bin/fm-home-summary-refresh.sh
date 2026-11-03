@@ -131,7 +131,7 @@ home_summary_refresh_once() {
     FM_DATA_OVERRIDE="$DATA" \
     FM_CONFIG_OVERRIDE="$CONFIG" \
     FM_PROJECTS_OVERRIDE="$PROJECTS" \
-    "$SCRIPT_DIR/fm-fleet-snapshot.sh" --secondmate-home-summary \
+    bash "$SCRIPT_DIR/fm-fleet-snapshot.sh" --secondmate-home-summary \
       > "$HOME_SUMMARY_TMP" 2> "$HOME_SUMMARY_ERR_TMP"; then
     producer_rc=0
   else
@@ -220,7 +220,7 @@ if [ "$HOME_SUMMARY_MODE" = parent ]; then
   if fm_run_timed "$HOME_SUMMARY_TIMEOUT" env \
     FM_HOME_SUMMARY_WORKER_BEST_EFFORT="$BEST_EFFORT" \
     FM_HOME_SUMMARY_IF_IDLE="$HOME_SUMMARY_IF_IDLE" \
-    "$SCRIPT_DIR/fm-home-summary-refresh.sh" --_worker; then
+    bash "$SCRIPT_DIR/fm-home-summary-refresh.sh" --_worker; then
     exit 0
   else
     refresh_rc=$?
@@ -234,7 +234,7 @@ if [ "$HOME_SUMMARY_MODE" = parent ]; then
     fm_run_timed 2 env \
       FM_HOME_SUMMARY_PARENT_ERROR="$parent_error" \
       FM_HOME_SUMMARY_PARENT_STAMP="$attempt_stamp" \
-      "$SCRIPT_DIR/fm-home-summary-refresh.sh" --_log-failure >/dev/null || true
+      bash "$SCRIPT_DIR/fm-home-summary-refresh.sh" --_log-failure >/dev/null || true
     exit 0
   fi
   if [ "$refresh_rc" -eq 124 ]; then

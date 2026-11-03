@@ -268,7 +268,7 @@ test_claude_launch_brief_publishes_record_doorbell() {
   esac
   printf '%s' "$doorbell" | LC_ALL=C grep -q '[^[:print:]]' \
     && fail "the doorbell is not one printable-ASCII line: $doorbell"
-  [ "$(printf '%s' "$doorbell" | "$ROOT/bin/fm-operational-input.sh" doorbell-kind)" = launch-brief ] \
+  [ "$(printf '%s' "$doorbell" | bash "$ROOT/bin/fm-operational-input.sh" doorbell-kind)" = launch-brief ] \
     || fail "the published record does not hold a launch-brief envelope: $doorbell"
   record=$(printf '%s' "$doorbell" | sed -n "s/.*: Firstmate operational input waiting: read '\([^']*\)'.*/\1/p")
   [ -n "$record" ] || fail "the doorbell names no record: $doorbell"
@@ -276,7 +276,7 @@ test_claude_launch_brief_publishes_record_doorbell() {
     || fail "the launch record is not in this home's operational inbox: $record"
   grep -q 'Current worker role contract' "$record" \
     || fail "the launch record lost the worker brief: $(cat "$record")"
-  [ "$(printf '%s' "$doorbell" | FM_STATE_OVERRIDE="$HOME_DIR/state" "$ROOT/bin/fm-operational-input.sh" open "$record")" \
+  [ "$(printf '%s' "$doorbell" | FM_STATE_OVERRIDE="$HOME_DIR/state" bash "$ROOT/bin/fm-operational-input.sh" open "$record")" \
     = "$(cat "$HOME_DIR/data/$id/launch-brief.md")" ] \
     || fail "open did not return the launch brief body"
   pass "a claude launch publishes the brief as an operational-inbox record and passes only the doorbell"
@@ -298,7 +298,7 @@ test_claude_secondmate_launch_brief_publishes_into_its_own_home() {
   expect_code 0 "$status" "secondmate claude spawn for the doorbell check should succeed"$'\n'"$out"
   launch=$(cat "$LAUNCH_LOG")
   doorbell=$(claude_launch_brief_arg "$launch")
-  [ "$(printf '%s' "$doorbell" | "$ROOT/bin/fm-operational-input.sh" doorbell-kind)" = launch-brief ] \
+  [ "$(printf '%s' "$doorbell" | bash "$ROOT/bin/fm-operational-input.sh" doorbell-kind)" = launch-brief ] \
     || fail "the secondmate record does not hold a launch-brief envelope: $doorbell"
   record=$(printf '%s' "$doorbell" | sed -n "s/.*: Firstmate operational input waiting: read '\([^']*\)'.*/\1/p")
   [ -n "$record" ] || fail "the secondmate doorbell names no record: $doorbell"
@@ -362,7 +362,7 @@ test_relative_home_overrides_launch_with_absolute_cross_process_paths() {
       FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$WT_DIR" TMUX="fake,1,0" \
       CLAUDE_CONFIG_DIR='' FM_FAKE_LAUNCH_LOG="$LAUNCH_LOG" \
       GROK_HOME=home/grok-home PATH="$FAKEBIN_DIR:$PATH" \
-      "$SPAWN" "$id" "$PROJ_DIR" --mode no-mistakes --yolo off 2>&1
+      bash "$SPAWN" "$id" "$PROJ_DIR" --mode no-mistakes --yolo off 2>&1
   )
   status=$?
   expect_code 0 "$status" "spawn with relative home overrides should succeed"
@@ -392,7 +392,7 @@ test_home_defaults_preserve_absolute_or_resolve_relative_paths() {
       FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$WT_DIR" TMUX="fake,1,0" \
       CLAUDE_CONFIG_DIR='' FM_FAKE_LAUNCH_LOG="$LAUNCH_LOG" \
       GROK_HOME=home/grok-home PATH="$FAKEBIN_DIR:$PATH" \
-      "$SPAWN" "$relative_id" "$PROJ_DIR" --mode no-mistakes --yolo off 2>&1
+      bash "$SPAWN" "$relative_id" "$PROJ_DIR" --mode no-mistakes --yolo off 2>&1
   )
   status=$?
   expect_code 0 "$status" "spawn with relative FM_HOME defaults should succeed"
@@ -413,7 +413,7 @@ test_home_defaults_preserve_absolute_or_resolve_relative_paths() {
       FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$WT_DIR" TMUX="fake,1,0" \
       CLAUDE_CONFIG_DIR='' FM_FAKE_LAUNCH_LOG="$LAUNCH_LOG" \
       GROK_HOME="$linked_home/grok-home" PATH="$FAKEBIN_DIR:$PATH" \
-      "$SPAWN" "$absolute_id" "$PROJ_DIR" --mode no-mistakes --yolo off 2>&1
+      bash "$SPAWN" "$absolute_id" "$PROJ_DIR" --mode no-mistakes --yolo off 2>&1
   )
   status=$?
   expect_code 0 "$status" "spawn with absolute symlink-spelled FM_HOME defaults should succeed"
@@ -443,7 +443,7 @@ test_absolute_override_spelling_is_preserved_in_launch_paths() {
       FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$WT_DIR" TMUX="fake,1,0" \
       CLAUDE_CONFIG_DIR='' FM_FAKE_LAUNCH_LOG="$LAUNCH_LOG" \
       GROK_HOME="$linked_home/grok-home" PATH="$FAKEBIN_DIR:$PATH" \
-      "$SPAWN" "$id" "$PROJ_DIR" --mode no-mistakes --yolo off 2>&1
+      bash "$SPAWN" "$id" "$PROJ_DIR" --mode no-mistakes --yolo off 2>&1
   )
   status=$?
   expect_code 0 "$status" "spawn with absolute symlink-spelled overrides should succeed"
@@ -466,7 +466,7 @@ test_unresolvable_relative_overrides_fail_loudly() {
     cd "$CASE_DIR" || exit 1
     FM_ROOT_OVERRIDE='' FM_HOME=missing-home \
       FM_STATE_OVERRIDE='' FM_DATA_OVERRIDE='' \
-      "$SPAWN" "$id" "$PROJ_DIR" --mode no-mistakes --yolo off 2>&1
+      bash "$SPAWN" "$id" "$PROJ_DIR" --mode no-mistakes --yolo off 2>&1
   )
   status=$?
   expect_code 1 "$status" "spawn with an unresolvable relative home should fail"
@@ -477,7 +477,7 @@ test_unresolvable_relative_overrides_fail_loudly() {
     cd "$CASE_DIR" || exit 1
     FM_ROOT_OVERRIDE='' FM_HOME=home \
       FM_STATE_OVERRIDE=missing-state FM_DATA_OVERRIDE=home/data \
-      "$SPAWN" "$id" "$PROJ_DIR" --mode no-mistakes --yolo off 2>&1
+      bash "$SPAWN" "$id" "$PROJ_DIR" --mode no-mistakes --yolo off 2>&1
   )
   status=$?
   expect_code 1 "$status" "spawn with an unresolvable relative state override should fail"
@@ -488,7 +488,7 @@ test_unresolvable_relative_overrides_fail_loudly() {
     cd "$CASE_DIR" || exit 1
     FM_ROOT_OVERRIDE='' FM_HOME=home \
       FM_STATE_OVERRIDE=home/state FM_DATA_OVERRIDE=missing-data \
-      "$SPAWN" "$id" "$PROJ_DIR" --mode no-mistakes --yolo off 2>&1
+      bash "$SPAWN" "$id" "$PROJ_DIR" --mode no-mistakes --yolo off 2>&1
   )
   status=$?
   expect_code 1 "$status" "spawn with an unresolvable relative data override should fail"
@@ -1521,10 +1521,10 @@ test_opencode_busy_plugin_provisioned_for_every_major() {
 test_native_effort_validator_keeps_axes_separate() {
   local harness
   for harness in pi pi-signed; do
-    "$ROOT/bin/fm-harness.sh" validate-native-effort "$harness" codex-native/gpt-6-astra ultra \
+    bash "$ROOT/bin/fm-harness.sh" validate-native-effort "$harness" codex-native/gpt-6-astra ultra \
       || fail "native validator refused supported harness $harness"
   done
-  if "$ROOT/bin/fm-harness.sh" validate-native-effort 'pi:codex-native/forged' '' ultra 2>/dev/null; then
+  if bash "$ROOT/bin/fm-harness.sh" validate-native-effort 'pi:codex-native/forged' '' ultra 2>/dev/null; then
     fail "native validator accepted a model prefix embedded in the harness axis"
   fi
   pass "native effort validator checks harness and model as separate axes"
@@ -1692,7 +1692,7 @@ test_pi_signed_missing_binary_refuses_before_endpoint_or_metadata() {
     FM_PROJECTS_OVERRIDE="$HOME_DIR/projects" FM_CONFIG_OVERRIDE="$HOME_DIR/config" \
     FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$WT_DIR" TMUX="fake,1,0" \
     FM_FAKE_LAUNCH_LOG="$LAUNCH_LOG" PATH="$FAKEBIN_DIR:/usr/bin:/bin:/usr/sbin:/sbin" \
-    "$SPAWN" "$id" "$PROJ_DIR" --mode no-mistakes --yolo off 2>&1)
+    bash "$SPAWN" "$id" "$PROJ_DIR" --mode no-mistakes --yolo off 2>&1)
   status=$?
   expect_code 1 "$status" "a missing pi-signed executable should refuse the spawn"
   assert_contains "$out" "pi-signed executable not found on PATH" \
@@ -2612,7 +2612,7 @@ run_launch_environment_inheritance() {
     FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" FM_CONFIG_OVERRIDE="$home/config" \
       FM_DATA_OVERRIDE="$home/data" FM_INHERITABLE_CONFIG=launch-env-allowlist \
       FM_SSH_BIN="$fakebin/inherit-ssh" \
-      "$ROOT/bin/fm-remote-inherit-push.sh" inherited-env "$generation"
+      bash "$ROOT/bin/fm-remote-inherit-push.sh" inherited-env "$generation"
   fi
 }
 
@@ -2700,9 +2700,9 @@ test_worker_launch_delivers_role_scope() {
       fi
     else
       if [ "$kind" = scout ]; then
-        FM_HOME="$HOME_DIR" "$ROOT/bin/fm-brief.sh" "$id" arbitrary-project-name --scout >/dev/null || fail "scout scaffold failed"
+        FM_HOME="$HOME_DIR" bash "$ROOT/bin/fm-brief.sh" "$id" arbitrary-project-name --scout >/dev/null || fail "scout scaffold failed"
       else
-        FM_HOME="$HOME_DIR" "$ROOT/bin/fm-brief.sh" "$id" arbitrary-project-name --mode "$kind" >/dev/null || fail "$kind scaffold failed"
+        FM_HOME="$HOME_DIR" bash "$ROOT/bin/fm-brief.sh" "$id" arbitrary-project-name --mode "$kind" >/dev/null || fail "$kind scaffold failed"
       fi
       brief="$HOME_DIR/data/$id/brief.md"
       content=$(cat "$brief")

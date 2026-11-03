@@ -223,7 +223,7 @@ require_tools() {
 # obligation, through bin/fm-tasks-axi.sh. An inherited FM_DATA_OVERRIDE is
 # cleared because a caller such as a secondmate teardown names the parent home
 # in FM_HOME while its own data override is still in the environment.
-tx() { FM_HOME="$FM_HOME" FM_DATA_OVERRIDE='' "$SCRIPT_DIR/fm-tasks-axi.sh" "$@"; }
+tx() { FM_HOME="$FM_HOME" FM_DATA_OVERRIDE='' bash "$SCRIPT_DIR/fm-tasks-axi.sh" "$@"; }
 
 # obligation_json <id>: this home's typed obligation payload, through the shared
 # reader every consumer of the promised contract uses. tasks-axi stays the
@@ -640,7 +640,7 @@ collect_remote_staged_events() {
       || die "jq is required to collect a terminal result from a remote work home" 1
 
     collect_rc=0
-    payload=$("$FM_ROOT/bin/fm-on.sh" "$sid" fm-public-followup-collect.sh drain "$id") \
+    payload=$(bash "$FM_ROOT/bin/fm-on.sh" "$sid" fm-public-followup-collect.sh drain "$id") \
       || collect_rc=$?
     # fm-on.sh returns ssh's status unchanged, so 255 is the established
     # "delivered but completion unknown" status this codebase reconciles rather
@@ -682,7 +682,7 @@ collect_remote_staged_events() {
       # the event durably, and a retained copy is only ever collected again and
       # dropped as a duplicate.
       dropped=0
-      "$FM_ROOT/bin/fm-on.sh" "$sid" fm-public-followup-collect.sh drop "$id" "$event_id" \
+      bash "$FM_ROOT/bin/fm-on.sh" "$sid" fm-public-followup-collect.sh drop "$id" "$event_id" \
         >/dev/null 2>&1 || dropped=$?
       [ "$dropped" -eq 0 ] \
         || printf 'collected %s: the copy staged on %s could not be retired and will be collected again\n' \
@@ -1013,7 +1013,7 @@ public_followup_route_is_remote() {
 # when the target has no link, so a reconciling retry is safe.
 clear_public_followup_link_remote() {
   local id=$1 work_id=$2 request_id=$3 rc=0
-  "$FM_ROOT/bin/fm-on.sh" "$id" fm-x-followup.sh --clear "$work_id" \
+  bash "$FM_ROOT/bin/fm-on.sh" "$id" fm-x-followup.sh --clear "$work_id" \
     --expect-request "$request_id" </dev/null >/dev/null || rc=$?
   [ "$rc" -ne 255 ] || return 255
   [ "$rc" -eq 0 ] || return 1
@@ -1063,7 +1063,7 @@ clear_public_followup_link() {
     *) return 1 ;;
   esac
   FM_HOME="$home" FM_STATE_OVERRIDE="$state" FM_ROOT_OVERRIDE="$FM_ROOT" \
-    "$FM_ROOT/bin/fm-x-followup.sh" --clear "$work_id" >/dev/null
+    bash "$FM_ROOT/bin/fm-x-followup.sh" --clear "$work_id" >/dev/null
 }
 
 # pf_link_clear_note <rc>: the qualifier appended to a refusal when a bound
@@ -1263,7 +1263,7 @@ cmd_deliver() {
 
   rc=0
   FMX_REPLY_PLATFORM="$platform" FM_HOME="$FM_HOME" \
-    "$FM_ROOT/bin/fm-x-reply.sh" "$request" --followup --receipt-file "$receipt" \
+    bash "$FM_ROOT/bin/fm-x-reply.sh" "$request" --followup --receipt-file "$receipt" \
     --text-file "$tmp_text" >/dev/null || rc=$?
 
   if [ "$rc" -eq 0 ]; then

@@ -240,14 +240,14 @@ run_bootstrap_timeout_case() {
         FM_FAKE_FLEET_SYNC_STARTED_MARKER="$started_marker" \
         FM_FAKE_GIT_SYNC_STARTED_RECORD="$git_record" \
         FM_FAKE_GIT_WAIT_FOR_FLEET_START="$wait_for_marker" \
-        FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null
+        FM_FAKE_TREEHOUSE_LEASE_HELP=1 bash "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null
     else
       PATH="$fakebin:$BASE_PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$fake_root" \
         FM_FLEET_SYNC_BOOTSTRAP_TIMEOUT="$override" \
         FM_FAKE_FLEET_SYNC_STARTED_MARKER="$started_marker" \
         FM_FAKE_GIT_SYNC_STARTED_RECORD="$git_record" \
         FM_FAKE_GIT_WAIT_FOR_FLEET_START="$wait_for_marker" \
-        FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null
+        FM_FAKE_TREEHOUSE_LEASE_HELP=1 bash "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null
     fi
   )
 }
@@ -324,7 +324,7 @@ test_bootstrap_reporting() {
     # it stays inert: this suite pins tool detection, not the tangle guard, and the
     # ambient checkout (CI runs on a feature branch) must not leak a TANGLE line in.
     out=$(PATH="$fakebin:$base" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
-      FM_FAKE_TREEHOUSE_LEASE_HELP="$lease" FM_FAKE_QUOTA_AXI_VERSION="$quota_version" "$ROOT/bin/fm-bootstrap.sh")
+      FM_FAKE_TREEHOUSE_LEASE_HELP="$lease" FM_FAKE_QUOTA_AXI_VERSION="$quota_version" bash "$ROOT/bin/fm-bootstrap.sh")
     case "$mode" in
       empty)
         [ -z "$out" ] || fail "$label: expected silence, got: $out" ;;
@@ -373,13 +373,13 @@ test_absent_tool_cases_hide_a_real_install_in_the_base_path() {
   fm_fake_version_tool "$hostbin" tasks-axi FM_FAKE_TASKS_AXI_VERSION 0.2.6
 
   out=$(PATH="$fakebin:$hostbin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
-    FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
+    FM_FAKE_TREEHOUSE_LEASE_HELP=1 bash "$ROOT/bin/fm-bootstrap.sh")
   assert_not_contains "$out" 'MISSING: tasks-axi' \
     "the fixture's host install was not resolvable, so the contrast below would prove nothing"
 
   out=$(PATH="$fakebin:$(fm_test_base_path_sans "$hostbin:$BASE_PATH" tasks-axi)" \
     FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
-    FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
+    FM_FAKE_TREEHOUSE_LEASE_HELP=1 bash "$ROOT/bin/fm-bootstrap.sh")
   assert_contains "$out" 'MISSING: tasks-axi (install: npm install -g tasks-axi)' \
     "a real install in the fallback base path defeated the absent-tool simulation"
   pass "bootstrap: an absent-tool case hides the tool in the fallback base path"
@@ -403,7 +403,7 @@ test_no_mistakes_min_version() {
       base=$(fm_test_base_path_sans "$base" no-mistakes)
     fi
     out=$(PATH="$fakebin:$base" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
-      FM_FAKE_TREEHOUSE_LEASE_HELP=1 FM_FAKE_NO_MISTAKES_VERSION="$version" "$ROOT/bin/fm-bootstrap.sh")
+      FM_FAKE_TREEHOUSE_LEASE_HELP=1 FM_FAKE_NO_MISTAKES_VERSION="$version" bash "$ROOT/bin/fm-bootstrap.sh")
     case "$mode" in
       empty)
         [ -z "$out" ] || fail "$label: expected silence, got: $out" ;;
@@ -441,7 +441,7 @@ test_gh_axi_min_version() {
       base=$(fm_test_base_path_sans "$base" gh-axi)
     fi
     out=$(PATH="$fakebin:$base" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
-      FM_FAKE_TREEHOUSE_LEASE_HELP=1 FM_FAKE_GH_AXI_VERSION="$version" "$ROOT/bin/fm-bootstrap.sh")
+      FM_FAKE_TREEHOUSE_LEASE_HELP=1 FM_FAKE_GH_AXI_VERSION="$version" bash "$ROOT/bin/fm-bootstrap.sh")
     case "$mode" in
       empty)
         [ -z "$out" ] || fail "$label: expected silence, got: $out" ;;
@@ -482,7 +482,7 @@ test_lavish_axi_min_version() {
       base=$(fm_test_base_path_sans "$base" lavish-axi)
     fi
     out=$(PATH="$fakebin:$base" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
-      FM_FAKE_TREEHOUSE_LEASE_HELP=1 FM_FAKE_LAVISH_AXI_VERSION="$version" "$ROOT/bin/fm-bootstrap.sh") \
+      FM_FAKE_TREEHOUSE_LEASE_HELP=1 FM_FAKE_LAVISH_AXI_VERSION="$version" bash "$ROOT/bin/fm-bootstrap.sh") \
       || fail "$label: optional presentation must not fail bootstrap"
     assert_not_contains "$out" 'MISSING:' "$label: optional presentation must not block nonvisual dispatch"
     case "$mode" in
@@ -549,7 +549,7 @@ test_tasks_axi_min_version() {
       add_tasks_axi "$fakebin" "$version" "$archive_body" "$multi_id"
     fi
     out=$(PATH="$fakebin:$base" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
-      FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
+      FM_FAKE_TREEHOUSE_LEASE_HELP=1 bash "$ROOT/bin/fm-bootstrap.sh")
     case "$mode" in
       empty)
         [ -z "$out" ] || fail "$label: expected silence, got: $out" ;;
@@ -597,7 +597,7 @@ test_quota_axi_min_version() {
       base=$(fm_test_base_path_sans "$base" quota-axi)
     fi
     out=$(PATH="$fakebin:$base" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
-      FM_FAKE_TREEHOUSE_LEASE_HELP=1 FM_FAKE_QUOTA_AXI_VERSION="$version" "$ROOT/bin/fm-bootstrap.sh")
+      FM_FAKE_TREEHOUSE_LEASE_HELP=1 FM_FAKE_QUOTA_AXI_VERSION="$version" bash "$ROOT/bin/fm-bootstrap.sh")
     case "$mode" in
       empty)
         [ -z "$out" ] || fail "$label: expected silence, got: $out" ;;
@@ -640,7 +640,7 @@ git() {
 SH
 
   out=$(PATH="$fakebin:$BASE_PATH" BASH_ENV="$bash_env" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
-    FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
+    FM_FAKE_TREEHOUSE_LEASE_HELP=1 bash "$ROOT/bin/fm-bootstrap.sh")
   expected="MISSING: git (install: brew install git  # or the platform's package manager)"
   [ "$out" = "$expected" ] || fail "missing git should report the supported install instruction, got: $out"
   pass "bootstrap requires git with an install instruction"
@@ -656,7 +656,7 @@ test_orca_backend_gates_orca_tool_only_when_selected() {
   printf '%s\n' orca > "$case_dir/home/config/backend"
   fakebin=$(make_fake_toolchain "$case_dir")
   out=$(PATH="$fakebin:$(fm_test_base_path_sans "$BASE_PATH" orca)" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
-    FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
+    FM_FAKE_TREEHOUSE_LEASE_HELP=1 bash "$ROOT/bin/fm-bootstrap.sh")
   [ "$out" = "$missing_orca" ] || fail "backend=orca should require only the Orca-specific missing tool, got: $out"
 
   case_dir="$TMP_ROOT/orca-backend-not-selected"
@@ -664,7 +664,7 @@ test_orca_backend_gates_orca_tool_only_when_selected() {
   printf '%s\n' manual > "$case_dir/home/config/backlog-backend"
   fakebin=$(make_fake_toolchain "$case_dir")
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
-    FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
+    FM_FAKE_TREEHOUSE_LEASE_HELP=1 bash "$ROOT/bin/fm-bootstrap.sh")
   assert_not_contains "$out" "MISSING: orca" "bootstrap should not require orca unless backend=orca is selected"
   pass "bootstrap: backend=orca gates the Orca CLI without requiring it on the default backend"
 }
@@ -697,7 +697,7 @@ test_session_provider_backends_do_not_require_tmux() {
     fakebin=$(make_fake_toolchain_no_tmux "$case_dir" "$cli")
     out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
       REX_BIN_DIR="$case_dir/no-rex-bin-dir" FM_BACKEND_REX_BUNDLE_BIN="$case_dir/no-rex" \
-      FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
+      FM_FAKE_TREEHOUSE_LEASE_HELP=1 bash "$ROOT/bin/fm-bootstrap.sh")
     [ -z "$out" ] || fail "backend=$backend with tmux absent but its own deps present should be silent, got: $out"
   done <<'ROWS'
 herdr^herdr
@@ -723,7 +723,7 @@ test_session_provider_backends_gate_own_cli_not_tmux() {
     fakebin=$(make_fake_toolchain_no_tmux "$case_dir")
     out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
       FM_BACKEND_PASEO_BUNDLE_BIN="$case_dir/no-paseo" REX_BIN_DIR="$case_dir/no-rex-bin-dir" \
-      FM_BACKEND_REX_BUNDLE_BIN="$case_dir/no-rex" FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
+      FM_BACKEND_REX_BUNDLE_BIN="$case_dir/no-rex" FM_FAKE_TREEHOUSE_LEASE_HELP=1 bash "$ROOT/bin/fm-bootstrap.sh")
     case "$backend" in
       herdr) missing="MISSING_MANUAL: herdr (instructions: https://herdr.dev)" ;;
       paseo) missing="MISSING_MANUAL: paseo (instructions: https://paseo.sh)" ;;
@@ -752,7 +752,7 @@ ROWS
 
 test_herdr_install_requires_manual_action() {
   local out status
-  out=$("$ROOT/bin/fm-bootstrap.sh" install herdr 2>&1)
+  out=$(bash "$ROOT/bin/fm-bootstrap.sh" install herdr 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "install herdr should fail instead of evaluating its manual-install hint"
   [ "$out" = "error: herdr requires manual installation (instructions: https://herdr.dev)" ] \
@@ -770,7 +770,7 @@ test_cmux_bundled_cli_satisfies_dependency() {
   fm_fake_exit0 "$case_dir/bundle" cmux
   bundle="$case_dir/bundle/cmux"
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
-    FM_BACKEND_CMUX_BUNDLE_BIN="$bundle" FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
+    FM_BACKEND_CMUX_BUNDLE_BIN="$bundle" FM_FAKE_TREEHOUSE_LEASE_HELP=1 bash "$ROOT/bin/fm-bootstrap.sh")
   [ -z "$out" ] || fail "a usable bundled cmux CLI should satisfy bootstrap without a PATH shim, got: $out"
   pass "bootstrap: the bundled cmux CLI satisfies the active backend dependency"
 }
@@ -783,7 +783,7 @@ test_unknown_backend_reports_invalid_configuration() {
   printf '%s\n' bogus > "$case_dir/home/config/backend"
   fakebin=$(make_fake_toolchain "$case_dir")
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
-    FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
+    FM_FAKE_TREEHOUSE_LEASE_HELP=1 bash "$ROOT/bin/fm-bootstrap.sh")
   assert_contains "$out" "BACKEND_INVALID: bogus (known: tmux herdr zellij orca cmux paseo rex t3code tern hc)" \
     "bootstrap should report an unknown resolved backend"
   assert_not_contains "$out" "MISSING: tmux" "an unknown backend should not silently fall back to tmux dependencies"
@@ -819,7 +819,7 @@ jq() {
 }
 SH
     out=$(PATH="$fakebin:$BASE_PATH" BASH_ENV="$bash_env" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
-      FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
+      FM_FAKE_TREEHOUSE_LEASE_HELP=1 bash "$ROOT/bin/fm-bootstrap.sh")
     assert_contains "$out" "MISSING: jq" "backend=$backend must fail closed on missing jq"
     assert_not_contains "$out" "MISSING: tmux" "backend=$backend must not demand tmux when jq is missing"
   done <<'ROWS'
@@ -845,7 +845,7 @@ test_treehouse_lease_check_follows_resolved_backend() {
   fm_fake_exit0 "$fakebin" orca
   # FM_FAKE_TREEHOUSE_LEASE_HELP unset: the fake treehouse advertises NO --lease.
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
-    "$ROOT/bin/fm-bootstrap.sh")
+    bash "$ROOT/bin/fm-bootstrap.sh")
   [ -z "$out" ] || fail "backend=orca must not require treehouse (even lease-less) or tmux, got: $out"
 
   # ...but the same lease-less treehouse IS a problem for a session-provider
@@ -856,7 +856,7 @@ test_treehouse_lease_check_follows_resolved_backend() {
   printf '%s\n' herdr > "$case_dir/home/config/backend"
   fakebin=$(make_fake_toolchain_no_tmux "$case_dir" herdr)
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
-    "$ROOT/bin/fm-bootstrap.sh")
+    bash "$ROOT/bin/fm-bootstrap.sh")
   assert_contains "$out" "OUTDATED: treehouse" "backend=herdr must still require treehouse with durable lease support"
   assert_not_contains "$out" "MISSING: tmux" "backend=herdr must not demand tmux even when treehouse is too old"
   pass "bootstrap: the treehouse lease check follows the resolved backend's worktree provider"
@@ -1050,17 +1050,17 @@ SH
   chmod +x "$fakebin/gh"
 
   all_out=$(PATH="$fakebin:$(fm_test_base_path_sans "$BASE_PATH" node)" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
-    FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
+    FM_FAKE_TREEHOUSE_LEASE_HELP=1 bash "$ROOT/bin/fm-bootstrap.sh")
   assert_contains "$all_out" "MISSING: node (install:" "the unsplit run lost its local diagnostic"
   assert_contains "$all_out" "NEEDS_GH_AUTH" "the unsplit run lost its network diagnostic"
 
   skip_out=$(PATH="$fakebin:$(fm_test_base_path_sans "$BASE_PATH" node)" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
-    FM_FAKE_TREEHOUSE_LEASE_HELP=1 FM_BOOTSTRAP_NETWORK=skip "$ROOT/bin/fm-bootstrap.sh")
+    FM_FAKE_TREEHOUSE_LEASE_HELP=1 FM_BOOTSTRAP_NETWORK=skip bash "$ROOT/bin/fm-bootstrap.sh")
   assert_contains "$skip_out" "MISSING: node (install:" "the local half lost its own diagnostic"
   assert_not_contains "$skip_out" "NEEDS_GH_AUTH" "the local half still made a network call"
 
   only_out=$(PATH="$fakebin:$(fm_test_base_path_sans "$BASE_PATH" node)" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
-    FM_FAKE_TREEHOUSE_LEASE_HELP=1 FM_BOOTSTRAP_NETWORK=only "$ROOT/bin/fm-bootstrap.sh")
+    FM_FAKE_TREEHOUSE_LEASE_HELP=1 FM_BOOTSTRAP_NETWORK=only bash "$ROOT/bin/fm-bootstrap.sh")
   assert_contains "$only_out" "NEEDS_GH_AUTH" "the network half lost its own diagnostic"
   assert_not_contains "$only_out" "MISSING: node" "the network half repeated the local half's work"
 
@@ -1071,7 +1071,7 @@ SH
   # A typo must never silently drop a safety sweep, so anything unrecognized
   # resolves to the complete run.
   [ "$(PATH="$fakebin:$(fm_test_base_path_sans "$BASE_PATH" node)" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
-    FM_FAKE_TREEHOUSE_LEASE_HELP=1 FM_BOOTSTRAP_NETWORK=sikp "$ROOT/bin/fm-bootstrap.sh")" = "$all_out" ] \
+    FM_FAKE_TREEHOUSE_LEASE_HELP=1 FM_BOOTSTRAP_NETWORK=sikp bash "$ROOT/bin/fm-bootstrap.sh")" = "$all_out" ] \
     || fail "an unrecognized FM_BOOTSTRAP_NETWORK value did not fall back to the complete run"
   pass "bootstrap: FM_BOOTSTRAP_NETWORK partitions one run into local and network halves"
 }
@@ -1095,7 +1095,7 @@ SH
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$fake_root" \
     FM_FAKE_TREEHOUSE_LEASE_HELP=1 FM_BOOTSTRAP_NETWORK=only \
     FM_BOOTSTRAP_NETWORK_LOCK_PID=111111 FM_FAKE_FLEET_SYNC_STARTED_MARKER="$marker" \
-    "$ROOT/bin/fm-bootstrap.sh")
+    bash "$ROOT/bin/fm-bootstrap.sh")
   assert_absent "$marker" "a stale worker refreshed project clones after lock handoff"
   assert_contains "$out" "changed before dead-secondmate relaunch" \
     "the stale worker did not report the refused liveness sweep"
@@ -1146,7 +1146,7 @@ test_network_phases_record_per_step_elapsed_times() {
   PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$ROOT" \
     FM_FAKE_TREEHOUSE_LEASE_HELP=1 FM_BOOTSTRAP_NETWORK=only \
     FM_BOOTSTRAP_NETWORK_LOCK_PID=$$ FM_TIMING_LOG="$log" FM_TIMING_EPOCH_MS=0 \
-    "$ROOT/bin/fm-bootstrap.sh" >/dev/null 2>&1
+    bash "$ROOT/bin/fm-bootstrap.sh" >/dev/null 2>&1
 
   assert_present "$log" "the network phase recorded no elapsed times at all"
   assert_timing_record "$log" phase gh-auth '' "the GitHub auth probe was not timed"
@@ -1171,7 +1171,7 @@ test_network_phases_record_per_step_elapsed_times() {
   PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$ROOT" \
     FM_FAKE_TREEHOUSE_LEASE_HELP=1 FM_BOOTSTRAP_NETWORK=only \
     FM_BOOTSTRAP_NETWORK_LOCK_PID=$$ \
-    "$ROOT/bin/fm-bootstrap.sh" >/dev/null 2>&1
+    bash "$ROOT/bin/fm-bootstrap.sh" >/dev/null 2>&1
   assert_absent "$log" "a run that never asked for timings recorded them anyway"
   pass "bootstrap: each deferred network phase, secondmate, and clone records its own elapsed time"
 }
@@ -1209,7 +1209,7 @@ SH
   # the capability probes it could never use.
   : > "$log"
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
-    FM_FAKE_TASKS_AXI_LOG="$log" FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
+    FM_FAKE_TASKS_AXI_LOG="$log" FM_FAKE_TREEHOUSE_LEASE_HELP=1 bash "$ROOT/bin/fm-bootstrap.sh")
   assert_contains "$out" "OUTDATED: tasks-axi (installed:" "the unaided run did not probe tasks-axi"
   assert_grep '--version' "$log" "the unaided run never ran the probe"
   [ "$(grep -c -F -- '--help' "$log")" = 0 ] \
@@ -1220,7 +1220,7 @@ SH
   : > "$log"
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
     FM_FAKE_TASKS_AXI_LOG="$log" FM_FAKE_TREEHOUSE_LEASE_HELP=1 \
-    FM_FAKE_TASKS_AXI_VERSION=0.2.6 "$ROOT/bin/fm-bootstrap.sh")
+    FM_FAKE_TASKS_AXI_VERSION=0.2.6 bash "$ROOT/bin/fm-bootstrap.sh")
   assert_contains "$out" \
     'OUTDATED: tasks-axi (installed: 0.2.6; requires 0.2.6 with update --archive-body; upgrade: npm install -g tasks-axi)' \
     "the at-floor build did not name the capability it lacks"
@@ -1232,7 +1232,7 @@ SH
   : > "$log"
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
     FM_FAKE_TASKS_AXI_LOG="$log" FM_FAKE_TREEHOUSE_LEASE_HELP=1 \
-    FM_TASKS_AXI_COMPATIBLE=1 "$ROOT/bin/fm-bootstrap.sh")
+    FM_TASKS_AXI_COMPATIBLE=1 bash "$ROOT/bin/fm-bootstrap.sh")
   assert_not_contains "$out" "MISSING: tasks-axi" "the handed-in verdict was ignored"
   assert_not_contains "$out" "OUTDATED: tasks-axi" "the handed-in verdict was ignored"
   [ ! -s "$log" ] || fail "the handed-in verdict did not save the probe: $(cat "$log")"
@@ -1244,7 +1244,7 @@ SH
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
     FM_FAKE_TASKS_AXI_LOG="$log" FM_FAKE_TREEHOUSE_LEASE_HELP=1 \
     FM_FAKE_TASKS_AXI_VERSION=0.2.6 \
-    FM_TASKS_AXI_COMPATIBLE=0 FM_TASKS_AXI_CHECK_REASON=update-archive-body "$ROOT/bin/fm-bootstrap.sh")
+    FM_TASKS_AXI_COMPATIBLE=0 FM_TASKS_AXI_CHECK_REASON=update-archive-body bash "$ROOT/bin/fm-bootstrap.sh")
   assert_contains "$out" \
     'OUTDATED: tasks-axi (installed: 0.2.6; requires 0.2.6 with update --archive-body; upgrade: npm install -g tasks-axi)' \
     "the handed-in reason did not reach the requirement text"
@@ -1256,7 +1256,7 @@ SH
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
     FM_FAKE_TASKS_AXI_LOG="$log" FM_FAKE_TREEHOUSE_LEASE_HELP=1 \
     FM_FAKE_TASKS_AXI_VERSION=0.2.6 \
-    FM_TASKS_AXI_COMPATIBLE=0 FM_TASKS_AXI_CHECK_REASON=update-archive-body,mv-multi-id "$ROOT/bin/fm-bootstrap.sh")
+    FM_TASKS_AXI_COMPATIBLE=0 FM_TASKS_AXI_CHECK_REASON=update-archive-body,mv-multi-id bash "$ROOT/bin/fm-bootstrap.sh")
   assert_contains "$out" \
     'OUTDATED: tasks-axi (installed: 0.2.6; requires 0.2.6 with update --archive-body and mv multi-ID; upgrade: npm install -g tasks-axi)' \
     "the handed-in reason did not name both capabilities"
@@ -1267,7 +1267,7 @@ SH
   : > "$log"
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
     FM_FAKE_TASKS_AXI_LOG="$log" FM_FAKE_TREEHOUSE_LEASE_HELP=1 \
-    FM_TASKS_AXI_COMPATIBLE=yes "$ROOT/bin/fm-bootstrap.sh")
+    FM_TASKS_AXI_COMPATIBLE=yes bash "$ROOT/bin/fm-bootstrap.sh")
   assert_contains "$out" "OUTDATED: tasks-axi (installed:" "a malformed handoff value was trusted"
 
   # A malformed reason is not a reason either: the child falls back to its own
@@ -1276,7 +1276,7 @@ SH
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
     FM_FAKE_TASKS_AXI_LOG="$log" FM_FAKE_TREEHOUSE_LEASE_HELP=1 \
     FM_FAKE_TASKS_AXI_VERSION=0.2.6 \
-    FM_TASKS_AXI_COMPATIBLE=0 FM_TASKS_AXI_CHECK_REASON=bogus "$ROOT/bin/fm-bootstrap.sh")
+    FM_TASKS_AXI_COMPATIBLE=0 FM_TASKS_AXI_CHECK_REASON=bogus bash "$ROOT/bin/fm-bootstrap.sh")
   assert_contains "$out" \
     'OUTDATED: tasks-axi (installed: 0.2.6; requires 0.2.6 with update --archive-body; upgrade: npm install -g tasks-axi)' \
     "a malformed handoff reason suppressed the probes"
@@ -1302,11 +1302,11 @@ test_crew_dispatch_active_rules_are_verbose_bootstrap_info() {
   add_real_jq "$fakebin"
 
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
-    FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
+    FM_FAKE_TREEHOUSE_LEASE_HELP=1 bash "$ROOT/bin/fm-bootstrap.sh")
   [ -z "$out" ] || fail "active dispatch profile should be silent by default, got: $out"
 
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
-    FM_BOOTSTRAP_VERBOSE_FACTS=1 FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
+    FM_BOOTSTRAP_VERBOSE_FACTS=1 FM_FAKE_TREEHOUSE_LEASE_HELP=1 bash "$ROOT/bin/fm-bootstrap.sh")
 
   expect='BOOTSTRAP_INFO: crew dispatch active config/dispatch-policy.json (version 2 unified policy)'
   [ "$out" = "$expect" ] || fail "active dispatch verbose info block mismatch"$'\n'"expected: $expect"$'\n'"actual:   $out"
@@ -1324,7 +1324,7 @@ test_pr_health_monitor_arms_only_with_its_flag() {
     fakebin=$(make_fake_toolchain "$case_dir")
     add_real_jq "$fakebin"
     out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
-      FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
+      FM_FAKE_TREEHOUSE_LEASE_HELP=1 bash "$ROOT/bin/fm-bootstrap.sh")
     [ -z "$out" ] || fail "bootstrap with the PR health flag $flag printed: $out"
     if [ "$flag" = on ]; then
       [ -f "$case_dir/home/state/pr-health.check.sh" ] && [ -f "$case_dir/home/state/pr-health.check-trust" ] \
@@ -1350,7 +1350,7 @@ test_crew_dispatch_validation() {
     fakebin=$(make_fake_toolchain "$case_dir")
     add_real_jq "$fakebin"
     out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
-      FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
+      FM_FAKE_TREEHOUSE_LEASE_HELP=1 bash "$ROOT/bin/fm-bootstrap.sh")
     case "$mode" in
       empty) [ -z "$out" ] || fail "$label: expected silence, got: $out" ;;
       exact) [ "$out" = "$expect" ] || fail "$label: expected '$expect', got: $out" ;;
@@ -1386,7 +1386,7 @@ Standing delivery posture is direct-PR fleet-wide.
 EOF
 
   set +e
-  out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-bootstrap.sh")
+  out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$ROOT" bash "$ROOT/bin/fm-bootstrap.sh")
   set -e
   if printf '%s\n' "$out" | grep -q 'PROJECT_REGISTRY:'; then
     fail "Valid registry should not produce output, got: $out"
@@ -1402,7 +1402,7 @@ blocked [key=some-key]: stuck on CI
 EOF
 
   set +e
-  out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-bootstrap.sh")
+  out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$ROOT" bash "$ROOT/bin/fm-bootstrap.sh")
   set -e
   if ! printf '%s\n' "$out" | grep -q 'PROJECT_REGISTRY: status-protocol line at line 3'; then
     fail "Status-protocol line not detected at line 3, got: $out"

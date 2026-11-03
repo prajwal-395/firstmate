@@ -359,14 +359,14 @@ pool_candidates() {
       list_parallel_candidates
       ;;
     portable:0)
-      "$ROOT/bin/fm-test-run.sh" --list-scheduled --proven-isolated
+      bash "$ROOT/bin/fm-test-run.sh" --list-scheduled --proven-isolated
       ;;
     *:1)
-      "$ROOT/bin/fm-test-run.sh" --list --family "$POOL" \
+      bash "$ROOT/bin/fm-test-run.sh" --list --family "$POOL" \
         || die "--pool $POOL is not a known family (see bin/fm-test-run.sh --list-families)"
       ;;
     *)
-      "$ROOT/bin/fm-test-run.sh" --list-scheduled --family "$POOL" \
+      bash "$ROOT/bin/fm-test-run.sh" --list-scheduled --family "$POOL" \
         || die "--pool $POOL is not a known family (see bin/fm-test-run.sh --list-families)"
       ;;
   esac
@@ -583,7 +583,7 @@ if [ -n "$JSON_PATH" ]; then
   sort -t$'\t' -k1,1 "$RECORDS" -o "$RECORDS"
   jobs_enabled=0
   if [ "$AGG_RC" -eq 0 ] && [ "$JOBS" -gt 1 ] &&
-    { [ "$POOL" = portable ] || "$ROOT/bin/fm-test-run.sh" --list-concurrent-safe-families | grep -Fxq "$POOL"; }; then
+    { [ "$POOL" = portable ] || bash "$ROOT/bin/fm-test-run.sh" --list-concurrent-safe-families | grep -Fxq "$POOL"; }; then
     jobs_enabled=1
   fi
   write_json_artifact "$JSON_PATH" \

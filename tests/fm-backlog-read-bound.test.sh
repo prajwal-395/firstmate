@@ -199,7 +199,7 @@ PATH="$CAPTAIN_FAKEBIN:$BASE_PATH" FM_HOME="$CAPTAIN" \
   FM_STATE_OVERRIDE="$CAPTAIN/state" FM_DATA_OVERRIDE="$CAPTAIN/data" \
   FM_CONFIG_OVERRIDE="$CAPTAIN/config" FM_BACKLOG_ROW_TIMEOUT_SECS="$BOUND_SECS" \
   FM_TEST_TASKS_AXI_ADD_LOG="$ADD_LOG" \
-  "$ROOT/bin/fm-captain-hold.sh" hold wedged-hold --title 'Wedged hold' --reason 'backend wedged' \
+  bash "$ROOT/bin/fm-captain-hold.sh" hold wedged-hold --title 'Wedged hold' --reason 'backend wedged' \
   > "$HOLD_OUT" 2>&1 || HOLD_STATUS=$?
 
 [ "$HOLD_STATUS" -ne 0 ] \
@@ -227,7 +227,7 @@ VERIFY_STATUS=0
 PATH="$CAPTAIN_FAKEBIN:$BASE_PATH" FM_HOME="$CAPTAIN" \
   FM_STATE_OVERRIDE="$CAPTAIN/state" FM_DATA_OVERRIDE="$CAPTAIN/data" \
   FM_CONFIG_OVERRIDE="$CAPTAIN/config" FM_BACKLOG_ROW_TIMEOUT_SECS="$BOUND_SECS" \
-  "$ROOT/bin/fm-captain-hold.sh" verify wedged-origin > "$VERIFY_OUT" 2>&1 || VERIFY_STATUS=$?
+  bash "$ROOT/bin/fm-captain-hold.sh" verify wedged-origin > "$VERIFY_OUT" 2>&1 || VERIFY_STATUS=$?
 
 [ "$VERIFY_STATUS" -ne 0 ] \
   || fail "verify must not attest an inventory it could not read: $(cat "$VERIFY_OUT")"
@@ -259,7 +259,7 @@ printf 'wedged-req\n' \
   | PATH="$REQ_FAKEBIN:$BASE_PATH" FM_HOME="$REQ" \
     FM_STATE_OVERRIDE="$REQ/state" FM_DATA_OVERRIDE="$REQ/data" \
     FM_CONFIG_OVERRIDE="$REQ/config" FM_BACKLOG_ROW_TIMEOUT_SECS="$BOUND_SECS" \
-    "$ROOT/bin/fm-captain-hold.sh" reconcile-requests --source-id probe --source 'test capture' \
+    bash "$ROOT/bin/fm-captain-hold.sh" reconcile-requests --source-id probe --source 'test capture' \
     > "$REQ_OUT" 2>&1 || REQ_STATUS=$?
 
 [ "$REQ_STATUS" -ne 0 ] \
@@ -347,7 +347,7 @@ PATH="$MIG_FAKEBIN:$BASE_PATH" FM_HOME="$MIG" \
   FM_STATE_OVERRIDE="$MIG/state" FM_DATA_OVERRIDE="$MIG/data" \
   FM_CONFIG_OVERRIDE="$MIG/config" FM_BACKLOG_ROW_TIMEOUT_SECS="$BOUND_SECS" \
   FM_TEST_PREFIXED_GLOB='bd-*' \
-  "$ROOT/bin/fm-captain-hold.sh" verify wedged-origin > "$VERIFY_MIG_OUT" 2>&1 || VERIFY_MIG_STATUS=$?
+  bash "$ROOT/bin/fm-captain-hold.sh" verify wedged-origin > "$VERIFY_MIG_OUT" 2>&1 || VERIFY_MIG_STATUS=$?
 
 [ "$VERIFY_MIG_STATUS" -ne 0 ] \
   || fail "verify must not attest an inventory whose migrated-prefix read wedged: $(cat "$VERIFY_MIG_OUT")"
@@ -411,7 +411,7 @@ DIGEST_START=$(date +%s)
 env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
   FM_HOME="$E2E_HOME" FM_ROOT_OVERRIDE="$E2E_ROOT" PATH="$E2E_FAKEBIN:$BASE_PATH" \
   FM_BACKLOG_ROW_TIMEOUT_SECS="$BOUND_SECS" \
-  "$ROOT/bin/fm-session-start.sh" > "$DIGEST" 2>&1 || true
+  bash "$ROOT/bin/fm-session-start.sh" > "$DIGEST" 2>&1 || true
 DIGEST_ELAPSED=$(elapsed_since "$DIGEST_START")
 
 [ "$DIGEST_ELAPSED" -lt "$BOUND_CEILING" ] \

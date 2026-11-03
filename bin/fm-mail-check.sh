@@ -207,7 +207,7 @@ action_check() {
   if [ ! -x "$MAIL_BIN" ]; then
     line="fm-mail.sh is missing next to this check ($MAIL_BIN)"
   else
-    out=$(fm_run_timed "$BUDGET_SECS" "$MAIL_BIN" poll 2>&1) || rc=$?
+    out=$(fm_run_timed "$BUDGET_SECS" bash "$MAIL_BIN" poll 2>&1) || rc=$?
     if [ "${rc:-0}" -eq 124 ]; then
       line="poll did not finish within the ${BUDGET_SECS}s budget"
     elif [ "${rc:-0}" -ne 0 ]; then
@@ -368,7 +368,7 @@ action_arm() {
     printf 'fm-mail-check: could not write %s\n' "$CHECK_SHIM" >&2
     return 1
   fi
-  if ! FM_HOME="$home" "$REGISTER_BIN" "$CHECK_ID" >/dev/null; then
+  if ! FM_HOME="$home" bash "$REGISTER_BIN" "$CHECK_ID" >/dev/null; then
     trap - HUP INT TERM
     arm_rollback
     printf 'fm-mail-check: could not register %s\n' "$CHECK_SHIM" >&2

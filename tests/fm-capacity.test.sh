@@ -60,7 +60,7 @@ SH
 }
 
 run_capacity() {  # <home> <fakebin>
-  PATH="$2:$BASE_PATH" FM_HOME="$1" "$CAPACITY" 2>&1
+  PATH="$2:$BASE_PATH" FM_HOME="$1" bash "$CAPACITY" 2>&1
 }
 
 test_no_target_prints_counts_only() {
@@ -162,7 +162,7 @@ test_invalid_target_is_reported() {
 test_real_host_smoke() {
   local home out rc
   home=$(make_home real 0 0)
-  out=$(FM_HOME="$home" "$CAPACITY" 2>&1); rc=$?
+  out=$(FM_HOME="$home" bash "$CAPACITY" 2>&1); rc=$?
   expect_code 0 "$rc" "real host"
   case "$(printf '%s\n' "$out" | head -1)" in
     'capacity: free_lanes=unknown reason=no-target lanes=0 target=none secondmates=0 load1='*' cores='*' mem_free_pct='*' disk_free_mb='*) : ;;
@@ -190,12 +190,12 @@ JSON
 run_capacity_jq() {
   local home=$1 fakebin=$2
   shift 2
-  PATH="$fakebin:$PATH" FM_HOME="$home" "$CAPACITY" "$@" 2>&1
+  PATH="$fakebin:$PATH" FM_HOME="$home" bash "$CAPACITY" "$@" 2>&1
 }
 
 # capacity_doc <home> <fakebin>: the --json document alone, stderr dropped.
 capacity_doc() {
-  PATH="$2:$PATH" FM_HOME="$1" "$CAPACITY" --json 2>/dev/null
+  PATH="$2:$PATH" FM_HOME="$1" bash "$CAPACITY" --json 2>/dev/null
 }
 
 test_config_keys_parse_and_refuse_guessing() {
@@ -262,7 +262,7 @@ test_fresh_beat_replaces_probes() {
   assert_equals 'false|pressure warn|pressure_why=1' \
     "$(printf '%s\n' "$doc" | jq -r '"\(.verdict.admit)|\(.verdict.reasons | join(","))|\(.pressure.why | join(","))"')" \
     "the verdict must refuse with the beat's level and only count its reasons"
-  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$CAPACITY" --json 2>&1 >/dev/null)
+  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" bash "$CAPACITY" --json 2>&1 >/dev/null)
   assert_contains "$out" 'fm-capacity: reason: pressure warn: swapping 410 pages/s' "the beat's own reason must stay on stderr"
   pass "a fresh beat replaces probes, and its warn level closes lanes with its reason"
 }
@@ -493,11 +493,11 @@ SH
 start_watcher() {
   fm_test_track_watcher_state "$1/state"
   FM_HOME="$1" FM_STATE_OVERRIDE="$1/state" FM_CONFIG_OVERRIDE="$1/config" FM_POLL=1 FM_SIGNAL_GRACE=1 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$ROOT/bin/fm-watch.sh" >/dev/null 2>&1 &
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 bash "$ROOT/bin/fm-watch.sh" >/dev/null 2>&1 &
 }
 
 stop_watcher() {  # <home>
-  FM_HOME="$1" FM_STATE_OVERRIDE="$1/state" "$ROOT/bin/fm-watch-arm.sh" --stop >/dev/null 2>&1 || true
+  FM_HOME="$1" FM_STATE_OVERRIDE="$1/state" bash "$ROOT/bin/fm-watch-arm.sh" --stop >/dev/null 2>&1 || true
 }
 
 test_watcher_publishes_only_when_opted_in() {

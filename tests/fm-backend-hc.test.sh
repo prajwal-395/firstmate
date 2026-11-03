@@ -149,7 +149,7 @@ test_control_interrupt_delivers_the_harness_keys() {
     "$id" "$D" "$D" > "$HOMEDIR/state/$id.meta"
   out=$(FAKE_HC_DIR=$D PATH="$FB:$PATH" FM_HC_BIN="$FB/hc" FM_HOME=$HOMEDIR FM_ROOT_OVERRIDE=$HOMEDIR \
     FM_STATE_OVERRIDE="$HOMEDIR/state" FM_DATA_OVERRIDE="$HOMEDIR/data" FM_CONTROL_POLL=0.05 \
-    "$FM_TEST_ROOT/bin/fm-control.sh" "$id" interrupt 2>&1) || rc=$?
+    bash "$FM_TEST_ROOT/bin/fm-control.sh" "$id" interrupt 2>&1) || rc=$?
   expect_code 0 "$rc" "interrupt on an hc task should succeed"$'\n'"$out"
   assert_contains "$(grep $'\x1fkeys\x1f' "$D/log")" $'keys\x1f--json\x1ft2\x1f--\x1fesc' "interrupt must press Escape on the recorded terminal"
   pass "hc: fm-control interrupt delivers the harness's interrupt key"

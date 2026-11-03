@@ -108,7 +108,7 @@ spawn_mate() {  # <case> <id> <harness> <sleeper-dir> <shim-dir>
     FM_SPAWN_NO_GUARD=1 \
     env -u TMUX -u TMUX_PANE \
     PATH="$sleeper:$shim:$PATH" \
-    "$ROOT/bin/fm-spawn.sh" "$id" "$sm" "$harness" --secondmate
+    bash "$ROOT/bin/fm-spawn.sh" "$id" "$sm" "$harness" --secondmate
 }
 
 # Start the real binary with no positional brief and no keystrokes.

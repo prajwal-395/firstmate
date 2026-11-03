@@ -66,7 +66,7 @@ herdr_forget_inherited_pane
 # tests/fm-backend.test.sh:test_spawn_symlinked_project_prefix_avoids_false_refusal.
 TMP_ROOT=$(mktemp -d "$(cd "${TMPDIR:-/tmp}" && pwd -P)/fm-backend-autodetect-smoke.XXXXXX")
 HERDR_LAB_HELPER="$ROOT/bin/fm-herdr-lab.sh"
-HERDR_LAB_SESSION=$("$HERDR_LAB_HELPER" name fm-autodetect-smoke-concurrency-h3) || {
+HERDR_LAB_SESSION=$(bash "$HERDR_LAB_HELPER" name fm-autodetect-smoke-concurrency-h3) || {
   rm -rf "$TMP_ROOT"
   fail "could not generate an isolated Herdr lab session name"
 }
@@ -76,7 +76,7 @@ WT=
 cleanup_all() {
   local cleanup_status=0
   [ -n "$WT" ] && command -v treehouse >/dev/null 2>&1 && treehouse return --force "$WT" >/dev/null 2>&1
-  "$HERDR_LAB_HELPER" teardown "$HERDR_LAB_SESSION" || cleanup_status=$?
+  bash "$HERDR_LAB_HELPER" teardown "$HERDR_LAB_SESSION" || cleanup_status=$?
   rm -rf "$TMP_ROOT"
   return "$cleanup_status"
 }
@@ -87,7 +87,7 @@ on_exit() {
   exit "$status"
 }
 trap on_exit EXIT
-"$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION" || fail "could not provision isolated Herdr lab session"
+bash "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION" || fail "could not provision isolated Herdr lab session"
 
 # --- scratch world: FM_HOME with NO backend config, one throwaway project ---
 
@@ -121,7 +121,7 @@ env -u TMUX -u FM_BACKEND PATH="$PATH" HERDR_ENV=1 \
   FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
   FM_CONFIG_OVERRIDE="$CONFIG" FM_PROJECTS_OVERRIDE="$TMP_ROOT/unused-projects" \
   FM_SPAWN_NO_GUARD=1 \
-  "$ROOT/bin/fm-spawn.sh" "$ID" "$PROJ" "sh -c 'echo autodetect-smoke-ok'" --mode no-mistakes --yolo off \
+  bash "$ROOT/bin/fm-spawn.sh" "$ID" "$PROJ" "sh -c 'echo autodetect-smoke-ok'" --mode no-mistakes --yolo off \
   >"$OUT_FILE" 2>"$ERR_FILE"
 status=$?
 [ "$status" -eq 0 ] || fail "fm-spawn.sh did not succeed auto-detecting herdr"$'\n'"--- stdout ---"$'\n'"$(cat "$OUT_FILE")"$'\n'"--- stderr ---"$'\n'"$(cat "$ERR_FILE")"
@@ -157,7 +157,7 @@ pass "real herdr: auto-detected spawn records backend=herdr and herdr_session/wo
 # --- confirm the trivial launch command actually ran in the herdr pane ------
 
 sleep 1
-CAPTURED=$("$HERDR_LAB_HELPER" run "$HERDR_LAB_SESSION" pane read "$PANE" --source recent --lines 200) || \
+CAPTURED=$(bash "$HERDR_LAB_HELPER" run "$HERDR_LAB_SESSION" pane read "$PANE" --source recent --lines 200) || \
   fail "capture failed on the auto-detected herdr pane"
 CAPTURED=$(printf '%s\n' "$CAPTURED" | tail -n 30)
 case "$CAPTURED" in
@@ -171,11 +171,11 @@ pass "real herdr: the auto-detected spawn's launch command actually ran in the h
 TEARDOWN_OUT="$TMP_ROOT/teardown.out"
 FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
   FM_CONFIG_OVERRIDE="$CONFIG" \
-  "$ROOT/bin/fm-teardown.sh" "$ID" >"$TEARDOWN_OUT" 2>&1
+  bash "$ROOT/bin/fm-teardown.sh" "$ID" >"$TEARDOWN_OUT" 2>&1
 status=$?
 [ "$status" -eq 0 ] || fail "fm-teardown.sh failed for the auto-detected herdr task"$'\n'"$(cat "$TEARDOWN_OUT")"
 [ -f "$META" ] && fail "fm-teardown.sh did not remove $META"
-if "$HERDR_LAB_HELPER" run "$HERDR_LAB_SESSION" pane get "$PANE" >/dev/null 2>&1; then
+if bash "$HERDR_LAB_HELPER" run "$HERDR_LAB_SESSION" pane get "$PANE" >/dev/null 2>&1; then
   fail "fm-teardown.sh did not close the auto-detected herdr pane"
 fi
 WT=

@@ -309,8 +309,8 @@ fm_lease_guard_release() {
 # cached, because the record can be archived between two guarded actions.
 fm_lease_away_relocated() {
   [ -f "$STATE/.afk-contract" ] || return 1
-  FM_STATE_OVERRIDE="$STATE" "$FM_LEASE_LIB_DIR/fm-afk-contract.sh" validate >/dev/null 2>&1 || return 1
-  [ "$(FM_STATE_OVERRIDE="$STATE" "$FM_LEASE_LIB_DIR/fm-afk-contract.sh" mode 2>/dev/null)" != quiet ]
+  FM_STATE_OVERRIDE="$STATE" bash "$FM_LEASE_LIB_DIR/fm-afk-contract.sh" validate >/dev/null 2>&1 || return 1
+  [ "$(FM_STATE_OVERRIDE="$STATE" bash "$FM_LEASE_LIB_DIR/fm-afk-contract.sh" mode 2>/dev/null)" != quiet ]
 }
 
 # fm_lease_forbid_branch <action-label> [--away-relocated]: refuse (exit

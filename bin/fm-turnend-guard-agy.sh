@@ -90,7 +90,7 @@ if ! fm_session_lock_owned_by_self "$STATE"; then
   LOCK_PID=$(cat "$STATE/.lock" 2>/dev/null || true)
   fm_session_pid_valid "$LOCK_PID" || allow_stop
   fm_harness_pid_alive "$LOCK_PID" && allow_stop
-  "$SCRIPT_DIR/fm-lock.sh" >/dev/null 2>&1 || allow_stop
+  bash "$SCRIPT_DIR/fm-lock.sh" >/dev/null 2>&1 || allow_stop
   fm_session_lock_owned_by_self "$STATE" || allow_stop
 fi
 
@@ -140,9 +140,9 @@ while [ "$attempt" -lt "$ARM_ATTEMPTS" ]; do
   attempt=$((attempt + 1))
   ARM_OUT=$(mktemp "$STATE/.agy-park-output.XXXXXX") || { ARM_OUT=; break; }
   if [ "$HOST_MODE" -eq 1 ]; then
-    FM_SUPERVISION_HOST_PRIMARY=agy "$SCRIPT_DIR/fm-supervision-host.sh" park >"$ARM_OUT" 2>&1 &
+    FM_SUPERVISION_HOST_PRIMARY=agy bash "$SCRIPT_DIR/fm-supervision-host.sh" park >"$ARM_OUT" 2>&1 &
   else
-    "$SCRIPT_DIR/fm-watch-arm.sh" >"$ARM_OUT" 2>&1 &
+    bash "$SCRIPT_DIR/fm-watch-arm.sh" >"$ARM_OUT" 2>&1 &
   fi
   ARM_PID=$!
   while kill -0 "$ARM_PID" 2>/dev/null; do
@@ -220,5 +220,5 @@ fi
 
 # The park could not establish supervision: the shared guard owns the bounded
 # repair nag and its {} fail-open.
-printf '%s' "$PAYLOAD" | "$SCRIPT_DIR/fm-turnend-guard.sh" --agy
+printf '%s' "$PAYLOAD" | bash "$SCRIPT_DIR/fm-turnend-guard.sh" --agy
 exit 0

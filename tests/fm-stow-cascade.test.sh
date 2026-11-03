@@ -106,7 +106,7 @@ run_cascade() { # <primary-home> [env assignments...]
     FM_HOME="$home" \
     FM_SSH_BIN="$FAKEBIN/fake-ssh" \
     "$@" \
-    "$CASCADE"
+    bash "$CASCADE"
 }
 
 # stanza <output> <id>: the block of key=value lines for one secondmate.

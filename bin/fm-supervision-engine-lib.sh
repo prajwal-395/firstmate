@@ -61,7 +61,7 @@ fm_supervision_host_primary() {
         ;;
     esac
   fi
-  "$(dirname "${BASH_SOURCE[0]}")/fm-harness.sh" 2>/dev/null || printf 'unknown\n'
+  bash "$(dirname "${BASH_SOURCE[0]}")/fm-harness.sh" 2>/dev/null || printf 'unknown\n'
 }
 
 # fm_supervision_host_enabled <config-dir> [<primary-harness>]: 0 iff this home
@@ -162,7 +162,7 @@ fm_supervision_host_attended_ready() {
   elif ! command -v perl >/dev/null 2>&1 && ! command -v timeout >/dev/null 2>&1 \
     && ! command -v gtimeout >/dev/null 2>&1; then
     FM_SUPERVISION_HOST_UNREADY="none of perl, timeout, or gtimeout can bound the engine turn"
-  elif ! "$(dirname "${BASH_SOURCE[0]}")/fm-host-mirror.sh" verified "$2"; then
+  elif ! bash "$(dirname "${BASH_SOURCE[0]}")/fm-host-mirror.sh" verified "$2"; then
     FM_SUPERVISION_HOST_UNREADY="no verified dialog mirror for $2"
   fi
   [ -z "$FM_SUPERVISION_HOST_UNREADY" ]

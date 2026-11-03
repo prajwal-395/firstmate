@@ -93,7 +93,7 @@ head_sha() { git -C "$1" rev-parse HEAD; }
 run_sync() {
   local home=$1
   shift
-  FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-fleet-sync.sh" "$@" 2>/dev/null
+  FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" bash "$ROOT/bin/fm-fleet-sync.sh" "$@" 2>/dev/null
 }
 
 # build_enclosing_home <name>: an FM_HOME that is itself nested inside another git
@@ -231,7 +231,7 @@ run_sync_guarded() {
   realgit=$(command -v git)
   PATH="$fakebin:$PATH" REAL_GIT_FOR_TEST="$realgit" \
   FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    "$ROOT/bin/fm-fleet-sync.sh" "$@" >"$outf" 2>"$errf"
+    bash "$ROOT/bin/fm-fleet-sync.sh" "$@" >"$outf" 2>"$errf"
 }
 
 # --- tests ------------------------------------------------------------------
@@ -524,7 +524,7 @@ test_bootstrap_relays_recovered_and_stuck() {
 
   # Full bootstrap: no state/ dir -> secondmate sync no-ops; no .env -> X mode off.
   # We only assert the fleet-sync relay lines; other detect lines are irrelevant.
-  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" bash "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
 
   assert_contains "$out" "FLEET_SYNC: stuck-clone: STUCK:" "bootstrap relays the STUCK outcome"
   assert_contains "$out" "FLEET_SYNC: rec-clone: recovered:" "bootstrap relays the recovered outcome"

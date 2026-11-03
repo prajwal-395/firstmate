@@ -273,7 +273,7 @@ fi
 # shellcheck source=bin/fm-task-inbox-lib.sh
 . "$SCRIPT_DIR/fm-task-inbox-lib.sh"
 
-FM_GUARD_CONTINUE_LINE='This is a supervision warning only; the requested message WILL still be sent.' "$SCRIPT_DIR/fm-guard.sh" || true
+FM_GUARD_CONTINUE_LINE='This is a supervision warning only; the requested message WILL still be sent.' bash "$SCRIPT_DIR/fm-guard.sh" || true
 
 fm_send_id_from_meta() { # <meta-file>
   local base
@@ -321,10 +321,10 @@ fm_send_record_interrupt() { # <key>
   [ -f "$STATE/$id.busy-gen" ] || return 0
   gen=$(fm_meta_get "$TARGET_META" busy_gen)
   if [ -n "$gen" ]; then
-    "$FM_ROOT/bin/fm-busy-event.sh" apply "$STATE" "$id" idle \
+    bash "$FM_ROOT/bin/fm-busy-event.sh" apply "$STATE" "$id" idle \
       --gen "$gen" --source fm-interrupt --event interrupt
   else
-    "$FM_ROOT/bin/fm-busy-event.sh" apply "$STATE" "$id" idle \
+    bash "$FM_ROOT/bin/fm-busy-event.sh" apply "$STATE" "$id" idle \
       --current-gen --source fm-interrupt --event interrupt
   fi || {
     echo "error: key '$key' reached $T, but the Claude interrupt state could not be recorded for $id" >&2
@@ -367,7 +367,7 @@ fm_send_detect_kiro_from_live_target() {
   while IFS= read -r pid; do
     [ -n "$pid" ] || continue
     case "$pid" in *[!0-9]*) continue ;; esac
-    verdict=$("$SCRIPT_DIR/fm-harness.sh" ancestry "$pid" 2>/dev/null || true)
+    verdict=$(bash "$SCRIPT_DIR/fm-harness.sh" ancestry "$pid" 2>/dev/null || true)
     [ "$verdict" = "comm kiro" ] || continue
     TARGET_HARNESS=kiro
     return 0
@@ -617,7 +617,7 @@ fm_send_hold_resolved_id() { # <task-id> <decision-key>
   local show id state hold_kind
   command -v tasks-axi >/dev/null 2>&1 || return 1
   for id in "$2" "$1-decision-$2"; do
-    show=$(FM_HOME="$FM_HOME" FM_DATA_OVERRIDE='' "$SCRIPT_DIR/fm-tasks-axi.sh" show "$id" --full 2>/dev/null) || continue
+    show=$(FM_HOME="$FM_HOME" FM_DATA_OVERRIDE='' bash "$SCRIPT_DIR/fm-tasks-axi.sh" show "$id" --full 2>/dev/null) || continue
     state=$(printf '%s\n' "$show" | sed -n 's/^  state: //p' | head -1)
     hold_kind=$(printf '%s\n' "$show" | sed -n 's/^  hold_kind: //p' | head -1)
     [ "$state" != "done" ] || continue
@@ -784,7 +784,7 @@ fm_send_feed_resolved_holds() { # <answer-text>
   for k in $RESOLVE_HOLD_KEYS; do
     lines="${lines}${k}"$'\t'"${note}"$'\t'$'\n'
   done
-  if ! printf '%s' "$lines" | "$SCRIPT_DIR/fm-captain-hold.sh" answers \
+  if ! printf '%s' "$lines" | bash "$SCRIPT_DIR/fm-captain-hold.sh" answers \
     --source "a firstmate answer sent to $RESOLVE_TASK_ID" >/dev/null 2>&1; then
     echo "error: the answer was delivered to $T, but this captain-held task could not be closed: ${RESOLVE_HOLD_KEYS}. Close it with fm-captain-hold.sh answer - do not resend the answer." >&2
     return 1
@@ -827,7 +827,7 @@ if [ "${1:-}" = "--key" ]; then
       exit 1
       ;;
     esac
-    if ! fm_run_timed "$FM_SEND_REMOTE_BUDGET" "$SCRIPT_DIR/fm-on.sh" "$TARGET_REMOTE_ID" \
+    if ! fm_run_timed "$FM_SEND_REMOTE_BUDGET" bash "$SCRIPT_DIR/fm-on.sh" "$TARGET_REMOTE_ID" \
       fm-remote-secondmate-control.sh key "$TARGET_REMOTE_ID" "$key" </dev/null; then
       echo "error: key '$key' not sent to remote secondmate $TARGET_REMOTE_ID; completion may be unknown" >&2
       exit 1
@@ -1001,14 +1001,14 @@ else
     # retry that would only wait out the same busy remote queue again. (A
     # remote job's own timeout also relays as 124; treating it as unconfirmed
     # stays safe because the remote enqueue deduplicates.)
-    printf '%s' "$MESSAGE" | fm_run_timed "$FM_SEND_REMOTE_BUDGET" "$SCRIPT_DIR/fm-on.sh" --stdin \
+    printf '%s' "$MESSAGE" | fm_run_timed "$FM_SEND_REMOTE_BUDGET" bash "$SCRIPT_DIR/fm-on.sh" --stdin \
       "$TARGET_REMOTE_ID" fm-remote-secondmate-control.sh send-stdin "${REMOTE_SEND_ARGS[@]}" || remote_rc=$?
     if [ "$remote_rc" -eq 124 ]; then
       remote_completion_unknown=1
     elif [ "$remote_rc" -eq 255 ]; then
       remote_completion_unknown=1
       remote_rc=0
-      printf '%s' "$MESSAGE" | fm_run_timed "$FM_SEND_REMOTE_BUDGET" "$SCRIPT_DIR/fm-on.sh" --stdin \
+      printf '%s' "$MESSAGE" | fm_run_timed "$FM_SEND_REMOTE_BUDGET" bash "$SCRIPT_DIR/fm-on.sh" --stdin \
         "$TARGET_REMOTE_ID" fm-remote-secondmate-control.sh send-stdin "${REMOTE_SEND_ARGS[@]}" || remote_rc=$?
     fi
     fm_lock_release "$REMOTE_META_LOCK"

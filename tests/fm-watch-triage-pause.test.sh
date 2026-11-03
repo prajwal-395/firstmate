@@ -1069,7 +1069,7 @@ test_captain_held_never_rechecked_while_away_record_exists() {
 # live, both on the watcher's own cadence and through the one-shot handoff a
 # running quiet daemon owns.
 write_quiet_record() {  # <state>
-  if ! FM_HOME="$(dirname "$1")" FM_STATE_OVERRIDE="$1" FM_AFK_MODE=quiet "$ROOT/bin/fm-afk-contract.sh" enter --words 'keep routine wakes off my main' >/dev/null 2>&1; then
+  if ! FM_HOME="$(dirname "$1")" FM_STATE_OVERRIDE="$1" FM_AFK_MODE=quiet bash "$ROOT/bin/fm-afk-contract.sh" enter --words 'keep routine wakes off my main' >/dev/null 2>&1; then
     fail "could not write quiet mode's record in $1"
   fi
 }

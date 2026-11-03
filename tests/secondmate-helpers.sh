@@ -241,7 +241,7 @@ SH
 scaffold_secondmate_charter() {
   local home=$1 id=$2 charter=$3
   shift 3
-  FM_HOME="$home" FM_SECONDMATE_CHARTER="$charter" "$ROOT/bin/fm-brief.sh" "$id" --secondmate "$@" >/dev/null
+  FM_HOME="$home" FM_SECONDMATE_CHARTER="$charter" bash "$ROOT/bin/fm-brief.sh" "$id" --secondmate "$@" >/dev/null
 }
 
 # Make a directory look like a genuine seeded secondmate home (for handoff tests).

@@ -181,7 +181,7 @@ test_handling_successor_does_not_go_blind() {
   out="$dir/watch.out"
   PATH="$fakebin:$PATH" FM_HOME="$home" FM_STATE_OVERRIDE="$state" \
     FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=600 \
-    FM_WATCH_HANDLING_SUCCESSOR=1 "$WATCH" > "$out" 2>&1 &
+    FM_WATCH_HANDLING_SUCCESSOR=1 bash "$WATCH" > "$out" 2>&1 &
   child=$!
   now=0
   while [ "$now" -lt 40 ]; do
@@ -255,7 +255,7 @@ test_handling_successor_resurfaces_a_row_appended_during_startup() {
 
   PATH="$fakebin:$PATH" FM_HOME="$home" FM_STATE_OVERRIDE="$state" \
     FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=600 \
-    FM_WATCH_HANDLING_SUCCESSOR=1 "$WATCH" > "$out" 2>&1 &
+    FM_WATCH_HANDLING_SUCCESSOR=1 bash "$WATCH" > "$out" 2>&1 &
   child=$!
   now=0
   while [ "$now" -lt 40 ]; do

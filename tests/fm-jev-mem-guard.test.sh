@@ -17,11 +17,11 @@ python3 -m py_compile "$GUARD_PY"
 echo "ok - python syntax clean"
 
 # 3. Help works
-"$GUARD_SH" --help >/dev/null
+bash "$GUARD_SH" --help >/dev/null
 echo "ok - --help works"
 
 # 4. JSON schema validation on audit; stdout is streamed to the parser as data
-json_out="$("$GUARD_SH" --json)"
+json_out="$(bash "$GUARD_SH" --json)"
 printf '%s\n' "$json_out" | python3 -c '
 import json, sys
 data = json.load(sys.stdin)
@@ -46,7 +46,7 @@ echo "ok - json audit schema valid"
 # 5. --check exit-code contract, forced BOTH ways without consulting host state.
 #    Utilization can never exceed 100%, so pass-forcing thresholds (1000%) must
 #    classify OK and exit 0 on any host.
-if ! "$GUARD_SH" --check --warn-mem-pct 1000 --crit-mem-pct 1000 --warn-swap-pct 1000 --crit-swap-pct 1000; then
+if ! bash "$GUARD_SH" --check --warn-mem-pct 1000 --crit-mem-pct 1000 --warn-swap-pct 1000 --crit-swap-pct 1000; then
   echo "FAIL: --check exited non-zero with pass-forcing thresholds" >&2
   exit 1
 fi
@@ -59,7 +59,7 @@ echo "ok - --check exits 0 with pass-forcing thresholds"
 audit_status="$(printf '%s\n' "$json_out" | python3 -c 'import json, sys; print(json.load(sys.stdin)["status"])')"
 if [ "$audit_status" = "UNKNOWN" ]; then
   set +e
-  "$GUARD_SH" --check --warn-mem-pct 0 --crit-mem-pct 0 --warn-swap-pct 0 --crit-swap-pct 0
+  bash "$GUARD_SH" --check --warn-mem-pct 0 --crit-mem-pct 0 --warn-swap-pct 0 --crit-swap-pct 0
   rc=$?
   set -e
   if [ "$rc" -ne 0 ]; then
@@ -69,7 +69,7 @@ if [ "$audit_status" = "UNKNOWN" ]; then
   echo "ok - --check exits 0 under fail-forcing thresholds while status is UNKNOWN (fail-open)"
 else
   set +e
-  "$GUARD_SH" --check --warn-mem-pct 0 --crit-mem-pct 0 --warn-swap-pct 0 --crit-swap-pct 0
+  bash "$GUARD_SH" --check --warn-mem-pct 0 --crit-mem-pct 0 --warn-swap-pct 0 --crit-swap-pct 0
   rc=$?
   set -e
   if [ "$rc" -ne 1 ]; then
@@ -80,7 +80,7 @@ else
 fi
 
 # 6. Text output carries the documented contract fields
-if ! text_out="$("$GUARD_SH")"; then
+if ! text_out="$(bash "$GUARD_SH")"; then
   echo "FAIL: text mode did not run cleanly" >&2
   exit 1
 fi

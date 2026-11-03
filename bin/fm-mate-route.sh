@@ -323,7 +323,7 @@ CONFIDENCE=$(jq -r '.answers.mate.confidence' "$RESP_FILE")
 # ---- code gates after the answer, in report order ------------------------------
 GATE='' MATE='' STATUS='' REASON='' NOTE=''
 if [ -n "$PROJECT" ]; then
-  MODE=$(FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-project-mode.sh" "$PROJECT" 2>/dev/null | awk '{print $1}') || MODE=''
+  MODE=$(FM_HOME="$FM_HOME" bash "$SCRIPT_DIR/fm-project-mode.sh" "$PROJECT" 2>/dev/null | awk '{print $1}') || MODE=''
   if [ "$MODE" = "local-only" ]; then
     # Gate (a): a safety boundary, not a preference. Local-only work stays
     # with the main home, and no scope text may override that.

@@ -32,7 +32,7 @@ kind=ship
 opencode_workspace=
 dispatch_ladder=opencode
 META
-out=$(FM_HOME="$HOME_DIR" "$TOOL" --force 2>&1)
+out=$(FM_HOME="$HOME_DIR" bash "$TOOL" --force 2>&1)
 assert_equals 0 "$?" "migration should succeed: $out"
 policy="$HOME_DIR/config/dispatch-policy.json"
 assert_equals 2 "$(jq -r .version "$policy")" "the converted policy uses v2"
@@ -48,20 +48,20 @@ assert_equals codex "$(sed -n 's/^dispatch_route_provider=//p' "$HOME_DIR/state/
 assert_equals '' "$(sed -n 's/^dispatch_ladder=//p' "$HOME_DIR/state/live-worker.meta")" "the legacy ladder marker is removed"
 pass "v1 migration retains routes and catalog, translates active tasks, and adds required constraints"
 
-out=$(FM_HOME="$HOME_DIR" "$TOOL" 2>&1)
+out=$(FM_HOME="$HOME_DIR" bash "$TOOL" 2>&1)
 assert_equals 0 "$?" "re-running a v2 migration should succeed: $out"
 assert_contains "$out" "already current" "the migration is idempotent"
 pass "migration recognizes an already-current v2 policy"
 
 jq '.default_ladder[0].account_strategy = "reset-whenever"' "$ROOT/docs/examples/dispatch-policy.json" > "$TMP_ROOT/invalid-policy.json"
-validation_error=$("$ROOT/bin/fm-dispatch-policy-validate.sh" "$TMP_ROOT/invalid-policy.json" 2>&1)
+validation_error=$(bash "$ROOT/bin/fm-dispatch-policy-validate.sh" "$TMP_ROOT/invalid-policy.json" 2>&1)
 validation_status=$?
 assert_equals 1 "$validation_status" "unknown account strategies fail closed"
 assert_contains "$validation_error" 'account_strategy must be ordered' "validator explains the allowed account strategy choices"
 pass "unrecognized account-pick strategies are rejected before dispatch"
 
 jq '.default_ladder[0].accounts[0] = "bad/workspace"' "$ROOT/docs/examples/dispatch-policy.json" > "$TMP_ROOT/invalid-account.json"
-validation_error=$("$ROOT/bin/fm-dispatch-policy-validate.sh" "$TMP_ROOT/invalid-account.json" 2>&1)
+validation_error=$(bash "$ROOT/bin/fm-dispatch-policy-validate.sh" "$TMP_ROOT/invalid-account.json" 2>&1)
 validation_status=$?
 assert_equals 1 "$validation_status" "unsafe account labels fail closed"
 pass "account labels cannot escape their config-owned database namespace"
@@ -87,7 +87,7 @@ cat > "$REAL_HOME/config/dispatch-policy.json" <<'JSON'
 }
 JSON
 printf '{"models":[]}\n' > "$REAL_HOME/config/model-catalog.json"
-out=$(FM_HOME="$REAL_HOME" "$TOOL" --force 2>&1)
+out=$(FM_HOME="$REAL_HOME" bash "$TOOL" --force 2>&1)
 assert_equals 0 "$?" "the live fleet v1 shape must migrate: $out"
 real_policy="$REAL_HOME/config/dispatch-policy.json"
 assert_equals claude "$(jq -r '.rules[0].ladder[0].provider' "$real_policy")" "a provider-less claude rung inherits its single provider family"
@@ -103,7 +103,7 @@ printf '%s\n' '{"schemaVersion":5,"providers":[]}'
 SH
 chmod +x "$TMP_ROOT/real-bin/quota-axi"
 printf '# Task\n## Captain'"'"'s intent\nDo the thing.\n## Firstmate spec\nDo it.\n' > "$TMP_ROOT/real-brief.md"
-resolve() { PATH="$TMP_ROOT/real-bin:$PATH" FM_HOME="$REAL_HOME" "$ROOT/bin/fm-dispatch-resolve.sh" --json "$TMP_ROOT/real-brief.md" "$@" 2>/dev/null; }
+resolve() { PATH="$TMP_ROOT/real-bin:$PATH" FM_HOME="$REAL_HOME" bash "$ROOT/bin/fm-dispatch-resolve.sh" --json "$TMP_ROOT/real-brief.md" "$@" 2>/dev/null; }
 assert_equals codex/gpt-6-luna "$(resolve | jq -r '"\(.profile.harness)/\(.profile.model)"')" "the migrated default starts where the live default starts"
 assert_equals agy/gemini-3.8-flash-high "$(resolve --project starling-site | jq -r '"\(.profile.harness)/\(.profile.model)"')" "the migrated Lucie route starts on the live first Lucie rung"
 assert_equals claude/claude-opus-5-5 "$(resolve --declare work-is-genuinely-unshap-1 --captain-approved | jq -r '"\(.profile.harness)/\(.profile.model)"')" "the migrated declaration route keeps its live worker behind captain approval"

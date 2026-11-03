@@ -46,7 +46,7 @@ chmod +x "$BIN/perl"
 run_apply() {
   env -u FM_SUPERVISION_ACTOR FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
     FM_STATE_OVERRIDE="$home/state" FM_CONFIG_OVERRIDE="$home/config" \
-    "$@" "$BIN/fm-approval-failover.sh" apply task
+    "$@" bash "$BIN/fm-approval-failover.sh" apply task
 }
 
 for harness in codex claude; do
@@ -69,7 +69,7 @@ for harness in codex claude; do
   rm "$home/state/.lease-task"
   pass "$harness refuses gate callers before configuration, lease or lifecycle mutation"
 
-  lab=$("$ROOT/bin/fm-lab-home.sh" create "$TMP_ROOT/$harness-lab") || fail 'could not create disposable lab home'
+  lab=$(bash "$ROOT/bin/fm-lab-home.sh" create "$TMP_ROOT/$harness-lab") || fail 'could not create disposable lab home'
   printf 'harness=%s\napproval_mode=bypass\n' "$harness" > "$lab/state/task.meta"
   rc=0
   (
@@ -77,7 +77,7 @@ for harness in codex claude; do
       case "$var" in *_OVERRIDE) unset "$var" ;; esac
     done
     env -u FM_GATE_REFUSE_BYPASS FM_HOME="$lab" NO_MISTAKES_GATE=1 FM_SUPERVISION_ACTOR=branch \
-      FM_CONFIG_OVERRIDE="$home/config" "$BIN/fm-approval-failover.sh" apply task
+      FM_CONFIG_OVERRIDE="$home/config" bash "$BIN/fm-approval-failover.sh" apply task
   ) > "$home/lab-override.out" 2>&1 || rc=$?
   [ "$rc" -eq 3 ] || fail 'lab with a config override outside its home escaped gate refusal'
   [ -z "$(find "$lab/config" -mindepth 1 -print)" ] || fail 'refused lab override changed configuration'
@@ -87,7 +87,7 @@ for harness in codex claude; do
       case "$var" in *_OVERRIDE) unset "$var" ;; esac
     done
     env -u FM_GATE_REFUSE_BYPASS FM_HOME="$lab" NO_MISTAKES_GATE=1 FM_SUPERVISION_ACTOR=branch \
-      FM_CONFIG_OVERRIDE="$lab/config" CHECK_INHERIT_SETTING="$setting" "$BIN/fm-approval-failover.sh" apply task
+      FM_CONFIG_OVERRIDE="$lab/config" CHECK_INHERIT_SETTING="$setting" bash "$BIN/fm-approval-failover.sh" apply task
   ) > "$home/lab.out" 2>&1 || fail "$harness disposable lab recovery was refused"
   [ "$(cat "$lab/config/$setting")" = "$fallback" ] || fail 'lab fallback was not saved'
   assert_grep 'task interrupt' "$lab/control.log" 'lab did not cancel the pending turn'
@@ -193,16 +193,16 @@ for setting in codex-approval-mode claude-permission-mode; do
   printf '%s\n' "$fallback" > "$remote_home/config/$setting"
   propagate_inheritable_config "$primary" "$local_config" || fail 'local inheritance failed'
   [ ! -e "$local_config/$setting" ] || fail 'primary absence did not clear local fallback'
-  FM_HOME="$remote_home" "$ROOT/bin/fm-remote-inherit.sh" absent "config/$setting" 0 "$empty_hash" 1 >/dev/null || fail 'remote absence transfer failed'
+  FM_HOME="$remote_home" bash "$ROOT/bin/fm-remote-inherit.sh" absent "config/$setting" 0 "$empty_hash" 1 >/dev/null || fail 'remote absence transfer failed'
   [ ! -e "$remote_home/config/$setting" ] || fail 'primary absence did not clear remote fallback'
   printf 'bypass\n' > "$primary/$setting"
   propagate_inheritable_config "$primary" "$local_config" || fail 'explicit primary inheritance failed'
   [ "$(cat "$local_config/$setting")" = bypass ] || fail 'explicit primary did not replace local fallback'
-  printf 'bypass\n' | FM_HOME="$remote_home" "$ROOT/bin/fm-remote-inherit.sh" put "config/$setting" 7 "$bypass_hash" 2 >/dev/null || fail 'explicit remote transfer failed'
+  printf 'bypass\n' | FM_HOME="$remote_home" bash "$ROOT/bin/fm-remote-inherit.sh" put "config/$setting" 7 "$bypass_hash" 2 >/dev/null || fail 'explicit remote transfer failed'
   [ "$(cat "$remote_home/config/$setting")" = bypass ] || fail 'explicit primary did not replace remote fallback'
   rm "$primary/$setting"
   propagate_inheritable_config "$primary" "$local_config" || fail 'local primary removal failed'
-  FM_HOME="$remote_home" "$ROOT/bin/fm-remote-inherit.sh" absent "config/$setting" 0 "$empty_hash" 3 >/dev/null || fail 'remote primary removal failed'
+  FM_HOME="$remote_home" bash "$ROOT/bin/fm-remote-inherit.sh" absent "config/$setting" 0 "$empty_hash" 3 >/dev/null || fail 'remote primary removal failed'
   [ ! -e "$local_config/$setting" ] && [ ! -e "$remote_home/config/$setting" ] || fail 'primary removal did not clear inherited modes'
   pass "$setting follows primary values and absence locally and remotely"
 done

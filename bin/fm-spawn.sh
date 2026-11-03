@@ -1005,7 +1005,7 @@ fi
 fm_refuse_if_gate_agent
 # Skip the watcher guard when re-exec'd for one pair of a batch (FM_SPAWN_NO_GUARD is
 # set by the batch loop below), so the guard runs once for the batch, not once per pair.
-[ -n "${FM_SPAWN_NO_GUARD:-}" ] || "$FM_ROOT/bin/fm-guard.sh" || true
+[ -n "${FM_SPAWN_NO_GUARD:-}" ] || bash "$FM_ROOT/bin/fm-guard.sh" || true
 KIND=ship
 KIND_SET=0
 HARNESS_ARG=
@@ -1312,7 +1312,7 @@ spawn_remote_secondmate() {
   elif [ -n "$positional" ]; then
     harness=$positional
   else
-    harness=$("$FM_ROOT/bin/fm-harness.sh" secondmate "$id")
+    harness=$(bash "$FM_ROOT/bin/fm-harness.sh" secondmate "$id")
   fi
   case "$harness" in
   claude | codex | opencode | pi | pi-signed | grok | kimi | cursor | omp) ;;
@@ -1338,11 +1338,11 @@ spawn_remote_secondmate() {
   effort=${EFFORT:--}
   if [ -z "$HARNESS_ARG" ] && [ -z "$positional" ]; then
     if [ "$MODEL_SET" -eq 0 ]; then
-      model=$("$SCRIPT_DIR/fm-harness.sh" secondmate-model "$id")
+      model=$(bash "$SCRIPT_DIR/fm-harness.sh" secondmate-model "$id")
       [ -n "$model" ] || model=-
     fi
     if [ "$EFFORT_SET" -eq 0 ]; then
-      effort=$("$SCRIPT_DIR/fm-harness.sh" secondmate-effort "$id")
+      effort=$(bash "$SCRIPT_DIR/fm-harness.sh" secondmate-effort "$id")
       [ -n "$effort" ] || effort=-
     fi
   fi
@@ -1355,7 +1355,7 @@ spawn_remote_secondmate() {
     return 1
     ;;
   esac
-  if [ "$effort" = ultra ] && ! "$SCRIPT_DIR/fm-harness.sh" validate-native-effort "$harness" "$model" "$effort"; then
+  if [ "$effort" = ultra ] && ! bash "$SCRIPT_DIR/fm-harness.sh" validate-native-effort "$harness" "$model" "$effort"; then
     fm_lock_release "$registry_lock" || true
     fm_lock_release "$SPAWN_TASK_LOCK" || true
     return 1
@@ -1421,7 +1421,7 @@ spawn_remote_secondmate() {
   # host, so the commit is resolved here and handed over for the host to import
   # and fast-forward to. A skipped sync warns and launches the home unchanged.
   if sm_primary_head=$(primary_head_commit "$FM_ROOT"); then
-    if sync_out=$("$SCRIPT_DIR/fm-on.sh" "$id" fm-remote-secondmate-control.sh sync "$id" \
+    if sync_out=$(bash "$SCRIPT_DIR/fm-on.sh" "$id" fm-remote-secondmate-control.sh sync "$id" \
       "$sm_primary_head" </dev/null 2>&1); then
       :
     else
@@ -1446,7 +1446,7 @@ spawn_remote_secondmate() {
     echo "error: remote secondmate $id inheritance generation could not be published" >&2
     return 1
   fi
-  if "$SCRIPT_DIR/fm-remote-inherit-push.sh" "$id" "$remote_generation" >/dev/null; then
+  if bash "$SCRIPT_DIR/fm-remote-inherit-push.sh" "$id" "$remote_generation" >/dev/null; then
     :
   else
     rc=$?
@@ -1473,7 +1473,7 @@ spawn_remote_secondmate() {
   fi
   launch_args=("$id" "$harness" "$model" "$effort" "$backend")
   [ -z "$remote_traceparent" ] || launch_args+=("$remote_traceparent")
-  if out=$("$SCRIPT_DIR/fm-on.sh" "$id" fm-remote-secondmate-control.sh launch \
+  if out=$(bash "$SCRIPT_DIR/fm-on.sh" "$id" fm-remote-secondmate-control.sh launch \
     "${launch_args[@]}" </dev/null 2>&1); then
     rc=0
   else
@@ -1595,12 +1595,12 @@ spawn_remote_secondmate() {
   fm_lock_release "$remote_lock" || true
   fm_lock_release "$registry_lock" || true
   fm_lock_release "$SPAWN_TASK_LOCK" || true
-  "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
-  if ! "$SCRIPT_DIR/fm-procevent-remote-reply.sh" arm "$id" >/dev/null; then
+  bash "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
+  if ! bash "$SCRIPT_DIR/fm-procevent-remote-reply.sh" arm "$id" >/dev/null; then
     echo "error: remote secondmate $id launched, but its reply source could not be armed; endpoint metadata is preserved" >&2
     return 1
   fi
-  [ ! -e "$CONFIG/fleet-ledger" ] || FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG "$SCRIPT_DIR/fm-fleet-ledger.sh" dispatched "$id" secondmate "" "$harness" "${model#-}" || true
+  [ ! -e "$CONFIG/fleet-ledger" ] || FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG bash "$SCRIPT_DIR/fm-fleet-ledger.sh" dispatched "$id" secondmate "" "$harness" "${model#-}" || true
   echo "spawned $id harness=$harness kind=secondmate mode=secondmate yolo=off window=remote:$id worktree=$home remote=$host backend=$remote_backend"
   return 0
 }
@@ -1714,7 +1714,7 @@ spawn_abort_cleanup() {
       echo "warning: could not remove replacement wiring after aborted relaunch of $ID" >&2
     fi
     if [ -n "$RELAUNCH_REPLACEMENT_BUSY_GEN" ]; then
-      if ! "$FM_ROOT/bin/fm-busy-event.sh" retire \
+      if ! bash "$FM_ROOT/bin/fm-busy-event.sh" retire \
         "$RELAUNCH_REPLACEMENT_STATE" "$ID" \
         --gen "$RELAUNCH_REPLACEMENT_BUSY_GEN"; then
         echo "warning: could not retire replacement busy generation after aborted relaunch of $ID" >&2
@@ -1822,7 +1822,7 @@ spawn_abort_cleanup() {
     # Only a CLAUDE.local.md this spawn wrote: the channel install refuses one
     # already in the slot, and that one stays as found.
     [ "$T3CODE_CLAUDE_CHANNEL_WRITTEN" != 1 ] || rm -f "$WT/CLAUDE.local.md" 2>/dev/null || true
-    if ! "$SCRIPT_DIR/fm-t3code-codex-env.sh" cleanup "$WT" \
+    if ! bash "$SCRIPT_DIR/fm-t3code-codex-env.sh" cleanup "$WT" \
       || [ -e "$WT/.claude/settings.local.json" ] \
       || { [ "$T3CODE_CLAUDE_CHANNEL_WRITTEN" = 1 ] && [ -e "$WT/CLAUDE.local.md" ]; }; then
       echo "warning: could not remove the T3 environment files this spawn wrote into $WT for $ID, so it stays leased; remove them, then run 'treehouse return --force $WT' from $PROJ_ABS" >&2
@@ -2090,7 +2090,7 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
     pair_args=("${pair%%=*}" "${pair#*=}" "${shared_args[@]+"${shared_args[@]}"}")
     [ "$KIND" != scout ] || pair_args+=(--scout)
     pair_rc=0
-    FM_SPAWN_NO_GUARD=1 "$FM_ROOT/bin/fm-spawn.sh" "${pair_args[@]}" || pair_rc=$?
+    FM_SPAWN_NO_GUARD=1 bash "$FM_ROOT/bin/fm-spawn.sh" "${pair_args[@]}" || pair_rc=$?
     if [ "$pair_rc" -ne 0 ]; then
       echo "batch: FAILED to spawn ${pair%%=*} (${pair#*=})" >&2
       rc=1
@@ -2180,13 +2180,13 @@ spawn_refuse_if_away_spend_cap() {
   [ "$RELAUNCH" -ne 1 ] || return 0
   [ "$KIND" != secondmate ] || return 0
   [ -f "$STATE/.afk-contract" ] || return 0
-  FM_STATE_OVERRIDE="$STATE" "$SCRIPT_DIR/fm-afk-contract.sh" validate >/dev/null 2>&1 || return 0
-  [ "$(FM_STATE_OVERRIDE="$STATE" "$SCRIPT_DIR/fm-afk-contract.sh" mode 2>/dev/null)" = away ] || return 0
-  cap=$(FM_STATE_OVERRIDE="$STATE" "$SCRIPT_DIR/fm-afk-contract.sh" field spend_max_concurrent_workers 2>/dev/null || true)
+  FM_STATE_OVERRIDE="$STATE" bash "$SCRIPT_DIR/fm-afk-contract.sh" validate >/dev/null 2>&1 || return 0
+  [ "$(FM_STATE_OVERRIDE="$STATE" bash "$SCRIPT_DIR/fm-afk-contract.sh" mode 2>/dev/null)" = away ] || return 0
+  cap=$(FM_STATE_OVERRIDE="$STATE" bash "$SCRIPT_DIR/fm-afk-contract.sh" field spend_max_concurrent_workers 2>/dev/null || true)
   case "$cap" in
   '' | *[!0-9]* | 0) return 0 ;;
   esac
-  live=$(FM_STATE_OVERRIDE="$STATE" "$SCRIPT_DIR/fm-afk-contract.sh" live-workers 2>/dev/null || true)
+  live=$(FM_STATE_OVERRIDE="$STATE" bash "$SCRIPT_DIR/fm-afk-contract.sh" live-workers 2>/dev/null || true)
   case "$live" in
   '' | *[!0-9]*)
     echo "error: spawn refused - the away-posture record caps concurrent workers at $cap and this home's live ordinary task count could not be read; task $ID stays queued (spend cap: bin/fm-afk-contract.sh)" >&2
@@ -2763,7 +2763,7 @@ dispatch_apply_profile() {
   }
   [ "$DECLARE_SET" -eq 0 ] || declare_args=(--declare "$DECLARE")
   if [ "$CAPTAIN_ROUTE_SET" -eq 1 ] && [ -n "$CAPTAIN_SAID" ]; then approval_args=(--captain-approved); fi
-  if route_json=$(FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-dispatch-resolve.sh" --json "$brief_file" --project "$project_name" "${declare_args[@]}" "${approval_args[@]}" 2>"$note_file"); then
+  if route_json=$(FM_HOME="$FM_HOME" bash "$SCRIPT_DIR/fm-dispatch-resolve.sh" --json "$brief_file" --project "$project_name" "${declare_args[@]}" "${approval_args[@]}" 2>"$note_file"); then
     :
   else
     route_status=$?
@@ -3346,10 +3346,10 @@ case "$ARG3" in
     # The launch_template lookup below is the unverified-adapter guard for both
     # kinds: a harness with no template aborts the spawn.
     if [ "$KIND" = secondmate ]; then
-      HARNESS=$("$FM_ROOT/bin/fm-harness.sh" secondmate "$ID")
+      HARNESS=$(bash "$FM_ROOT/bin/fm-harness.sh" secondmate "$ID")
       harness_src='config/secondmate-harness (falling back to config/crew-harness)'
     else
-      HARNESS=$("$FM_ROOT/bin/fm-harness.sh" crew)
+      HARNESS=$(bash "$FM_ROOT/bin/fm-harness.sh" crew)
       harness_src='config/crew-harness'
     fi
   LAUNCH=$(launch_template "$HARNESS" "$KIND") || {
@@ -3591,11 +3591,11 @@ fi
 # --model/--effort flags still win over the file's tokens.
 if [ "$KIND" = secondmate ] && [ -z "$ARG3" ]; then
   if [ "$MODEL_SET" -eq 0 ]; then
-    SM_MODEL=$("$SCRIPT_DIR/fm-harness.sh" secondmate-model "$ID")
+    SM_MODEL=$(bash "$SCRIPT_DIR/fm-harness.sh" secondmate-model "$ID")
     [ -z "$SM_MODEL" ] || MODEL=$SM_MODEL
   fi
   if [ "$EFFORT_SET" -eq 0 ]; then
-    SM_EFFORT=$("$SCRIPT_DIR/fm-harness.sh" secondmate-effort "$ID")
+    SM_EFFORT=$(bash "$SCRIPT_DIR/fm-harness.sh" secondmate-effort "$ID")
     if [ -n "$SM_EFFORT" ]; then
       case "$SM_EFFORT" in
       low | medium | high | xhigh | max | ultra) EFFORT=$SM_EFFORT ;;
@@ -3697,7 +3697,7 @@ fi
 # Ultra is an explicit native capability, never a Pi thinking-level alias.
 # Validate the fully resolved profile before worktree or endpoint provisioning.
 if [ "$EFFORT" = ultra ]; then
-  "$SCRIPT_DIR/fm-harness.sh" validate-native-effort "$HARNESS" "$MODEL" "$EFFORT" || exit 1
+  bash "$SCRIPT_DIR/fm-harness.sh" validate-native-effort "$HARNESS" "$MODEL" "$EFFORT" || exit 1
   [ "$RAW_LAUNCH" = 0 ] || {
     echo "error: --effort ultra requires the canonical --harness pi or pi-signed launch so its native flag cannot be omitted" >&2
     exit 1
@@ -3772,7 +3772,7 @@ if [ "$PI_OPENCODE_GO" -eq 1 ]; then
     WORKER_ACCOUNT=
     WORKER_ACCOUNT_ROOT=${HOME:?}/.pi/agent
   fi
-  FM_HOME="$FM_HOME" FM_CONFIG_OVERRIDE="$CONFIG" "$SCRIPT_DIR/fm-pi-opencode-go.sh" install "$WORKER_ACCOUNT_ROOT" || exit 1
+  FM_HOME="$FM_HOME" FM_CONFIG_OVERRIDE="$CONFIG" bash "$SCRIPT_DIR/fm-pi-opencode-go.sh" install "$WORKER_ACCOUNT_ROOT" || exit 1
   [ -n "$PI_OPENCODE_DB" ] || { echo "error: Pi OpenCode Go task database was not prepared" >&2; exit 1; }
   LAUNCH="FM_OPENCODE_TASK_DB=$(shell_quote "$PI_OPENCODE_DB") FM_OPENCODE_ORG_ID=$(shell_quote "$PI_OPENCODE_ORG") FM_OPENCODE_CONFIG_DIR=$(shell_quote "$CONFIG") FM_OPENCODE_SESSION=$(shell_quote "$PI_OPENCODE_SESSION") PI_CODING_AGENT_DIR=$(shell_quote "$WORKER_ACCOUNT_ROOT") $LAUNCH"
 fi
@@ -4070,7 +4070,7 @@ effort_flag_for_harness() {
     # its --thinking flag.
     case "$effort" in
     ultra)
-      "$SCRIPT_DIR/fm-harness.sh" validate-native-effort "$harness" "$model" "$effort" || return 1
+      bash "$SCRIPT_DIR/fm-harness.sh" validate-native-effort "$harness" "$model" "$effort" || return 1
       printf -- '--codex-effort %s ' "$(shell_quote ultra)"
       ;;
     low | medium | high | xhigh | max) printf -- '--thinking %s ' "$(shell_quote "$effort")" ;;
@@ -4171,7 +4171,7 @@ case "$LAUNCH" in
     exit 1
   }
   if [ "$KIND" != secondmate ]; then
-    "$FM_ROOT/bin/fm-kimi-turnend-hook.sh" install || {
+    bash "$FM_ROOT/bin/fm-kimi-turnend-hook.sh" install || {
       echo "error: refusing Kimi spawn because the global turn-end hook could not be installed safely" >&2
       exit 1
     }
@@ -4573,7 +4573,7 @@ if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
       echo "error: --base-branch requires a branch name" >&2
       exit 1
     }
-    BASE_FORGE=$("$FM_ROOT/bin/fm-project-mode.sh" --forge "$(basename "$PROJ_ABS")") || exit 1
+    BASE_FORGE=$(bash "$FM_ROOT/bin/fm-project-mode.sh" --forge "$(basename "$PROJ_ABS")") || exit 1
     fm_base_branch_valid "$BASE_BRANCH" "$MODE" "${BASE_FORGE:-none}" "fm-spawn.sh --base-branch" || exit 1
     if ! fm_brief_base_branches "$BRIEF" >/dev/null || fm_brief_base_branches "$BRIEF" | grep -vxF -- "$BASE_BRANCH" >/dev/null; then
       echo "error: $BRIEF must record Base branch: $BASE_BRANCH and no other Base branch line to spawn with --base-branch $BASE_BRANCH; scaffold it with bin/fm-brief.sh --base-branch $BASE_BRANCH" >&2
@@ -4628,13 +4628,13 @@ if [ "$KIND" = ship ]; then
   # local-only) resolves to no posture at all, and launching on the silent
   # default is how a mistyped forge would hand a Gerrit project the
   # pull-request contract.
-  if ! STANDING_FORGE=$("$FM_ROOT/bin/fm-project-mode.sh" --forge "$PROJ_NAME" 2>/dev/null); then
-    "$FM_ROOT/bin/fm-project-mode.sh" --forge "$PROJ_NAME" >/dev/null || true
+  if ! STANDING_FORGE=$(bash "$FM_ROOT/bin/fm-project-mode.sh" --forge "$PROJ_NAME" 2>/dev/null); then
+    bash "$FM_ROOT/bin/fm-project-mode.sh" --forge "$PROJ_NAME" >/dev/null || true
     echo "error: $ID cannot launch: the registry entry for $PROJ_NAME does not resolve to a delivery posture (see the refusal above); correct data/projects.md and spawn again" >&2
     exit 1
   fi
   [ -n "$STANDING_FORGE" ] || STANDING_FORGE=none
-  STANDING_MODE=$("$FM_ROOT/bin/fm-project-mode.sh" --raw "$PROJ_NAME" 2>/dev/null | cut -d' ' -f1) || STANDING_MODE=
+  STANDING_MODE=$(bash "$FM_ROOT/bin/fm-project-mode.sh" --raw "$PROJ_NAME" 2>/dev/null | cut -d' ' -f1) || STANDING_MODE=
   BRIEF_MODE=$(sed -n 's/^Delivery contract: mode=\([^ ]*\).*$/\1/p' "$BRIEF" | head -n 1)
   BRIEF_FORGE=$(sed -n 's/^Delivery contract: mode=[^ ]*.*[[:space:]]forge=\([^ ]*\).*$/\1/p' "$BRIEF" | head -n 1)
   [ -n "$BRIEF_FORGE" ] || BRIEF_FORGE=none
@@ -4689,8 +4689,8 @@ if [ "$KIND" = ship ]; then
   # would hand the pipeline's pr step the text a person owns, or the worker text
   # the pipeline owns. direct-PR already leaves the text to the worker, so a
   # conditional-policy project's direct-PR task expects none.
-  if ! STANDING_PR=$("$FM_ROOT/bin/fm-project-mode.sh" --pr "$PROJ_NAME" 2>/dev/null); then
-    "$FM_ROOT/bin/fm-project-mode.sh" --pr "$PROJ_NAME" >/dev/null || true
+  if ! STANDING_PR=$(bash "$FM_ROOT/bin/fm-project-mode.sh" --pr "$PROJ_NAME" 2>/dev/null); then
+    bash "$FM_ROOT/bin/fm-project-mode.sh" --pr "$PROJ_NAME" >/dev/null || true
     echo "error: $ID cannot launch: the registry entry for $PROJ_NAME does not resolve to a delivery posture (see the refusal above); correct data/projects.md and spawn again" >&2
     exit 1
   fi
@@ -4773,7 +4773,7 @@ if [ "$KIND" = ship ]; then
   # spawn that ships the legacy fm/ prefix past a registered override is
   # announced, not refused: the brief-vs-spawn agreement above already
   # guarantees the worker's instructions match the branch this spawn selected.
-  STANDING_BRANCH=$("$FM_ROOT/bin/fm-project-mode.sh" --branch-prefix "$PROJ_NAME" 2>/dev/null) || STANDING_BRANCH=
+  STANDING_BRANCH=$(bash "$FM_ROOT/bin/fm-project-mode.sh" --branch-prefix "$PROJ_NAME" 2>/dev/null) || STANDING_BRANCH=
   if [ "$BRANCH" != "$STANDING_BRANCH$ID" ]; then
     echo "notice: $ID ships branch=$BRANCH while $PROJ_NAME registers the ship-branch prefix '$STANDING_BRANCH' (branch $STANDING_BRANCH$ID) - the task's branch and PR will read as firstmate-authored; proceed only on a current explicit captain instruction or an intake judgment you can state" >&2
   fi
@@ -5625,7 +5625,7 @@ SPAWN_CWD=$PROJ_ABS
             # an empty key keeps the block-end placement. Off costs one file test.
             HERDR_GROUP_ORDER_KEY=
             [ ! -e "$CONFIG/herdr-project-groups" ] || HERDR_GROUP_ORDER_KEY=$(FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG \
-              "$SCRIPT_DIR/fm-herdr-groups.sh" order-key "$ID" "$PROJ_ABS" 2>/dev/null) || HERDR_GROUP_ORDER_KEY=
+              bash "$SCRIPT_DIR/fm-herdr-groups.sh" order-key "$ID" "$PROJ_ABS" 2>/dev/null) || HERDR_GROUP_ORDER_KEY=
             fm_backend_herdr_projection_order_best_effort \
               "$HERDR_SES" "$HERDR_WORKSPACE_ID" "$HERDR_PARENT_LABEL" "$HERDR_PARENT_WORKSPACE_ID" "$HERDR_GROUP_ORDER_KEY"
             HERDR_HOME_ID=$(fm_backend_herdr_projection_home_identity "$HERDR_LABEL_HOME" 2>/dev/null || true)
@@ -5789,7 +5789,7 @@ EOF
     # an untracked config here is checked only for a secondmate, whose launch
     # directory this checkout is.
     if [ "$HARNESS" = codex ] && { [ "$KIND" = secondmate ] || git -C "$PROJ_ABS" ls-files --error-unmatch .codex/config.toml >/dev/null 2>&1; }; then
-      "$SCRIPT_DIR/fm-t3code-codex-env.sh" check "$PROJ_ABS" || exit 1
+      bash "$SCRIPT_DIR/fm-t3code-codex-env.sh" check "$PROJ_ABS" || exit 1
     fi
     if [ "$HARNESS" = codex ] && ! fm_backend_t3code_codex_trusted "$PROJ_ABS" "$KIND"; then
       echo "warning: could not confirm that ${CODEX_HOME:-$HOME/.codex}/config.toml trusts $PROJ_ABS; Codex ignores an untrusted project's .codex/config.toml, so this T3 Codex thread would run without FM_TASK_ID, FM_TASK_INBOX, GOTMPDIR, and the core.hooksPath push guard Firstmate writes there; trust the project in the Codex configuration T3 uses ([projects.\"<main checkout>\"] trust_level = \"trusted\", see docs/t3code-backend.md#setup)" >&2
@@ -6616,7 +6616,7 @@ claude*)
   else
     spawn_trust_args=("$WT" "$PROJ_ABS")
   fi
-  if ! "$FM_ROOT/bin/fm-claude-trust.sh" "${spawn_trust_args[@]}" >/dev/null; then
+  if ! bash "$FM_ROOT/bin/fm-claude-trust.sh" "${spawn_trust_args[@]}" >/dev/null; then
     echo "error: could not pre-register Claude workspace trust for $WT; refusing to launch a claude worker that would wedge on the trust dialog" >&2
     if [ "$RELAUNCH" -eq 1 ] && [ "$RELAUNCH_ENDPOINT_MISSING" -eq 0 ]; then
       # An adopted relaunch endpoint belongs to the previous incarnation, so
@@ -6782,9 +6782,9 @@ fs.writeFileSync(file, JSON.stringify(data) + "\n");
       exclude_path '.claude/settings.local.json'
       ;;
     codex)
-      "$SCRIPT_DIR/fm-t3code-codex-env.sh" check "$WT" || return 1
+      bash "$SCRIPT_DIR/fm-t3code-codex-env.sh" check "$WT" || return 1
       if git -C "$WT" ls-files --error-unmatch .codex/config.toml >/dev/null 2>&1; then
-        "$SCRIPT_DIR/fm-t3code-codex-env.sh" install "$WT" "$@"
+        bash "$SCRIPT_DIR/fm-t3code-codex-env.sh" install "$WT" "$@"
         return $?
       fi
       mkdir -p "$WT/.codex"
@@ -6833,19 +6833,19 @@ fi
 if [ "$OPENCODE_SHARED_SERVER" -eq 1 ]; then
   if [ -n "$OPENCODE_ROUTE_ORG" ]; then
     OPENCODE_SERVER_PROFILE=account-$DISPATCH_ROUTE_WORKSPACE
-    OPENCODE_SERVER_ENSURE=$("$SCRIPT_DIR/fm-opencode-server.sh" ensure "$STATE_REAL" "$OPENCODE_SERVER_PROFILE" "$ID" \
+    OPENCODE_SERVER_ENSURE=$(bash "$SCRIPT_DIR/fm-opencode-server.sh" ensure "$STATE_REAL" "$OPENCODE_SERVER_PROFILE" "$ID" \
       "$OPENCODE_ROUTE_ORG" "$(fm_opencode_second_config_dir)") || OPENCODE_SERVER_ENSURE=
   elif [ -n "$OPENCODE_SECOND_ORG" ]; then
     OPENCODE_SERVER_PROFILE=$OPENCODE_WORKSPACE
-    OPENCODE_SERVER_ENSURE=$("$SCRIPT_DIR/fm-opencode-server.sh" ensure "$STATE_REAL" "$OPENCODE_SERVER_PROFILE" "$ID" \
+    OPENCODE_SERVER_ENSURE=$(bash "$SCRIPT_DIR/fm-opencode-server.sh" ensure "$STATE_REAL" "$OPENCODE_SERVER_PROFILE" "$ID" \
       "$OPENCODE_SECOND_ORG" "$(fm_opencode_second_config_dir)") || OPENCODE_SERVER_ENSURE=
   elif [ -n "$OPENCODE_MAIN_ORG" ]; then
     OPENCODE_SERVER_PROFILE=$OPENCODE_WORKSPACE
-    OPENCODE_SERVER_ENSURE=$("$SCRIPT_DIR/fm-opencode-server.sh" ensure "$STATE_REAL" "$OPENCODE_SERVER_PROFILE" "$ID" \
+    OPENCODE_SERVER_ENSURE=$(bash "$SCRIPT_DIR/fm-opencode-server.sh" ensure "$STATE_REAL" "$OPENCODE_SERVER_PROFILE" "$ID" \
       "$OPENCODE_MAIN_ORG" "$(fm_opencode_second_config_dir)") || OPENCODE_SERVER_ENSURE=
   else
     OPENCODE_SERVER_PROFILE=default
-    OPENCODE_SERVER_ENSURE=$("$SCRIPT_DIR/fm-opencode-server.sh" ensure "$STATE_REAL" default "$ID") \
+    OPENCODE_SERVER_ENSURE=$(bash "$SCRIPT_DIR/fm-opencode-server.sh" ensure "$STATE_REAL" default "$ID") \
       || OPENCODE_SERVER_ENSURE=
   fi
   OPENCODE_SERVER_URL=${OPENCODE_SERVER_ENSURE%%$'\t'*}
@@ -6923,7 +6923,7 @@ if [ "$KIND" = secondmate ]; then
     claude* | pi | pi-signed | omp)
       WIRING_HARNESS=
       if [ -e "$STATE_REAL/$ID.busy-gen" ]; then
-        "$FM_ROOT/bin/fm-busy-event.sh" retire "$STATE_REAL" "$ID" --current-gen || {
+        bash "$FM_ROOT/bin/fm-busy-event.sh" retire "$STATE_REAL" "$ID" --current-gen || {
           echo "error: failed to retire the earlier busy-state contract for $ID" >&2
           exit 1
         }
@@ -6950,7 +6950,7 @@ BUSY_GEN=
     # undetected->1.x path both provision a busy-state plugin below that needs
     # this gen, so gating the arm on major >= 2 would leave OpenCode 1 without
     # the busy-state wiring it had before the OpenCode 2 port.
-    BUSY_GEN=$("$FM_ROOT/bin/fm-busy-event.sh" arm "$STATE_REAL" "$ID") || {
+    BUSY_GEN=$(bash "$FM_ROOT/bin/fm-busy-event.sh" arm "$STATE_REAL" "$ID") || {
       echo "error: failed to arm the busy-state contract for $ID" >&2
       exit 1
     }
@@ -6958,7 +6958,7 @@ BUSY_GEN=
     ;;
   gemini | devin | commandcode | polytoken | cortex | kiro)
     if [ "$RAW_LAUNCH" -eq 0 ]; then
-      BUSY_GEN=$("$FM_ROOT/bin/fm-busy-event.sh" arm "$STATE_REAL" "$ID") || {
+      BUSY_GEN=$(bash "$FM_ROOT/bin/fm-busy-event.sh" arm "$STATE_REAL" "$ID") || {
         echo "error: failed to arm the busy-state contract for $ID" >&2
         exit 1
       }
@@ -7043,7 +7043,7 @@ BUSY_GEN=
     ;;
   devin)
     if [ "$RAW_LAUNCH" -eq 0 ]; then
-      FM_KEEP_AI_TRAILERS="$KEEP_AI_TRAILERS" "$SCRIPT_DIR/fm-devin-config.sh" "$STATE_REAL" "$ID" "$BUSY_GEN" || exit 1
+      FM_KEEP_AI_TRAILERS="$KEEP_AI_TRAILERS" bash "$SCRIPT_DIR/fm-devin-config.sh" "$STATE_REAL" "$ID" "$BUSY_GEN" || exit 1
     fi
     ;;
   commandcode)
@@ -7055,7 +7055,7 @@ BUSY_GEN=
     ;;
   cortex)
     if [ "$RAW_LAUNCH" -eq 0 ]; then
-      "$SCRIPT_DIR/fm-cortex-plugin.sh" "$STATE_REAL" "$ID" "$BUSY_GEN" || exit 1
+      bash "$SCRIPT_DIR/fm-cortex-plugin.sh" "$STATE_REAL" "$ID" "$BUSY_GEN" || exit 1
     fi
     ;;
   gemini)
@@ -7863,15 +7863,15 @@ if [ "$EXTERNAL_REVIEW" = 1 ]; then
   [ -z "$EXTERNAL_BACKUP_REMOTE" ] || guard_args+=("$EXTERNAL_BACKUP_REMOTE" "$EXTERNAL_BACKUP_PREFIX")
   strip_args=()
   [ "$KEEP_AI_TRAILERS" = 0 ] || strip_args=(--no-strip)
-  { "$FM_ROOT/bin/fm-git-push-guard.sh" write "${guard_args[@]}" \
-    && "$FM_ROOT/bin/fm-git-strip-ai-trailers.sh" install "${strip_args[@]+"${strip_args[@]}"}" \
+  { bash "$FM_ROOT/bin/fm-git-push-guard.sh" write "${guard_args[@]}" \
+    && bash "$FM_ROOT/bin/fm-git-strip-ai-trailers.sh" install "${strip_args[@]+"${strip_args[@]}"}" \
       --push-guard "$PUSH_GUARD_FILE" "$GIT_HOOKS_DIR" "$WT"; } || {
     echo "error: could not install the external-review push guard hooks for $ID" >&2
     exit 1
   }
   GIT_HOOKS_INSTALLED=1
 elif [ "$KEEP_AI_TRAILERS" = 0 ]; then
-  "$FM_ROOT/bin/fm-git-strip-ai-trailers.sh" install "$GIT_HOOKS_DIR" "$WT" || {
+  bash "$FM_ROOT/bin/fm-git-strip-ai-trailers.sh" install "$GIT_HOOKS_DIR" "$WT" || {
     echo "error: could not install the AI-trailer strip hooks for $ID" >&2
     exit 1
   }
@@ -7888,7 +7888,7 @@ fi
 GIT_GUARD_DIR=
 if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
   GIT_GUARD_DIR="$STATE_REAL/$ID.git-guard"
-  "$FM_ROOT/bin/fm-git-stash-guard.sh" install "$GIT_GUARD_DIR" || {
+  bash "$FM_ROOT/bin/fm-git-stash-guard.sh" install "$GIT_GUARD_DIR" || {
     echo "error: could not install the git stash guard for $ID" >&2
     exit 1
   }
@@ -7945,13 +7945,13 @@ fi
 # lease, when it rode another server or none now) once the new one exists.
 if [ "$OPENCODE_SHARED_SERVER" -eq 1 ]; then
   if [ "$RELAUNCH" -eq 1 ]; then
-    "$SCRIPT_DIR/fm-opencode-server.sh" dispose "$STATE_REAL" "$OPENCODE_SERVER_PROFILE" "$WT" >/dev/null 2>&1 || true
+    bash "$SCRIPT_DIR/fm-opencode-server.sh" dispose "$STATE_REAL" "$OPENCODE_SERVER_PROFILE" "$WT" >/dev/null 2>&1 || true
   fi
-  if ! OPENCODE_SERVER_SESSION=$("$SCRIPT_DIR/fm-opencode-server.sh" session "$STATE_REAL" \
+  if ! OPENCODE_SERVER_SESSION=$(bash "$SCRIPT_DIR/fm-opencode-server.sh" session "$STATE_REAL" \
     "$OPENCODE_SERVER_PROFILE" "$WT" "Firstmate task $ID" "$ID" "$BUSY_GEN"); then
     echo "notice: the shared OpenCode server could not open a session; launching $ID standalone" >&2
     OPENCODE_SERVER_SESSION=
-    "$SCRIPT_DIR/fm-opencode-server.sh" release "$STATE_REAL" "$OPENCODE_SERVER_PROFILE" "$ID" >/dev/null || true
+    bash "$SCRIPT_DIR/fm-opencode-server.sh" release "$STATE_REAL" "$OPENCODE_SERVER_PROFILE" "$ID" >/dev/null || true
     OPENCODE_SERVER_PROFILE=
     OPENCODE_SHARED_SERVER=0
     opencode_task_db || exit 1
@@ -7959,10 +7959,10 @@ if [ "$OPENCODE_SHARED_SERVER" -eq 1 ]; then
 fi
 if [ -n "$RELAUNCH_PRIOR_OPENCODE_SERVER" ] && [ -n "$RELAUNCH_PRIOR_OPENCODE_SESSION" ]; then
   if [ "$RELAUNCH_PRIOR_OPENCODE_SERVER" = "$OPENCODE_SERVER_PROFILE" ]; then
-    "$SCRIPT_DIR/fm-opencode-server.sh" end-session "$STATE_REAL" "$OPENCODE_SERVER_PROFILE" \
+    bash "$SCRIPT_DIR/fm-opencode-server.sh" end-session "$STATE_REAL" "$OPENCODE_SERVER_PROFILE" \
       "$RELAUNCH_PRIOR_OPENCODE_SESSION" "$WT" >/dev/null || true
   else
-    "$SCRIPT_DIR/fm-opencode-server.sh" release "$STATE_REAL" "$RELAUNCH_PRIOR_OPENCODE_SERVER" "$ID" \
+    bash "$SCRIPT_DIR/fm-opencode-server.sh" release "$STATE_REAL" "$RELAUNCH_PRIOR_OPENCODE_SERVER" "$ID" \
       "$RELAUNCH_PRIOR_OPENCODE_SESSION" "$WT" >/dev/null || true
   fi
 fi
@@ -8243,7 +8243,7 @@ if [ "$SPAWN_TASK_SET_LOCK_HELD" = 1 ]; then
   SPAWN_TASK_SET_LOCK_HELD=0
   fm_lock_release "$SPAWN_TASK_SET_LOCK"
 fi
-"$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
+bash "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
 [ "$BACKEND" = orca ] && ORCA_ABORT_CLEANUP=0
 
 sq_brief_pointer=$(shell_quote "$BRIEF_POINTER")
@@ -8374,7 +8374,7 @@ case "$LAUNCH" in
     secondmate) brief_opstate="$PROJ_ABS/state" ;;
     *) brief_opstate=$STATE ;;
   esac
-  brief_doorbell=$(FM_STATE_OVERRIDE="$brief_opstate" "$FM_ROOT/bin/fm-operational-input.sh" record launch-brief <"$BRIEF") || {
+  brief_doorbell=$(FM_STATE_OVERRIDE="$brief_opstate" bash "$FM_ROOT/bin/fm-operational-input.sh" record launch-brief <"$BRIEF") || {
     echo "error: could not publish the launch brief for $ID as an operational-inbox record under $brief_opstate; $HARNESS strips the typed operational marker, so the worker was not launched" >&2
     exit 1
   }
@@ -8722,7 +8722,7 @@ if [ "$BACKEND" = t3code ]; then
   # encoded brief the LAUNCH template embeds; MODEL/EFFORT were fixed as the
   # thread's model selection at launch instead of CLI flags, so nothing is
   # staged for a shell to source.
-  T3CODE_BRIEF_TEXT=$("$FM_ROOT/bin/fm-operational-input.sh" encode launch-brief < "$BRIEF") || exit 1
+  T3CODE_BRIEF_TEXT=$(bash "$FM_ROOT/bin/fm-operational-input.sh" encode launch-brief < "$BRIEF") || exit 1
   SPAWN_LAUNCH_SENT=1
   fm_backend_t3code_turn_start "$T" "$T3CODE_BRIEF_TEXT" "$T3CODE_MODEL_SELECTION" || {
     if [ "$?" -ne 7 ]; then
@@ -8827,7 +8827,7 @@ if [ -n "$OPENCODE_SERVER_SESSION" ]; then
   [ -z "$EFFORTFLAG" ] || OPENCODE_SERVER_VARIANT=$EFFORT
   OPENCODE_SERVER_MODEL=$MODEL
   [ "$OPENCODE_SERVER_MODEL" != default ] || OPENCODE_SERVER_MODEL=
-  "$SCRIPT_DIR/fm-opencode-server.sh" prompt "$STATE_REAL" "$OPENCODE_SERVER_PROFILE" \
+  bash "$SCRIPT_DIR/fm-opencode-server.sh" prompt "$STATE_REAL" "$OPENCODE_SERVER_PROFILE" \
     "$OPENCODE_SERVER_SESSION" "$WT" "$OPENCODE_SERVER_MODEL" "$OPENCODE_SERVER_VARIANT" "$BRIEF_POINTER" || {
     echo "error: the shared OpenCode server did not accept the brief for $ID" >&2
     exit 1
@@ -9005,8 +9005,8 @@ SPAWN_ACCOUNT=
 [ -z "$WORKER_ACCOUNT_PROVIDER" ] || SPAWN_ACCOUNT="$SPAWN_ACCOUNT account_provider=$WORKER_ACCOUNT_PROVIDER"
 [ -z "$OMP_PROFILE_PIN" ] || SPAWN_ACCOUNT="$SPAWN_ACCOUNT omp_profile=$OMP_PROFILE_PIN"
 # Opt-in fleet activity ledger (docs/fleet-ledger.md); off costs one file test.
-[ ! -e "$CONFIG/fleet-ledger" ] || [ "$RELAUNCH" -eq 1 ] || FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG "$SCRIPT_DIR/fm-fleet-ledger.sh" dispatched "$ID" "$KIND" "${PROJ_ABS##*/}" "$HARNESS" "$MODEL" || true
+[ ! -e "$CONFIG/fleet-ledger" ] || [ "$RELAUNCH" -eq 1 ] || FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG bash "$SCRIPT_DIR/fm-fleet-ledger.sh" dispatched "$ID" "$KIND" "${PROJ_ABS##*/}" "$HARNESS" "$MODEL" || true
 # Opt-in Herdr project groups (docs/herdr-backend.md "Project groups") tag the
 # new endpoint now rather than at the next watcher poll; off costs one file test.
-[ ! -e "$CONFIG/herdr-project-groups" ] || [ "$BACKEND" != herdr ] || FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG "$SCRIPT_DIR/fm-herdr-groups.sh" sync "$ID" || true
+[ ! -e "$CONFIG/herdr-project-groups" ] || [ "$BACKEND" != herdr ] || FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG bash "$SCRIPT_DIR/fm-herdr-groups.sh" sync "$ID" || true
 echo "spawned $ID harness=$HARNESS kind=$KIND$SPAWN_DELIVERY window=$META_WINDOW worktree=$WT$SPAWN_ACCOUNT"

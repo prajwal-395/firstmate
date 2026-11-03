@@ -35,7 +35,7 @@ test_cursor_trailer_does_not_reach_the_commit_object() {
   repo="$TMP_ROOT/cursor-object"
   make_repo "$repo"
   hooks="$TMP_ROOT/hooks-cursor"
-  "$STRIP" install "$hooks" "$repo" || fail "install should succeed on a real git repo"
+  bash "$STRIP" install "$hooks" "$repo" || fail "install should succeed on a real git repo"
   printf 'note\n' >>"$repo/README.md"
   git -C "$repo" add README.md
   with_hooks_env "$hooks" git -C "$repo" commit -q --trailer 'Co-authored-by: Cursor <cursoragent@cursor.com>' -m 'fix: keep the typed message clean'
@@ -54,7 +54,7 @@ test_human_coauthor_is_kept() {
   repo="$TMP_ROOT/human-coauthor"
   make_repo "$repo"
   hooks="$TMP_ROOT/hooks-human"
-  "$STRIP" install "$hooks" "$repo" || fail "install should succeed"
+  bash "$STRIP" install "$hooks" "$repo" || fail "install should succeed"
   printf 'note\n' >>"$repo/README.md"
   git -C "$repo" add README.md
   with_hooks_env "$hooks" git -C "$repo" commit -q --trailer 'Co-authored-by: Cursor <cursoragent@cursor.com>' --trailer 'Co-authored-by: Jane Doe <jane@example.com>' -m 'fix: mixed trailers'
@@ -69,7 +69,7 @@ test_human_at_a_vendor_domain_is_kept() {
   repo="$TMP_ROOT/vendor-human"
   make_repo "$repo"
   hooks="$TMP_ROOT/hooks-vendor-human"
-  "$STRIP" install "$hooks" "$repo" || fail "install should succeed"
+  bash "$STRIP" install "$hooks" "$repo" || fail "install should succeed"
   printf 'note\n' >>"$repo/README.md"
   git -C "$repo" add README.md
   with_hooks_env "$hooks" git -C "$repo" commit -q \
@@ -92,7 +92,7 @@ test_hook_manager_cannot_displace_the_strip() {
   repo="$TMP_ROOT/hook-manager"
   make_repo "$repo"
   hooks="$TMP_ROOT/hooks-manager"
-  "$STRIP" install "$hooks" "$repo" || fail "install should succeed"
+  bash "$STRIP" install "$hooks" "$repo" || fail "install should succeed"
   target=$(with_hooks_env "$hooks" git -C "$repo" rev-parse --path-format=absolute --git-path hooks)
   [ "$target" = "$hooks" ] || fail "a hook manager in the pane would resolve $target, not the strip dir $hooks"
   mv "$target/commit-msg" "$target/commit-msg.old" 2>/dev/null &&
@@ -114,8 +114,8 @@ test_reinstall_replaces_a_read_only_install() {
   repo="$TMP_ROOT/reinstall"
   make_repo "$repo"
   hooks="$TMP_ROOT/hooks-reinstall"
-  "$STRIP" install "$hooks" "$repo" || fail "first install should succeed"
-  "$STRIP" install "$hooks" "$repo" || fail "a relaunch reinstall over the read-only install failed"
+  bash "$STRIP" install "$hooks" "$repo" || fail "first install should succeed"
+  bash "$STRIP" install "$hooks" "$repo" || fail "a relaunch reinstall over the read-only install failed"
   printf 'note\n' >>"$repo/README.md"
   git -C "$repo" add README.md
   with_hooks_env "$hooks" git -C "$repo" commit -q --trailer 'Co-authored-by: Cursor <cursoragent@cursor.com>' -m 'fix: after reinstall'
@@ -141,7 +141,7 @@ exit 0
 SH
   chmod 700 "$orig/commit-msg"
   hooks="$TMP_ROOT/hooks-chain"
-  "$STRIP" install "$hooks" "$repo" || fail "install should succeed"
+  bash "$STRIP" install "$hooks" "$repo" || fail "install should succeed"
   printf 'note\n' >>"$repo/README.md"
   git -C "$repo" add README.md
   with_hooks_env "$hooks" git -C "$repo" commit -q --trailer 'Co-authored-by: Cursor <cursoragent@cursor.com>' -m 'fix: chain'
@@ -168,7 +168,7 @@ test_relative_project_hookspath_still_runs() {
   write_marker_hook "$repo/.husky/_/pre-commit" husky-pre-commit
   git -C "$repo" config core.hooksPath .husky/_
   hooks="$TMP_ROOT/hooks-husky"
-  "$STRIP" install "$hooks" "$repo" || fail "install should succeed with a relative core.hooksPath"
+  bash "$STRIP" install "$hooks" "$repo" || fail "install should succeed with a relative core.hooksPath"
   printf 'note\n' >>"$repo/README.md"
   git -C "$repo" add README.md
   with_hooks_env "$hooks" git -C "$repo" commit -q --trailer 'Co-authored-by: Cursor <cursoragent@cursor.com>' -m 'fix: husky relative'
@@ -203,7 +203,7 @@ test_project_hook_generated_after_install_still_runs() {
   make_repo "$repo"
   git -C "$repo" config core.hooksPath .husky/_
   hooks="$TMP_ROOT/hooks-late"
-  "$STRIP" install "$hooks" "$repo" || fail "install should succeed before the project's hooks exist"
+  bash "$STRIP" install "$hooks" "$repo" || fail "install should succeed before the project's hooks exist"
   mkdir -p "$repo/.husky/_"
   write_marker_hook "$repo/.husky/_/pre-commit" late-pre-commit
   printf 'note\n' >>"$repo/README.md"
@@ -224,7 +224,7 @@ test_pane_hookspath_does_not_reroute_another_repository() {
   write_marker_hook "$other/.git/hooks/pre-commit" other-pre-commit
   write_marker_hook "$repo/.git/hooks/pre-commit" task-pre-commit
   hooks="$TMP_ROOT/hooks-pane"
-  "$STRIP" install "$hooks" "$repo" || fail "install should succeed"
+  bash "$STRIP" install "$hooks" "$repo" || fail "install should succeed"
   printf 'note\n' >>"$other/README.md"
   git -C "$other" add README.md
   with_hooks_env "$hooks" git -C "$other" commit -q -m 'fix: other repo'
@@ -241,7 +241,7 @@ test_empty_project_hookspath_runs_no_repository_hook() {
   write_marker_hook "$repo/.git/hooks/pre-commit" default-pre-commit
   git -C "$repo" config core.hooksPath ''
   hooks="$TMP_ROOT/hooks-empty"
-  "$STRIP" install "$hooks" "$repo" || fail "install should succeed with an empty core.hooksPath"
+  bash "$STRIP" install "$hooks" "$repo" || fail "install should succeed with an empty core.hooksPath"
   printf 'note\n' >>"$repo/README.md"
   git -C "$repo" add README.md
   err=$(with_hooks_env "$hooks" git -C "$repo" commit -q --trailer 'Co-authored-by: Cursor <cursoragent@cursor.com>' -m 'fix: empty hooksPath' 2>&1) ||
@@ -261,7 +261,7 @@ test_unresolvable_project_hookspath_still_refuses() {
   git -C "$repo" add README.md
   git -C "$repo" config core.hooksPath '~fm-no-such-user-6171/hooks'
   hooks="$TMP_ROOT/hooks-unresolvable"
-  "$STRIP" install "$hooks" "$repo" || fail "install should succeed with an unresolvable core.hooksPath"
+  bash "$STRIP" install "$hooks" "$repo" || fail "install should succeed with an unresolvable core.hooksPath"
   head=$(git -C "$repo" rev-parse HEAD)
   err=$(with_hooks_env "$hooks" git -C "$repo" commit -q -m 'fix: unresolvable hooksPath' 2>&1) &&
     fail "a commit succeeded although the repository's hooks directory cannot be resolved"
@@ -276,7 +276,7 @@ test_valueless_project_hookspath_still_refuses() {
   repo="$TMP_ROOT/valueless-hookspath"
   make_repo "$repo"
   hooks="$TMP_ROOT/hooks-valueless"
-  "$STRIP" install "$hooks" "$repo" || fail "install should succeed before the valueless key is written"
+  bash "$STRIP" install "$hooks" "$repo" || fail "install should succeed before the valueless key is written"
   head=$(git -C "$repo" rev-parse HEAD)
   printf 'note\n' >>"$repo/README.md"
   git -C "$repo" add README.md
@@ -313,7 +313,7 @@ test_repository_pre_push_runs_on_every_override_channel() {
   marker="$TMP_ROOT/guarded-push.pre-push"
   write_refusing_pre_push "$repo/.git/hooks/pre-push" "$marker"
   hooks="$TMP_ROOT/hooks-guarded"
-  "$STRIP" install "$hooks" "$repo" || fail "install should succeed"
+  bash "$STRIP" install "$hooks" "$repo" || fail "install should succeed"
   for label in env param env+param child-env child-param; do
     rm -f "$marker"
     case "$label" in
@@ -336,7 +336,7 @@ test_git_c_override_still_strips_and_chains_commit_hooks() {
   make_repo "$repo"
   write_marker_hook "$repo/.git/hooks/pre-commit" param-pre-commit
   hooks="$TMP_ROOT/hooks-param-commit"
-  "$STRIP" install "$hooks" "$repo" || fail "install should succeed"
+  bash "$STRIP" install "$hooks" "$repo" || fail "install should succeed"
   printf 'note\n' >>"$repo/README.md"
   git -C "$repo" add README.md
   git -C "$repo" -c core.hooksPath="$hooks" commit -q --trailer 'Co-authored-by: Cursor <cursoragent@cursor.com>' -m 'fix: git -c override'
@@ -361,7 +361,7 @@ test_repository_hook_keeps_inherited_git_config() {
 SH
   chmod 700 "$repo/.git/hooks/pre-commit"
   hooks="$TMP_ROOT/hooks-inherited-config"
-  "$STRIP" install "$hooks" "$repo" || fail "install should succeed"
+  bash "$STRIP" install "$hooks" "$repo" || fail "install should succeed"
   hooks=$(cd "$hooks" && pwd -P)
   for layout in last middle relaunched; do
     rm -f "$record"
@@ -413,11 +413,11 @@ git config --get-all credential.helper >"$record"
 SH
   chmod 700 "$repo/.git/hooks/pre-commit"
   hooks="$TMP_ROOT/hooks-env-file-symlink"
-  "$STRIP" install "$hooks" "$repo" || fail "install should succeed"
+  bash "$STRIP" install "$hooks" "$repo" || fail "install should succeed"
   link="$TMP_ROOT/hooks-env-file-link"
   ln -s "$hooks" "$link"
   env_file="$TMP_ROOT/env-file-symlink.sh"
-  GIT_CONFIG_COUNT=2 "$STRIP" env-file "$link" "$env_file" || fail "env-file should succeed through a symlinked hooks path"
+  GIT_CONFIG_COUNT=2 bash "$STRIP" env-file "$link" "$env_file" || fail "env-file should succeed through a symlinked hooks path"
   printf 'note\n' >>"$repo/README.md"
   git -C "$repo" add README.md
   GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0='' \
@@ -435,7 +435,7 @@ test_cortex_attribution_does_not_reach_the_commit_object() {
   repo="$TMP_ROOT/cortex-object"
   make_repo "$repo"
   hooks="$TMP_ROOT/hooks-cortex"
-  "$STRIP" install "$hooks" "$repo" || fail "install should succeed"
+  bash "$STRIP" install "$hooks" "$repo" || fail "install should succeed"
   printf 'note\n' >>"$repo/README.md"
   git -C "$repo" add README.md
   # The exact message Cortex Code 1.1.104 produced live: its typed -m body,
@@ -459,7 +459,7 @@ test_strip_msgfile_alone_does_not_rewrite_author_fields() {
   local msg
   msg="$TMP_ROOT/msg.txt"
   printf '%s\n' 'fix: subject' '' 'Co-authored-by: Cursor <cursoragent@cursor.com>' >"$msg"
-  "$STRIP" "$msg" || fail "strip should succeed"
+  bash "$STRIP" "$msg" || fail "strip should succeed"
   assert_not_contains "$(cat "$msg")" "Cursor" "strip left the Cursor trailer in the file"
   assert_contains "$(cat "$msg")" "fix: subject" "strip dropped the subject"
   pass "commit-msg file mode strips the trailer and keeps the subject"
@@ -469,7 +469,7 @@ test_commandcode_trailer_is_stripped() {
   local msg
   msg="$TMP_ROOT/commandcode-msg.txt"
   printf '%s\n' 'Add computed sum to answer.txt' '' 'Co-authored-by: CommandCodeBot <noreply@commandcode.ai>' >"$msg"
-  "$STRIP" "$msg" || fail "strip should succeed"
+  bash "$STRIP" "$msg" || fail "strip should succeed"
   assert_not_contains "$(cat "$msg")" "CommandCodeBot" "strip left the Command Code trailer in the file"
   assert_contains "$(cat "$msg")" "Add computed sum to answer.txt" "strip dropped the subject"
   pass "the Command Code trailer a worker writes into its own message is stripped"
@@ -487,7 +487,7 @@ printf 'ran\n' > "$(dirname "$1")/orig-commit-msg.ran"
 SH
   chmod 700 "$orig/commit-msg"
   hooks="$TMP_ROOT/hooks-no-strip"
-  "$STRIP" install --no-strip "$hooks" "$repo" || fail "install --no-strip should succeed"
+  bash "$STRIP" install --no-strip "$hooks" "$repo" || fail "install --no-strip should succeed"
   printf 'note\n' >>"$repo/README.md"
   git -C "$repo" add README.md
   with_hooks_env "$hooks" git -C "$repo" commit -q --trailer 'Co-authored-by: Cursor <cursoragent@cursor.com>' -m 'fix: kept trailer'
@@ -505,16 +505,16 @@ test_push_guard_install_runs_the_guard_before_chaining() {
   git init -q --bare "$bare"
   git -C "$repo" remote add origin "file://$bare"
   guard="$TMP_ROOT/push-guard-file"
-  "$ROOT/bin/fm-git-push-guard.sh" write "$guard" "$repo" fm/t1 fm/ || fail "guard write failed"
+  bash "$ROOT/bin/fm-git-push-guard.sh" write "$guard" "$repo" fm/t1 fm/ || fail "guard write failed"
   hooks="$TMP_ROOT/hooks-push-guard"
-  "$STRIP" install --push-guard "$guard" "$hooks" "$repo" || fail "install --push-guard should succeed"
+  bash "$STRIP" install --push-guard "$guard" "$hooks" "$repo" || fail "install --push-guard should succeed"
   [ ! -w "$hooks/pre-push" ] || fail "the guarded pre-push wrapper is writable"
   [ ! -w "$hooks/fm-push-guard" ] || fail "the installed guard record is writable"
   out=$(with_hooks_env "$hooks" git -C "$repo" push origin HEAD:refs/heads/main 2>&1)
   rc=$?
   [ "$rc" -ne 0 ] || fail "the guarded pre-push let a push to origin through"
   assert_contains "$out" "fm-git-push-guard: refused:" "the guarded pre-push did not run the guard"
-  "$STRIP" install --push-guard "$TMP_ROOT/no-such-guard" "$TMP_ROOT/hooks-missing-guard" "$repo" 2>/dev/null \
+  bash "$STRIP" install --push-guard "$TMP_ROOT/no-such-guard" "$TMP_ROOT/hooks-missing-guard" "$repo" 2>/dev/null \
     && fail "install accepted a missing guard file"
   pass "install --push-guard writes a read-only pre-push that runs the guard before chaining"
 }

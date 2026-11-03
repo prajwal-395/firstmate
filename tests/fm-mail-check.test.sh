@@ -71,13 +71,13 @@ FAKEBIN="$TMP_ROOT/fakebin"
 
 test_help_and_usage() {
   local out rc=0
-  out=$("$CHECK" --help 2>&1) || rc=$?
+  out=$(bash "$CHECK" --help 2>&1) || rc=$?
   expect_code 0 "$rc" "--help must exit 0"
   assert_contains "$out" "check" "--help lists the check action"
   assert_contains "$out" "arm" "--help lists the arm action"
   assert_contains "$out" "disarm" "--help lists the disarm action"
   rc=0
-  out=$("$CHECK" bogus 2>&1) || rc=$?
+  out=$(bash "$CHECK" bogus 2>&1) || rc=$?
   expect_code 2 "$rc" "unknown action must exit 2"
   assert_contains "$out" "unknown action" "unknown action is refused loudly"
   pass "fm-mail-check: help and usage plumbing"
@@ -87,17 +87,17 @@ test_arm_writes_and_binds_the_check_and_disarm_removes_it() {
   local home out
   home=$(make_home arm)
   write_env "$home"
-  out=$(FM_HOME="$home" "$CHECK" arm 2>&1) || fail "arm must succeed: $out"
+  out=$(FM_HOME="$home" bash "$CHECK" arm 2>&1) || fail "arm must succeed: $out"
   assert_contains "$out" "armed: state/mail.check.sh" "arm names the shim it wrote"
   assert_present "$home/state/mail.check.sh" "arm writes the check shim"
   assert_present "$home/state/mail.check-trust" "arm binds the shim for the watcher"
   assert_contains "$(cat "$home/state/mail.check.sh")" "fm-mail-check.sh check" "shim dispatches the check action"
   assert_contains "$(cat "$home/state/mail.check.sh")" "FM_HOME=$home" "shim pins the absolute home"
 
-  out=$(FM_HOME="$home" "$CHECK" arm 2>&1) || fail "re-arm must succeed: $out"
+  out=$(FM_HOME="$home" bash "$CHECK" arm 2>&1) || fail "re-arm must succeed: $out"
   assert_contains "$out" "armed" "re-arm stays armed"
 
-  out=$(FM_HOME="$home" "$CHECK" disarm 2>&1) || fail "disarm must succeed: $out"
+  out=$(FM_HOME="$home" bash "$CHECK" disarm 2>&1) || fail "disarm must succeed: $out"
   assert_absent "$home/state/mail.check.sh" "disarm removes the check shim"
   assert_absent "$home/state/mail.check-trust" "disarm removes the trust binding"
   assert_absent "$home/state/.mail-check" "disarm removes the report record"
@@ -109,7 +109,7 @@ test_arm_resolves_a_relative_home_into_the_shim() {
   home=$(make_home relative)
   write_env "$home"
   rel="$(basename "$home")"
-  out=$(cd "$TMP_ROOT" && env FM_HOME="$rel" "$CHECK" arm 2>&1) || fail "arm with a relative FM_HOME must succeed: $out"
+  out=$(cd "$TMP_ROOT" && env FM_HOME="$rel" bash "$CHECK" arm 2>&1) || fail "arm with a relative FM_HOME must succeed: $out"
   assert_contains "$(cat "$home/state/mail.check.sh")" "export FM_HOME=$home" "the shim pins the resolved absolute home, not the relative spelling"
   pass "fm-mail-check: arm resolves a relative home into the shim"
 }
@@ -122,7 +122,7 @@ test_arm_refuses_a_symlink_at_the_shim_path() {
   mkdir -p "$target"
   printf '#!/usr/bin/env bash\n' > "$target/mail.check.sh"
   ln -s "$target/mail.check.sh" "$home/state/mail.check.sh"
-  out=$(FM_HOME="$home" "$CHECK" arm 2>&1) || rc=$?
+  out=$(FM_HOME="$home" bash "$CHECK" arm 2>&1) || rc=$?
   expect_code 1 "$rc" "arm must refuse a symlink at the shim path"
   assert_contains "$out" "could not write" "arm reports the shim write failure"
   assert_absent "$home/state/mail.check-trust" "no trust binding is left behind by a refused arm"
@@ -140,7 +140,7 @@ test_arm_refuses_without_the_mail_plane() {
   for lib in fm-timeout-lib.sh fm-pr-lib.sh fm-line-cap-lib.sh fm-check-lib.sh; do
     [ -e "$tmpbin/$lib" ] || ln -s "$ROOT/bin/$lib" "$tmpbin/$lib"
   done
-  out=$(FM_HOME="$home" "$tmpbin/fm-mail-check.sh" arm 2>&1) || rc=$?
+  out=$(FM_HOME="$home" bash "$tmpbin/fm-mail-check.sh" arm 2>&1) || rc=$?
   expect_code 1 "$rc" "arm must refuse when the mail plane is missing"
   assert_contains "$out" "mail plane is missing" "arm names the missing plane"
   assert_absent "$home/state/mail.check.sh" "a refused arm writes no shim"

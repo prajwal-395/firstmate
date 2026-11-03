@@ -115,7 +115,7 @@ run_board() {  # <home> <args...>
     FM_PROCEVENT_CLAIM_ROOT="$home/procevent-claims" \
     FM_PROCEVENT_LAUNCH_CONFIRM_SECONDS=60 \
     LAVISH_FAKE_STATE="$home/lavish-state" LAVISH_AXI_STATE_DIR="$home/lavish-state" \
-    "$BOARD" "$@"
+    bash "$BOARD" "$@"
 }
 
 run_procevent() {  # <home> <command args...>
@@ -126,7 +126,7 @@ run_procevent() {  # <home> <command args...>
     FM_PROCEVENT_CLAIM_ROOT="$home/procevent-claims" \
     FM_PROCEVENT_LAUNCH_CONFIRM_SECONDS=60 \
     LAVISH_AXI_STATE_DIR="$home/lavish-state" \
-    "$ROOT/bin/fm-procevent.sh" "$@"
+    bash "$ROOT/bin/fm-procevent.sh" "$@"
 }
 
 run_decisions() {  # <home> <command args...>
@@ -134,7 +134,7 @@ run_decisions() {  # <home> <command args...>
   shift
   PATH="$home/fakebin:$PATH" FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
-    "$ROOT/bin/fm-decision-hold.sh" "$@"
+    bash "$ROOT/bin/fm-decision-hold.sh" "$@"
 }
 
 # A realistic payload: a cross-origin full-identity decision key past the old
@@ -461,7 +461,7 @@ run_lavish_source_id() {  # <home> <artifact>
   PATH="$home/fakebin:$PATH" FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
     FM_PROCEVENT_CLAIM_ROOT="$home/procevent-claims" \
-    "$ROOT/bin/fm-procevent-lavish.sh" source-id "$2"
+    bash "$ROOT/bin/fm-procevent-lavish.sh" source-id "$2"
 }
 
 test_rebuild_is_idempotent_and_does_not_double_arm() {

@@ -74,7 +74,7 @@ require_listener_reached_poll() {  # <home>
       FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
       FM_PROCEVENT_CLAIM_ROOT="$home/procevent-claims" \
       LAVISH_AXI_STATE_DIR="$home/lavish-state" \
-      "$ROOT/bin/fm-procevent.sh" list 2>/dev/null \
+      bash "$ROOT/bin/fm-procevent.sh" list 2>/dev/null \
       | awk 'NR > 1 { print $3; exit }')
     if [ -s "$home/stub-poll" ] && [ "$owner" = live ]; then
       return 0
@@ -105,7 +105,7 @@ render_board() {  # <home> <underway-json> <charted-json> [charted_more] [charte
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
     FM_PROCEVENT_CLAIM_ROOT="$home/procevent-claims" \
     LAVISH_AXI_STATE_DIR="$home/lavish-state" \
-    "$BOARD" build "$data" >/dev/null || fail "the board did not build"
+    bash "$BOARD" build "$data" >/dev/null || fail "the board did not build"
   require_listener_reached_poll "$home"
   node "$HARNESS" "$home/.lavish/bearings-board.html" \
     || fail "the built board could not be rendered"

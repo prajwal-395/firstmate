@@ -65,7 +65,7 @@ git -C "$HOME_DIR" init -q
 ctl() {
   PATH="$FAKEBIN:$BASE_PATH" TMUX='' FM_GATE_REFUSE_BYPASS=1 FM_SPAWN_NO_GUARD=1 \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$HOME_DIR" \
-    "$ROOT/bin/fm-remote-secondmate-control.sh" "$@"
+    bash "$ROOT/bin/fm-remote-secondmate-control.sh" "$@"
 }
 
 # --- A) host-local launch -----------------------------------------------------
@@ -107,7 +107,7 @@ PATH="$FAKEBIN:$BASE_PATH" TMUX='' FM_GATE_REFUSE_BYPASS=1 FM_SPAWN_NO_GUARD=1 \
   FM_STATE_OVERRIDE="$PARENT/state" FM_DATA_OVERRIDE="$PARENT/data" \
   FM_PROJECTS_OVERRIDE="$PARENT/projects" FM_CONFIG_OVERRIDE="$PARENT/config" \
   FM_SSH_BIN="$FAKEBIN/fake-ssh" HOME="$TMP_ROOT/parent-user-home" \
-  "$ROOT/bin/fm-spawn.sh" "$ID" --secondmate --harness omp > "$TMP_ROOT/spawn.out" 2> "$TMP_ROOT/spawn.err" \
+  bash "$ROOT/bin/fm-spawn.sh" "$ID" --secondmate --harness omp > "$TMP_ROOT/spawn.out" 2> "$TMP_ROOT/spawn.err" \
   && fail "the parent-side spawn should surface the unreachable remote transport"
 assert_grep 'readiness could not be confirmed; preserved route' "$TMP_ROOT/spawn.err" \
   "the omp remote spawn did not pass the harness gate to the transport hop"$'\n'"$(cat "$TMP_ROOT/spawn.err")"

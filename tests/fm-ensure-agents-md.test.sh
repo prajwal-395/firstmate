@@ -30,7 +30,7 @@ test_created_agents_md_includes_self_governance() {
   local repo agents
   repo="$TMP_ROOT/new-project"
   mkdir -p "$repo"
-  "$ROOT/bin/fm-ensure-agents-md.sh" "$repo" >/dev/null 2>&1 || fail "fm-ensure-agents-md.sh failed for empty project"
+  bash "$ROOT/bin/fm-ensure-agents-md.sh" "$repo" >/dev/null 2>&1 || fail "fm-ensure-agents-md.sh failed for empty project"
   agents="$repo/AGENTS.md"
   assert_present "$agents" "AGENTS.md was not created"
   assert_claude_pointer "$repo/CLAUDE.md"
@@ -50,7 +50,7 @@ test_fresh_setup_writes_real_claude_pointer() {
   local repo out
   repo="$TMP_ROOT/fresh-pointer-project"
   mkdir -p "$repo"
-  out=$("$ROOT/bin/fm-ensure-agents-md.sh" "$repo" 2>&1) \
+  out=$(bash "$ROOT/bin/fm-ensure-agents-md.sh" "$repo" 2>&1) \
     || fail "fm-ensure-agents-md.sh failed creating a fresh pointer"
   assert_contains "$out" "created:" "fresh setup did not report created"
   assert_claude_pointer "$repo/CLAUDE.md"
@@ -67,7 +67,7 @@ test_promoted_claude_md_includes_self_governance() {
 
 Run tests with `make test`.
 EOF
-  "$ROOT/bin/fm-ensure-agents-md.sh" "$repo" >/dev/null 2>&1 || fail "fm-ensure-agents-md.sh failed for CLAUDE.md promotion"
+  bash "$ROOT/bin/fm-ensure-agents-md.sh" "$repo" >/dev/null 2>&1 || fail "fm-ensure-agents-md.sh failed for CLAUDE.md promotion"
   agents="$repo/AGENTS.md"
   assert_present "$agents" "AGENTS.md was not created during promotion"
   assert_claude_pointer "$repo/CLAUDE.md"
@@ -85,7 +85,7 @@ test_promoted_claude_md_without_trailing_newline_keeps_blank_separator() {
   repo="$TMP_ROOT/no-trailing-newline-project"
   mkdir -p "$repo"
   printf '# Existing agent memory\n\nRun tests with make test.' > "$repo/CLAUDE.md"
-  "$ROOT/bin/fm-ensure-agents-md.sh" "$repo" >/dev/null 2>&1 || fail "fm-ensure-agents-md.sh failed for newline-less CLAUDE.md promotion"
+  bash "$ROOT/bin/fm-ensure-agents-md.sh" "$repo" >/dev/null 2>&1 || fail "fm-ensure-agents-md.sh failed for newline-less CLAUDE.md promotion"
   agents="$repo/AGENTS.md"
   assert_grep "Run tests with make test." "$agents" \
     "newline-less promotion lost or mangled the last content line"
@@ -104,7 +104,7 @@ test_existing_agents_md_with_symlink_gains_self_governance() {
   printf '# Existing agent memory\n\nBuild with make.\n' > "$repo/AGENTS.md"
   ln -s AGENTS.md "$repo/CLAUDE.md"
   agents="$repo/AGENTS.md"
-  out=$("$ROOT/bin/fm-ensure-agents-md.sh" "$repo" 2>&1) \
+  out=$(bash "$ROOT/bin/fm-ensure-agents-md.sh" "$repo" 2>&1) \
     || fail "fm-ensure-agents-md.sh failed for existing AGENTS.md with symlink"
   assert_contains "$out" "updated:" "injection into existing AGENTS.md did not report an update"
   assert_grep "Build with make." "$agents" "injection dropped existing AGENTS.md content"
@@ -115,7 +115,7 @@ test_existing_agents_md_with_symlink_gains_self_governance() {
   # Re-run must be a byte-exact no-op reporting unchanged.
   cp "$agents" "$repo/.after-first"
   cp "$repo/CLAUDE.md" "$repo/.claude-after-first"
-  out=$("$ROOT/bin/fm-ensure-agents-md.sh" "$repo" 2>&1) \
+  out=$(bash "$ROOT/bin/fm-ensure-agents-md.sh" "$repo" 2>&1) \
     || fail "fm-ensure-agents-md.sh failed on idempotent re-run"
   assert_contains "$out" "unchanged:" "idempotent re-run did not report unchanged"
   diff "$repo/.after-first" "$agents" >/dev/null \
@@ -133,7 +133,7 @@ test_correct_symlink_migrates_to_pointer_without_clobbering_agents() {
   ln -s AGENTS.md "$repo/CLAUDE.md"
   agents="$repo/AGENTS.md"
   cp "$agents" "$repo/.before"
-  out=$("$ROOT/bin/fm-ensure-agents-md.sh" "$repo" 2>&1) \
+  out=$(bash "$ROOT/bin/fm-ensure-agents-md.sh" "$repo" 2>&1) \
     || fail "fm-ensure-agents-md.sh failed migrating a correct CLAUDE.md symlink"
   assert_contains "$out" "updated:" "symlink migration did not report an update"
   assert_claude_pointer "$repo/CLAUDE.md"
@@ -143,7 +143,7 @@ test_correct_symlink_migrates_to_pointer_without_clobbering_agents() {
     "symlink migration lost unique AGENTS.md content"
   cp "$agents" "$repo/.after-first"
   cp "$repo/CLAUDE.md" "$repo/.claude-after-first"
-  out=$("$ROOT/bin/fm-ensure-agents-md.sh" "$repo" 2>&1) \
+  out=$(bash "$ROOT/bin/fm-ensure-agents-md.sh" "$repo" 2>&1) \
     || fail "fm-ensure-agents-md.sh failed on post-migration re-run"
   assert_contains "$out" "unchanged:" "post-migration re-run did not report unchanged"
   cmp -s "$repo/.after-first" "$agents" \
@@ -159,7 +159,7 @@ test_existing_agents_md_without_claude_gains_section_and_pointer() {
   mkdir -p "$repo"
   printf '# Existing agent memory\n\nDeploy with kubectl.\n' > "$repo/AGENTS.md"
   agents="$repo/AGENTS.md"
-  out=$("$ROOT/bin/fm-ensure-agents-md.sh" "$repo" 2>&1) \
+  out=$(bash "$ROOT/bin/fm-ensure-agents-md.sh" "$repo" 2>&1) \
     || fail "fm-ensure-agents-md.sh failed for existing AGENTS.md without CLAUDE.md"
   assert_contains "$out" "updated:" "injection without CLAUDE.md did not report an update"
   assert_claude_pointer "$repo/CLAUDE.md"
@@ -174,13 +174,13 @@ test_existing_agents_md_with_section_reports_unchanged() {
   repo="$TMP_ROOT/fully-formed-project"
   mkdir -p "$repo"
   # Build a fully-formed project (AGENTS.md with the section + canonical pointer).
-  "$ROOT/bin/fm-ensure-agents-md.sh" "$repo" >/dev/null 2>&1 \
+  bash "$ROOT/bin/fm-ensure-agents-md.sh" "$repo" >/dev/null 2>&1 \
     || fail "fm-ensure-agents-md.sh failed building the fully-formed fixture"
   agents="$repo/AGENTS.md"
   assert_claude_pointer "$repo/CLAUDE.md"
   cp "$agents" "$repo/.before"
   cp "$repo/CLAUDE.md" "$repo/.claude-before"
-  out=$("$ROOT/bin/fm-ensure-agents-md.sh" "$repo" 2>&1) \
+  out=$(bash "$ROOT/bin/fm-ensure-agents-md.sh" "$repo" 2>&1) \
     || fail "fm-ensure-agents-md.sh failed on already-formed project"
   assert_contains "$out" "unchanged:" "already-formed project was not reported unchanged"
   diff "$repo/.before" "$agents" >/dev/null \
@@ -206,12 +206,12 @@ test_marked_project_guidance_stays_unchanged() {
         symlink) ln -s AGENTS.md "$repo/CLAUDE.md" ;;
         promotion) mv "$repo/AGENTS.md" "$repo/CLAUDE.md" ;;
       esac
-      "$ROOT/bin/fm-ensure-agents-md.sh" "$repo" >/dev/null 2>&1 \
+      bash "$ROOT/bin/fm-ensure-agents-md.sh" "$repo" >/dev/null 2>&1 \
         || fail "ensure failed for marked project ($route)"
       cmp -s "$repo/.before" "$repo/AGENTS.md" \
         || fail "marked project guidance was modified ($route)"
       assert_claude_pointer "$repo/CLAUDE.md"
-      out=$("$ROOT/bin/fm-ensure-agents-md.sh" "$repo" 2>&1) \
+      out=$(bash "$ROOT/bin/fm-ensure-agents-md.sh" "$repo" 2>&1) \
         || fail "ensure failed on marked project re-run ($route)"
       assert_contains "$out" "unchanged:" "marked project re-run did not report unchanged"
       cmp -s "$repo/.before" "$repo/AGENTS.md" \
@@ -235,7 +235,7 @@ test_reworded_guidance_requires_first_line_marker() {
         'Keep broadly useful knowledge concise; link to sources and rewrite stale entries.' \
         'Preserve these rules for every agent.' |
         while IFS= read -r line; do printf '%s%s' "$line" "$eol"; done > "$repo/AGENTS.md"
-      "$ROOT/bin/fm-ensure-agents-md.sh" "$repo" >/dev/null 2>&1 \
+      bash "$ROOT/bin/fm-ensure-agents-md.sh" "$repo" >/dev/null 2>&1 \
         || fail "ensure failed for unmarked reworded guidance"
       # AGENTS.md is the helper's generated output contract, not implementation source.
       assert_grep '## Editing these notes' "$repo/AGENTS.md" "ensure removed project guidance"
@@ -243,7 +243,7 @@ test_reworded_guidance_requires_first_line_marker() {
       [ "$count" -eq 1 ] || fail "guidance without a first-line mark did not gain the canonical section"
       assert_claude_pointer "$repo/CLAUDE.md"
       cp "$repo/AGENTS.md" "$repo/.after-first"
-      "$ROOT/bin/fm-ensure-agents-md.sh" "$repo" >/dev/null 2>&1 \
+      bash "$ROOT/bin/fm-ensure-agents-md.sh" "$repo" >/dev/null 2>&1 \
         || fail "ensure failed on unmarked project re-run"
       cmp -s "$repo/.after-first" "$repo/AGENTS.md" \
         || fail "unmarked project re-run modified guidance"
@@ -269,7 +269,7 @@ test_existing_crlf_agents_md_with_section_stays_unchanged() {
   agents="$repo/AGENTS.md"
   cp "$agents" "$repo/.before"
   cp "$repo/CLAUDE.md" "$repo/.claude-before"
-  out=$("$ROOT/bin/fm-ensure-agents-md.sh" "$repo" 2>&1) \
+  out=$(bash "$ROOT/bin/fm-ensure-agents-md.sh" "$repo" 2>&1) \
     || fail "fm-ensure-agents-md.sh failed on CRLF AGENTS.md with the section"
   assert_contains "$out" "unchanged:" "complete CRLF AGENTS.md was not reported unchanged"
   cmp -s "$repo/.before" "$agents" \
@@ -291,7 +291,7 @@ test_existing_crlf_agents_md_without_section_preserves_crlf() {
     'Run tests with make test.' > "$repo/AGENTS.md"
   ln -s AGENTS.md "$repo/CLAUDE.md"
   agents="$repo/AGENTS.md"
-  out=$("$ROOT/bin/fm-ensure-agents-md.sh" "$repo" 2>&1) \
+  out=$(bash "$ROOT/bin/fm-ensure-agents-md.sh" "$repo" 2>&1) \
     || fail "fm-ensure-agents-md.sh failed injecting into CRLF AGENTS.md"
   assert_contains "$out" "updated:" "CRLF AGENTS.md injection did not report an update"
   printf '%s\r\n' \
@@ -310,7 +310,7 @@ test_existing_crlf_agents_md_without_section_preserves_crlf() {
   assert_claude_pointer "$repo/CLAUDE.md"
   cp "$agents" "$repo/.after-first"
   cp "$repo/CLAUDE.md" "$repo/.claude-after-first"
-  "$ROOT/bin/fm-ensure-agents-md.sh" "$repo" >/dev/null 2>&1 \
+  bash "$ROOT/bin/fm-ensure-agents-md.sh" "$repo" >/dev/null 2>&1 \
     || fail "fm-ensure-agents-md.sh failed on idempotent CRLF re-run"
   cmp -s "$repo/.after-first" "$agents" \
     || fail "idempotent CRLF re-run modified AGENTS.md"
@@ -325,7 +325,7 @@ test_canonical_pointer_is_accepted_when_both_are_real_files() {
   mkdir -p "$repo"
   printf '# Existing agent memory\n\n## Maintaining this file\n\nKeep this file for knowledge useful to almost every future agent session in this project.\nDo not repeat what the codebase already shows; point to the authoritative file or command instead.\nPrefer rewriting or pruning existing entries over appending new ones.\nWhen updating this file, preserve this bar for all agents and keep entries concise.\n' > "$repo/AGENTS.md"
   write_fixture_claude_pointer "$repo"
-  out=$("$ROOT/bin/fm-ensure-agents-md.sh" "$repo" 2>&1) \
+  out=$(bash "$ROOT/bin/fm-ensure-agents-md.sh" "$repo" 2>&1) \
     || fail "fm-ensure-agents-md.sh refused a canonical real CLAUDE.md pointer"
   assert_contains "$out" "unchanged:" "canonical pointer plus AGENTS.md was not reported unchanged"
   assert_claude_pointer "$repo/CLAUDE.md"
@@ -340,7 +340,7 @@ test_distinct_real_files_are_refused() {
   printf '# Claude memory\n' > "$repo/CLAUDE.md"
   cp "$repo/AGENTS.md" "$repo/.agents-before"
   cp "$repo/CLAUDE.md" "$repo/.claude-before"
-  out=$("$ROOT/bin/fm-ensure-agents-md.sh" "$repo" 2>&1)
+  out=$(bash "$ROOT/bin/fm-ensure-agents-md.sh" "$repo" 2>&1)
   rc=$?
   [ "$rc" -ne 0 ] || fail "expected a non-zero exit for distinct real AGENTS.md and CLAUDE.md"
   assert_contains "$out" "conflict:" "distinct real files did not report a conflict"
@@ -358,7 +358,7 @@ test_agents_md_symlink_is_refused() {
   mkdir -p "$repo"
   printf '# payload\n' > "$repo/payload.md"
   ln -s payload.md "$repo/AGENTS.md"
-  out=$("$ROOT/bin/fm-ensure-agents-md.sh" "$repo" 2>&1)
+  out=$(bash "$ROOT/bin/fm-ensure-agents-md.sh" "$repo" 2>&1)
   rc=$?
   [ "$rc" -ne 0 ] || fail "expected a non-zero exit when AGENTS.md is a symlink"
   assert_contains "$out" "conflict:" "AGENTS.md symlink did not report a conflict"
@@ -375,7 +375,7 @@ test_wrong_target_symlink_is_refused() {
   printf '# other\n' > "$repo/OTHER.md"
   ln -s OTHER.md "$repo/CLAUDE.md"
   cp "$repo/AGENTS.md" "$repo/.agents-before"
-  out=$("$ROOT/bin/fm-ensure-agents-md.sh" "$repo" 2>&1)
+  out=$(bash "$ROOT/bin/fm-ensure-agents-md.sh" "$repo" 2>&1)
   rc=$?
   [ "$rc" -ne 0 ] || fail "expected a non-zero exit for a CLAUDE.md symlink that does not point to AGENTS.md"
   assert_contains "$out" "conflict:" "wrong-target CLAUDE.md symlink did not report a conflict"
@@ -391,7 +391,7 @@ test_non_regular_claude_md_is_refused() {
   repo="$TMP_ROOT/non-regular-claude-project"
   mkdir -p "$repo" "$repo/CLAUDE.md"
   printf '# Agents memory\n' > "$repo/AGENTS.md"
-  out=$("$ROOT/bin/fm-ensure-agents-md.sh" "$repo" 2>&1)
+  out=$(bash "$ROOT/bin/fm-ensure-agents-md.sh" "$repo" 2>&1)
   rc=$?
   [ "$rc" -ne 0 ] || fail "expected a non-zero exit when CLAUDE.md is a directory"
   assert_contains "$out" "conflict:" "non-regular CLAUDE.md did not report a conflict"
@@ -404,7 +404,7 @@ test_lowercase_agents_md_refuses_case_fragile_pointer() {
   repo="$TMP_ROOT/lowercase-project"
   mkdir -p "$repo"
   printf '# project memory\n' > "$repo/agents.md"
-  out=$("$ROOT/bin/fm-ensure-agents-md.sh" "$repo" 2>&1)
+  out=$(bash "$ROOT/bin/fm-ensure-agents-md.sh" "$repo" 2>&1)
   rc=$?
   [ "$rc" -ne 0 ] || fail "expected a non-zero exit for a lowercase agents.md"
   assert_contains "$out" "conflict:" "lowercase agents.md did not report a conflict"

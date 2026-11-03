@@ -49,9 +49,9 @@ pass "composer draft safety and independent delivery signals"
 
 state="$TMP_ROOT/hook state"
 mkdir -p "$state"
-gen=$("$ROOT/bin/fm-busy-event.sh" arm "$state" worker)
+gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$state" worker)
 printf '%s\n' '{"agent":{"model":"swe-2-high"},"hooks":{"Stop":[{"hooks":[{"type":"command","command":"true"}]}]}}' > "$TMP_ROOT/user.json"
-"$ROOT/bin/fm-devin-config.sh" "$state" worker "$gen" "$TMP_ROOT/user.json" || fail 'config writer failed'
+bash "$ROOT/bin/fm-devin-config.sh" "$state" worker "$gen" "$TMP_ROOT/user.json" || fail 'config writer failed'
 config="$state/worker.devin-config.json"
 jq -e '.agent.model == "swe-2-high" and (.hooks.Stop | length) == 2' "$config" >/dev/null || fail 'user settings/hooks lost'
 run_hook() { bash -c "$(jq -r --arg event "$1" '.hooks[$event][-1].hooks[0].command' "$config")"; }
@@ -63,14 +63,14 @@ assert_present "$state/worker.turn-ended" 'Stop notification absent'
 run_hook UserPromptSubmit
 run_hook SessionEnd
 [ "$(fm_busy_classify tmux fake:w devin worker "$state")" = 'idle devin-hook' ] || fail 'SessionEnd did not settle'
-"$ROOT/bin/fm-busy-event.sh" arm "$state" worker >/dev/null
+bash "$ROOT/bin/fm-busy-event.sh" arm "$state" worker >/dev/null
 rm "$state/worker.turn-ended"
 run_hook Stop
 [ "$(fm_busy_classify tmux fake:w devin worker "$state")" = 'busy fm-spawn' ] || fail 'stale Stop cleared replacement'
 assert_absent "$state/worker.turn-ended" 'stale Stop woke replacement'
 [ "$(fm_control_harness_wiring_paths devin /unused "$state" worker)" = "$config" ] || fail 'config retirement missing'
 printf 'broken' > "$TMP_ROOT/invalid.json"
-! "$ROOT/bin/fm-devin-config.sh" "$state" worker "$gen" "$TMP_ROOT/invalid.json" 2>/dev/null || fail 'invalid source accepted'
+! bash "$ROOT/bin/fm-devin-config.sh" "$state" worker "$gen" "$TMP_ROOT/invalid.json" 2>/dev/null || fail 'invalid source accepted'
 jq -e . "$config" >/dev/null || fail 'failed write replaced valid config'
 pass "private config preserves user hooks; lifecycle and stale-generation rejection"
 
@@ -78,12 +78,12 @@ pass "private config preserves user hooks; lifecycle and stale-generation reject
 # commit attribution and no imported Claude Code hooks; other import choices
 # the user made survive.
 printf '%s\n' '{"attribution":true,"read_config_from":{"claude":true,"cursor":false}}' > "$TMP_ROOT/opted-in.json"
-"$ROOT/bin/fm-devin-config.sh" "$state" worker "$gen" "$TMP_ROOT/opted-in.json" || fail 'config writer failed'
+bash "$ROOT/bin/fm-devin-config.sh" "$state" worker "$gen" "$TMP_ROOT/opted-in.json" || fail 'config writer failed'
 jq -e '.attribution == false' "$config" >/dev/null \
   || fail 'worker config keeps Devin commit attribution (Co-Authored-By: Devin trailer)'
 jq -e '.read_config_from.claude == false and .read_config_from.cursor == false' "$config" >/dev/null \
   || fail 'worker config imports Claude Code hooks or dropped a user import choice'
-"$ROOT/bin/fm-devin-config.sh" "$state" worker "$gen" /nonexistent/config.json || fail 'absent source refused'
+bash "$ROOT/bin/fm-devin-config.sh" "$state" worker "$gen" /nonexistent/config.json || fail 'absent source refused'
 jq -e '.attribution == false and .read_config_from.claude == false' "$config" >/dev/null \
   || fail 'an absent user config must still disable attribution and Claude hook import'
 pass "worker config forces attribution off and Claude Code hook import off"
@@ -91,13 +91,13 @@ pass "worker config forces attribution off and Claude Code hook import off"
 # With config/keep-ai-trailers, fm-spawn passes FM_KEEP_AI_TRAILERS=1: the
 # worker config leaves Devin's attribution as the source had it (absent means
 # Devin's default, on) while Claude hook import stays off.
-FM_KEEP_AI_TRAILERS=1 "$ROOT/bin/fm-devin-config.sh" "$state" worker "$gen" "$TMP_ROOT/opted-in.json" || fail 'config writer failed'
+FM_KEEP_AI_TRAILERS=1 bash "$ROOT/bin/fm-devin-config.sh" "$state" worker "$gen" "$TMP_ROOT/opted-in.json" || fail 'config writer failed'
 jq -e '.attribution == true and .read_config_from.claude == false' "$config" >/dev/null \
   || fail 'keep-ai-trailers must leave the source attribution on and still disable Claude hook import'
-FM_KEEP_AI_TRAILERS=1 "$ROOT/bin/fm-devin-config.sh" "$state" worker "$gen" /nonexistent/config.json || fail 'absent source refused'
+FM_KEEP_AI_TRAILERS=1 bash "$ROOT/bin/fm-devin-config.sh" "$state" worker "$gen" /nonexistent/config.json || fail 'absent source refused'
 jq -e 'has("attribution") | not' "$config" >/dev/null \
   || fail 'keep-ai-trailers must not write attribution=false for an absent user config'
-FM_KEEP_AI_TRAILERS=0 "$ROOT/bin/fm-devin-config.sh" "$state" worker "$gen" "$TMP_ROOT/opted-in.json" || fail 'config writer failed'
+FM_KEEP_AI_TRAILERS=0 bash "$ROOT/bin/fm-devin-config.sh" "$state" worker "$gen" "$TMP_ROOT/opted-in.json" || fail 'config writer failed'
 jq -e '.attribution == false' "$config" >/dev/null \
   || fail 'FM_KEEP_AI_TRAILERS=0 must still force attribution off'
 pass "keep-ai-trailers leaves Devin attribution on"

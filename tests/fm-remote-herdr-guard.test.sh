@@ -162,7 +162,7 @@ guard() { # [extra env assignments...]
       FM_FAKE_SOCKET_OWNER="$CASE_OWNER" FM_FAKE_HERDR_SOCKET="$CASE_SOCKET" \
       FM_HOLDER_JQ="$JQ" \
       FM_REMOTE_HERDR_GUARD_STOP_WAIT_TENTHS=8 \
-      "$@" "$GUARD" "$FAKE/herdr" "$SESSION" 2>&1
+      "$@" bash "$GUARD" "$FAKE/herdr" "$SESSION" 2>&1
   )
   GUARD_RC=$?
   set -e
@@ -330,12 +330,12 @@ pass "the guard starts as soon as the foreign server releases the socket"
 
 new_case running
 set +e
-env -i PATH="$CASE_PATH" "$GUARD" "$FAKE/herdr" >/dev/null 2>&1
+env -i PATH="$CASE_PATH" bash "$GUARD" "$FAKE/herdr" >/dev/null 2>&1
 rc=$?
 set -e
 expect_code 2 "$rc" "a missing session argument was not a usage error"
 set +e
-env -i PATH="$CASE_PATH" "$GUARD" "$TMP_ROOT/no-such-herdr" "$SESSION" >/dev/null 2>&1
+env -i PATH="$CASE_PATH" bash "$GUARD" "$TMP_ROOT/no-such-herdr" "$SESSION" >/dev/null 2>&1
 rc=$?
 set -e
 expect_code 1 "$rc" "a non-executable herdr path was not refused"

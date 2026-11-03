@@ -114,7 +114,7 @@ spend() {
   local d=$1
   env -u FM_STATE_OVERRIDE -u FM_DATA_OVERRIDE FM_HOME="$d/home" NM_HOME="$d/nm" \
     FAKE_NM_REPO="${FAKE_NM_REPO-$d/project}" FAKE_NM_LOG="$d/nm-invocations" PATH="$d/fakebin:$PATH" \
-    "$SPEND" "$2" "${3:-task}"
+    bash "$SPEND" "$2" "${3:-task}"
 }
 
 # recorded <case-dir>: record the case's task and print the ledger line it
@@ -352,7 +352,7 @@ spend_ambient() {
   env -u FM_STATE_OVERRIDE -u FM_DATA_OVERRIDE -u FM_CONFIG_OVERRIDE -u NM_HOME \
     HOME="$d/account" FM_HOME="$d/home" \
     FAKE_NM_REPO="${FAKE_NM_REPO-$d/project}" FAKE_NM_HOME_LOG="$d/nm-homes" PATH="$d/fakebin:$PATH" \
-    "$SPEND" "$2" "${3:-task}"
+    bash "$SPEND" "$2" "${3:-task}"
 }
 
 test_home_resolver_finds_a_workspace_home_when_nm_home_is_unset() {

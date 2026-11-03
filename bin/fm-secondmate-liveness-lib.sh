@@ -170,7 +170,7 @@ fm_secondmate_liveness_probe() {  # <meta> <id> <full|poll>
         return 0
       fi
     fi
-    if out=$("$FM_SM_LIVE_LIB_DIR/fm-on.sh" "$id" fm-remote-secondmate-control.sh state "$id" < /dev/null 2>/dev/null); then
+    if out=$(bash "$FM_SM_LIVE_LIB_DIR/fm-on.sh" "$id" fm-remote-secondmate-control.sh state "$id" < /dev/null 2>/dev/null); then
       remote_rc=0
     else
       remote_rc=$?
@@ -188,7 +188,7 @@ fm_secondmate_liveness_probe() {  # <meta> <id> <full|poll>
     case "$agent_state" in
       alive)
         if [ "$mode" = full ]; then
-          if route_out=$("$FM_SM_LIVE_LIB_DIR/fm-on.sh" "$id" fm-remote-secondmate-control.sh route "$id" < /dev/null 2>/dev/null); then
+          if route_out=$(bash "$FM_SM_LIVE_LIB_DIR/fm-on.sh" "$id" fm-remote-secondmate-control.sh route "$id" < /dev/null 2>/dev/null); then
             remote_rc=0
           else
             remote_rc=$?
@@ -383,12 +383,12 @@ fm_secondmate_liveness_relaunch() {  # <meta> <id> [timeout-secs]
     [ "$recorded_model" != default ] || recorded_model=
     [ "$recorded_effort" != default ] || recorded_effort=
     if [ -z "$recorded_model" ] || [ -z "$recorded_effort" ]; then
-      pin_harness=$("$FM_ROOT/bin/fm-harness.sh" secondmate "$id" 2>/dev/null) || pin_harness=
+      pin_harness=$(bash "$FM_ROOT/bin/fm-harness.sh" secondmate "$id" 2>/dev/null) || pin_harness=
       if [ "$pin_harness" = "$recorded_harness" ]; then
         [ -n "$recorded_model" ] \
-          || recorded_model=$("$FM_ROOT/bin/fm-harness.sh" secondmate-model "$id" 2>/dev/null) || recorded_model=
+          || recorded_model=$(bash "$FM_ROOT/bin/fm-harness.sh" secondmate-model "$id" 2>/dev/null) || recorded_model=
         [ -n "$recorded_effort" ] \
-          || recorded_effort=$("$FM_ROOT/bin/fm-harness.sh" secondmate-effort "$id" 2>/dev/null) || recorded_effort=
+          || recorded_effort=$(bash "$FM_ROOT/bin/fm-harness.sh" secondmate-effort "$id" 2>/dev/null) || recorded_effort=
       fi
     fi
     spawn_args+=(--harness "$recorded_harness")
@@ -396,9 +396,9 @@ fm_secondmate_liveness_relaunch() {  # <meta> <id> [timeout-secs]
     [ -z "$recorded_effort" ] || spawn_args+=(--effort "$recorded_effort")
   fi
   if [ -n "$timeout" ]; then
-    FM_SM_LIVE_OUT=$(FM_SPAWN_NO_GUARD=1 fm_run_timed "$timeout" "$FM_ROOT/bin/fm-spawn.sh" "${spawn_args[@]}" 2>&1) || rc=$?
+    FM_SM_LIVE_OUT=$(FM_SPAWN_NO_GUARD=1 fm_run_timed "$timeout" bash "$FM_ROOT/bin/fm-spawn.sh" "${spawn_args[@]}" 2>&1) || rc=$?
   else
-    FM_SM_LIVE_OUT=$(FM_SPAWN_NO_GUARD=1 "$FM_ROOT/bin/fm-spawn.sh" "${spawn_args[@]}" 2>&1) || rc=$?
+    FM_SM_LIVE_OUT=$(FM_SPAWN_NO_GUARD=1 bash "$FM_ROOT/bin/fm-spawn.sh" "${spawn_args[@]}" 2>&1) || rc=$?
   fi
   FM_SM_LIVE_RC=$rc
   if [ "$rc" -eq 0 ]; then

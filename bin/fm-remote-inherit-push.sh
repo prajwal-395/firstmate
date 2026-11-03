@@ -130,10 +130,10 @@ send_item() {  # <n>
   rel=$(cat "$TMP/item.$n.rel")
   read -r plan bytes hash < "$TMP/item.$n.plan"
   if [ "$plan" = put ]; then
-    "$SCRIPT_DIR/fm-on.sh" --stdin "$ID" fm-remote-inherit.sh put "$rel" "$bytes" "$hash" "$GENERATION" \
+    bash "$SCRIPT_DIR/fm-on.sh" --stdin "$ID" fm-remote-inherit.sh put "$rel" "$bytes" "$hash" "$GENERATION" \
       < "$TMP/item.$n.snapshot" > "$TMP/item.$n.out" 2> "$TMP/item.$n.err" || rc=$?
   else
-    "$SCRIPT_DIR/fm-on.sh" "$ID" fm-remote-inherit.sh absent "$rel" 0 "$EMPTY_HASH" "$GENERATION" \
+    bash "$SCRIPT_DIR/fm-on.sh" "$ID" fm-remote-inherit.sh absent "$rel" 0 "$EMPTY_HASH" "$GENERATION" \
       < /dev/null > "$TMP/item.$n.out" 2> "$TMP/item.$n.err" || rc=$?
     if [ "$rc" = 1 ] && grep -Fxq -- "error: path is not inherited material: $rel" "$TMP/item.$n.err"; then
       printf 'unchanged: %s\n' "$rel" > "$TMP/item.$n.out"

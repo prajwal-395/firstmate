@@ -21,12 +21,12 @@ TMP_ROOT=$(fm_test_tmproot fm-watch-wedge-cap-tests)
 ack_stopped_cycle() {  # <state>
   local state=$1 err sequence generation
   err="$state/.test-cycle-drain.err"
-  FM_STATE_OVERRIDE="$state" "$DRAIN" >/dev/null 2> "$err" || return 1
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" >/dev/null 2> "$err" || return 1
   sequence=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation [A-Za-z0-9._-][A-Za-z0-9._-]*$/\1/p' "$err")
   generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through [0-9][0-9]* --recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$err")
   rm -f "$err"
   [ -n "$sequence" ] && [ -n "$generation" ] || return 1
-  FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-through "$sequence" \
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" --ack-through "$sequence" \
     --recovery-generation "$generation"
 }
 
@@ -116,7 +116,7 @@ prime_and_ack() {
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max \
-    "$WATCH" > "$out" &
+    bash "$WATCH" > "$out" &
   pid=$!
   if ! wait_poll_cycle "$state" "$pid"; then
     reap "$pid"; fail "priming watch failed: $(cat "$out")"
@@ -142,7 +142,7 @@ poll_wedge_round() {
     FM_STALE_ESCALATE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max \
     PATH="$fakebin:$PATH" $extra_env \
-    "$WATCH" > "$out" &
+    bash "$WATCH" > "$out" &
   pid=$!
   if ! wait_for_exit "$pid" 100; then
     reap "$pid"; fail "watcher did not exit on wedge round: $(cat "$out")"
@@ -175,7 +175,7 @@ poll_capped_wedge_round() {  # <dir> <max> <extra-env> <exit|absorb>
     FM_STALE_ESCALATE_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max \
     PATH="$fakebin:$PATH" $extra_env \
-    "$WATCH" > "$out" &
+    bash "$WATCH" > "$out" &
   pid=$!
   if [ "$mode" = exit ]; then
     wait_for_exit "$pid" 100 || { reap "$pid"; return 1; }
@@ -235,7 +235,7 @@ hold_capped_polls() {  # <dir> <max> <stale-secs> <timer-age-secs> <cycles> [ext
     FM_STALE_ESCALATE_SECS=$stale_secs FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max \
     PATH="$fakebin:$PATH" $extra_env \
-    "$WATCH" > "$out" &
+    bash "$WATCH" > "$out" &
   pid=$!
   i=1
   while [ "$i" -le "$cycles" ]; do
@@ -278,7 +278,7 @@ test_wedge_cap_disabled_by_default() {
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    "$WATCH" > "$out" &
+    bash "$WATCH" > "$out" &
   pid=$!
   if ! wait_poll_cycle "$state" "$pid"; then
     reap "$pid"; fail "priming watch failed (default-config cap path): $(cat "$out")"
@@ -293,7 +293,7 @@ test_wedge_cap_disabled_by_default() {
       FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
       FM_STALE_ESCALATE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
       FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-      "$WATCH" > "$out" &
+      bash "$WATCH" > "$out" &
     pid=$!
     if ! wait_for_exit "$pid" 100; then
       reap "$pid"; fail "wedge round $n (default config) failed to exit"
@@ -379,7 +379,7 @@ test_wedge_cap_silences_subsequent_polls_for_same_hash() {
       FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
       FM_STALE_ESCALATE_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=1 \
       FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max \
-      "$WATCH" > "$out" &
+      bash "$WATCH" > "$out" &
     pid=$!
     # A post-cap poll short-circuits inside wedge_timer_check on the
     # window-scoped marker and returns 0 without waking; the watcher keeps
@@ -421,7 +421,7 @@ test_wedge_cap_window_marker_silences_hash_churning_busy_pane() {
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=3 \
-    "$WATCH" > "$out" &
+    bash "$WATCH" > "$out" &
   pid=$!
   if ! wait_poll_cycle "$state" "$pid"; then
     reap "$pid"; fail "priming watch failed (churning pane): $(cat "$out")"
@@ -437,7 +437,7 @@ test_wedge_cap_window_marker_silences_hash_churning_busy_pane() {
       FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
       FM_STALE_ESCALATE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
       FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max \
-      "$WATCH" > "$out" &
+      bash "$WATCH" > "$out" &
     pid=$!
     if ! wait_for_exit "$pid" 100; then
       reap "$pid"; fail "churning round $n failed to exit: $(cat "$out")"
@@ -467,7 +467,7 @@ test_wedge_cap_window_marker_silences_hash_churning_busy_pane() {
       FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
       FM_STALE_ESCALATE_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=1 \
       FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max FM_CAP_HORIZON_SECS=86400 \
-      "$WATCH" > "$out" &
+      bash "$WATCH" > "$out" &
     pid=$!
     # A post-cap poll on a churning pane short-circuits on the window-scoped
     # marker at the top of wedge_timer_check and returns 0 without waking;
@@ -539,7 +539,7 @@ test_wedge_cap_expires_after_horizon() {
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max FM_CAP_HORIZON_SECS=86400 \
-    "$WATCH" > "$out" &
+    bash "$WATCH" > "$out" &
   pid=$!
   if ! wait_poll_cycle "$state" "$pid" 200; then
     reap "$pid"; fail "fresh-hash poll within horizon: watcher did not stay alive: $(cat "$out")"
@@ -563,7 +563,7 @@ test_wedge_cap_expires_after_horizon() {
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max FM_CAP_HORIZON_SECS=99999999999999999999 \
-    "$WATCH" > "$out" &
+    bash "$WATCH" > "$out" &
   pid=$!
   if ! wait_poll_cycle "$state" "$pid" 200; then
     reap "$pid"; fail "fresh-hash poll with an unusable horizon: watcher did not stay alive: $(cat "$out")"
@@ -593,7 +593,7 @@ test_wedge_cap_expires_after_horizon() {
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max FM_CAP_HORIZON_SECS=2 \
-    "$WATCH" > "$out" &
+    bash "$WATCH" > "$out" &
   pid=$!
   if ! wait_for_exit "$pid" 100; then
     reap "$pid"; fail "post-horizon poll did not exit: $(cat "$out")"
@@ -639,7 +639,7 @@ test_wedge_cap_operator_can_rm_marker() {
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max \
-    "$WATCH" > "$out" &
+    bash "$WATCH" > "$out" &
   pid=$!
   if ! wait_for_exit "$pid" 60; then
     reap "$pid"; fail "post-rm poll did not exit: $(cat "$out")"
@@ -677,7 +677,7 @@ test_wedge_cap_validates_invalid_overrides() {
     FM_STALE_ESCALATE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_WEDGE_MAX_ESCALATIONS=garbage FM_CAP_HORIZON_SECS=86400 FM_ROLLBACK_SENTINEL_TTL_SECS=3600 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    "$WATCH" > "$out" &
+    bash "$WATCH" > "$out" &
   local pid
   pid=$!
   if ! wait_poll_cycle "$state" "$pid"; then
@@ -695,7 +695,7 @@ test_wedge_cap_validates_invalid_overrides() {
       FM_STALE_ESCALATE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
       FM_WEDGE_MAX_ESCALATIONS=garbage FM_CAP_HORIZON_SECS=86400 FM_ROLLBACK_SENTINEL_TTL_SECS=3600 \
       FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-      "$WATCH" > "$out" &
+      bash "$WATCH" > "$out" &
     pid=$!
     if ! wait_for_exit "$pid" 100; then
       reap "$pid"; fail "round $n (garbage override) failed to exit"
@@ -781,7 +781,7 @@ test_wedge_cap_rollback_writes_sentinel_on_marker_failure() {
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max \
-    "$WATCH" > "$out" &
+    bash "$WATCH" > "$out" &
   pid=$!
   # No `set -e` on either side: this script opts into `set -u` only, so enabling
   # errexit inside a case would change the error semantics of every case after it.
@@ -803,7 +803,7 @@ test_wedge_cap_rollback_writes_sentinel_on_marker_failure() {
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max FM_ROLLBACK_SENTINEL_TTL_SECS=3600 \
-    "$WATCH" > "$out" &
+    bash "$WATCH" > "$out" &
   pid=$!
   wait_for_exit "$pid" 100 || true
   grep -F "possible wedge" "$out" >/dev/null && fail "sentinel short-circuit still published a wedge wake"
@@ -830,7 +830,7 @@ test_wedge_cap_rollback_writes_sentinel_on_marker_failure() {
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max FM_ROLLBACK_SENTINEL_TTL_SECS=99999999999999999999 \
-    "$WATCH" > "$out" &
+    bash "$WATCH" > "$out" &
   pid=$!
   wait_for_exit "$pid" 100 || true
   grep -F "rollback-failed sentinel active" "$state/.watch-triage.log" >/dev/null \
@@ -895,7 +895,7 @@ test_wedge_cap_unwritable_escalation_count_fails_safe() {
     FM_STALE_ESCALATE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max \
     FM_ROLLBACK_SENTINEL_TTL_SECS=3600 \
-    "$WATCH" > "$out" &
+    bash "$WATCH" > "$out" &
   pid=$!
   round_status=0
   wait_for_exit "$pid" 100 || round_status=$?
@@ -1054,7 +1054,7 @@ SHIM
     FM_STALE_ESCALATE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max \
     FM_ROLLBACK_SENTINEL_TTL_SECS=3600 \
-    "$WATCH" > "$out" &
+    bash "$WATCH" > "$out" &
   pid=$!
   wait_for_exit "$pid" 100
   round_status=$?
@@ -1085,7 +1085,7 @@ SHIM
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max FM_ROLLBACK_SENTINEL_TTL_SECS=3600 \
-    "$WATCH" > "$out" &
+    bash "$WATCH" > "$out" &
   pid=$!
   if ! wait_poll_cycle "$state" "$pid" 200; then
     reap "$pid"; fail "the poll after a failed counter reset did not settle on the sentinel: $(cat "$out")"
@@ -1140,7 +1140,7 @@ test_wedge_cap_releases_after_genuine_recovery() {
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max \
-    "$WATCH" > "$out" &
+    bash "$WATCH" > "$out" &
   pid=$!
   if ! wait_poll_cycle "$state" "$pid"; then
     reap "$pid"; fail "resume poll failed: $(cat "$out")"
@@ -1160,7 +1160,7 @@ test_wedge_cap_releases_after_genuine_recovery() {
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max \
-    "$WATCH" > "$out" &
+    bash "$WATCH" > "$out" &
   pid=$!
   if ! wait_for_exit "$pid" 150; then
     reap "$pid"; fail "the re-wedged pane stayed silent after a genuine recovery: $(cat "$out")"
@@ -1208,7 +1208,7 @@ test_wedge_cap_publishes_one_terminal_wake_under_persistent_marker_failure() {
       FM_WATCH_HANDLING_SUCCESSOR=1 \
       FM_STALE_ESCALATE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
       FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max \
-      "$WATCH" > "$out" &
+      bash "$WATCH" > "$out" &
     pid=$!
     round_status=0
     wait_for_exit "$pid" 100 || round_status=$?
@@ -1270,7 +1270,7 @@ test_wedge_cap_releases_after_declared_wait() {
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=999 FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max \
-    "$WATCH" > "$out" &
+    bash "$WATCH" > "$out" &
   pid=$!
   if ! wait_poll_cycle "$state" "$pid"; then
     reap "$pid"; fail "declared-wait poll failed: $(cat "$out")"
@@ -1291,7 +1291,7 @@ test_wedge_cap_releases_after_declared_wait() {
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max \
-    "$WATCH" > "$out" &
+    bash "$WATCH" > "$out" &
   pid=$!
   if ! wait_poll_cycle "$state" "$pid"; then
     reap "$pid"; fail "wait-lift poll failed: $(cat "$out")"
@@ -1307,7 +1307,7 @@ test_wedge_cap_releases_after_declared_wait() {
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max \
-    "$WATCH" > "$out" &
+    bash "$WATCH" > "$out" &
   pid=$!
   if ! wait_for_exit "$pid" 150; then
     reap "$pid"; fail "the re-wedged pane stayed silent after a declared wait ended: $(cat "$out")"
@@ -1422,7 +1422,7 @@ test_wedge_cap_new_episode_publishes_its_own_terminal_wake() {
     FM_WATCH_HANDLING_SUCCESSOR=1 \
     FM_STALE_ESCALATE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max \
-    "$WATCH" > "$out" &
+    bash "$WATCH" > "$out" &
   pid=$!
   if ! wait_poll_cycle "$state" "$pid"; then
     reap "$pid"; fail "resume poll failed: $(cat "$out")"
@@ -1536,7 +1536,7 @@ test_wedge_cap_unwritable_terminal_marker_does_not_flood() {
       FM_WATCH_HANDLING_SUCCESSOR=1 \
       FM_STALE_ESCALATE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
       FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max \
-      "$WATCH" > "$out" &
+      bash "$WATCH" > "$out" &
     pid=$!
     round_status=0
     wait_for_exit "$pid" 100 || round_status=$?
@@ -1687,7 +1687,7 @@ drive_first_sight_release() {  # <route>
     FM_WATCH_HANDLING_SUCCESSOR=1 \
     FM_STALE_ESCALATE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=1 \
-    "$WATCH" > "$out" &
+    bash "$WATCH" > "$out" &
   pid=$!
   if [ "$mode" = exit ]; then
     wait_for_exit "$pid" 150 \
@@ -1720,7 +1720,7 @@ drive_first_sight_release() {  # <route>
     FM_WATCH_HANDLING_SUCCESSOR=1 \
     FM_STALE_ESCALATE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=1 \
-    "$WATCH" > "$out" &
+    bash "$WATCH" > "$out" &
   pid=$!
   wait_poll_cycle "$state" "$pid" 200 \
     || { reap "$pid"; fail "the fresh episode after the $route route did not survive its cycle: $(cat "$out")"; }
@@ -1789,7 +1789,7 @@ test_wedge_cap_releases_after_nonterminal_stale_episode() {
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max \
-    "$WATCH" > "$out" &
+    bash "$WATCH" > "$out" &
   pid=$!
   wait_for_exit "$pid" 200 || fail "non-terminal reset poll did not settle: $(cat "$out")"
   reap "$pid"
@@ -1889,7 +1889,7 @@ test_wedge_cap_reports_gone_endpoint_on_terminal_override_route() {
     FM_STALE_ESCALATE_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max \
     PATH="$fakebin:$PATH" \
-    "$WATCH" > "$out" &
+    bash "$WATCH" > "$out" &
   pid=$!
   wait_for_exit "$pid" 300 \
     || { reap "$pid"; fail "the capped terminal-override window never reported its gone endpoint: $(cat "$out")"; }
@@ -1910,7 +1910,7 @@ test_wedge_cap_reports_gone_endpoint_on_terminal_override_route() {
     FM_STALE_ESCALATE_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max \
     PATH="$fakebin:$PATH" \
-    "$WATCH" > "$out" &
+    bash "$WATCH" > "$out" &
   pid=$!
   round=1
   while [ "$round" -le 2 ]; do

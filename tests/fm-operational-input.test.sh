@@ -15,11 +15,11 @@ cleanup() {
 trap cleanup EXIT
 
 classify_cli() {
-  printf '%s' "$1" | "$OWNER" classify 2>/dev/null
+  printf '%s' "$1" | bash "$OWNER" classify 2>/dev/null
 }
 
 kind_cli() {
-  printf '%s' "$1" | "$OWNER" kind 2>/dev/null
+  printf '%s' "$1" | bash "$OWNER" kind 2>/dev/null
 }
 
 set_age_secs() {  # <file> <age-seconds>
@@ -148,10 +148,10 @@ JS
 
 test_invalid_current_encodings_are_rejected() {
   local output
-  output=$(printf 'body' | "$OWNER" encode legacy-operational 2>/dev/null) \
+  output=$(printf 'body' | bash "$OWNER" encode legacy-operational 2>/dev/null) \
     && fail "legacy-operational was accepted as a current producer kind"
   [ -z "$output" ] || fail "invalid current kind printed protocol data"
-  output=$(printf '' | "$OWNER" encode watcher 2>/dev/null) \
+  output=$(printf '' | bash "$OWNER" encode watcher 2>/dev/null) \
     && fail "empty current operational body was accepted"
   [ -z "$output" ] || fail "empty current body printed protocol data"
   pass "operational input: current construction rejects legacy kinds and empty bodies"
@@ -170,7 +170,7 @@ test_record_backed_doorbell_carrier() {
       && fail "marker-preserving harness '$kind' was switched to the record-backed carrier"
   done
 
-  doorbell=$(printf 'digest body\nsecond line' | FM_STATE_OVERRIDE="$state" "$OWNER" record away-supervisor) \
+  doorbell=$(printf 'digest body\nsecond line' | FM_STATE_OVERRIDE="$state" bash "$OWNER" record away-supervisor) \
     || fail "the CLI could not publish an away-supervisor record"
   case "$doorbell" in
     *"$FM_OPERATIONAL_MARK"*) fail "the doorbell carries the invisible marker it exists to avoid" ;;
@@ -180,15 +180,15 @@ test_record_backed_doorbell_carrier() {
   fm_operational_doorbell_path "$doorbell" record || fail "the owner cannot parse its own doorbell"
   [ "$(cat "$record")" = "${FM_OPERATIONAL_PREFIX}v1 away-supervisor: digest body"$'\n''second line' ] \
     || fail "the record does not hold exactly the encoded envelope"
-  [ "$(printf '%s' "$doorbell" | "$OWNER" doorbell-kind)" = away-supervisor ] \
+  [ "$(printf '%s' "$doorbell" | bash "$OWNER" doorbell-kind)" = away-supervisor ] \
     || fail "doorbell-kind lost the record's kind"
-  body=$(FM_STATE_OVERRIDE="$state" "$OWNER" open "$record") || fail "open refused this home's own record"
+  body=$(FM_STATE_OVERRIDE="$state" bash "$OWNER" open "$record") || fail "open refused this home's own record"
   [ "$body" = "digest body"$'\n''second line' ] || fail "open did not print the record body: $body"
   linked="$tmp/linked-state"
   ln -s "$state" "$linked"
-  FM_STATE_OVERRIDE="$linked" "$OWNER" open "$record" >/dev/null \
+  FM_STATE_OVERRIDE="$linked" bash "$OWNER" open "$record" >/dev/null \
     || fail "open refused this home's record when the home is reached through a symlink"
-  FM_STATE_OVERRIDE="$other" "$OWNER" open "$record" >/dev/null \
+  FM_STATE_OVERRIDE="$other" bash "$OWNER" open "$record" >/dev/null \
     && fail "open accepted another home's record"
   fm_operational_doorbell_kind "$doorbell" "$state" kind && [ "$kind" = away-supervisor ] \
     || fail "the home-bound check rejected this home's own doorbell"
@@ -196,7 +196,7 @@ test_record_backed_doorbell_carrier() {
     && fail "the home-bound check accepted another home's doorbell"
 
   # A doorbell proves nothing without its record, and the classifier never reads one.
-  [ -z "$(printf '%s' "$doorbell" | "$OWNER" classify)" ] \
+  [ -z "$(printf '%s' "$doorbell" | bash "$OWNER" classify)" ] \
     || fail "the pure text classifier recognized a doorbell"
   prefix_len=${#FM_OPERATIONAL_DOORBELL_PREFIX}
   for stray in \
@@ -209,11 +209,11 @@ test_record_backed_doorbell_carrier() {
     " $doorbell" \
     "${doorbell:0:$prefix_len}" \
     'FIRSTMATE_OP: v1 away-supervisor: typed by a human'; do
-    [ -z "$(printf '%s' "$stray" | "$OWNER" doorbell-kind)" ] \
+    [ -z "$(printf '%s' "$stray" | bash "$OWNER" doorbell-kind)" ] \
       || fail "a malformed or unbacked doorbell was recognized: $stray"
   done
   printf 'FIRSTMATE_OP: v1 away-supervisor: ascii only' >"$state/operational-inbox/2-ascii.msg"
-  [ -z "$(printf '%s' "${FM_OPERATIONAL_DOORBELL_PREFIX}$state/operational-inbox/2-ascii.msg${FM_OPERATIONAL_DOORBELL_SUFFIX}" | "$OWNER" doorbell-kind)" ] \
+  [ -z "$(printf '%s' "${FM_OPERATIONAL_DOORBELL_PREFIX}$state/operational-inbox/2-ascii.msg${FM_OPERATIONAL_DOORBELL_SUFFIX}" | bash "$OWNER" doorbell-kind)" ] \
     || fail "a record without the U+2063 envelope was recognized"
 
   old_record="$state/operational-inbox/1-old.msg"
@@ -225,7 +225,7 @@ test_record_backed_doorbell_carrier() {
   printf '%s' "${FM_OPERATIONAL_PREFIX}v1 watcher: just kept" >"$just_kept"
   set_age_secs "$just_expired" $((7 * 86400 + 5))
   set_age_secs "$just_kept" $((7 * 86400 - 60))
-  printf 'x' | FM_STATE_OVERRIDE="$state" "$OWNER" record watcher >/dev/null || fail "second record write failed"
+  printf 'x' | FM_STATE_OVERRIDE="$state" bash "$OWNER" record watcher >/dev/null || fail "second record write failed"
   [ ! -e "$old_record" ] || fail "a record older than the retention window was not pruned"
   [ ! -e "$just_expired" ] || fail "a record seconds past seven days survived a write"
   [ -f "$just_kept" ] || fail "a record a minute short of seven days was pruned"
@@ -241,7 +241,7 @@ test_record_prune_outgrows_one_argument_list() {
   pad=$(printf '%0200d' 0)
   (cd "$state/operational-inbox" && seq 1 12000 | sed "s/\$/-$pad.msg/" | xargs touch -t 200001010000) \
     || fail "could not seed the expired record flood"
-  printf 'x' | FM_STATE_OVERRIDE="$state" "$OWNER" record watcher >/dev/null || fail "record write over a flood failed"
+  printf 'x' | FM_STATE_OVERRIDE="$state" bash "$OWNER" record watcher >/dev/null || fail "record write over a flood failed"
   left=$(find "$state/operational-inbox" -maxdepth 1 -type f -name '*.msg' | wc -l | tr -d ' ')
   [ "$left" = 1 ] || fail "a write left $left records when only its own fresh record was within retention"
   pass "record pruning: expired records past one argument list are all pruned on a write"

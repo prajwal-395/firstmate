@@ -55,7 +55,7 @@ make_lab() {
   local root="$TMP_ROOT/$1" harness=$2 claude_dir=${3:-} home tmux_dir lock_pid
   home="$root/home"
   mkdir -p "$root"
-  "$ROOT/bin/fm-lab-home.sh" create "$home" >/dev/null || fail "lab home create"
+  bash "$ROOT/bin/fm-lab-home.sh" create "$home" >/dev/null || fail "lab home create"
   cp -R "$ROOT/bin" "$home/bin"
   cp "$ROOT/AGENTS.md" "$home/AGENTS.md"
   mkdir -p "$home/.pi" "$home/data/$WORKER_ID" "$root/mate/state" "$root/treehouse"
@@ -63,7 +63,7 @@ make_lab() {
   git -C "$home" init -q -b main
   git -C "$home" add -A bin AGENTS.md .pi
   git -C "$home" -c user.name=t -c user.email=t@example.invalid commit -qm lab
-  tmux_dir=$("$ROOT/bin/fm-lab-home.sh" tmux-dir "$home") || fail "lab tmux dir"
+  tmux_dir=$(bash "$ROOT/bin/fm-lab-home.sh" tmux-dir "$home") || fail "lab tmux dir"
   printf '%s\n' "$tmux_dir" >> "$TMP_ROOT/tmux-dirs"
   find "$HOME/.treehouse" -mindepth 1 -maxdepth 1 -exec basename {} \; | sort > "$root/.treehouse-before"
   {
@@ -150,7 +150,7 @@ write_pi_markers() {  # <home> <lock-pid>
 }
 
 run_check() {  # <root>: sets CHECK_OUT and CHECK_RC
-  CHECK_OUT=$("$LIVE_LAB" check "$1" 2>&1)
+  CHECK_OUT=$(bash "$LIVE_LAB" check "$1" 2>&1)
   CHECK_RC=$?
 }
 
@@ -302,7 +302,7 @@ assert_contains "$CHECK_OUT" "fail treehouse: new ~/.treehouse entries: notes-le
 rmdir "$HOME/.treehouse/notes-leaked"
 LATER_HOME="$TMP_ROOT/later-home"
 mkdir -p "$LATER_HOME"
-CHECK_OUT=$(HOME="$LATER_HOME" "$LIVE_LAB" check "$C" 2>&1)
+CHECK_OUT=$(HOME="$LATER_HOME" bash "$LIVE_LAB" check "$C" 2>&1)
 expect_code 0 "$?" "the Claude lab is ready again after every restore, even from a shell with another HOME: $CHECK_OUT"
 pass "treehouse fails when a pool lands in ~/.treehouse"
 
@@ -328,7 +328,7 @@ pass "extensions fail when the Pi lab lacks the branch extension or loads a stal
 
 NOT_LAB="$TMP_ROOT/not-a-lab"
 mkdir -p "$NOT_LAB/keep"
-out=$("$LIVE_LAB" down "$NOT_LAB" 2>&1)
+out=$(bash "$LIVE_LAB" down "$NOT_LAB" 2>&1)
 expect_code 1 "$?" "down refuses a path without a lab record"
 assert_contains "$out" "carries no lab record" "the refusal names the missing record"
 assert_present "$NOT_LAB/keep" "a refused down removes nothing"
@@ -364,7 +364,7 @@ printf '%s\n' "$SIBLING" >> "$TMP_ROOT/pids"
 # The worker spawn failed after keeping its task temp dirs, before its meta.
 rm -f "$CH/state/$WORKER_ID.meta"
 C_TMUX=$(sed -n 's/^tmux_dir=//p' "$C/.fm-live-lab")
-out=$(HOME="$LATER_HOME" "$LIVE_LAB" down "$C" 2>&1)
+out=$(HOME="$LATER_HOME" bash "$LIVE_LAB" down "$C" 2>&1)
 expect_code 0 "$?" "down of a clean Claude lab succeeds from a shell with another HOME: $out"
 kill -0 "$STRAY" 2>/dev/null || fail "down leaves unrelated processes opening the lab path alone"
 kill -0 "$STRAY_CHILD" 2>/dev/null || fail "down leaves their descendants alone"
@@ -394,9 +394,9 @@ S=$(make_lab s claude "$SC")
 mv "$SC/.claude.json" "$TMP_ROOT/claude-store-target.json"
 ln -s "$TMP_ROOT/claude-store-target.json" "$SC/.claude.json"
 HOME_STORE_BEFORE=$(digest "$HOME/.claude.json")
-CHECK_OUT=$(CLAUDE_CONFIG_DIR="$TMP_ROOT/other-config" "$LIVE_LAB" check "$S" 2>&1)
+CHECK_OUT=$(CLAUDE_CONFIG_DIR="$TMP_ROOT/other-config" bash "$LIVE_LAB" check "$S" 2>&1)
 assert_contains "$CHECK_OUT" "ok trust: $S/home is trusted in the Claude store" "check reads the recorded store"
-out=$(CLAUDE_CONFIG_DIR="$TMP_ROOT/other-config" "$LIVE_LAB" down "$S" 2>&1)
+out=$(CLAUDE_CONFIG_DIR="$TMP_ROOT/other-config" bash "$LIVE_LAB" down "$S" 2>&1)
 expect_code 0 "$?" "down of a lab on a configured store succeeds: $out"
 assert_contains "$out" "removed: 2 Claude project entries" "down removes the entries from the recorded store"
 [ -L "$SC/.claude.json" ] || fail "down keeps a symlinked Claude store a symlink"
@@ -421,7 +421,7 @@ sleep 0.2
 printf '%s\n%s\n' "$REWRITER" "$STUBBORN" >> "$TMP_ROOT/pids"
 record_pid "$X" "$REWRITER"
 record_pid "$X" "$STUBBORN"
-out=$("$LIVE_LAB" down "$X" 2>&1)
+out=$(bash "$LIVE_LAB" down "$X" 2>&1)
 expect_code 0 "$?" "down waits for lab processes: $out"
 wait "$REWRITER" 2>/dev/null || true
 assert_equals rewrote "$(cat "$TMP_ROOT/rewrote" 2>/dev/null)" "TERM handler rewrote its Claude key before down returned"
@@ -447,7 +447,7 @@ until [ -s "$TMP_ROOT/orphan-child" ]; do sleep 0.1; done
 ORPHAN_CHILD=$(cat "$TMP_ROOT/orphan-child")
 printf '%s\n%s\n' "$ORPHAN_ROOT" "$ORPHAN_CHILD" >> "$TMP_ROOT/pids"
 record_pid "$ORPHAN" "$ORPHAN_ROOT"
-out=$("$LIVE_LAB" down "$ORPHAN" 2>&1)
+out=$(bash "$LIVE_LAB" down "$ORPHAN" 2>&1)
 expect_code 0 "$?" "down waits for a reparented child: $out"
 assert_equals rewrote "$(cat "$TMP_ROOT/orphan-rewrote" 2>/dev/null)" "child finished its TERM handler before cleanup"
 lab_keys=$(node -e 'const j=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));console.log(Object.keys(j.projects).filter(k=>k.startsWith(process.argv[2])).join(" "))' "$HOME/.claude.json" "$ORPHAN")
@@ -471,7 +471,7 @@ for ((attempt=0; attempt<50; attempt++)); do
 done
 assert_present "$TMP_ROOT/late-child.ready" "TERM fixture installed its handler before down"
 record_pid "$LATE" "$LATE_ROOT"
-out=$("$LIVE_LAB" down "$LATE" 2>&1)
+out=$(bash "$LIVE_LAB" down "$LATE" 2>&1)
 expect_code 0 "$?" "down waits for a child born during TERM: $out"
 assert_present "$TMP_ROOT/late-child" "TERM handler spawned a child"
 LATE_CHILD=$(cat "$TMP_ROOT/late-child")
@@ -489,7 +489,7 @@ until [ -s "$TMP_ROOT/reused-child" ]; do sleep 0.1; done
 REUSED_CHILD=$(cat "$TMP_ROOT/reused-child")
 printf '%s\n%s\n' "$REUSED" "$REUSED_CHILD" >> "$TMP_ROOT/pids"
 printf 'launch_pid=%s\nlaunch_start=Mon Jan  1 00:00:00 1990\n' "$REUSED" >> "$Y/.fm-live-lab"
-out=$("$LIVE_LAB" down "$Y" 2>&1)
+out=$(bash "$LIVE_LAB" down "$Y" 2>&1)
 expect_code 0 "$?" "down skips the mismatched root: $out"
 kill -0 "$REUSED" 2>/dev/null || fail "down killed a reused PID"
 kill -0 "$REUSED_CHILD" 2>/dev/null || fail "down killed the reused PID's child"
@@ -528,7 +528,7 @@ else
 fi
 SH
 chmod +x "$TMP_ROOT/group-ps-bin/ps"
-out=$(REAL_PS="$(command -v ps)" PS_SCAN_COUNT="$TMP_ROOT/group-scan-count" PS_GROUP_ROOT="$GROUP_ROOT" PS_OUTSIDER="$GROUP_OUTSIDER" PS_GROUP_ID="$GROUP_ID" PATH="$TMP_ROOT/group-ps-bin:$PATH" "$LIVE_LAB" down "$GROUP_REUSE" 2>&1)
+out=$(REAL_PS="$(command -v ps)" PS_SCAN_COUNT="$TMP_ROOT/group-scan-count" PS_GROUP_ROOT="$GROUP_ROOT" PS_OUTSIDER="$GROUP_OUTSIDER" PS_GROUP_ID="$GROUP_ID" PATH="$TMP_ROOT/group-ps-bin:$PATH" bash "$LIVE_LAB" down "$GROUP_REUSE" 2>&1)
 expect_code 0 "$?" "down ignores a reused group id: $out"
 [ "$(cat "$TMP_ROOT/group-scan-count")" -ge 3 ] || fail "fixture did not expose the reused group id"
 kill -0 "$GROUP_OUTSIDER" 2>/dev/null || fail "down signalled an unrelated process with a reused group id"
@@ -559,7 +559,7 @@ fi
 SH
 chmod +x "$TMP_ROOT/ps-bin/ps"
 start=$(date +%s)
-out=$(REAL_PS="$(command -v ps)" PS_COUNT="$TMP_ROOT/ps-count" PS_TARGET="$TMP_ROOT/replaced-pid" PATH="$TMP_ROOT/ps-bin:$PATH" "$LIVE_LAB" down "$Z" 2>&1)
+out=$(REAL_PS="$(command -v ps)" PS_COUNT="$TMP_ROOT/ps-count" PS_TARGET="$TMP_ROOT/replaced-pid" PATH="$TMP_ROOT/ps-bin:$PATH" bash "$LIVE_LAB" down "$Z" 2>&1)
 expect_code 0 "$?" "down must not treat the changed PID as a survivor: $out"
 [ "$(( $(date +%s) - start ))" -lt 8 ] || fail "down waited on a PID with a different start time"
 kill -0 "$REPLACED" 2>/dev/null || fail "down killed a PID after its recorded identity changed"
@@ -571,7 +571,7 @@ run_check "$P"
 assert_contains "$CHECK_OUT" "fail trust: the Pi trust store changed since up began" "a written Pi trust store is caught"
 pass "trust fails on Pi when the lab wrote the persistent Pi trust store"
 
-out=$("$LIVE_LAB" down "$P" 2>&1)
+out=$(bash "$LIVE_LAB" down "$P" 2>&1)
 expect_code 1 "$?" "down reports a changed Pi trust store"
 assert_contains "$out" "the Pi trust store changed since up began; left as is" "the Pi trust change is named"
 assert_absent "$P" "the lab is still removed"
@@ -582,11 +582,11 @@ pass "down removes the lab but reports, without reverting, a written Pi trust st
 
 EXISTING="$TMP_ROOT/existing"
 mkdir -p "$EXISTING/keep"
-out=$("$LIVE_LAB" up --harness claude "$EXISTING" 2>&1)
+out=$(bash "$LIVE_LAB" up --harness claude "$EXISTING" 2>&1)
 expect_code 1 "$?" "up refuses an existing lab root"
 assert_contains "$out" "a lab root must not exist yet" "the refusal names the existing root"
 assert_present "$EXISTING/keep" "a refused up touches nothing"
-out=$("$LIVE_LAB" up --harness codex "$TMP_ROOT/new" 2>&1)
+out=$(bash "$LIVE_LAB" up --harness codex "$TMP_ROOT/new" 2>&1)
 expect_code 1 "$?" "up refuses an unsupported harness"
 assert_absent "$TMP_ROOT/new" "a refused harness creates nothing"
 pass "up refuses an existing root and an unsupported harness"
@@ -601,13 +601,13 @@ cat > "$TMP_ROOT/stub-bin/claude" <<'SH'
 exec sleep 45 >/dev/null 2>&1
 SH
 chmod +x "$TMP_ROOT/stub-bin/claude"
-out=$(PATH="$TMP_ROOT/stub-bin:$PATH" "$LIVE_LAB" up --harness claude --source "$TMP_ROOT/missing-origin" "$PARTIAL" 2>&1)
+out=$(PATH="$TMP_ROOT/stub-bin:$PATH" bash "$LIVE_LAB" up --harness claude --source "$TMP_ROOT/missing-origin" "$PARTIAL" 2>&1)
 expect_code 1 "$?" "an unavailable source stops up before launch"
 assert_present "$PARTIAL/.fm-live-lab" "up recorded its selected task IDs"
 ids=$(awk -F= '/^(mate_id|worker_id)=/ {print $2}' "$PARTIAL/.fm-live-lab")
 if ! printf '%s\n' "$ids" | grep -Eq '^lab[0-9a-f]{12}-(mate|worker)$'; then fail "task IDs need twelve nonce hex digits: $ids"; fi
 assert_equals 2 "$(printf '%s\n' "$ids" | grep -Ec '^lab[0-9a-f]{12}-(mate|worker)$')" "both mate and worker use twelve nonce digits"
-out=$($LIVE_LAB down "$PARTIAL" 2>&1)
+out=$(bash "$LIVE_LAB" down "$PARTIAL" 2>&1)
 expect_code 0 "$?" "down cleans a lab whose checkout failed: $out"
 assert_absent "$PARTIAL" "partial lab removed"
 pass "up gives both task IDs a long nonce and down cleans partial setup"
@@ -655,7 +655,7 @@ chmod +x "$WORKSRC/bin/"{fm-brief,fm-tasks-axi,fm-spawn}.sh
 git -C "$WORKSRC" add -A
 git -C "$WORKSRC" -c user.name=t -c user.email=t@example.invalid commit -qm stubs
 W="$TMP_ROOT/worker-up"
-out=$(SHELL=/bin/sh PATH="$TMP_ROOT/stub-bin:$PATH" "$LIVE_LAB" up --harness claude --worker --source "$WORKSRC" --timeout 0 "$W" 2>&1)
+out=$(SHELL=/bin/sh PATH="$TMP_ROOT/stub-bin:$PATH" bash "$LIVE_LAB" up --harness claude --worker --source "$WORKSRC" --timeout 0 "$W" 2>&1)
 expect_code 1 "$?" "unanswered probe leaves worker lab for inspection: $out"
 assert_contains "$out" "primary: claude" "the unparked worker did not block primary launch"
 assert_contains "$out" "gate: $W/home/data/" "up shows the gate path"
@@ -668,7 +668,7 @@ assert_contains "$brief" "Do not poll or sleep in a foreground command" "worker 
 assert_contains "$brief" "When a later message resumes you, check that" "worker checks the gate after a message"
 assert_contains "$out" "fail worker: the worker is not currently parked" "final readiness remains strict"
 node -e 'const j=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));process.exit(j.projects?.[process.argv[2]]?.hasTrustDialogAccepted===true?0:1)' "$HOME/.claude.json" "$W/home" || fail "primary trust was not registered before launch"
-out=$("$LIVE_LAB" down "$W" 2>&1)
+out=$(bash "$LIVE_LAB" down "$W" 2>&1)
 expect_code 0 "$?" "down cleans the worker lab: $out"
 pass "up launches primary after worker status without weakening final parked readiness"
 
@@ -683,11 +683,11 @@ SH
 git -C "$WORKSRC" add bin/fm-spawn.sh
 git -C "$WORKSRC" -c user.name=t -c user.email=t@example.invalid commit -qm missing-pane
 NO_PANE="$TMP_ROOT/no-pane"
-out=$(SHELL=/bin/sh PATH="$TMP_ROOT/stub-bin:$PATH" "$LIVE_LAB" up --harness claude --worker --source "$WORKSRC" --timeout 0 "$NO_PANE" 2>&1)
+out=$(SHELL=/bin/sh PATH="$TMP_ROOT/stub-bin:$PATH" bash "$LIVE_LAB" up --harness claude --worker --source "$WORKSRC" --timeout 0 "$NO_PANE" 2>&1)
 expect_code 1 "$?" "up refuses a worker without a pane PID: $out"
 assert_contains "$out" "cannot record lab process: missing or invalid PID ''" "missing pane PID fails at launch recording"
 assert_not_contains "$out" "list of process IDs must follow -p" "ps never receives an empty PID"
-out=$("$LIVE_LAB" down "$NO_PANE" 2>&1)
+out=$(bash "$LIVE_LAB" down "$NO_PANE" 2>&1)
 expect_code 0 "$?" "down cleans the missing-pane lab: $out"
 pass "up fails immediately when a spawned worker has no pane PID"
 
@@ -718,13 +718,13 @@ U="$TMP_ROOT/up-lab"
 ) &
 RIVAL=$!
 printf '%s\n' "$RIVAL" >> "$TMP_ROOT/pids"
-out=$(SHELL=/bin/sh PATH="$FAKEBIN:$PATH" "$LIVE_LAB" up --harness claude --source "$UPSRC" --ref HEAD --timeout 1 "$U" 2>&1)
+out=$(SHELL=/bin/sh PATH="$FAKEBIN:$PATH" bash "$LIVE_LAB" up --harness claude --source "$UPSRC" --ref HEAD --timeout 1 "$U" 2>&1)
 expect_code 1 "$?" "stand-in primary does not answer probe"
 wait "$RIVAL" 2>/dev/null || true
 assert_equals dropped "$(cat "$TMP_ROOT/rival-dropped" 2>/dev/null)" "rival dropped primary trust once"
 assert_equals present "$(cat "$U/claude-launch-trust" 2>/dev/null)" "primary launched trusted after the rival write"
 assert_contains "$out" "ok trust: $U/home is trusted in the Claude store" "readiness sees primary trust"
-out=$("$LIVE_LAB" down "$U" 2>&1)
+out=$(bash "$LIVE_LAB" down "$U" 2>&1)
 expect_code 0 "$?" "down removes the up-built lab: $out"
 pass "up re-registers primary trust after a concurrent Claude write"
 
@@ -732,11 +732,11 @@ pass "up re-registers primary trust after a concurrent Claude write"
 
 T="$TMP_ROOT/trust"
 mkdir -p "$T/config"
-"$ROOT/bin/fm-lab-home.sh" create "$T/home" >/dev/null
+bash "$ROOT/bin/fm-lab-home.sh" create "$T/home" >/dev/null
 cp "$ROOT/AGENTS.md" "$T/home/AGENTS.md"
 mkdir -p "$T/home/bin"
 git -C "$T/home" init -q -b main
-out=$(CLAUDE_CONFIG_DIR="$T/config" "$TRUST" --lab-home "$T/home" 2>&1)
+out=$(CLAUDE_CONFIG_DIR="$T/config" bash "$TRUST" --lab-home "$T/home" 2>&1)
 expect_code 0 "$?" "a marked lab primary checkout is trusted: $out"
 TH=$(cd -P "$T/home" && pwd -P)
 node -e 'const j=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));process.exit(j.projects[process.argv[2]].hasTrustDialogAccepted===true&&!("hasClaudeMdExternalIncludesApproved" in j.projects[process.argv[2]])?0:1)' \
@@ -745,7 +745,7 @@ node -e 'const j=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf
 mkdir -p "$T/plain/bin"
 cp "$ROOT/AGENTS.md" "$T/plain/AGENTS.md"
 git -C "$T/plain" init -q -b main
-out=$(CLAUDE_CONFIG_DIR="$T/config" "$TRUST" --lab-home "$T/plain" 2>&1)
+out=$(CLAUDE_CONFIG_DIR="$T/config" bash "$TRUST" --lab-home "$T/plain" 2>&1)
 expect_code 1 "$?" "an unmarked checkout is refused"
 assert_contains "$out" "carries no lab-home marker" "the refusal names the missing marker"
 
@@ -753,13 +753,13 @@ fm_git_worktree "$T/proj" "$T/wt" lab-trust-wt
 printf 'fm-lab-home v1\n' > "$T/wt/.fm-lab-home"
 cp "$ROOT/AGENTS.md" "$T/wt/AGENTS.md"
 mkdir -p "$T/wt/bin"
-out=$(CLAUDE_CONFIG_DIR="$T/config" "$TRUST" --lab-home "$T/wt" 2>&1)
+out=$(CLAUDE_CONFIG_DIR="$T/config" bash "$TRUST" --lab-home "$T/wt" 2>&1)
 expect_code 1 "$?" "a linked worktree is refused"
 assert_contains "$out" "is a linked worktree" "the refusal names the linked worktree"
 
 rm "$T/home/.fm-lab-home"
 ln -s "$T/wt/.fm-lab-home" "$T/home/.fm-lab-home"
-out=$(CLAUDE_CONFIG_DIR="$T/config" "$TRUST" --lab-home "$T/home" 2>&1)
+out=$(CLAUDE_CONFIG_DIR="$T/config" bash "$TRUST" --lab-home "$T/home" 2>&1)
 expect_code 1 "$?" "a symlinked marker is refused"
 assert_contains "$out" "is a symlink" "the refusal names the symlink"
 pass "fm-claude-trust.sh --lab-home trusts only a marked lab primary checkout"

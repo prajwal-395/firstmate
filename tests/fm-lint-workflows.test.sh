@@ -13,7 +13,7 @@ set -u
 LINT_WF="$ROOT/bin/fm-lint-workflows.sh"
 LINT="$ROOT/bin/fm-lint.sh"
 INSTALLER="$ROOT/bin/fm-install-actionlint.sh"
-REQUIRED=$("$LINT_WF" --required-version)
+REQUIRED=$(bash "$LINT_WF" --required-version)
 
 # Official sha256 values from actionlint_1.7.12_checksums.txt on the v1.7.12
 # release (https://github.com/rhysd/actionlint/releases/tag/v1.7.12). Tests
@@ -169,7 +169,7 @@ YAML
 test_current_workflows_pass() {
   local out rc
   rc=0
-  out=$("$LINT_WF" 2>&1) || rc=$?
+  out=$(bash "$LINT_WF" 2>&1) || rc=$?
   [ "$rc" -eq 0 ] || fail "current workflows must parse, got $rc"$'\n'"$out"
   assert_contains "$out" "workflow files valid" \
     "current-workflow lint did not report a valid count"
@@ -182,7 +182,7 @@ test_col0_heredoc_fails_with_clear_error() {
   mkdir -p "$tmp/.github/workflows"
   write_col0_heredoc_workflow "$tmp/.github/workflows/ci.yml"
   rc=0
-  out=$("$LINT_WF" --root "$tmp" 2>&1) || rc=$?
+  out=$(bash "$LINT_WF" --root "$tmp" 2>&1) || rc=$?
   [ "$rc" -ne 0 ] || fail "column-0 heredoc workflow unexpectedly passed"$'\n'"$out"
   assert_contains "$out" "could not parse as YAML" \
     "column-0 heredoc failure did not report actionlint's YAML syntax error"
@@ -197,7 +197,7 @@ test_valid_fixture_passes() {
   mkdir -p "$tmp/.github/workflows"
   write_valid_workflow "$tmp/.github/workflows/ci.yml"
   rc=0
-  out=$("$LINT_WF" --root "$tmp" 2>&1) || rc=$?
+  out=$(bash "$LINT_WF" --root "$tmp" 2>&1) || rc=$?
   [ "$rc" -eq 0 ] || fail "valid fixture workflow failed"$'\n'"$out"
   assert_contains "$out" "1 workflow files valid" \
     "valid fixture did not report one valid file"
@@ -209,7 +209,7 @@ test_empty_workflows_dir_fails() {
   tmp=$(fm_test_tmproot fm-lint-wf-empty)
   mkdir -p "$tmp/.github/workflows"
   rc=0
-  out=$("$LINT_WF" --root "$tmp" 2>&1) || rc=$?
+  out=$(bash "$LINT_WF" --root "$tmp" 2>&1) || rc=$?
   [ "$rc" -ne 0 ] || fail "empty workflows dir unexpectedly passed"$'\n'"$out"
   assert_contains "$out" "no GitHub workflow files found" \
     "empty workflows dir did not report the missing files"
@@ -222,7 +222,7 @@ test_explicit_broken_path_fails() {
   broken="$tmp/broken.yml"
   write_col0_heredoc_workflow "$broken"
   rc=0
-  out=$("$LINT_WF" "$broken" 2>&1) || rc=$?
+  out=$(bash "$LINT_WF" "$broken" 2>&1) || rc=$?
   [ "$rc" -ne 0 ] || fail "explicit broken path unexpectedly passed"$'\n'"$out"
   assert_contains "$out" "could not parse as YAML" \
     "explicit broken path did not report actionlint's YAML syntax error"
@@ -235,7 +235,7 @@ test_non_mapping_root_fails() {
   mkdir -p "$tmp/.github/workflows"
   printf 'just-a-string\n' > "$tmp/.github/workflows/ci.yml"
   rc=0
-  out=$("$LINT_WF" --root "$tmp" 2>&1) || rc=$?
+  out=$(bash "$LINT_WF" --root "$tmp" 2>&1) || rc=$?
   [ "$rc" -ne 0 ] || fail "scalar YAML root unexpectedly passed"$'\n'"$out"
   assert_contains "$out" "mapping node is expected" \
     "scalar YAML root did not report actionlint's mapping-node error"
@@ -252,7 +252,7 @@ test_missing_actionlint_fails_closed() {
     ln -s "$(command -v "$tool")" "$fakebin/$tool"
   done
   rc=0
-  out=$(PATH="$fakebin" "$LINT_WF" --root "$tmp" 2>&1) || rc=$?
+  out=$(PATH="$fakebin" bash "$LINT_WF" --root "$tmp" 2>&1) || rc=$?
   [ "$rc" -eq 1 ] || fail "missing actionlint expected exit 1, got $rc"$'\n'"$out"
   assert_contains "$out" "actionlint not found" \
     "missing actionlint did not name the required linter"
@@ -285,7 +285,7 @@ exit 0
 SH
   chmod +x "$fakebin/actionlint"
   rc=0
-  out=$(PATH="$fakebin:$PATH" "$LINT_WF" --root "$tmp" 2>&1) || rc=$?
+  out=$(PATH="$fakebin:$PATH" bash "$LINT_WF" --root "$tmp" 2>&1) || rc=$?
   [ "$rc" -ne 0 ] || fail "fm-lint-workflows.sh accepted an actionlint version other than the pin"$'\n'"$out"
   assert_contains "$out" "$REQUIRED" "fm-lint-workflows.sh did not name the required version on mismatch"
   assert_contains "$out" "0.0.0" "fm-lint-workflows.sh did not report the resolved (wrong) version"
@@ -307,7 +307,7 @@ test_installer_retries_transient_download_failure() {
   out=$(CURL_COUNT="$tmp/curl-count" CURL_FAIL_UNTIL=3 \
     SHA256_STUB_HASH="$ACTIONLINT_SHA_LINUX_AMD64" \
     FM_TEST_UNAME_S=Linux FM_TEST_UNAME_M=x86_64 \
-    PATH="$fakebin:$PATH" "$INSTALLER" "$destination" 2>&1) \
+    PATH="$fakebin:$PATH" bash "$INSTALLER" "$destination" 2>&1) \
     || fail "installer did not recover from a transient download failure"$'\n'"$out"
   [ "$(cat "$tmp/curl-count")" -eq 4 ] || fail "installer did not recover after three failed downloads"
   assert_contains "$out" "download attempt 3 failed; retrying" "installer did not disclose its third retry"
@@ -334,7 +334,7 @@ test_installer_selects_platform_archive_url_and_checksum() {
     : > "$url_log"
     out=$(CURL_URL_LOG="$url_log" SHA256_STUB_HASH="$sha" \
       FM_TEST_UNAME_S="$uname_s" FM_TEST_UNAME_M="$uname_m" \
-      PATH="$fakebin:$PATH" "$INSTALLER" "$destination" 2>&1) \
+      PATH="$fakebin:$PATH" bash "$INSTALLER" "$destination" 2>&1) \
       || fail "installer failed for ${uname_s}/${uname_m}"$'\n'"$out"
     assert_contains "$(cat "$url_log")" "$archive" \
       "installer did not download $archive for ${uname_s}/${uname_m}"
@@ -370,7 +370,7 @@ test_installer_rejects_wrong_checksum() {
   rc=0
   out=$(SHA256_STUB_HASH=0000000000000000000000000000000000000000000000000000000000000000 \
     FM_TEST_UNAME_S=Linux FM_TEST_UNAME_M=x86_64 \
-    PATH="$fakebin:$PATH" "$INSTALLER" "$destination" 2>&1) || rc=$?
+    PATH="$fakebin:$PATH" bash "$INSTALLER" "$destination" 2>&1) || rc=$?
   [ "$rc" -ne 0 ] || fail "installer accepted a wrong checksum"$'\n'"$out"
   assert_contains "$out" "checksum mismatch" "installer did not report a checksum mismatch"
   assert_contains "$out" "actionlint_${REQUIRED}_linux_amd64.tar.gz" \
@@ -401,7 +401,7 @@ test_installer_falls_back_to_shasum() {
   out=$(CURL_URL_LOG="$tmp/curl-url.log" HASHER_LOG="$hasher_log" \
     SHA256_STUB_HASH="$ACTIONLINT_SHA_LINUX_AMD64" \
     FM_TEST_UNAME_S=Linux FM_TEST_UNAME_M=x86_64 \
-    PATH="$fakebin" "$INSTALLER" "$destination" 2>&1) \
+    PATH="$fakebin" bash "$INSTALLER" "$destination" 2>&1) \
     || fail "installer did not fall back to shasum -a 256"$'\n'"$out"
   assert_grep 'shasum -a 256' "$hasher_log" "installer did not invoke shasum -a 256"
   [ -x "$destination/actionlint" ] || fail "installer did not install actionlint via shasum"
@@ -426,7 +426,7 @@ test_installer_prefers_sha256sum_over_shasum() {
   PATH="$fakebin:$PATH" HASHER_LOG="$hasher_log" \
     SHA256_STUB_HASH="$ACTIONLINT_SHA_LINUX_AMD64" \
     FM_TEST_UNAME_S=Linux FM_TEST_UNAME_M=x86_64 \
-    "$INSTALLER" "$destination" >/dev/null \
+    bash "$INSTALLER" "$destination" >/dev/null \
     || fail "installer failed when both hashers were present"
   assert_grep 'sha256sum' "$hasher_log" "installer did not prefer sha256sum"
   if grep -q 'shasum' "$hasher_log"; then
@@ -446,14 +446,14 @@ test_installer_rejects_unsupported_platform() {
 
   rc=0
   out=$(FM_TEST_UNAME_S=FreeBSD FM_TEST_UNAME_M=amd64 \
-    PATH="$fakebin:$PATH" "$INSTALLER" "$destination" 2>&1) || rc=$?
+    PATH="$fakebin:$PATH" bash "$INSTALLER" "$destination" 2>&1) || rc=$?
   [ "$rc" -ne 0 ] || fail "installer accepted an unsupported OS"$'\n'"$out"
   assert_contains "$out" "unsupported platform" "installer did not name the unsupported platform"
   assert_contains "$out" "FreeBSD-amd64" "installer did not report the detected OS/arch"
 
   rc=0
   out=$(FM_TEST_UNAME_S=Linux FM_TEST_UNAME_M=ppc64le \
-    PATH="$fakebin:$PATH" "$INSTALLER" "$destination" 2>&1) || rc=$?
+    PATH="$fakebin:$PATH" bash "$INSTALLER" "$destination" 2>&1) || rc=$?
   [ "$rc" -ne 0 ] || fail "installer accepted an unsupported architecture"$'\n'"$out"
   assert_contains "$out" "unsupported platform" "installer did not reject linux/ppc64le"
   pass "actionlint installer rejects an unsupported OS or architecture"
@@ -505,7 +505,7 @@ SH
 
   rc=0
   out=$(PATH="$fakebin:$PATH" GITHUB_ACTIONS='' CI='' FM_LINT_JOBS=1 \
-    FM_TEST_GIT_DIFF_FILE="$diff_file" "$tmp/bin/fm-lint.sh" 2>&1) || rc=$?
+    FM_TEST_GIT_DIFF_FILE="$diff_file" bash "$tmp/bin/fm-lint.sh" 2>&1) || rc=$?
   [ "$rc" -ne 0 ] || fail "fm-lint.sh default path missed a broken ci.yml"$'\n'"$out"
   assert_contains "$out" "could not parse as YAML" \
     "fm-lint.sh default path did not surface the workflow YAML error"

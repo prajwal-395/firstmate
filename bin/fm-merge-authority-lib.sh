@@ -64,7 +64,7 @@ fm_merge_authority_resolve() {  # <home> <state> <meta> <task-id>
     return 0
   fi
   if ! FM_HOME="$home" FM_STATE_OVERRIDE="$state" \
-    "$_FM_MERGE_AUTHORITY_LIB_DIR/fm-afk-contract.sh" validate >/dev/null 2>&1; then
+    bash "$_FM_MERGE_AUTHORITY_LIB_DIR/fm-afk-contract.sh" validate >/dev/null 2>&1; then
     FM_MERGE_AUTHORITY_REASON='record-unreadable'
     return 1
   fi

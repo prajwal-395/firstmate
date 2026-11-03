@@ -383,7 +383,7 @@ run_bootstrap() {  # <fakebin> <home> <pane-cmd> <call-log> [extra env...] -> st
   local fb=$1 home=$2 cmd=$3 log=$4; shift 4
   PATH="$fb:$BASE_PATH" TMUX='' FM_BACKEND=tmux FM_HOME="$home" \
     FM_TEST_PANE_CMD="$cmd" FM_TMUX_CALL_LOG="$log" \
-    env "$@" "$ROOT/bin/fm-bootstrap.sh" 2>&1
+    env "$@" bash "$ROOT/bin/fm-bootstrap.sh" 2>&1
 }
 
 test_sweep_respawns_confirmed_dead_secondmate() {

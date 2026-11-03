@@ -150,7 +150,7 @@ test_attended_captain_outcome_reaches_main_through_branch_outcomes() {
   assert_contains "$drained" "run bin/fm-branch-outcome.sh mark-processed --through 1" "the section must print its exact acknowledgement"
   drained=$(FM_HOME="$home" "$FAKE_CLAUDE" -c '"$0" 2>&1' "$ROOT/bin/fm-wake-drain.sh")
   assert_contains "$drained" " ago] demo: stub escalated: " "an unacknowledged captain outcome must be presented again"
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" mark-processed --through 1 >/dev/null \
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" mark-processed --through 1 >/dev/null \
     || fail "main's acknowledgement of the presented outcome was refused"
   drained=$(FM_HOME="$home" "$FAKE_CLAUDE" -c '"$0" 2>&1' "$ROOT/bin/fm-wake-drain.sh")
   assert_not_contains "$drained" "BRANCH OUTCOMES" "an acknowledged captain outcome must not be presented again"
@@ -822,7 +822,7 @@ test_outcome_after_the_return_survives_a_host_killed_at_the_turn_end() {
   wait_until_deadline 60 host_exited "$home" || fail "return-first: the next host did not resurface the queued outcome"
   assert_re '^check: rearm-resurface$' "$home/host.out" "the next host's first cycle must resurface the queue"
   assert_re '	pass-through	attended	main-only	check: rearm-resurface' "$home/state/.supervision-host.log" "the attended resurface must reach main"
-  drained=$(FM_HOME="$home" "$ROOT/bin/fm-wake-drain.sh" 2>&1)
+  drained=$(FM_HOME="$home" bash "$ROOT/bin/fm-wake-drain.sh" 2>&1)
   assert_contains "$drained" "supervision-host outcome 1 for demo [routine] was recorded after the captain returned" \
     "main's drain must present the outcome the killed host never handed off"
   pass "host: an outcome recorded after the return reaches main even when its host dies at the turn's end"

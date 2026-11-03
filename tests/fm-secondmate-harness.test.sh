@@ -103,8 +103,8 @@ test_harness_resolution() {
     mkdir -p "$cfg"
     [ "$crew" = "-" ] || printf '%s\n' "$crew" > "$cfg/crew-harness"
     [ "$sm" = "-" ] || printf '%s\n' "$sm" > "$cfg/secondmate-harness"
-    got_sm=$(PATH="$BLIND_BIN:$BASE_PATH" CLAUDECODE=1 FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh" secondmate)
-    got_crew=$(PATH="$BLIND_BIN:$BASE_PATH" CLAUDECODE=1 FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh" crew)
+    got_sm=$(PATH="$BLIND_BIN:$BASE_PATH" CLAUDECODE=1 FM_CONFIG_OVERRIDE="$cfg" bash "$ROOT/bin/fm-harness.sh" secondmate)
+    got_crew=$(PATH="$BLIND_BIN:$BASE_PATH" CLAUDECODE=1 FM_CONFIG_OVERRIDE="$cfg" bash "$ROOT/bin/fm-harness.sh" crew)
     [ "$got_sm" = "$exp_sm" ] || fail "$label: secondmate resolved '$got_sm', expected '$exp_sm'"
     [ "$got_crew" = "$exp_crew" ] || fail "$label: crew resolved '$got_crew', expected '$exp_crew'"
   done <<'ROWS'
@@ -133,10 +133,10 @@ esac
 SH
   chmod +x "$fakebin/ps"
   got=$(env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT \
-    PATH="$fakebin:$BASE_PATH" CURSOR_INVOKED_AS=cursor-agent "$ROOT/bin/fm-harness.sh")
+    PATH="$fakebin:$BASE_PATH" CURSOR_INVOKED_AS=cursor-agent bash "$ROOT/bin/fm-harness.sh")
   [ "$got" = cursor ] || fail "Cursor's exact launcher marker resolved '$got', expected cursor"
   got=$(env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT \
-    PATH="$fakebin:$BASE_PATH" CURSOR_INVOKED_AS=cursor "$ROOT/bin/fm-harness.sh")
+    PATH="$fakebin:$BASE_PATH" CURSOR_INVOKED_AS=cursor bash "$ROOT/bin/fm-harness.sh")
   [ "$got" != cursor ] || fail "an inexact Cursor marker value was accepted as Cursor Agent CLI"
   pass "fm-harness detects only Cursor Agent CLI's exact invocation marker"
 }
@@ -160,9 +160,9 @@ test_secondmate_model_effort_tokens() {
     cfg="$case_dir/config"
     mkdir -p "$cfg"
     [ "$line" = ABSENT ] || printf '%b\n' "$line" > "$cfg/secondmate-harness"
-    got_h=$(PATH="$BLIND_BIN:$BASE_PATH" CLAUDECODE=1 FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh" secondmate)
-    got_m=$(PATH="$BLIND_BIN:$BASE_PATH" CLAUDECODE=1 FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh" secondmate-model)
-    got_e=$(PATH="$BLIND_BIN:$BASE_PATH" CLAUDECODE=1 FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh" secondmate-effort)
+    got_h=$(PATH="$BLIND_BIN:$BASE_PATH" CLAUDECODE=1 FM_CONFIG_OVERRIDE="$cfg" bash "$ROOT/bin/fm-harness.sh" secondmate)
+    got_m=$(PATH="$BLIND_BIN:$BASE_PATH" CLAUDECODE=1 FM_CONFIG_OVERRIDE="$cfg" bash "$ROOT/bin/fm-harness.sh" secondmate-model)
+    got_e=$(PATH="$BLIND_BIN:$BASE_PATH" CLAUDECODE=1 FM_CONFIG_OVERRIDE="$cfg" bash "$ROOT/bin/fm-harness.sh" secondmate-effort)
     [ "$got_h" = "$exp_harness" ] || fail "$label: harness resolved '$got_h', expected '$exp_harness'"
     [ "$got_m" = "$exp_model" ] || fail "$label: model resolved '$got_m', expected '$exp_model'"
     [ "$got_e" = "$exp_effort" ] || fail "$label: effort resolved '$got_e', expected '$exp_effort'"
@@ -198,9 +198,9 @@ test_secondmate_per_mate_override_lines() {
     cfg="$case_dir/config"
     mkdir -p "$cfg"
     [ "$file" = ABSENT ] || printf '%b\n' "$file" > "$cfg/secondmate-harness"
-    got_h=$(PATH="$BLIND_BIN:$BASE_PATH" CLAUDECODE=1 FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh" secondmate "$id")
-    got_m=$(PATH="$BLIND_BIN:$BASE_PATH" CLAUDECODE=1 FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh" secondmate-model "$id")
-    got_e=$(PATH="$BLIND_BIN:$BASE_PATH" CLAUDECODE=1 FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh" secondmate-effort "$id")
+    got_h=$(PATH="$BLIND_BIN:$BASE_PATH" CLAUDECODE=1 FM_CONFIG_OVERRIDE="$cfg" bash "$ROOT/bin/fm-harness.sh" secondmate "$id")
+    got_m=$(PATH="$BLIND_BIN:$BASE_PATH" CLAUDECODE=1 FM_CONFIG_OVERRIDE="$cfg" bash "$ROOT/bin/fm-harness.sh" secondmate-model "$id")
+    got_e=$(PATH="$BLIND_BIN:$BASE_PATH" CLAUDECODE=1 FM_CONFIG_OVERRIDE="$cfg" bash "$ROOT/bin/fm-harness.sh" secondmate-effort "$id")
     [ "$got_h" = "$exp_harness" ] || fail "$label: harness resolved '$got_h', expected '$exp_harness'"
     [ "$got_m" = "$exp_model" ] || fail "$label: model resolved '$got_m', expected '$exp_model'"
     [ "$got_e" = "$exp_effort" ] || fail "$label: effort resolved '$got_e', expected '$exp_effort'"
@@ -240,12 +240,12 @@ test_secondmate_malformed_pin_refuses_with_line_number() {
     for id in alpha beta ''; do
     for verb in secondmate secondmate-model secondmate-effort; do
       out=$(PATH="$BLIND_BIN:$BASE_PATH" CLAUDECODE=1 FM_CONFIG_OVERRIDE="$cfg" \
-        "$ROOT/bin/fm-harness.sh" "$verb" "$id" 2>&1); rc=$?
+        bash "$ROOT/bin/fm-harness.sh" "$verb" "$id" 2>&1); rc=$?
       [ "$rc" -ne 0 ] || fail "$label: fm-harness.sh $verb accepted the malformed pin: $out"
       assert_contains "$out" "config/secondmate-harness line " \
         "$label: fm-harness.sh $verb refused without naming the offending line"
       got_stdout=$(PATH="$BLIND_BIN:$BASE_PATH" CLAUDECODE=1 FM_CONFIG_OVERRIDE="$cfg" \
-        "$ROOT/bin/fm-harness.sh" "$verb" "$id" 2>/dev/null)
+        bash "$ROOT/bin/fm-harness.sh" "$verb" "$id" 2>/dev/null)
       [ -z "$got_stdout" ] \
         || fail "$label: a refused pin must print no token on stdout, got '$got_stdout'"
     done
@@ -283,7 +283,7 @@ test_secondmate_legacy_pin_file_is_never_refused() {
     for id in alpha ''; do
       for verb in secondmate secondmate-model secondmate-effort; do
         out=$(PATH="$BLIND_BIN:$BASE_PATH" CLAUDECODE=1 FM_CONFIG_OVERRIDE="$cfg" \
-          "$ROOT/bin/fm-harness.sh" "$verb" "$id" 2>"$case_dir/err"); rc=$?
+          bash "$ROOT/bin/fm-harness.sh" "$verb" "$id" 2>"$case_dir/err"); rc=$?
         err=$(cat "$case_dir/err")
         [ "$rc" -eq 0 ] \
           || fail "$label: fm-harness.sh $verb refused a file that declares no mate line: $err"
@@ -340,19 +340,19 @@ esac
 SH
   chmod +x "$fakebin/ps"
 
-  got=$(env -u CLAUDECODE -u GROK_AGENT PATH="$fakebin:$BASE_PATH" PI_CODING_AGENT=true "$ROOT/bin/fm-harness.sh")
+  got=$(env -u CLAUDECODE -u GROK_AGENT PATH="$fakebin:$BASE_PATH" PI_CODING_AGENT=true bash "$ROOT/bin/fm-harness.sh")
   [ "$got" = pi ] || fail "unmarked shared signed-wrapper ancestry resolved '$got', expected pi"
-  got=$(env -u CLAUDECODE -u GROK_AGENT PATH="$fakebin:$BASE_PATH" PI_CODING_AGENT=true FM_PI_HARNESS=pi-signed "$ROOT/bin/fm-harness.sh")
+  got=$(env -u CLAUDECODE -u GROK_AGENT PATH="$fakebin:$BASE_PATH" PI_CODING_AGENT=true FM_PI_HARNESS=pi-signed bash "$ROOT/bin/fm-harness.sh")
   [ "$got" = pi-signed ] || fail "selected signed wrapper resolved '$got', expected pi-signed"
-  got=$(env -u CLAUDECODE -u GROK_AGENT PATH="$fakebin:$BASE_PATH" PI_CODING_AGENT=true FM_PI_HARNESS=pi "$ROOT/bin/fm-harness.sh")
+  got=$(env -u CLAUDECODE -u GROK_AGENT PATH="$fakebin:$BASE_PATH" PI_CODING_AGENT=true FM_PI_HARNESS=pi bash "$ROOT/bin/fm-harness.sh")
   [ "$got" = pi ] || fail "selected plain Pi resolved '$got', expected pi"
-  got=$(env -u CLAUDECODE -u GROK_AGENT PATH="$fakebin:$BASE_PATH" PI_CODING_AGENT=true FM_PI_HARNESS=pi-signed-helper "$ROOT/bin/fm-harness.sh")
+  got=$(env -u CLAUDECODE -u GROK_AGENT PATH="$fakebin:$BASE_PATH" PI_CODING_AGENT=true FM_PI_HARNESS=pi-signed-helper bash "$ROOT/bin/fm-harness.sh")
   [ "$got" = pi ] || fail "inexact signed selection marker resolved '$got', expected pi"
-  got=$(env -u CLAUDECODE -u GROK_AGENT -u PI_CODING_AGENT PATH="$fakebin:$BASE_PATH" FM_PI_HARNESS=pi-signed "$ROOT/bin/fm-harness.sh")
+  got=$(env -u CLAUDECODE -u GROK_AGENT -u PI_CODING_AGENT PATH="$fakebin:$BASE_PATH" FM_PI_HARNESS=pi-signed bash "$ROOT/bin/fm-harness.sh")
   [ "$got" = pi ] || fail "signed selection marker without Pi's family marker resolved '$got', expected pi"
-  got=$(env -u CLAUDECODE -u GROK_AGENT PATH="$fakebin:$BASE_PATH" PI_CODING_AGENT=true FM_TEST_SIGNED_SHAPE=plain "$ROOT/bin/fm-harness.sh")
+  got=$(env -u CLAUDECODE -u GROK_AGENT PATH="$fakebin:$BASE_PATH" PI_CODING_AGENT=true FM_TEST_SIGNED_SHAPE=plain bash "$ROOT/bin/fm-harness.sh")
   [ "$got" = pi ] || fail "plain Pi marker resolved '$got', expected pi"
-  got=$(env -u CLAUDECODE -u GROK_AGENT PATH="$fakebin:$BASE_PATH" PI_CODING_AGENT=true FM_TEST_SIGNED_SHAPE=helper "$ROOT/bin/fm-harness.sh")
+  got=$(env -u CLAUDECODE -u GROK_AGENT PATH="$fakebin:$BASE_PATH" PI_CODING_AGENT=true FM_TEST_SIGNED_SHAPE=helper bash "$ROOT/bin/fm-harness.sh")
   [ "$got" = pi ] || fail "unrelated pi-signed-helper ancestry resolved '$got', expected pi"
 
   got=$(PATH="$fakebin:$BASE_PATH" bash -c \
@@ -401,7 +401,7 @@ SH
 
   err="$dir/fm-harness.err"
   got=$(env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT \
-    PATH="$fakebin:$BASE_PATH" "$ROOT/bin/fm-harness.sh" 2>"$err")
+    PATH="$fakebin:$BASE_PATH" bash "$ROOT/bin/fm-harness.sh" 2>"$err")
   [ "$got" = codex ] || fail "dash-leading shell ancestry resolved '$got', expected codex"
   [ ! -s "$err" ] || fail "fm-harness wrote basename option noise for literal -zsh: $(cat "$err")"
 
@@ -664,7 +664,7 @@ spawn_secondmate() {
     FM_STATE_OVERRIDE="$world/home/state" FM_DATA_OVERRIDE="$world/home/data" \
     FM_PROJECTS_OVERRIDE="$world/home/projects" FM_CONFIG_OVERRIDE="$world/home/config" \
     FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" "${spawn_args[@]}" >/dev/null 2>&1 || true
+    bash "$ROOT/bin/fm-spawn.sh" "${spawn_args[@]}" >/dev/null 2>&1 || true
 }
 
 meta_harness() { grep '^harness=' "$1" 2>/dev/null | tail -1 | cut -d= -f2-; }
@@ -783,7 +783,7 @@ test_spawn_unverified_secondmate_harness_refused() {
     FM_STATE_OVERRIDE="$w/home/state" FM_DATA_OVERRIDE="$w/home/data" \
     FM_PROJECTS_OVERRIDE="$w/home/projects" FM_CONFIG_OVERRIDE="$w/home/config" \
     FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" sm "$sm" --secondmate >/dev/null 2>"$err" || rc=$?
+    bash "$ROOT/bin/fm-spawn.sh" sm "$sm" --secondmate >/dev/null 2>"$err" || rc=$?
 
   [ "$rc" -ne 0 ] || fail "unverified: spawn should have failed"
   assert_contains "$(cat "$err")" "no launch template for harness 'bogus'" \
@@ -810,7 +810,7 @@ test_spawn_cursor_secondmate_launches_with_its_primary_contract() {
     FM_STATE_OVERRIDE="$w/home/state" FM_DATA_OVERRIDE="$w/home/data" \
     FM_PROJECTS_OVERRIDE="$w/home/projects" FM_CONFIG_OVERRIDE="$w/home/config" \
     FM_SPAWN_NO_GUARD=1 FM_FAKE_LAUNCH_LOG="$launchlog" FM_FAKE_PANE_PATH="$sm" \
-    "$ROOT/bin/fm-spawn.sh" sm "$sm" --secondmate >/dev/null 2>&1 || rc=$?
+    bash "$ROOT/bin/fm-spawn.sh" sm "$sm" --secondmate >/dev/null 2>&1 || rc=$?
 
   [ "$rc" -eq 0 ] || {
     echo "skip: cursor executable not resolvable in this environment, so the launch could not be built"
@@ -925,7 +925,7 @@ spawn_secondmate_capture() {
     FM_STATE_OVERRIDE="$world/home/state" FM_DATA_OVERRIDE="$world/home/data" \
     FM_PROJECTS_OVERRIDE="$world/home/projects" FM_CONFIG_OVERRIDE="$world/home/config" \
     FM_SPAWN_NO_GUARD=1 FM_FAKE_LAUNCH_LOG="$launchlog" \
-    "$ROOT/bin/fm-spawn.sh" "$id" "$home" "$@" --secondmate
+    bash "$ROOT/bin/fm-spawn.sh" "$id" "$home" "$@" --secondmate
 }
 
 test_spawn_backend_precedence_over_inherited_config() {
@@ -1276,7 +1276,7 @@ EOF
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
     FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
     FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$wt" FM_FAKE_LAUNCH_LOG="$launchlog" \
-    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" --mode no-mistakes --yolo off >/dev/null 2>&1
+    bash "$ROOT/bin/fm-spawn.sh" "$id" "$proj" --mode no-mistakes --yolo off >/dev/null 2>&1
   meta="$home/state/$id.meta"
   [ "$(meta_field "$meta" kind)" = ship ] || fail "crew-unaffected: expected an ordinary ship task"
   [ "$(meta_field "$meta" harness)" = codex ] || fail "crew-unaffected: crew harness resolution changed"
@@ -1437,10 +1437,10 @@ run_bootstrap() {
   if [ -n "$log" ]; then
     PATH="$fakebin:$BASE_PATH" FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
       FM_SEND_SETTLE=0 FM_FAKE_TMUX_LOG="$log" \
-      "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null
+      bash "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null
   else
     PATH="$fakebin:$BASE_PATH" FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
-      FM_SEND_SETTLE=0 "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null
+      FM_SEND_SETTLE=0 bash "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null
   fi
 }
 
@@ -1450,11 +1450,11 @@ run_config_push() {
   if [ -n "$log" ]; then
     PATH="$fakebin:$BASE_PATH" FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
       FM_SEND_SETTLE=0 FM_FAKE_TMUX_LOG="$log" \
-      "$ROOT/bin/fm-config-push.sh"
+      bash "$ROOT/bin/fm-config-push.sh"
   else
     PATH="$fakebin:$BASE_PATH" FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
       FM_SEND_SETTLE=0 \
-      "$ROOT/bin/fm-config-push.sh"
+      bash "$ROOT/bin/fm-config-push.sh"
   fi
 }
 
@@ -1745,7 +1745,7 @@ test_spawn_secondmate_claude_grants_parent_inbox_dir() {
         FM_STATE_OVERRIDE="$w/home/state" FM_DATA_OVERRIDE="$w/home/data" \
         FM_PROJECTS_OVERRIDE="$w/home/projects" FM_CONFIG_OVERRIDE="$w/home/config" \
         FM_SPAWN_NO_GUARD=1 FM_FAKE_LAUNCH_LOG="$launchlog" \
-        "$ROOT/bin/fm-spawn.sh" sm "$sm" --secondmate 2>&1
+        bash "$ROOT/bin/fm-spawn.sh" sm "$sm" --secondmate 2>&1
     )
     status=$?
     expect_code 0 "$status" "claude secondmate spawn under $mode should succeed"$'\n'"$out"
@@ -2290,7 +2290,7 @@ test_config_reread_isolation_and_absent_and_send_failure() {
   err="$w/config-reread-send-fail.err"
   out=$(PATH="$(make_fake_toolchain "$w"):$BASE_PATH" \
     FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" FM_SEND_SETTLE=0 \
-    "$ROOT/bin/fm-config-push.sh" 2>"$err"); status=$?
+    bash "$ROOT/bin/fm-config-push.sh" 2>"$err"); status=$?
   expect_code 1 "$status" "send failure should make config-push exit non-zero"
   assert_contains "$out" "CONFIG_REREAD: secondmate" "send failure diagnostic missing"
   assert_contains "$out" "send failed" "send failure must say send failed"
@@ -2310,7 +2310,7 @@ test_config_reread_isolation_and_absent_and_send_failure() {
   err="$w/config-reread-send-fail-second.err"
   out2=$(PATH="$(make_fake_toolchain "$w"):$BASE_PATH" \
     FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" FM_SEND_SETTLE=0 \
-    "$ROOT/bin/fm-config-push.sh" 2>"$err"); status2=$?
+    bash "$ROOT/bin/fm-config-push.sh" 2>"$err"); status2=$?
   expect_code 1 "$status2" "second send failure should make config-push exit non-zero"
   assert_not_contains "$out2" "config-reread: sent" \
     "second send failure must not claim reread delivery"
@@ -2362,7 +2362,7 @@ exec "$real_mv" "\$@"
 SH
   chmod +x "$fakebin/mv"
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
-    FM_SEND_SETTLE=0 "$ROOT/bin/fm-config-push.sh" 2>&1); status=$?
+    FM_SEND_SETTLE=0 bash "$ROOT/bin/fm-config-push.sh" 2>&1); status=$?
   expect_code 1 "$status" "publication failure should remain diagnostic"
   assert_contains "$out" "CONFIG_REREAD: secondmate" "publication failure diagnostic missing"
   assert_not_contains "$out" "config-reread: sent" \
@@ -2419,7 +2419,7 @@ exec "$real_mv" "\$@"
 SH
   chmod +x "$fakebin/mv"
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
-    FM_SEND_SETTLE=0 "$ROOT/bin/fm-config-push.sh" 2>&1); status=$?
+    FM_SEND_SETTLE=0 bash "$ROOT/bin/fm-config-push.sh" 2>&1); status=$?
   expect_code 1 "$status" "instruction-write failure should remain diagnostic"
   assert_contains "$out" "retained exact retry generation" \
     "instruction-write failure did not retain exact retry bytes"
@@ -2484,7 +2484,7 @@ exec "$real_cp" "\$@"
 SH
   chmod +x "$fakebin/cp"
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
-    FM_SEND_SETTLE=0 "$ROOT/bin/fm-config-push.sh" 2>&1); status=$?
+    FM_SEND_SETTLE=0 bash "$ROOT/bin/fm-config-push.sh" 2>&1); status=$?
   expect_code 1 "$status" "exact temporary fallback failure should remain diagnostic"
   assert_contains "$out" "retained exact retry temporary" \
     "exact temporary fallback failure did not retain the immutable bytes"
@@ -2550,7 +2550,7 @@ SH
   (
     PATH="$fakebin:$BASE_PATH" FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
       FM_SEND_SETTLE=0 FM_FAKE_TMUX_LOG="$log" \
-      "$ROOT/bin/fm-config-push.sh" > "$first_out" 2>&1
+      bash "$ROOT/bin/fm-config-push.sh" > "$first_out" 2>&1
   ) &
   first_pid=$!
   # The loop leaves as soon as the push reaches its first send, so a generous
@@ -2566,7 +2566,7 @@ SH
   second_out="$w/second-push.out"
   PATH="$fakebin:$BASE_PATH" FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
     FM_SEND_SETTLE=0 FM_FAKE_TMUX_LOG="$log" \
-    "$ROOT/bin/fm-config-push.sh" > "$second_out" 2>&1
+    bash "$ROOT/bin/fm-config-push.sh" > "$second_out" 2>&1
   second_status=$?
   wait "$first_pid"; first_status=$?
   expect_code 0 "$first_status" "first serialized config push failed"
@@ -2604,7 +2604,7 @@ test_config_reread_full_retry_queue_drains_before_new_push() {
   log="$w/config-reread-full-queue.tmux.log"
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
     FM_SEND_SETTLE=0 FM_FAKE_TMUX_LOG="$log" \
-    "$ROOT/bin/fm-config-push.sh" 2>&1); status=$?
+    bash "$ROOT/bin/fm-config-push.sh" 2>&1); status=$?
   expect_code 0 "$status" "a full retry queue should drain before a new push"
   assert_contains "$out" "config-reread: sent" \
     "a new config generation was not delivered after retry draining"
@@ -2718,7 +2718,7 @@ test_bootstrap_detect_only_does_not_create_state() {
   fakebin=$(make_fake_toolchain "$w")
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
     FM_STATE_OVERRIDE="$detect_state" FM_BOOTSTRAP_DETECT_ONLY=1 \
-    "$ROOT/bin/fm-bootstrap.sh" 2>&1); status=$?
+    bash "$ROOT/bin/fm-bootstrap.sh" 2>&1); status=$?
   expect_code 0 "$status" "detect-only bootstrap should succeed"
   [ ! -e "$detect_state" ] || fail "detect-only bootstrap created its state directory"
   pass "B24 bootstrap detect-only mode remains filesystem read-only"
@@ -2801,7 +2801,7 @@ test_config_reread_bootstrap_path_and_spawn_flexibility() {
   log="$w/bootstrap-reread.tmux.log"
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
     FM_SEND_SETTLE=0 FM_FAKE_TMUX_LOG="$log" \
-    "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
+    bash "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
   [ "$(cat "$w/sm/config/crew-harness")" = codex ] || fail "bootstrap did not push harness"
   instr=$(reread_instruction_path "$w/sm") || fail "bootstrap reread instruction missing"
   assert_present "$instr" "bootstrap must write a config reread instruction when config changed"
@@ -2877,7 +2877,7 @@ SH
   chmod +x "$fakebin/tmux"
   PATH="$fakebin:$BASE_PATH" FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
     FM_SEND_SETTLE=0 FM_FAKE_TMUX_LOG="$log" \
-    "$ROOT/bin/fm-bootstrap.sh" >/dev/null 2>&1
+    bash "$ROOT/bin/fm-bootstrap.sh" >/dev/null 2>&1
   assert_contains "$(cat "$log")" "spawn" \
     "bootstrap did not respawn the dead secondmate"
   assert_not_contains "$(cat "$log")" "send-keys" \
@@ -2930,7 +2930,7 @@ SH
     FM_STATE_OVERRIDE="$w/home/state" FM_DATA_OVERRIDE="$w/home/data" \
     FM_PROJECTS_OVERRIDE="$w/home/projects" FM_CONFIG_OVERRIDE="$w/home/config" \
     FM_SPAWN_NO_GUARD=1 FM_FAKE_LAUNCH_LOG="$launchlog" \
-    "$ROOT/bin/fm-spawn.sh" sm "$sm" --secondmate 2>&1); status=$?
+    bash "$ROOT/bin/fm-spawn.sh" sm "$sm" --secondmate 2>&1); status=$?
   expect_code 0 "$status" "spawn should remain available after reread cleanup failure"
   assert_contains "$out" "CONFIG_REREAD: secondmate sm: quarantined pre-relaunch generations" \
     "spawn cleanup failure did not emit a CONFIG_REREAD quarantine diagnostic"

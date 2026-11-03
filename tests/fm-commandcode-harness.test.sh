@@ -106,7 +106,7 @@ if ! command -v node >/dev/null 2>&1 || ! drive_mod list - >/dev/null 2>&1; then
 else
   state="$TMP_ROOT/mod state"
   mkdir -p "$state"
-  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$state" worker)
+  gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$state" worker)
   opts=$(jq -cn --arg w "$ROOT/bin/fm-busy-event.sh" --arg s "$state" --arg g "$gen" '{fmWriter: $w, fmState: $s, fmId: "worker", fmGen: $g}')
   [ "$(drive_mod list -)" = 'onSessionEnd run_end run_start' ] || fail "mod registers the wrong lifecycle: $(drive_mod list -)"
   drive_mod run_start - "$opts" >/dev/null || fail 'run_start drive failed'
@@ -122,7 +122,7 @@ else
   drive_mod run_start - "$opts" >/dev/null
   drive_mod session_end - "$opts" >/dev/null
   [ "$(fm_busy_classify tmux fake:w commandcode worker "$state")" = 'idle commandcode-mod' ] || fail 'session end did not settle'
-  "$ROOT/bin/fm-busy-event.sh" arm "$state" worker >/dev/null
+  bash "$ROOT/bin/fm-busy-event.sh" arm "$state" worker >/dev/null
   drive_mod run_end end_turn "$opts" >/dev/null
   [ "$(fm_busy_classify tmux fake:w commandcode worker "$state")" = 'busy fm-spawn' ] || fail 'stale run_end cleared replacement'
   assert_absent "$state/worker.turn-ended" 'stale run_end woke replacement'

@@ -497,7 +497,7 @@ fm_test_run_spawn() {
     FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
     FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$pane" TMUX="${TMUX:-fake,1,0}" \
     PATH="$fakebin:$PATH" \
-    "$ROOT/bin/fm-spawn.sh" "$@" 2>&1
+    bash "$ROOT/bin/fm-spawn.sh" "$@" 2>&1
 }
 
 # --- send-world stubs -------------------------------------------------------

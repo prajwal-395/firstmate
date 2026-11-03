@@ -267,7 +267,7 @@ read_saved() {
 }
 
 get_input() {
-  "$SCRIPT_DIR/fm-fleet-snapshot.sh" --contribution-input > "$TMP/input.json"
+  bash "$SCRIPT_DIR/fm-fleet-snapshot.sh" --contribution-input > "$TMP/input.json"
 }
 
 project() {
@@ -717,7 +717,7 @@ arm() {
   printf '%s\n' "${shim[@]}" > "$staged"
   chmod 700 "$staged"
   mv -f -- "$staged" "$STATE/contributions.check.sh"
-  "$SCRIPT_DIR/fm-check-register.sh" contributions
+  bash "$SCRIPT_DIR/fm-check-register.sh" contributions
 }
 
 case "${1:-}" in

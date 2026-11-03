@@ -320,7 +320,7 @@ pass "operator PATH orders discovered tool installs deterministically"
 HOME="$ACCOUNT_HOME" PATH="$RUNTIME_BIN:/usr/bin:/bin:/usr/sbin:/sbin" FM_FAKE_PERL_LOG="$FAKE_PERL_LOG" \
   FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_REMOTE_JOB_STATE_ROOT="$STATE_ROOT" \
   FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux FM_REMOTE_JOB_TIMEOUT=5 \
-  "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" > "$TMP_ROOT/worker.out" 2> "$TMP_ROOT/worker.err" &
+  /bin/bash "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" > "$TMP_ROOT/worker.out" 2> "$TMP_ROOT/worker.err" &
 for _ in $(seq 1 100); do
   [ -f "$STATE_ROOT/worker.ready" ] && break
   sleep 0.05
@@ -599,7 +599,7 @@ done
 kill -0 "$WORKER_PID" 2>/dev/null && fail "the worker did not finish its TERM shutdown"
 HOME="$ACCOUNT_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_REMOTE_JOB_STATE_ROOT="$STATE_ROOT" \
   FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux FM_REMOTE_JOB_TIMEOUT=1 \
-  "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" >> "$TMP_ROOT/worker.out" 2>> "$TMP_ROOT/worker.err" &
+  /bin/bash "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" >> "$TMP_ROOT/worker.out" 2>> "$TMP_ROOT/worker.err" &
 for _ in $(seq 1 100); do
   [ -f "$STATE_ROOT/worker.ready" ] && break
   sleep 0.05
@@ -720,7 +720,7 @@ assert_present "$STATE_ROOT/worker.lock/quarantine" "failed shutdown released wo
 fm_remote_job_probe "$ACCOUNT_HOME" && fail "quarantined worker ownership still reported ready"
 set +e
 HOME="$ACCOUNT_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_REMOTE_JOB_STATE_ROOT="$STATE_ROOT" \
-  FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" \
+  FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux /bin/bash "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" \
   >> "$TMP_ROOT/worker.out" 2>> "$TMP_ROOT/worker.err"
 REPLACEMENT_RC=$?
 set -e
@@ -757,7 +757,7 @@ chmod 600 "$RECOVERY_STATE/worker.lock"/* "$RECOVERY_JOB/state" "$RECOVERY_JOB/.
 touch -t 200001010000 "$RECOVERY_STATE/worker.lock"
 set +e
 HOME="$RECOVERY_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_REMOTE_JOB_STATE_ROOT="$RECOVERY_STATE" \
-  FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" \
+  FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux /bin/bash "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" \
   > "$TMP_ROOT/recovery-refused.out" 2> "$TMP_ROOT/recovery-refused.err"
 RECOVERY_REFUSED_RC=$?
 set -e
@@ -769,7 +769,7 @@ printf 'stale supervisor identity\n' > "$RECOVERY_JOB/.claim/supervisor_start"
 chmod 600 "$RECOVERY_JOB/.claim/owner" "$RECOVERY_JOB/.claim/owner_start" \
   "$RECOVERY_JOB/.claim/supervisor_start"
 HOME="$RECOVERY_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_REMOTE_JOB_STATE_ROOT="$RECOVERY_STATE" \
-  FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" \
+  FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux /bin/bash "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" \
   > "$TMP_ROOT/recovery-worker.out" 2> "$TMP_ROOT/recovery-worker.err" &
 RECOVERY_WORKER_PID=$!
 for _ in $(seq 1 300); do
@@ -810,7 +810,7 @@ REPEAT_STATE="$TMP_ROOT/repeat-signal-jobs"
 mkdir -p "$REPEAT_HOME"
 chmod 700 "$REPEAT_HOME"
 HOME="$REPEAT_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_REMOTE_JOB_STATE_ROOT="$REPEAT_STATE" \
-  FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" --serve \
+  FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux /bin/bash "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" --serve \
   > "$TMP_ROOT/repeat-signal.out" 2> "$TMP_ROOT/repeat-signal.err" &
 REPEAT_WORKER_PID=$!
 for _ in $(seq 1 300); do
@@ -841,7 +841,7 @@ assert_absent "$REPEAT_STATE/worker.lock" \
 assert_absent "$REPEAT_STATE/worker.ready" \
   "a repeatedly signalled shutdown left its readiness heartbeat behind"
 HOME="$REPEAT_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_REMOTE_JOB_STATE_ROOT="$REPEAT_STATE" \
-  FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" --serve \
+  FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux /bin/bash "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" --serve \
   >> "$TMP_ROOT/repeat-signal.out" 2>> "$TMP_ROOT/repeat-signal.err" &
 REPEAT_WORKER_PID=$!
 for _ in $(seq 1 600); do
@@ -871,7 +871,7 @@ LOST_STATE="$TMP_ROOT/lost-term-jobs"
 mkdir -p "$LOST_HOME"
 chmod 700 "$LOST_HOME"
 HOME="$LOST_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_REMOTE_JOB_STATE_ROOT="$LOST_STATE" \
-  FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" --serve \
+  FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux /bin/bash "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" --serve \
   > "$TMP_ROOT/lost-term.out" 2> "$TMP_ROOT/lost-term.err" &
 LOST_TERM_PID=$!
 for _ in $(seq 1 300); do
@@ -923,7 +923,7 @@ LOST_STATE="$TMP_ROOT/lost-cleanup-jobs"
 mkdir -p "$LOST_HOME"
 chmod 700 "$LOST_HOME"
 HOME="$LOST_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_REMOTE_JOB_STATE_ROOT="$LOST_STATE" \
-  FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" --serve \
+  FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux /bin/bash "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" --serve \
   > "$TMP_ROOT/lost-cleanup.out" 2> "$TMP_ROOT/lost-cleanup.err" &
 LOST_TERM_PID=$!
 for _ in $(seq 1 300); do
@@ -967,7 +967,7 @@ OWNER_SIDE_EFFECT="$TMP_ROOT/replacement-side-effect"
 mkdir -p "$OWNER_HOME"
 chmod 700 "$OWNER_HOME"
 HOME="$OWNER_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_REMOTE_JOB_STATE_ROOT="$OWNER_STATE" \
-  FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" --serve \
+  FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux /bin/bash "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" --serve \
   > "$TMP_ROOT/replacement-lost.out" 2> "$TMP_ROOT/replacement-lost.err" &
 LOST_TERM_PID=$!
 for _ in $(seq 1 300); do
@@ -982,7 +982,7 @@ for _ in $(seq 1 100); do
 done
 rm -rf -- "$OWNER_STATE/worker.lock"
 HOME="$OWNER_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_REMOTE_JOB_STATE_ROOT="$OWNER_STATE" \
-  FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" --serve \
+  FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux /bin/bash "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" --serve \
   > "$TMP_ROOT/replacement-owner.out" 2> "$TMP_ROOT/replacement-owner.err" &
 REPLACEMENT_OWNER_PID=$!
 for _ in $(seq 1 300); do
@@ -1076,7 +1076,7 @@ chmod +x "$STALL_BIN/sleep"
 # shellcheck disable=SC2031 # Cadence fixture PATH changes stayed in their subshells.
 HOME="$STALL_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_REMOTE_JOB_STATE_ROOT="$STALL_STATE" \
   FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux PATH="$STALL_BIN:$PATH" \
-  "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" --serve \
+  /bin/bash "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" --serve \
   > "$TMP_ROOT/stall-lost.out" 2> "$TMP_ROOT/stall-lost.err" &
 STALL_WORKER_PID=$!
 printf '%s\n' "$STALL_WORKER_PID" > "$STALL_HOLD"
@@ -1103,7 +1103,7 @@ assert_present "$STALL_STATE/worker.lock/quarantine" \
   "the worker held in its stop loop did not hold its own quarantine"
 rm -rf -- "$STALL_STATE/worker.lock"
 HOME="$STALL_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_REMOTE_JOB_STATE_ROOT="$STALL_STATE" \
-  FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" --serve \
+  FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux /bin/bash "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" --serve \
   > "$TMP_ROOT/stall-replacement.out" 2> "$TMP_ROOT/stall-replacement.err" &
 STALL_REPLACEMENT_PID=$!
 STALL_DEADLINE=$((SECONDS + 30))
@@ -1194,7 +1194,7 @@ done
 HOME="$QUIET_HOME" PATH="$QUIET_SHIM:/usr/bin:/bin:/usr/sbin:/sbin" FM_TEST_EXEC_LOG="$QUIET_EXEC_LOG" \
   FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_REMOTE_JOB_STATE_ROOT="$QUIET_STATE" \
   FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux FM_REMOTE_JOB_STAGE_REAP_SECONDS=2 \
-  "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" --serve > "$TMP_ROOT/quiet-worker.out" 2> "$TMP_ROOT/quiet-worker.err" &
+  /bin/bash "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" --serve > "$TMP_ROOT/quiet-worker.out" 2> "$TMP_ROOT/quiet-worker.err" &
 QUIET_WORKER_PID=$!
 quiet_wait_ready() { # <state> <label>
   for _ in $(seq 1 200); do
@@ -1426,7 +1426,7 @@ SCAN_OTHER_ID=$(scan_stage "$SCAN_HOME_B" fm-delay-job.sh 1 "$TMP_ROOT/other-ran
 HOME="$SCAN_ACCOUNT" PATH="$QUIET_SHIM:/usr/bin:/bin:/usr/sbin:/sbin" \
   FM_TEST_EXEC_LOG="$SCAN_EXEC_LOG" FM_ROOT_OVERRIDE="$REMOTE_ROOT" \
   FM_REMOTE_JOB_STATE_ROOT="$SCAN_STATE" FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux \
-  "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" --lane "$SCAN_POLL_ID" \
+  /bin/bash "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" --lane "$SCAN_POLL_ID" \
   > "$TMP_ROOT/scan-lane.out" 2> "$TMP_ROOT/scan-lane.err" &
 SCAN_LANE_PID=$!
 for _ in $(seq 1 200); do
@@ -1484,7 +1484,7 @@ HOME="$SCAN_ACCOUNT" PATH="$QUIET_SHIM:/usr/bin:/bin:/usr/sbin:/sbin" \
   FM_TEST_EXEC_LOG="$SCAN_EXEC_LOG" FM_ROOT_OVERRIDE="$REMOTE_ROOT" \
   FM_REMOTE_JOB_STATE_ROOT="$SCAN_STATE" FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux \
   FM_REMOTE_JOB_MAX_BYTES=4096 LC_ALL="$UTF8_LOCALE" \
-  "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" --lane "$SCAN_BOUND_POLL_ID" \
+  /bin/bash "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" --lane "$SCAN_BOUND_POLL_ID" \
   > "$TMP_ROOT/scan-bound-lane.out" 2> "$TMP_ROOT/scan-bound-lane.err" &
 SCAN_LANE_PID=$!
 for _ in $(seq 1 200); do

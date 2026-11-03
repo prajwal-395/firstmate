@@ -31,7 +31,7 @@ make_world() {
 
 run_check() {
   local root=$1 home=$2 now=$3 out status=0
-  out=$(FM_ROOT_OVERRIDE="$root" FM_HOME="$home" FM_STARTUP_GROWTH_NOW="$now" "$CHECK" check 2>&1) || status=$?
+  out=$(FM_ROOT_OVERRIDE="$root" FM_HOME="$home" FM_STARTUP_GROWTH_NOW="$now" bash "$CHECK" check 2>&1) || status=$?
   printf '%s\t%s\n' "$status" "$out"
 }
 
@@ -282,7 +282,7 @@ esac
 exec $real_stat "\$@"
 FAKE
   chmod 0755 "$fakebin/stat"
-  out=$(PATH="$fakebin:$PATH" FM_ROOT_OVERRIDE="$root" FM_HOME="$home" FM_STARTUP_GROWTH_NOW=87401 "$CHECK" check 2>&1) \
+  out=$(PATH="$fakebin:$PATH" FM_ROOT_OVERRIDE="$root" FM_HOME="$home" FM_STARTUP_GROWTH_NOW=87401 bash "$CHECK" check 2>&1) \
     || fail "unreadable due run failed: $out"
   assert_contains "$out" 'unreadable tracked AGENTS.md' "a failed size read was not reported as unreadable"
 
@@ -330,7 +330,7 @@ test_over_long_finding_set_is_capped_with_the_shared_marker() {
   fi
   ln -s "$home/data/captain.md" "$deep/learnings.md"
   out=$(FM_ROOT_OVERRIDE="$root" FM_HOME="$home" FM_DATA_OVERRIDE="$deep" FM_STARTUP_GROWTH_NOW=1000 \
-    "$CHECK" check 2>/dev/null) || fail "capped check failed"
+    bash "$CHECK" check 2>/dev/null) || fail "capped check failed"
   assert_contains "$out" 'unsafe memory data/learnings.md' "the leading finding was lost"
   [ "${#out}" -le 1000 ] || fail "the wake line was emitted uncapped at ${#out} characters"
   assert_contains "$out" ' [truncated]' "the capped wake line carries no truncation marker"
@@ -360,7 +360,7 @@ STUB
   root=${rec%%|*}
   home=${rec#*|}
   out=$(FM_ROOT_OVERRIDE="$root" FM_HOME="$home" FM_STARTUP_GROWTH_NOW=1000 \
-    "$fixbin/fm-startup-growth-check.sh" check 2>&1) || fail "unknown-status check failed: $out"
+    bash "$fixbin/fm-startup-growth-check.sh" check 2>&1) || fail "unknown-status check failed: $out"
   assert_contains "$out" 'reason=unparseable report' "an unrecognized budget_status was accepted as within-budget"
 
   cat > "$fixbin/fm-startup-memory-budget.sh" <<'STUB'
@@ -381,7 +381,7 @@ STUB
   root=${rec%%|*}
   home=${rec#*|}
   out=$(FM_ROOT_OVERRIDE="$root" FM_HOME="$home" FM_STARTUP_GROWTH_NOW=1000 \
-    "$fixbin/fm-startup-growth-check.sh" check 2>&1) || fail "unknown-exception check failed: $out"
+    bash "$fixbin/fm-startup-growth-check.sh" check 2>&1) || fail "unknown-exception check failed: $out"
   assert_contains "$out" 'reason=unparseable report' "an unrecognized exception annotation silently suppressed the overrun"
 }
 
@@ -396,7 +396,7 @@ test_record_with_a_foreign_schema_marker_is_not_trusted() {
     printf 'last_eval\t1000\n'
     printf 'AGENTS.md\tpresent\t1\t1\t1\n'
   } > "$record"
-  out=$(FM_ROOT_OVERRIDE="$root" FM_HOME="$home" FM_STARTUP_GROWTH_NOW=1200 "$CHECK" check 2>&1) \
+  out=$(FM_ROOT_OVERRIDE="$root" FM_HOME="$home" FM_STARTUP_GROWTH_NOW=1200 bash "$CHECK" check 2>&1) \
     || fail "foreign-schema check failed: $out"
   [ -z "$out" ] || fail "a record from another schema was reinterpreted instead of re-baselined: $out"
   IFS= read -r first < "$record"
@@ -411,7 +411,7 @@ test_findings_are_delivered_even_when_the_record_cannot_be_published() {
   home=${rec#*|}
   printf '5\n' > "$home/config/startup-memory-budget"
   ln -s /no/such/place "$home/state/.startup-growth-check"
-  out=$(FM_ROOT_OVERRIDE="$root" FM_HOME="$home" FM_STARTUP_GROWTH_NOW=1000 "$CHECK" check 2>/dev/null) || status=$?
+  out=$(FM_ROOT_OVERRIDE="$root" FM_HOME="$home" FM_STARTUP_GROWTH_NOW=1000 bash "$CHECK" check 2>/dev/null) || status=$?
   [ "$status" != 0 ] || fail "an unpublishable report record should surface as a failure"
   assert_contains "$out" 'startup memory budget overrun' "the finding was dropped because the record could not be published"
   leftover=$(cd "$home/state" && ls -1 .startup-growth-check.?????? 2>/dev/null || true)
@@ -443,10 +443,10 @@ test_rearming_an_unchanged_binding_does_not_replace_the_shim() {
   root=${rec%%|*}
   home=${rec#*|}
   bin=$(make_isolated_bin rearm-noop 0)
-  FM_ROOT_OVERRIDE="$root" FM_HOME="$home" "$bin/fm-startup-growth-check.sh" arm >/dev/null \
+  FM_ROOT_OVERRIDE="$root" FM_HOME="$home" bash "$bin/fm-startup-growth-check.sh" arm >/dev/null \
     || fail "first arm failed"
   before=$(fm_pr_file_inode "$home/state/startup-growth.check.sh")
-  out=$(FM_ROOT_OVERRIDE="$root" FM_HOME="$home" "$bin/fm-startup-growth-check.sh" arm 2>&1) \
+  out=$(FM_ROOT_OVERRIDE="$root" FM_HOME="$home" bash "$bin/fm-startup-growth-check.sh" arm 2>&1) \
     || fail "re-arm of an unchanged binding failed: $out"
   after=$(fm_pr_file_inode "$home/state/startup-growth.check.sh")
   assert_equals "$before" "$after" "re-arming replaced a shim whose bytes were already correct"
@@ -461,7 +461,7 @@ test_failed_first_arm_leaves_the_home_plainly_unarmed() {
   root=${rec%%|*}
   home=${rec#*|}
   bin=$(make_isolated_bin arm-fail 1)
-  out=$(FM_ROOT_OVERRIDE="$root" FM_HOME="$home" "$bin/fm-startup-growth-check.sh" arm 2>&1) || status=$?
+  out=$(FM_ROOT_OVERRIDE="$root" FM_HOME="$home" bash "$bin/fm-startup-growth-check.sh" arm 2>&1) || status=$?
   [ "$status" != 0 ] || fail "a failed registration reported a successful arm"
   assert_absent "$home/state/startup-growth.check.sh" "a failed first arm left an unregistered shim behind"
   assert_absent "$home/state/startup-growth.check-trust" "a failed first arm left a trust binding behind"
@@ -475,13 +475,13 @@ test_failed_rearm_keeps_the_previously_armed_shim_and_trust() {
   root=${rec%%|*}
   home=${rec#*|}
   good=$(make_isolated_bin rearm-fail 0)
-  FM_ROOT_OVERRIDE="$root" FM_HOME="$home" "$good/fm-startup-growth-check.sh" arm >/dev/null \
+  FM_ROOT_OVERRIDE="$root" FM_HOME="$home" bash "$good/fm-startup-growth-check.sh" arm >/dev/null \
     || fail "first arm failed"
   shim=$(cat "$home/state/startup-growth.check.sh")
   trust=$(cat "$home/state/startup-growth.check-trust")
 
   bad=$(make_isolated_bin rearm-fail-bad 1)
-  out=$(FM_ROOT_OVERRIDE="$root" FM_HOME="$home" "$bad/fm-startup-growth-check.sh" arm 2>&1) || status=$?
+  out=$(FM_ROOT_OVERRIDE="$root" FM_HOME="$home" bash "$bad/fm-startup-growth-check.sh" arm 2>&1) || status=$?
   [ "$status" != 0 ] || fail "a failed re-registration reported a successful arm"
   assert_present "$home/state/startup-growth.check.sh" "a failed re-arm disarmed a working home"
   assert_present "$home/state/startup-growth.check-trust" "a failed re-arm removed the trust binding of a working home"
@@ -516,7 +516,7 @@ STUB
   chmod 0755 "$bin/fm-startup-memory-budget.sh"
 
   FM_ROOT_OVERRIDE="$root" FM_HOME="$home" FM_STARTUP_GROWTH_NOW=87401 \
-    "$bin/fm-startup-growth-check.sh" check >/dev/null 2>&1 &
+    bash "$bin/fm-startup-growth-check.sh" check >/dev/null 2>&1 &
   pid=$!
   while [ ! -f "$ready" ]; do
     [ "$waited" -lt 200 ] || fail "the check never reached its budget call"
@@ -586,7 +586,7 @@ test_arm_and_disarm_use_authenticated_custom_check() {
   rec=$(make_world arm)
   root=${rec%%|*}
   home=${rec#*|}
-  out=$(FM_ROOT_OVERRIDE="$root" FM_HOME="$home" "$CHECK" arm)
+  out=$(FM_ROOT_OVERRIDE="$root" FM_HOME="$home" bash "$CHECK" arm)
   assert_contains "$out" 'armed: state/startup-growth.check.sh' "arm did not announce the check shim"
   assert_present "$home/state/startup-growth.check.sh" "arm did not write the check shim"
   assert_present "$home/state/startup-growth.check-trust" "arm did not register trust for the check shim"
@@ -601,7 +601,7 @@ test_arm_and_disarm_use_authenticated_custom_check() {
     || fail "registered check shim failed on growth: $out"
   assert_contains "$out" 'startup-growth: tracked startup surface growth AGENTS.md +2500 bytes' "registered shim did not report growth to the watcher"
 
-  FM_ROOT_OVERRIDE="$root" FM_HOME="$home" "$CHECK" disarm >/dev/null
+  FM_ROOT_OVERRIDE="$root" FM_HOME="$home" bash "$CHECK" disarm >/dev/null
   assert_absent "$home/state/startup-growth.check.sh" "disarm left the check shim"
   assert_absent "$home/state/startup-growth.check-trust" "disarm left the trust binding"
 }

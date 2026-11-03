@@ -40,10 +40,10 @@ export FM_HOME="$HOME_DIR" FM_DISPATCH_DESCENT_CONTROL_BIN="$TMP_ROOT/control.sh
 export FM_DISPATCH_DESCENT_STATE_BIN="$TMP_ROOT/crew-state.sh"
 export FM_DISPATCH_TEST_CONTROL_LOG="$TMP_ROOT/control.log"
 reset_ms=$(( ($(date +%s) + 3600) * 1000 ))
-"$ROOT/bin/fm-dispatch-reset.sh" record "$HOME_DIR/state" opencode deepseek-v4.1-flash-free secondary "$reset_ms" fixture
-"$ROOT/bin/fm-dispatch-reset.sh" record "$HOME_DIR/state" opencode deepseek-v4.1-flash-free main "$reset_ms" fixture
+bash "$ROOT/bin/fm-dispatch-reset.sh" record "$HOME_DIR/state" opencode deepseek-v4.1-flash-free secondary "$reset_ms" fixture
+bash "$ROOT/bin/fm-dispatch-reset.sh" record "$HOME_DIR/state" opencode deepseek-v4.1-flash-free main "$reset_ms" fixture
 
-out=$("$ROOT/bin/fm-dispatch-descent.sh" "$HOME_DIR/state")
+out=$(bash "$ROOT/bin/fm-dispatch-descent.sh" "$HOME_DIR/state")
 case "$out" in
   'relaunched task opencode/deepseek-v4.1-flash-free -> codex/model-b'*) ;;
   *) echo "not ok - unified descent did not select the next eligible rung: ${out:-<silent>}" >&2; exit 1 ;;
@@ -55,7 +55,7 @@ grep -qF 'task relaunch --harness codex --model model-b' "$FM_DISPATCH_TEST_CONT
 printf '%s\n' 'ok - launch reset evidence re-resolves the policy and relaunches on the next eligible rung'
 
 rm -f "$HOME_DIR/state/.dispatch-descent-task"
-out=$("$ROOT/bin/fm-dispatch-descent.sh" "$HOME_DIR/state")
+out=$(bash "$ROOT/bin/fm-dispatch-descent.sh" "$HOME_DIR/state")
 case "$out" in
   'relaunched task opencode/deepseek-v4.1-flash-free -> codex/model-b'*) ;;
   *) echo "not ok - an exited OpenCode worker at its pane shell was skipped: ${out:-<silent>}" >&2; exit 1 ;;

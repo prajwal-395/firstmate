@@ -288,7 +288,7 @@ decision_card_is_stale() {  # <task-id> <landed-0-or-1>
     printf 'structured subject already landed\n'
     return 0
   fi
-  "$SCRIPT_DIR/fm-captain-hold.sh" open "$task" --distinguish-absent >/dev/null 2>&1 || rc=$?
+  bash "$SCRIPT_DIR/fm-captain-hold.sh" open "$task" --distinguish-absent >/dev/null 2>&1 || rc=$?
   # 1 is a definite "no longer an open captain call". 2 is "cannot tell", 3 is
   # absent from this backlog, and a call wrongly hidden is worse than a card
   # wrongly shown, so both uncertain and absent cards stay.
@@ -350,7 +350,7 @@ effective_payload() {  # <data.json> <dest.json>
 # The OWNER column bin/fm-procevent.sh already publishes: live, none,
 # orphaned, or uncertain. Empty means the source is not registered at all.
 source_owner() {  # <source-id>
-  "$SCRIPT_DIR/fm-procevent.sh" list 2>/dev/null \
+  bash "$SCRIPT_DIR/fm-procevent.sh" list 2>/dev/null \
     | awk -v id="$1" 'NR > 1 && $1 == id { print $3 }'
 }
 
@@ -416,12 +416,12 @@ command_build() {
   printf 'board: %s\n' "$board"
 
   command -v lavish-axi >/dev/null 2>&1 || fail "lavish-axi is not installed"
-  sid=$("$SCRIPT_DIR/fm-procevent-lavish.sh" source-id "$board") \
+  sid=$(bash "$SCRIPT_DIR/fm-procevent-lavish.sh" source-id "$board") \
     || fail "cannot derive the board source id"
   pre_reopen_owner=$(source_owner "$sid")
   establish_board_session "$board"
   if [ "$BOARD_SESSION_REOPENED" = 1 ]; then
-    "$SCRIPT_DIR/fm-procevent-lavish.sh" retire "$board" >/dev/null \
+    bash "$SCRIPT_DIR/fm-procevent-lavish.sh" retire "$board" >/dev/null \
       || fail "cannot retire the pre-reopen source generation (observed owner: ${pre_reopen_owner:-none})"
   fi
   if ! lavish_session_listed_open "$(board_realpath "$board")"; then
@@ -430,20 +430,20 @@ command_build() {
   fi
   printf 'served: %s\n' "$board"
 
-  "$SCRIPT_DIR/fm-captain-hold.sh" bind "$sid" >/dev/null \
+  bash "$SCRIPT_DIR/fm-captain-hold.sh" bind "$sid" >/dev/null \
     || fail "cannot bind the board source to the keyed-answer intake"
   printf 'bound: %s\n' "$sid"
 
   owner=$(source_owner "$sid")
   if [ "$BOARD_SESSION_REOPENED" = 1 ]; then
-    "$SCRIPT_DIR/fm-procevent-lavish.sh" arm "$board" >/dev/null \
+    bash "$SCRIPT_DIR/fm-procevent-lavish.sh" arm "$board" >/dev/null \
       || fail "cannot arm a fresh board source after reopening"
     printf 'armed: %s\n' "$sid"
     owner=$(source_owner "$sid")
   elif [ -n "$owner" ]; then
     printf 'already-armed: %s\n' "$sid"
   else
-    "$SCRIPT_DIR/fm-procevent-lavish.sh" arm "$board" >/dev/null \
+    bash "$SCRIPT_DIR/fm-procevent-lavish.sh" arm "$board" >/dev/null \
       || fail "cannot arm the board as a process-event source"
     printf 'armed: %s\n' "$sid"
     owner=$(source_owner "$sid")
@@ -452,7 +452,7 @@ command_build() {
   # replacement started now rather than at the next supervision cycle, which is
   # what keeps a rebuilt board from sitting silent behind `already-armed`.
   if [ "$owner" != live ]; then
-    "$SCRIPT_DIR/fm-procevent.sh" reconcile >/dev/null 2>&1 || true
+    bash "$SCRIPT_DIR/fm-procevent.sh" reconcile >/dev/null 2>&1 || true
     owner=$(await_source_owner "$sid")
     if [ "$owner" != live ]; then
       fail "source $sid is not listening after reconcile (observed owner: ${owner:-none})"

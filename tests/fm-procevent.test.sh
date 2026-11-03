@@ -70,7 +70,7 @@ exec "$@"
 SH
 chmod +x "$STARTED_BLOCKER"
 
-pe() { FM_HOME="$1" "$ROOT/bin/fm-procevent.sh" "${@:2}"; }
+pe() { FM_HOME="$1" bash "$ROOT/bin/fm-procevent.sh" "${@:2}"; }
 
 # Every home this suite registers a source in is tracked so teardown can stop
 # its runners. A runner started by reconcile is detached and reparented, so a
@@ -502,7 +502,7 @@ pe_adapter() {  # <home> <command>...: run the runner against the fixture adapte
   local home=$1
   shift
   FM_ROOT_OVERRIDE="$ADAPTER_ROOT" FM_PROCEVENT_UNDER_TEST="$ROOT/bin/fm-procevent.sh" \
-    FM_HOME="$home" "$ROOT/bin/fm-procevent.sh" "$@"
+    FM_HOME="$home" bash "$ROOT/bin/fm-procevent.sh" "$@"
 }
 
 HPUBLISH="$TMP_ROOT/hpublish"; new_home "$HPUBLISH"
@@ -689,9 +689,9 @@ chmod +x "$LAVISH_BIN/lavish-axi"
 REVIEW_ART="$TMP_ROOT/review.html"
 printf '<h1>review</h1>\n' > "$REVIEW_ART"
 lavish_session "$REVIEW_ART"
-lavish_id=$("$ROOT/bin/fm-procevent-lavish.sh" source-id "$REVIEW_ART")
+lavish_id=$(bash "$ROOT/bin/fm-procevent-lavish.sh" source-id "$REVIEW_ART")
 fm_test_track_procevent_home "$HLT"
-PATH="$LAVISH_BIN:$PATH" FM_HOME="$HLT" "$ROOT/bin/fm-procevent-lavish.sh" arm "$REVIEW_ART" >/dev/null
+PATH="$LAVISH_BIN:$PATH" FM_HOME="$HLT" bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$REVIEW_ART" >/dev/null
 for _ in $(seq 1 6); do
   PATH="$LAVISH_BIN:$PATH" pe "$HLT" reconcile >/dev/null
   sleep 0.3
@@ -707,7 +707,7 @@ assert_absent "$HLT/state/procevent/$lavish_id.source" "the ended review source 
 assert_absent "$FM_PROCEVENT_CLAIM_ROOT/$lavish_id.claim" "the ended review releases its owned claim"
 LAVISH_RESULT=$(first_result "$HLT" "$lavish_id" || true)
 assert_grep 'ship it' "$LAVISH_RESULT" "automatic retirement retains the human's final feedback"
-out=$(PATH="$LAVISH_BIN:$PATH" FM_HOME="$HLT" "$ROOT/bin/fm-procevent-lavish.sh" retire "$REVIEW_ART")
+out=$(PATH="$LAVISH_BIN:$PATH" FM_HOME="$HLT" bash "$ROOT/bin/fm-procevent-lavish.sh" retire "$REVIEW_ART")
 assert_contains "$out" "retired: $lavish_id" "explicit adapter retirement stays supported after automatic retirement"
 pass "one Send & End yields exactly one captured result, automatic retirement, and no recurring poll"
 
@@ -730,10 +730,10 @@ chmod +x "$EMPTY_BIN/lavish-axi"
 QUIET_ART="$TMP_ROOT/quiet-board.html"
 printf '<h1>quiet</h1>\n' > "$QUIET_ART"
 lavish_session "$QUIET_ART"
-quiet_id=$("$ROOT/bin/fm-procevent-lavish.sh" source-id "$QUIET_ART")
+quiet_id=$(bash "$ROOT/bin/fm-procevent-lavish.sh" source-id "$QUIET_ART")
 fm_test_track_procevent_home "$HEMPTY"
 PATH="$EMPTY_BIN:$PATH" FM_HOME="$HEMPTY" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$QUIET_ART" >/dev/null
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$QUIET_ART" >/dev/null
 quiet_out=$(PATH="$EMPTY_BIN:$PATH" pe "$HEMPTY" start "$quiet_id" 2>&1)
 assert_not_contains "$quiet_out" "not-autohandled" \
   "a durably silenced result was reported as still unacknowledged"
@@ -808,22 +808,22 @@ printf 'reply three\n' > "$MULTI_ROOT/reply3"
 MULTI_ART="$MULTI_ROOT/board.html"
 printf '<h1>multi-round</h1>\n' > "$MULTI_ART"
 lavish_session "$MULTI_ART"
-multi_id=$("$ROOT/bin/fm-procevent-lavish.sh" source-id "$MULTI_ART")
+multi_id=$(bash "$ROOT/bin/fm-procevent-lavish.sh" source-id "$MULTI_ART")
 fm_test_track_procevent_home "$HMULTI"
 new_task_endpoint "$HMULTI" worker-1
 new_task_endpoint "$HMULTI" worker-2
 mkdir -p "$HMULTI/config"
 printf 'wrong-server.example\n' > "$HMULTI/config/lavish-axi-host"
 PATH="$MULTI_BIN:$PATH" LAVISH_AXI_HOST=arming.example LAVISH_AXI_PORT=24387 FM_HOME="$HMULTI" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$MULTI_ART" --for worker-1 \
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$MULTI_ART" --for worker-1 \
   --agent-reply-file "$MULTI_ROOT/reply1" >/dev/null
 if PATH="$MULTI_BIN:$PATH" FM_HOME="$HMULTI" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$MULTI_ART" >/dev/null 2>"$MULTI_ROOT/firstmate-arm.err"; then
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$MULTI_ART" >/dev/null 2>"$MULTI_ROOT/firstmate-arm.err"; then
   fail "firstmate arm replaced a worker-owned board"
 fi
 assert_contains "$(cat "$MULTI_ROOT/firstmate-arm.err")" "owned by task worker-1" \
   "second armer refusal did not name the worker owner"
-list_out=$(FM_HOME="$HMULTI" "$ROOT/bin/fm-procevent.sh" list)
+list_out=$(FM_HOME="$HMULTI" bash "$ROOT/bin/fm-procevent.sh" list)
 assert_contains "$list_out" "task:worker-1/listening" \
   "arm did not leave the worker-owned board with a live listener"
 PATH="$MULTI_BIN:$PATH" LAVISH_AXI_HOST=recovery.example LAVISH_AXI_PORT=34387 FM_HOME="$HMULTI" \
@@ -843,7 +843,7 @@ for _ in $(seq 1 100); do [ -f "$HMULTI/state/worker-1.inbox/001.msg" ] && break
 # task can register over it or acknowledge worker-1's capture.
 open_retire_status=0
 PATH="$MULTI_BIN:$PATH" FM_HOME="$HMULTI" \
-  "$ROOT/bin/fm-procevent-lavish.sh" retire "$MULTI_ART" \
+  bash "$ROOT/bin/fm-procevent-lavish.sh" retire "$MULTI_ART" \
   >/dev/null 2>"$MULTI_ROOT/open-retire.err" || open_retire_status=$?
 [ "$open_retire_status" -ne 0 ] \
   || fail "explicit retire removed a worker-owned board with an unacknowledged round"
@@ -852,14 +852,14 @@ assert_contains "$(cat "$MULTI_ROOT/open-retire.err")" "unacknowledged" \
 [ -e "$HMULTI/state/procevent/$multi_id.source" ] \
   || fail "a refused retire still removed the worker-owned source record"
 if PATH="$MULTI_BIN:$PATH" FM_HOME="$HMULTI" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$MULTI_ART" --for worker-2 \
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$MULTI_ART" --for worker-2 \
   >/dev/null 2>"$MULTI_ROOT/open-sibling.err"; then
   fail "a sibling task registered over an open worker-owned round"
 fi
 assert_contains "$(cat "$MULTI_ROOT/open-sibling.err")" "owned by task worker-1" \
   "the sibling refusal over an open round did not name the worker owner"
 if PATH="$MULTI_BIN:$PATH" FM_HOME="$HMULTI" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$MULTI_ART" \
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$MULTI_ART" \
   >/dev/null 2>"$MULTI_ROOT/open-firstmate.err"; then
   fail "firstmate armed a board with an open worker-owned round"
 fi
@@ -871,7 +871,7 @@ assert_contains "$(cat "$MULTI_ROOT/open-firstmate.err")" "owned by task worker-
   || fail "a refused sibling registration took delivery of the owner's feedback"
 
 PATH="$MULTI_BIN:$PATH" FM_HOME="$HMULTI" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$MULTI_ART" --for worker-1 \
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$MULTI_ART" --for worker-1 \
   --agent-reply-file "$MULTI_ROOT/reply2" >/dev/null
 wait "$MULTI_RUN" || true
 for _ in $(seq 1 100); do
@@ -884,7 +884,7 @@ for _ in $(seq 1 100); do [ -f "$HMULTI/state/worker-1.inbox/002.msg" ] && break
 [ -f "$HMULTI/state/worker-1.inbox/002.msg" ] \
   || fail "the next worker-owned feedback did not reach the worker inbox"
 PATH="$MULTI_BIN:$PATH" FM_HOME="$HMULTI" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$MULTI_ART" --for worker-1 \
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$MULTI_ART" --for worker-1 \
   --agent-reply-file "$MULTI_ROOT/reply3" >/dev/null
 for _ in $(seq 1 100); do
   PATH="$MULTI_BIN:$PATH" pe "$HMULTI" reconcile >/dev/null 2>&1 || true
@@ -915,13 +915,13 @@ pass "worker board replies and recovered listeners derive their server from the 
 [ -e "$HMULTI/state/procevent/$multi_id.source" ] \
   || fail "the terminal round released the worker's board before it was acknowledged"
 if PATH="$MULTI_BIN:$PATH" FM_HOME="$HMULTI" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$MULTI_ART" >/dev/null 2>"$MULTI_ROOT/terminal-arm.err"; then
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$MULTI_ART" >/dev/null 2>"$MULTI_ROOT/terminal-arm.err"; then
   fail "firstmate armed a worker-owned board whose terminal round was unacknowledged"
 fi
 assert_contains "$(cat "$MULTI_ROOT/terminal-arm.err")" "owned by task worker-1" \
   "the refusal over an open terminal round did not name the worker owner"
 if PATH="$MULTI_BIN:$PATH" FM_HOME="$HMULTI" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$MULTI_ART" --for worker-2 \
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$MULTI_ART" --for worker-2 \
   >/dev/null 2>"$MULTI_ROOT/sibling-arm.err"; then
   fail "a sibling task took over a worker-owned board whose terminal round was unacknowledged"
 fi
@@ -929,7 +929,7 @@ assert_contains "$(cat "$MULTI_ROOT/sibling-arm.err")" "owned by task worker-1" 
   "the sibling registration refusal did not name the worker owner"
 terminal_retire_status=0
 PATH="$MULTI_BIN:$PATH" FM_HOME="$HMULTI" \
-  "$ROOT/bin/fm-procevent-lavish.sh" retire "$MULTI_ART" \
+  bash "$ROOT/bin/fm-procevent-lavish.sh" retire "$MULTI_ART" \
   >/dev/null 2>"$MULTI_ROOT/terminal-retire.err" || terminal_retire_status=$?
 [ "$terminal_retire_status" -ne 0 ] \
   || fail "explicit retire removed a worker-owned board with an unacknowledged terminal round"
@@ -980,11 +980,11 @@ chmod +x "$ORPHAN_BIN/lavish-axi"
 ORPHAN_ART="$TMP_ROOT/orphan-board.html"
 printf '<h1>orphan</h1>\n' > "$ORPHAN_ART"
 lavish_session "$ORPHAN_ART"
-orphan_id=$("$ROOT/bin/fm-procevent-lavish.sh" source-id "$ORPHAN_ART")
+orphan_id=$(bash "$ROOT/bin/fm-procevent-lavish.sh" source-id "$ORPHAN_ART")
 fm_test_track_procevent_home "$HORPHAN"
 new_task_endpoint "$HORPHAN" worker-4
 PATH="$ORPHAN_BIN:$PATH" FM_HOME="$HORPHAN" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$ORPHAN_ART" --for worker-4 >/dev/null
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$ORPHAN_ART" --for worker-4 >/dev/null
 (umask 077; mkdir -p "$HORPHAN/state/procevent-inbox")
 chmod 0700 "$HORPHAN/state/procevent-inbox"
 printf 'worker-4\n' > "$HORPHAN/state/procevent-inbox/$orphan_id.1.owner-task"
@@ -1016,11 +1016,11 @@ chmod +x "$ADOPT_BIN/lavish-axi"
 ADOPT_ART="$TMP_ROOT/adopt-board.html"
 printf '<h1>adopt</h1>\n' > "$ADOPT_ART"
 lavish_session "$ADOPT_ART"
-adopt_id=$("$ROOT/bin/fm-procevent-lavish.sh" source-id "$ADOPT_ART")
+adopt_id=$(bash "$ROOT/bin/fm-procevent-lavish.sh" source-id "$ADOPT_ART")
 fm_test_track_procevent_home "$HADOPT"
 new_task_endpoint "$HADOPT" worker-5
 PATH="$ADOPT_BIN:$PATH" FM_HOME="$HADOPT" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$ADOPT_ART" >/dev/null
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$ADOPT_ART" >/dev/null
 wait_capture "$HADOPT" "$adopt_id" \
   || fail "the firstmate fixture capture never landed"
 [ -f "$HADOPT/state/procevent-inbox/$adopt_id.1.result" ] \
@@ -1028,9 +1028,9 @@ wait_capture "$HADOPT" "$adopt_id" \
 [ ! -f "$HADOPT/state/procevent-inbox/$adopt_id.1.handled" ] \
   || fail "the firstmate fixture capture was already acknowledged"
 PATH="$ADOPT_BIN:$PATH" FM_HOME="$HADOPT" \
-  "$ROOT/bin/fm-procevent-lavish.sh" retire "$ADOPT_ART" >/dev/null
+  bash "$ROOT/bin/fm-procevent-lavish.sh" retire "$ADOPT_ART" >/dev/null
 if PATH="$ADOPT_BIN:$PATH" FM_HOME="$HADOPT" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$ADOPT_ART" --for worker-5 \
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$ADOPT_ART" --for worker-5 \
   >/dev/null 2>"$TMP_ROOT/adopt-arm.err"; then
   fail "a worker armed a board carrying another owner's unacknowledged capture"
 fi
@@ -1050,10 +1050,10 @@ HNOMETA="$TMP_ROOT/hnometa"; new_home "$HNOMETA"
 NOMETA_ART="$TMP_ROOT/nometa-board.html"
 printf '<h1>no endpoint</h1>\n' > "$NOMETA_ART"
 lavish_session "$NOMETA_ART"
-nometa_id=$("$ROOT/bin/fm-procevent-lavish.sh" source-id "$NOMETA_ART")
+nometa_id=$(bash "$ROOT/bin/fm-procevent-lavish.sh" source-id "$NOMETA_ART")
 fm_test_track_procevent_home "$HNOMETA"
 if PATH="$ADOPT_BIN:$PATH" FM_HOME="$HNOMETA" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$NOMETA_ART" --for worker-10 \
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$NOMETA_ART" --for worker-10 \
   >/dev/null 2>"$TMP_ROOT/nometa-arm.err"; then
   fail "a board was armed for a task id that names no endpoint"
 fi
@@ -1063,7 +1063,7 @@ assert_contains "$(cat "$TMP_ROOT/nometa-arm.err")" "worker-10" \
   || fail "a board armed for an unreachable owner still published its registration"
 new_task_endpoint "$HNOMETA" worker-10
 PATH="$ADOPT_BIN:$PATH" FM_HOME="$HNOMETA" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$NOMETA_ART" --for worker-10 >/dev/null
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$NOMETA_ART" --for worker-10 >/dev/null
 [ -e "$HNOMETA/state/procevent/$nometa_id.source" ] \
   || fail "a board was refused for a task that does have an endpoint"
 pass "a worker-owned board is only armed for an owner its feedback can reach"
@@ -1110,12 +1110,12 @@ chmod +x "$RING_BIN/tmux"
 REDELIVER_ART="$TMP_ROOT/redeliver-board.html"
 printf '<h1>redeliver</h1>\n' > "$REDELIVER_ART"
 lavish_session "$REDELIVER_ART"
-redeliver_id=$("$ROOT/bin/fm-procevent-lavish.sh" source-id "$REDELIVER_ART")
+redeliver_id=$(bash "$ROOT/bin/fm-procevent-lavish.sh" source-id "$REDELIVER_ART")
 fm_test_track_procevent_home "$HREDELIVER"
 new_task_endpoint "$HREDELIVER" worker-6
 RING_LOG="$TMP_ROOT/redeliver-ring.log"; : > "$RING_LOG"
 PATH="$RING_BIN:$ADOPT_BIN:$PATH" FM_SEND_LOG="$RING_LOG" FM_HOME="$HREDELIVER" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$REDELIVER_ART" --for worker-6 >/dev/null
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$REDELIVER_ART" --for worker-6 >/dev/null
 wait_capture "$HREDELIVER" "$redeliver_id" \
   || fail "the first worker-owned round was never captured"
 [ -f "$HREDELIVER/state/worker-6.inbox/001.msg" ] \
@@ -1164,11 +1164,11 @@ chmod +x "$CONC_BIN/lavish-axi"
 CONC_ART="$TMP_ROOT/conclude-board.html"
 printf '<h1>conclude</h1>\n' > "$CONC_ART"
 lavish_session "$CONC_ART"
-conc_id=$("$ROOT/bin/fm-procevent-lavish.sh" source-id "$CONC_ART")
+conc_id=$(bash "$ROOT/bin/fm-procevent-lavish.sh" source-id "$CONC_ART")
 fm_test_track_procevent_home "$HCONC"
 new_task_endpoint "$HCONC" worker-7
 PATH="$CONC_BIN:$PATH" FM_HOME="$HCONC" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$CONC_ART" --for worker-7 >/dev/null
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$CONC_ART" --for worker-7 >/dev/null
 wait_capture "$HCONC" "$conc_id" \
   || fail "the terminal worker-owned round never landed"
 [ -f "$HCONC/state/procevent-inbox/$conc_id.1.result" ] \
@@ -1191,7 +1191,7 @@ assert_contains "$conclude_out" "retired: $conc_id" \
 [ ! -e "$HCONC/state/procevent/$conc_id.source" ] \
   || fail "acknowledging the terminal round did not retire the worker-owned board"
 PATH="$CONC_BIN:$PATH" FM_HOME="$HCONC" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$CONC_ART" --for worker-7 >/dev/null
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$CONC_ART" --for worker-7 >/dev/null
 repeat_out=$(PATH="$CONC_BIN:$PATH" pe "$HCONC" handled "$conc_id" 1)
 assert_contains "$repeat_out" "already-handled: $conc_id 1" \
   "repeating a closed acknowledgement did not report it as already handled"
@@ -1219,11 +1219,11 @@ chmod +x "$INTR_BIN/lavish-axi"
 INTR_ART="$TMP_ROOT/interrupted-board.html"
 printf '<h1>interrupted</h1>\n' > "$INTR_ART"
 lavish_session "$INTR_ART"
-intr_id=$("$ROOT/bin/fm-procevent-lavish.sh" source-id "$INTR_ART")
+intr_id=$(bash "$ROOT/bin/fm-procevent-lavish.sh" source-id "$INTR_ART")
 fm_test_track_procevent_home "$HINTR"
 new_task_endpoint "$HINTR" worker-12
 PATH="$INTR_BIN:$PATH" FM_HOME="$HINTR" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$INTR_ART" --for worker-12 >/dev/null
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$INTR_ART" --for worker-12 >/dev/null
 wait_capture "$HINTR" "$intr_id" \
   || fail "the terminal worker-owned round was never captured"
 [ "$(cat "$INTR_ROOT/count" 2>/dev/null || echo 0)" = 1 ] \
@@ -1233,7 +1233,7 @@ PATH="$INTR_BIN:$PATH" pe "$HINTR" reconcile >/dev/null 2>&1 || true
 [ "$(cat "$INTR_ROOT/count" 2>/dev/null || echo 0)" = 1 ] \
   || fail "an interrupted conclude let the ended board be polled again"
 if PATH="$INTR_BIN:$PATH" FM_HOME="$HINTR" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$INTR_ART" --for worker-12 \
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$INTR_ART" --for worker-12 \
   >/dev/null 2>"$INTR_ROOT/intr-arm.err"; then
   fail "an interrupted conclude let its owner re-arm the ended board"
 fi
@@ -1264,13 +1264,13 @@ chmod +x "$ROLL_BIN/lavish-axi"
 ROLL_ART="$TMP_ROOT/rollback-board.html"
 printf '<h1>rollback</h1>\n' > "$ROLL_ART"
 lavish_session "$ROLL_ART"
-roll_id=$("$ROOT/bin/fm-procevent-lavish.sh" source-id "$ROLL_ART")
+roll_id=$(bash "$ROOT/bin/fm-procevent-lavish.sh" source-id "$ROLL_ART")
 fm_test_track_procevent_home "$HROLL"
 new_task_endpoint "$HROLL" worker-8
 printf 'reply from generation one\n' > "$ROLL_ROOT/reply1"
 printf 'reply from generation two\n' > "$ROLL_ROOT/reply2"
 PATH="$ROLL_BIN:$PATH" FM_HOME="$HROLL" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$ROLL_ART" --for worker-8 \
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$ROLL_ART" --for worker-8 \
   --agent-reply-file "$ROLL_ROOT/reply1" >/dev/null
 wait_for "$ROLL_ROOT/replies" \
   || fail "the first generation's reply never reached the board"
@@ -1285,7 +1285,7 @@ cp "$HROLL/state/procevent/$roll_id.source" "$ROLL_ROOT/generation-one.source"
 chmod 0500 "$HROLL/state/procevent-inbox"
 rollback_status=0
 PATH="$ROLL_BIN:$PATH" FM_HOME="$HROLL" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$ROLL_ART" --for worker-8 \
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$ROLL_ART" --for worker-8 \
   --agent-reply-file "$ROLL_ROOT/reply2" >/dev/null 2>&1 || rollback_status=$?
 chmod 0700 "$HROLL/state/procevent-inbox"
 [ "$rollback_status" -ne 0 ] \
@@ -1295,7 +1295,7 @@ cmp -s "$ROLL_ROOT/generation-one.source" "$HROLL/state/procevent/$roll_id.sourc
 [ ! -f "$HROLL/state/procevent-inbox/$roll_id.1.handled" ] \
   || fail "a failed re-arm still acknowledged the round it could not close"
 PATH="$ROLL_BIN:$PATH" FM_HOME="$HROLL" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$ROLL_ART" --for worker-8 \
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$ROLL_ART" --for worker-8 \
   --agent-reply-file "$ROLL_ROOT/reply2" >/dev/null
 wait_for_lines "$ROLL_ROOT/replies" 2 \
   || fail "the retried re-arm did not hand the board its generation's reply exactly once"
@@ -1323,18 +1323,18 @@ chmod +x "$REARM_BIN/lavish-axi"
 REARM_ART="$TMP_ROOT/rearm-board.html"
 printf '<h1>rearm</h1>\n' > "$REARM_ART"
 lavish_session "$REARM_ART"
-rearm_id=$("$ROOT/bin/fm-procevent-lavish.sh" source-id "$REARM_ART")
+rearm_id=$(bash "$ROOT/bin/fm-procevent-lavish.sh" source-id "$REARM_ART")
 fm_test_track_procevent_home "$HREARM"
 new_task_endpoint "$HREARM" worker-11
 printf 'first generation reply\n' > "$REARM_ROOT/reply1"
 printf 'second generation reply\n' > "$REARM_ROOT/reply2"
 PATH="$REARM_BIN:$PATH" FM_HOME="$HREARM" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$REARM_ART" --for worker-11 \
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$REARM_ART" --for worker-11 \
   --agent-reply-file "$REARM_ROOT/reply1" >/dev/null
 [ -e "$HREARM/state/procevent/$rearm_id.source" ] \
   || fail "the initial arm of a worker-owned board did not register it"
 if PATH="$REARM_BIN:$PATH" FM_HOME="$HREARM" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$REARM_ART" --for worker-11 \
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$REARM_ART" --for worker-11 \
   --agent-reply-file "$REARM_ROOT/reply2" >/dev/null 2>"$REARM_ROOT/idle-rearm.err"; then
   fail "a worker re-armed its own board with no captured round to acknowledge"
 fi
@@ -1350,14 +1350,14 @@ wait_for "$HREARM/state/procevent-inbox/$rearm_id.1.result" \
 [ -f "$HREARM/state/procevent-inbox/$rearm_id.1.result" ] \
   || fail "the first worker-owned round never landed"
 if PATH="$REARM_BIN:$PATH" FM_HOME="$HREARM" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$REARM_ART" --for worker-11 \
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$REARM_ART" --for worker-11 \
   --agent-reply-file "$REARM_ROOT/never-written" >/dev/null 2>&1; then
   fail "a re-arm carrying a nonexistent reply path was accepted"
 fi
 [ ! -f "$HREARM/state/procevent-inbox/$rearm_id.1.handled" ] \
   || fail "a re-arm refused over its reply path still acknowledged the open round"
 PATH="$REARM_BIN:$PATH" FM_HOME="$HREARM" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$REARM_ART" --for worker-11 \
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$REARM_ART" --for worker-11 \
   --agent-reply-file "$REARM_ROOT/reply2" >/dev/null
 [ -f "$HREARM/state/procevent-inbox/$rearm_id.1.handled" ] \
   || fail "re-arming over an open round did not acknowledge that round"
@@ -1382,10 +1382,10 @@ chmod +x "$ANSWER_BIN/lavish-axi"
 ANSWER_ART="$TMP_ROOT/answered-board.html"
 printf '<h1>answered</h1>\n' > "$ANSWER_ART"
 lavish_session "$ANSWER_ART"
-answer_id=$("$ROOT/bin/fm-procevent-lavish.sh" source-id "$ANSWER_ART")
+answer_id=$(bash "$ROOT/bin/fm-procevent-lavish.sh" source-id "$ANSWER_ART")
 fm_test_track_procevent_home "$HANSWER"
 PATH="$ANSWER_BIN:$PATH" FM_HOME="$HANSWER" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$ANSWER_ART" >/dev/null
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$ANSWER_ART" >/dev/null
 PATH="$ANSWER_BIN:$PATH" pe "$HANSWER" reconcile >/dev/null
 wait_for "$HANSWER/state/.wake-queue" \
   || fail "a board close carrying the captain's real answer produced no wake"
@@ -1455,7 +1455,7 @@ lavish_session "$DEFAULT_RATE_ART"
 DEFAULT_RATE_COUNT="$TMP_ROOT/default-rate-count"
 PATH="$LAVISH_SCRIPTED_BIN:$PATH" LAVISH_COUNT="$DEFAULT_RATE_COUNT" LAVISH_SCRIPT=interrupt \
   FM_LAVISH_POLL_RETRY_DELAY='' \
-  "$ROOT/bin/fm-procevent-lavish.sh" poll "$DEFAULT_RATE_ART" >/dev/null 2>&1 &
+  bash "$ROOT/bin/fm-procevent-lavish.sh" poll "$DEFAULT_RATE_ART" >/dev/null 2>&1 &
 DEFAULT_RATE_PID=$!
 perl -MTime::HiRes=sleep -e 'sleep 6.2'
 kill -TERM "$DEFAULT_RATE_PID" 2>/dev/null || true
@@ -1477,11 +1477,11 @@ HRETRY="$TMP_ROOT/hretry"; new_home "$HRETRY"
 RETRY_ART="$TMP_ROOT/retry-board.html"
 printf '<h1>retry</h1>\n' > "$RETRY_ART"
 lavish_session "$RETRY_ART"
-retry_id=$("$ROOT/bin/fm-procevent-lavish.sh" source-id "$RETRY_ART")
+retry_id=$(bash "$ROOT/bin/fm-procevent-lavish.sh" source-id "$RETRY_ART")
 fm_test_track_procevent_home "$HRETRY"
 LAVISH_COUNT="$TMP_ROOT/retry-count"; LAVISH_SCRIPT="interrupt interrupt feedback"
 PATH="$LAVISH_SCRIPTED_BIN:$PATH" FM_HOME="$HRETRY" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$RETRY_ART" >/dev/null
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$RETRY_ART" >/dev/null
 PATH="$LAVISH_SCRIPTED_BIN:$PATH" pe "$HRETRY" reconcile >/dev/null
 wait_for "$HRETRY/state/.wake-queue" || fail "feedback after interrupted polls produced no wake"
 [ "$(cat "$LAVISH_COUNT")" = 3 ] \
@@ -1511,7 +1511,7 @@ printf 'applied round one\n' > "$TMP_ROOT/reply-retry.txt"
 LAVISH_REPLY_LOG="$TMP_ROOT/reply-retry-log"; export LAVISH_REPLY_LOG
 LAVISH_COUNT="$TMP_ROOT/reply-retry-count"; LAVISH_SCRIPT="interrupt interrupt feedback"
 PATH="$LAVISH_SCRIPTED_BIN:$PATH" FM_HOME="$HREPLY" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$REPLY_ART" --for worker-9 \
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$REPLY_ART" --for worker-9 \
   --agent-reply-file "$TMP_ROOT/reply-retry.txt" >/dev/null
 wait_for "$HREPLY/state/worker-9.inbox/001.msg" 200 \
   || fail "the round that delivered after quiet retries did not reach the worker inbox"
@@ -1533,7 +1533,7 @@ MISSING_REPLY_LOG="$TMP_ROOT/missing-reply-log"
 missing_reply_status=0
 PATH="$LAVISH_SCRIPTED_BIN:$PATH" LAVISH_COUNT="$MISSING_REPLY_COUNT" LAVISH_SCRIPT=feedback \
   LAVISH_REPLY_LOG="$MISSING_REPLY_LOG" \
-  "$ROOT/bin/fm-procevent-lavish.sh" poll "$REPLY_ART" \
+  bash "$ROOT/bin/fm-procevent-lavish.sh" poll "$REPLY_ART" \
   --agent-reply-file "$TMP_ROOT/never-staged-reply" >/dev/null 2>&1 || missing_reply_status=$?
 [ "$missing_reply_status" -eq 0 ] \
   || fail "a listener whose staged reply was gone refused to poll (status $missing_reply_status)"
@@ -1553,7 +1553,7 @@ printf 'kept for the next listener\n' > "$SETUP_GUARD_REPLY"
 setup_guard_status=0
 PATH="$LAVISH_SCRIPTED_BIN:$PATH" LAVISH_COUNT="$SETUP_GUARD_COUNT" LAVISH_SCRIPT=feedback \
   FM_LAVISH_POLL_RETRY_DELAY=not-a-number \
-  "$ROOT/bin/fm-procevent-lavish.sh" poll "$REPLY_ART" \
+  bash "$ROOT/bin/fm-procevent-lavish.sh" poll "$REPLY_ART" \
   --agent-reply-file "$SETUP_GUARD_REPLY" >/dev/null 2>&1 || setup_guard_status=$?
 [ "$setup_guard_status" -ne 0 ] \
   || fail "a malformed retry delay did not stop the listener before it polled"
@@ -1575,7 +1575,7 @@ printf 'owed to the next listener\n' > "$GONE_REPLY"
 rm -f "$GONE_ART"
 gone_status=0
 PATH="$LAVISH_SCRIPTED_BIN:$PATH" LAVISH_COUNT="$GONE_COUNT" LAVISH_SCRIPT=feedback \
-  "$ROOT/bin/fm-procevent-lavish.sh" poll "$GONE_ART" \
+  bash "$ROOT/bin/fm-procevent-lavish.sh" poll "$GONE_ART" \
   --agent-reply-file "$GONE_REPLY" >/dev/null 2>&1 || gone_status=$?
 [ "$gone_status" -ne 0 ] \
   || fail "a listener whose artifact vanished reported a successful poll"
@@ -1591,11 +1591,11 @@ HEXH="$TMP_ROOT/hexh"; new_home "$HEXH"
 EXH_ART="$TMP_ROOT/exhaust-board.html"
 printf '<h1>exhaust</h1>\n' > "$EXH_ART"
 lavish_session "$EXH_ART"
-exh_id=$("$ROOT/bin/fm-procevent-lavish.sh" source-id "$EXH_ART")
+exh_id=$(bash "$ROOT/bin/fm-procevent-lavish.sh" source-id "$EXH_ART")
 fm_test_track_procevent_home "$HEXH"
 LAVISH_COUNT="$TMP_ROOT/exhaust-count"; LAVISH_SCRIPT="interrupt"
 PATH="$LAVISH_SCRIPTED_BIN:$PATH" FM_HOME="$HEXH" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$EXH_ART" >/dev/null
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$EXH_ART" >/dev/null
 wait_capture "$HEXH" "$exh_id" 200 \
   || fail "exhaustion produced no captured result"
 [ "$(cat "$LAVISH_COUNT")" = 13 ] \
@@ -1609,7 +1609,7 @@ assert_contains "$(wake_payloads "$HEXH")" "procevent lavish $exh_id 1" \
 assert_grep 'poll response was interrupted' "$(first_result "$HEXH" "$exh_id")" \
   "the announced result is the exact interruption the server returned"
 PATH="$LAVISH_SCRIPTED_BIN:$PATH" FM_HOME="$HEXH" \
-  "$ROOT/bin/fm-procevent-lavish.sh" retire "$EXH_ART" >/dev/null
+  bash "$ROOT/bin/fm-procevent-lavish.sh" retire "$EXH_ART" >/dev/null
 pass "an interruption that outlives the bounded retries is captured and announced"
 
 # A different SERVER_ERROR is a genuine error, never a retry: no fail-open drift
@@ -1618,11 +1618,11 @@ HOTHER="$TMP_ROOT/hother"; new_home "$HOTHER"
 OTHER_ART="$TMP_ROOT/other-board.html"
 printf '<h1>other</h1>\n' > "$OTHER_ART"
 lavish_session "$OTHER_ART"
-other_id=$("$ROOT/bin/fm-procevent-lavish.sh" source-id "$OTHER_ART")
+other_id=$(bash "$ROOT/bin/fm-procevent-lavish.sh" source-id "$OTHER_ART")
 fm_test_track_procevent_home "$HOTHER"
 LAVISH_COUNT="$TMP_ROOT/other-count"; LAVISH_SCRIPT="other-server-error"
 PATH="$LAVISH_SCRIPTED_BIN:$PATH" FM_HOME="$HOTHER" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$OTHER_ART" >/dev/null
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$OTHER_ART" >/dev/null
 wait_for "$HOTHER/state/.wake-queue" \
   || fail "an unrelated SERVER_ERROR is captured and announced immediately"
 [ "$(cat "$LAVISH_COUNT")" = 1 ] \
@@ -1630,7 +1630,7 @@ wait_for "$HOTHER/state/.wake-queue" \
 assert_contains "$(wake_payloads "$HOTHER")" "procevent lavish $other_id 1" \
   "an unrelated SERVER_ERROR is captured and announced immediately"
 PATH="$LAVISH_SCRIPTED_BIN:$PATH" FM_HOME="$HOTHER" \
-  "$ROOT/bin/fm-procevent-lavish.sh" retire "$OTHER_ART" >/dev/null
+  bash "$ROOT/bin/fm-procevent-lavish.sh" retire "$OTHER_ART" >/dev/null
 pass "only the exact interruption is retried; an unrelated SERVER_ERROR still surfaces"
 unset FM_LAVISH_POLL_RETRY_DELAY
 
@@ -1640,11 +1640,11 @@ HNEAR="$TMP_ROOT/hnear"; new_home "$HNEAR"
 NEAR_ART="$TMP_ROOT/near-board.html"
 printf '<h1>near</h1>\n' > "$NEAR_ART"
 lavish_session "$NEAR_ART"
-near_id=$("$ROOT/bin/fm-procevent-lavish.sh" source-id "$NEAR_ART")
+near_id=$(bash "$ROOT/bin/fm-procevent-lavish.sh" source-id "$NEAR_ART")
 fm_test_track_procevent_home "$HNEAR"
 LAVISH_COUNT="$TMP_ROOT/near-count"; LAVISH_SCRIPT="near-interrupt feedback"
 PATH="$LAVISH_SCRIPTED_BIN:$PATH" FM_HOME="$HNEAR" FM_LAVISH_POLL_RETRY_DELAY=1 \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$NEAR_ART" >/dev/null
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$NEAR_ART" >/dev/null
 wait_for "$HNEAR/state/.wake-queue" \
   || fail "a whitespace variant of the interruption is captured and announced immediately"
 [ "$(cat "$LAVISH_COUNT")" = 1 ] \
@@ -1652,7 +1652,7 @@ wait_for "$HNEAR/state/.wake-queue" \
 assert_contains "$(wake_payloads "$HNEAR")" "procevent lavish $near_id 1" \
   "a whitespace variant of the interruption is captured and announced immediately"
 PATH="$LAVISH_SCRIPTED_BIN:$PATH" FM_HOME="$HNEAR" \
-  "$ROOT/bin/fm-procevent-lavish.sh" retire "$NEAR_ART" >/dev/null
+  bash "$ROOT/bin/fm-procevent-lavish.sh" retire "$NEAR_ART" >/dev/null
 pass "only the literal two-line interruption enters the quiet retry policy"
 
 # The public arm boundary refuses invalid retry intervals before it publishes a
@@ -1661,12 +1661,12 @@ HINVALID="$TMP_ROOT/hinvalid"; new_home "$HINVALID"
 INVALID_ART="$TMP_ROOT/invalid-delay-board.html"
 printf '<h1>invalid delay</h1>\n' > "$INVALID_ART"
 lavish_session "$INVALID_ART"
-invalid_id=$("$ROOT/bin/fm-procevent-lavish.sh" source-id "$INVALID_ART")
+invalid_id=$(bash "$ROOT/bin/fm-procevent-lavish.sh" source-id "$INVALID_ART")
 for invalid_delay in 0 61 invalid; do
   invalid_status=0
   invalid_out=$(PATH="$LAVISH_SCRIPTED_BIN:$PATH" FM_HOME="$HINVALID" \
     FM_LAVISH_POLL_RETRY_DELAY="$invalid_delay" \
-    "$ROOT/bin/fm-procevent-lavish.sh" arm "$INVALID_ART" 2>&1) || invalid_status=$?
+    bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$INVALID_ART" 2>&1) || invalid_status=$?
   [ "$invalid_status" -ne 0 ] \
     || fail "arm accepted invalid retry delay: $invalid_delay"
   assert_contains "$invalid_out" "must be whole seconds from 1 to 60" \
@@ -1681,7 +1681,7 @@ QUOTED_TMPDIR="$TMP_ROOT/poll's-stage"
 mkdir -p "$QUOTED_TMPDIR"
 LAVISH_COUNT="$TMP_ROOT/quoted-count"; LAVISH_SCRIPT="feedback"
 PATH="$LAVISH_SCRIPTED_BIN:$PATH" TMPDIR="$QUOTED_TMPDIR" \
-  "$ROOT/bin/fm-procevent-lavish.sh" poll "$NEAR_ART" >/dev/null
+  bash "$ROOT/bin/fm-procevent-lavish.sh" poll "$NEAR_ART" >/dev/null
 quoted_staged=("$QUOTED_TMPDIR"/fm-lavish-poll.*)
 [ ! -e "${quoted_staged[0]}" ] \
   || fail "poll left its staged response behind in an apostrophe-containing TMPDIR"
@@ -1695,13 +1695,13 @@ LAVISH_STREAM_RELEASE="$TMP_ROOT/stream-release"
 mkdir -p "$STREAM_TMPDIR"
 printf '<h1>stream</h1>\n' > "$STREAM_ART"
 lavish_session "$STREAM_ART"
-stream_id=$("$ROOT/bin/fm-procevent-lavish.sh" source-id "$STREAM_ART")
+stream_id=$(bash "$ROOT/bin/fm-procevent-lavish.sh" source-id "$STREAM_ART")
 fm_test_track_procevent_home "$HSTREAM"
 LAVISH_COUNT="$TMP_ROOT/stream-count"; LAVISH_SCRIPT="stream"
 PATH="$LAVISH_SCRIPTED_BIN:$PATH" FM_HOME="$HSTREAM" TMPDIR="$STREAM_TMPDIR" \
   LAVISH_STREAM_READY="$LAVISH_STREAM_READY" LAVISH_STREAM_RELEASE="$LAVISH_STREAM_RELEASE" \
   FM_PROCEVENT_MAX_OUTPUT_BYTES=100 \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$STREAM_ART" >/dev/null
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$STREAM_ART" >/dev/null
 wait_for "$LAVISH_STREAM_READY" || fail "streaming poll did not start"
 stream_staged=("$STREAM_TMPDIR"/fm-lavish-poll.*)
 [ -e "${stream_staged[0]}" ] || fail "streaming poll created no classifier staging file"
@@ -1713,7 +1713,7 @@ stream_result=$(first_result "$HSTREAM" "$stream_id" || true)
 [ "$(wc -c < "$stream_result" | tr -d ' ')" -le 100 ] \
   || fail "streaming poll bypassed the runner output bound"
 PATH="$LAVISH_SCRIPTED_BIN:$PATH" FM_HOME="$HSTREAM" \
-  "$ROOT/bin/fm-procevent-lavish.sh" retire "$STREAM_ART" >/dev/null
+  bash "$ROOT/bin/fm-procevent-lavish.sh" retire "$STREAM_ART" >/dev/null
 pass "Lavish classification staging stays bounded while nonmatches stream"
 
 # --- end-user-aligned regression: the exact drain-before-handling restart cut
@@ -2753,7 +2753,7 @@ pass "nonzero exit with no output stays armed and silent"
 HF="$TMP_ROOT/hf"; new_home "$HF"
 # shellcheck disable=SC2016  # single quotes are deliberate: the child shell expands this.
 pe_register "$HF" lavish big-src -- /bin/sh -c 'printf "x%.0s" $(seq 1 5000)' >/dev/null
-FM_PROCEVENT_MAX_OUTPUT_BYTES=100 FM_HOME="$HF" "$ROOT/bin/fm-procevent.sh" start big-src >/dev/null 2>&1
+FM_PROCEVENT_MAX_OUTPUT_BYTES=100 FM_HOME="$HF" bash "$ROOT/bin/fm-procevent.sh" start big-src >/dev/null 2>&1
 RB=$(first_result "$HF" big-src || true)
 [ -n "$RB" ] || fail "bounded output was not captured at all"
 [ "$(wc -c < "$RB" | tr -d ' ')" -le 100 ] || fail "output bound was not enforced"
@@ -2912,19 +2912,19 @@ pass "invalid output bounds fail closed"
 ART="$TMP_ROOT/artifact.html"
 printf '<h1>fixture</h1>\n' > "$ART"
 lavish_session "$ART"
-sid=$(FM_HOME="$TMP_ROOT/hg" "$ROOT/bin/fm-procevent-lavish.sh" source-id "$ART")
+sid=$(FM_HOME="$TMP_ROOT/hg" bash "$ROOT/bin/fm-procevent-lavish.sh" source-id "$ART")
 case "$sid" in lavish-*) : ;; *) fail "adapter source id has an unexpected shape: $sid" ;; esac
-sid2=$(FM_HOME="$TMP_ROOT/hg" "$ROOT/bin/fm-procevent-lavish.sh" source-id "$ART")
+sid2=$(FM_HOME="$TMP_ROOT/hg" bash "$ROOT/bin/fm-procevent-lavish.sh" source-id "$ART")
 [ "$sid" = "$sid2" ] || fail "adapter source id is not stable"
 ART_ALIAS="$TMP_ROOT/artifact-alias.html"
 ln -s "$ART" "$ART_ALIAS"
-sid3=$(FM_HOME="$TMP_ROOT/hg" "$ROOT/bin/fm-procevent-lavish.sh" source-id "$ART_ALIAS")
+sid3=$(FM_HOME="$TMP_ROOT/hg" bash "$ROOT/bin/fm-procevent-lavish.sh" source-id "$ART_ALIAS")
 [ "$sid" = "$sid3" ] || fail "a final-component symlink produced a second source id"
 ART_NEWLINE="$TMP_ROOT/line-ending"$'\n'
 printf '<h1>newline fixture</h1>\n' > "$ART_NEWLINE"
 printf '<h1>sibling fixture</h1>\n' > "$TMP_ROOT/line-ending"
 newline_artifact_status=0
-newline_artifact_out=$("$ROOT/bin/fm-procevent-lavish.sh" source-id "$ART_NEWLINE" 2>&1) || newline_artifact_status=$?
+newline_artifact_out=$(bash "$ROOT/bin/fm-procevent-lavish.sh" source-id "$ART_NEWLINE" 2>&1) || newline_artifact_status=$?
 [ "$newline_artifact_status" -ne 0 ] || fail "Lavish source identity accepted an artifact path ending in a newline"
 assert_contains "$newline_artifact_out" "cannot contain newlines" "Lavish rejects newline paths before canonicalization"
 pass "the adapter derives physical identity without newline path corruption"
@@ -2933,7 +2933,7 @@ HS="$TMP_ROOT/hs"; new_home "$HS"
 mkdir -p "$HS/state/procevent"
 : > "$HS/state/procevent/source-only.source"
 guard_out=$(FM_ROOT_OVERRIDE="$TMP_ROOT/guard-root" FM_HOME="$HS" FM_GUARD_GRACE=1 \
-  "$ROOT/bin/fm-guard.sh" 2>&1)
+  bash "$ROOT/bin/fm-guard.sh" 2>&1)
 assert_contains "$guard_out" "WATCHER DOWN - SUPERVISION IS OFF" \
   "the general guard warns when only a process-event source needs supervision"
 assert_contains "$guard_out" "1 process-event source(s) registered" \
@@ -2943,7 +2943,7 @@ pass "source-only homes trigger the general supervision guard"
 CLS="$TMP_ROOT/cls"
 while IFS='|' read -r status expected; do
   printf 'session:\n  file: /a.html\n  status: %s\n' "$status" > "$CLS"
-  out=$("$ROOT/bin/fm-procevent-lavish.sh" classify "$CLS") \
+  out=$(bash "$ROOT/bin/fm-procevent-lavish.sh" classify "$CLS") \
     || fail "classify failed for handled Lavish status: $status"
   [ "$out" = "$expected" ] \
     || fail "handled Lavish status $status classified as '$out', expected '$expected'"
@@ -2954,12 +2954,12 @@ waiting|waiting
 browser_disconnected|disconnected
 EOF
 printf 'session:\n  file: /a.html\n  status: feedback\nprompts[1]{text}:\n  No active Lavish Editor session; code: NOT_FOUND\n' > "$CLS"
-[ "$("$ROOT/bin/fm-procevent-lavish.sh" classify "$CLS")" = feedback ] \
+[ "$(bash "$ROOT/bin/fm-procevent-lavish.sh" classify "$CLS")" = feedback ] \
   || fail "prompt text overrode a valid session status"
 printf 'error: No active Lavish Editor session for this file\ncode: NOT_FOUND\n' > "$CLS"
-assert_contains "$("$ROOT/bin/fm-procevent-lavish.sh" classify "$CLS")" missing "an explicit missing session classifies as missing"
+assert_contains "$(bash "$ROOT/bin/fm-procevent-lavish.sh" classify "$CLS")" missing "an explicit missing session classifies as missing"
 printf 'garbage that is not a session block\n' > "$CLS"
-assert_contains "$("$ROOT/bin/fm-procevent-lavish.sh" classify "$CLS")" unknown "malformed output classifies as unknown rather than a lifecycle state"
+assert_contains "$(bash "$ROOT/bin/fm-procevent-lavish.sh" classify "$CLS")" unknown "malformed output classifies as unknown rather than a lifecycle state"
 pass "the adapter classifies published poll output safely"
 
 HOST_HOME="$TMP_ROOT/host-config"
@@ -2988,7 +2988,7 @@ for endpoint in '127.0.0.1:14387' 'board.example:24387' '[::1]:34387'; do
   : > "$HOST_SEEN"
   PATH="$HOST_BIN:$PATH" HOST_SEEN="$HOST_SEEN" LAVISH_AXI_HOST=wrong.example \
     LAVISH_AXI_PORT=44387 FM_HOME="$HOST_HOME" \
-    "$ROOT/bin/fm-procevent-lavish.sh" poll "$HOST_ART" >/dev/null
+    bash "$ROOT/bin/fm-procevent-lavish.sh" poll "$HOST_ART" >/dev/null
   expected=${endpoint//\[/}; expected=${expected//\]/}
   [ "$(cat "$HOST_SEEN")" = "$expected" ] \
     || fail "poll did not derive the endpoint from the Unicode-path board session"
@@ -3000,7 +3000,7 @@ lavish_session "$HOST_ART"
 PATH="$HOST_BIN:$PATH" HOST_SEEN="$HOST_SEEN" HOST_RETRY=1 \
   HOST_CONFIG_FILE="$HOST_HOME/config/lavish-axi-host" LAVISH_AXI_HOST=ambient.example \
   LAVISH_AXI_PORT=44387 FM_LAVISH_POLL_RETRY_DELAY=1 FM_HOME="$HOST_HOME" \
-  "$ROOT/bin/fm-procevent-lavish.sh" poll "$HOST_ART" >/dev/null
+  bash "$ROOT/bin/fm-procevent-lavish.sh" poll "$HOST_ART" >/dev/null
 printf '%s\n%s\n' '127.0.0.1:14387' '127.0.0.1:14387' > "$HOST_HOME/expected"
 cmp -s "$HOST_HOME/expected" "$HOST_SEEN" \
   || fail "a retry switched away from the session server after config removal"
@@ -3022,7 +3022,7 @@ for shape in missing malformed no-session invalid-url; do
   bad_status=0
   bad_out=$(PATH="$HOST_BIN:$PATH" HOST_SEEN="$HOST_SEEN" LAVISH_AXI_HOST=wrong.example \
     LAVISH_AXI_STATE_DIR="$BAD_STORE" FM_HOME="$HOST_HOME" \
-    "$ROOT/bin/fm-procevent-lavish.sh" poll "$HOST_ART" \
+    bash "$ROOT/bin/fm-procevent-lavish.sh" poll "$HOST_ART" \
     --agent-reply-file "$HOST_HOME/reply" 2>&1) || bad_status=$?
   [ "$bad_status" -ne 0 ] || fail "$shape session evidence was accepted"
   [ ! -s "$HOST_SEEN" ] || fail "$shape session evidence reached the CLI"
@@ -3038,26 +3038,26 @@ pass "missing or unreadable session routing preserves replies and never guesses 
 # session_ended and stops producing results afterward.
 TRM="$TMP_ROOT/terminal-verdict"
 printf 'session:\n  file: /a.html\n  status: feedback\n  session_ended: true\n  ended_by: user\n' > "$TRM"
-assert_contains "$("$ROOT/bin/fm-procevent-lavish.sh" classify "$TRM")" feedback \
+assert_contains "$(bash "$ROOT/bin/fm-procevent-lavish.sh" classify "$TRM")" feedback \
   "a final feedback delivery still classifies as feedback for the handler"
-"$ROOT/bin/fm-procevent-lavish.sh" terminal "$TRM" \
+bash "$ROOT/bin/fm-procevent-lavish.sh" terminal "$TRM" \
   || fail "a feedback delivery carrying session_ended was not reported terminal"
 printf 'session:\n  file: /a.html\n  status: feedback\n' > "$TRM"
-"$ROOT/bin/fm-procevent-lavish.sh" terminal "$TRM" \
+bash "$ROOT/bin/fm-procevent-lavish.sh" terminal "$TRM" \
   && fail "an ordinary feedback delivery was reported terminal"
 printf 'session:\n  file: /a.html\n  status: ended\n  ended_by: user\n' > "$TRM"
-"$ROOT/bin/fm-procevent-lavish.sh" terminal "$TRM" || fail "an ended session was not reported terminal"
+bash "$ROOT/bin/fm-procevent-lavish.sh" terminal "$TRM" || fail "an ended session was not reported terminal"
 printf 'error: No active Lavish Editor session for this file\ncode: NOT_FOUND\n' > "$TRM"
-"$ROOT/bin/fm-procevent-lavish.sh" terminal "$TRM" || fail "a missing session was not reported terminal"
+bash "$ROOT/bin/fm-procevent-lavish.sh" terminal "$TRM" || fail "a missing session was not reported terminal"
 printf 'session:\n  file: /a.html\n  status: waiting\n' > "$TRM"
-"$ROOT/bin/fm-procevent-lavish.sh" terminal "$TRM" && fail "a waiting session was reported terminal"
+bash "$ROOT/bin/fm-procevent-lavish.sh" terminal "$TRM" && fail "a waiting session was reported terminal"
 printf 'session:\n  file: /a.html\n  status: browser_disconnected\n' > "$TRM"
-"$ROOT/bin/fm-procevent-lavish.sh" terminal "$TRM" \
+bash "$ROOT/bin/fm-procevent-lavish.sh" terminal "$TRM" \
   && fail "a browser-disconnected session was reported terminal"
 printf 'garbage that is not a session block\n' > "$TRM"
-"$ROOT/bin/fm-procevent-lavish.sh" terminal "$TRM" && fail "an unreadable result was reported terminal"
+bash "$ROOT/bin/fm-procevent-lavish.sh" terminal "$TRM" && fail "an unreadable result was reported terminal"
 printf 'session:\n  file: /a.html\n  status: feedback\nfeedback[1]{text}:\n  session_ended: true\n' > "$TRM"
-"$ROOT/bin/fm-procevent-lavish.sh" terminal "$TRM" \
+bash "$ROOT/bin/fm-procevent-lavish.sh" terminal "$TRM" \
   && fail "prompt payload text was read as a session-level terminal marker"
 pass "the adapter owns which Lavish results end a source, and payload text cannot forge one"
 
@@ -3066,7 +3066,7 @@ pass "the adapter owns which Lavish results end a source, and payload text canno
 # `silent` command's exit status, which is the whole contract the runner reads.
 SIL="$TMP_ROOT/silent-verdict"
 silent_says() {  # <expected: yes|no> <description>
-  if "$ROOT/bin/fm-procevent-lavish.sh" silent "$SIL" >/dev/null 2>&1; then
+  if bash "$ROOT/bin/fm-procevent-lavish.sh" silent "$SIL" >/dev/null 2>&1; then
     [ "$1" = yes ] || fail "silent suppressed a result that must reach the handler: $2"
   else
     [ "$1" = no ] || fail "silent announced a result that carries no news: $2"
@@ -3112,7 +3112,7 @@ pass "the adapter owns which Lavish results are silent, and fails closed on ever
 # adapter's source. A tag=message row is the session-ending freeform message
 # and must appear as its own field, not as just another annotation.
 READ="$TMP_ROOT/read-result"
-read_out() { "$ROOT/bin/fm-procevent-lavish.sh" read "$READ"; }
+read_out() { bash "$ROOT/bin/fm-procevent-lavish.sh" read "$READ"; }
 cat > "$READ" <<'EOF'
 session:
   file: /review.html
@@ -3542,7 +3542,7 @@ pass "an adapter with no silence verdict keeps announcing every result"
 # --- the loss limitation is stated on the public interface ------------------
 # Checked through --help, the operator-facing surface, rather than by reading
 # implementation bytes.
-adapter_help=$("$ROOT/bin/fm-procevent-lavish.sh" --help 2>&1 || true)
+adapter_help=$(bash "$ROOT/bin/fm-procevent-lavish.sh" --help 2>&1 || true)
 assert_contains "$adapter_help" "destructively clears" \
   "the adapter's help states the destructive-source loss limitation"
 assert_contains "$adapter_help" "Never describe" \
@@ -3550,7 +3550,7 @@ assert_contains "$adapter_help" "Never describe" \
 assert_contains "$adapter_help" "read <result-file>" \
   "the adapter's help publishes the structured read command"
 
-runner_help=$("$ROOT/bin/fm-procevent.sh" --help 2>&1 || true)
+runner_help=$(bash "$ROOT/bin/fm-procevent.sh" --help 2>&1 || true)
 assert_contains "$runner_help" "Durability boundary" \
   "the runner's help scopes what it actually proves"
 assert_not_contains "$runner_help" "exactly-once" \
@@ -3972,7 +3972,7 @@ orphan_pe() {  # <home> <command...>
   shift
   FM_PROCEVENT_OWNER_LEASE_SECONDS="$PROOF_LEASE_SECONDS" \
     FM_PROCEVENT_OWNER_CHECK_SECONDS="$PROOF_CHECK_SECONDS" \
-    FM_HOME="$home" "$ROOT/bin/fm-procevent.sh" "$@"
+    FM_HOME="$home" bash "$ROOT/bin/fm-procevent.sh" "$@"
 }
 
 wait_gone() {  # <pid-or-group-spec> [tries]
@@ -4100,7 +4100,7 @@ chmod +x "$RETRY_BIN/ps"
 retry_pe() {  # <command...>
   PATH="$RETRY_BIN:$PATH" STOP_RETRY_STATE="$RETRY_STATE" \
     FM_PROCEVENT_OWNER_LEASE_SECONDS=2 FM_PROCEVENT_OWNER_CHECK_SECONDS=1 \
-    FM_HOME="$RETRY_HOME" "$ROOT/bin/fm-procevent.sh" "$@"
+    FM_HOME="$RETRY_HOME" bash "$ROOT/bin/fm-procevent.sh" "$@"
 }
 
 retry_pe register lavish retry-src -- "$ORPHAN_STUB" "$TMP_ROOT/stop-retry-marker" >/dev/null
@@ -4385,7 +4385,7 @@ bound_pe() {
   PATH="$BOUND_BIN:$PATH" GUARD_BOUND_STATE="$BOUND_STATE" \
     FM_PROCEVENT_OWNER_LEASE_SECONDS="$BOUND_LEASE_SECONDS" \
     FM_PROCEVENT_OWNER_CHECK_SECONDS="$BOUND_CHECK_SECONDS" \
-    FM_HOME="$HBOUND" "$ROOT/bin/fm-procevent.sh" "$@"
+    FM_HOME="$HBOUND" bash "$ROOT/bin/fm-procevent.sh" "$@"
 }
 bound_pe register lavish bound-src -- "$QUIET_STUB" "$TMP_ROOT/guard-bound-marker" >/dev/null
 bound_pe reconcile >/dev/null
@@ -4534,7 +4534,7 @@ debounce_pe() {
   PATH="$DEBOUNCE_BIN:$PATH" LEASE_DEBOUNCE_STATE="$DEBOUNCE_STATE" \
     FM_PROCEVENT_OWNER_LEASE_SECONDS="$DEBOUNCE_LEASE_SECONDS" \
     FM_PROCEVENT_OWNER_CHECK_SECONDS="$DEBOUNCE_CHECK_SECONDS" \
-    FM_HOME="$DEBOUNCE_HOME" "$ROOT/bin/fm-procevent.sh" "$@"
+    FM_HOME="$DEBOUNCE_HOME" bash "$ROOT/bin/fm-procevent.sh" "$@"
 }
 debounce_pe register lavish debounce-src -- "$QUIET_STUB" "$TMP_ROOT/lease-debounce-marker" >/dev/null
 debounce_pe reconcile >/dev/null
@@ -4646,12 +4646,12 @@ chmod +x "$READY/bin/lavish-axi"
 ready_art="$READY/board.html"
 printf '<h1>ready</h1>\n' > "$ready_art"
 lavish_session "$ready_art"
-ready_id=$("$ROOT/bin/fm-procevent-lavish.sh" source-id "$ready_art")
+ready_id=$(bash "$ROOT/bin/fm-procevent-lavish.sh" source-id "$ready_art")
 fm_test_track_procevent_home "$READY/home"
 export READY_MARK="$READY/mark" READY_RELEASE="$READY/release"
 : > "$READY_MARK"
 PATH="$READY/bin:$PATH" FM_HOME="$READY/home" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$ready_art" > "$READY/arm.out"
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$ready_art" > "$READY/arm.out"
 assert_contains "$(cat "$READY/arm.out")" "armed: $ready_id" "a live listener was not reported ready"
 [ -e "$FM_PROCEVENT_CLAIM_ROOT/$ready_id.claim" ] \
   || fail "arm reported ready without a listener claim"
@@ -4666,7 +4666,7 @@ for _ in $(seq 1 50); do
   sleep 0.05
 done
 PATH="$READY/bin:$PATH" FM_HOME="$READY/home" \
-  "$ROOT/bin/fm-procevent-lavish.sh" retire "$ready_art" >/dev/null 2>&1 || true
+  bash "$ROOT/bin/fm-procevent-lavish.sh" retire "$ready_art" >/dev/null 2>&1 || true
 pass "arm reports ready only after the listener is running"
 
 # Delayed start: the source lock is held so the listener cannot claim, and arm
@@ -4677,7 +4677,7 @@ cp "$READY/bin/lavish-axi" "$DELAY/bin/lavish-axi"
 delay_art="$DELAY/board.html"
 printf '<h1>delay</h1>\n' > "$delay_art"
 lavish_session "$delay_art"
-delay_id=$("$ROOT/bin/fm-procevent-lavish.sh" source-id "$delay_art")
+delay_id=$(bash "$ROOT/bin/fm-procevent-lavish.sh" source-id "$delay_art")
 fm_test_track_procevent_home "$DELAY/home"
 export READY_MARK="$DELAY/mark" READY_RELEASE="$DELAY/release"
 : > "$READY_MARK"
@@ -4686,7 +4686,7 @@ delay_rel="$DELAY/lock-release"
 hold_source_lock "$delay_id" "$delay_ready" "$delay_rel"
 wait_for "$delay_ready" || fail "delayed-start fixture could not hold the source lock"
 PATH="$DELAY/bin:$PATH" FM_HOME="$DELAY/home" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$delay_art" > "$DELAY/arm.out" 2>"$DELAY/arm.err" &
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$delay_art" > "$DELAY/arm.out" 2>"$DELAY/arm.err" &
 delay_arm=$!
 sleep 0.4
 assert_not_contains "$(cat "$DELAY/arm.out" 2>/dev/null || true)" "armed:" \
@@ -4709,7 +4709,7 @@ for _ in $(seq 1 50); do
   sleep 0.05
 done
 PATH="$DELAY/bin:$PATH" FM_HOME="$DELAY/home" \
-  "$ROOT/bin/fm-procevent-lavish.sh" retire "$delay_art" >/dev/null 2>&1 || true
+  bash "$ROOT/bin/fm-procevent-lavish.sh" retire "$delay_art" >/dev/null 2>&1 || true
 pass "arm waits out a delayed listener start before reporting ready"
 
 # A claim path that is a directory can never be owned, so the runner dies before
@@ -4726,7 +4726,7 @@ SH
   art="$dir/board.html"
   printf '<h1>blocked</h1>\n' > "$art"
   lavish_session "$art"
-  id=$("$ROOT/bin/fm-procevent-lavish.sh" source-id "$art")
+  id=$(bash "$ROOT/bin/fm-procevent-lavish.sh" source-id "$art")
   fm_test_track_procevent_home "$dir/home"
   mkdir -p "$FM_PROCEVENT_CLAIM_ROOT/$id.claim"
   export READY_MARK="$dir/mark"
@@ -4734,7 +4734,7 @@ SH
   began=$(date +%s)
   set +e
   PATH="$dir/bin:$PATH" FM_HOME="$dir/home" FM_PROCEVENT_LAUNCH_CONFIRM_SECONDS="$secs" \
-    "$ROOT/bin/fm-procevent-lavish.sh" arm "$art" > "$dir/arm.out" 2>"$dir/arm.err"
+    bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$art" > "$dir/arm.out" 2>"$dir/arm.err"
   rc=$?
   set -e
   elapsed=$(( $(date +%s) - began ))
@@ -4748,7 +4748,7 @@ SH
   printf '%s\n' "$elapsed" > "$dir/elapsed"
   rmdir "$FM_PROCEVENT_CLAIM_ROOT/$id.claim" 2>/dev/null || true
   PATH="$dir/bin:$PATH" FM_HOME="$dir/home" \
-    "$ROOT/bin/fm-procevent-lavish.sh" retire "$art" >/dev/null 2>&1 || true
+    bash "$ROOT/bin/fm-procevent-lavish.sh" retire "$art" >/dev/null 2>&1 || true
 }
 
 arm_blocked_claim "$TMP_ROOT/immediate-arm" 1
@@ -4771,17 +4771,17 @@ cp "$READY/bin/lavish-axi" "$LIVE/bin/lavish-axi"
 live_art="$LIVE/board.html"
 printf '<h1>live</h1>\n' > "$live_art"
 lavish_session "$live_art"
-live_id=$("$ROOT/bin/fm-procevent-lavish.sh" source-id "$live_art")
+live_id=$(bash "$ROOT/bin/fm-procevent-lavish.sh" source-id "$live_art")
 fm_test_track_procevent_home "$LIVE/home"
 export READY_MARK="$LIVE/mark" READY_RELEASE="$LIVE/release"
 : > "$READY_MARK"
 PATH="$LIVE/bin:$PATH" FM_HOME="$LIVE/home" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$live_art" > "$LIVE/arm1.out"
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$live_art" > "$LIVE/arm1.out"
 assert_contains "$(cat "$LIVE/arm1.out")" "armed: $live_id" "the first arm was not reported ready"
 wait_for_lines "$READY_MARK" 1 || fail "the first generation's listener never ran"
 set +e
 PATH="$LIVE/bin:$PATH" FM_HOME="$LIVE/home" FM_PROCEVENT_LAUNCH_CONFIRM_SECONDS=1 \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$live_art" > "$LIVE/arm2.out" 2> "$LIVE/arm2.err"
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$live_art" > "$LIVE/arm2.out" 2> "$LIVE/arm2.err"
 live_rc=$?
 set -e
 [ "$live_rc" -eq 0 ] \
@@ -4801,7 +4801,7 @@ sleep 0.3
   || fail "re-arm started a second listener beside the live earlier one"
 touch "$READY_RELEASE"
 PATH="$LIVE/bin:$PATH" FM_HOME="$LIVE/home" \
-  "$ROOT/bin/fm-procevent-lavish.sh" retire "$live_art" >/dev/null 2>&1 || true
+  bash "$ROOT/bin/fm-procevent-lavish.sh" retire "$live_art" >/dev/null 2>&1 || true
 pass "re-arm over a live earlier listener reports it still serving the board"
 
 # Old compatible Lavish versions keep using their existing poll reply path.
@@ -4827,12 +4827,12 @@ chmod +x "$LEGACY/bin/lavish-axi"
 legacy_art="$LEGACY/board.html"
 printf '<h1>legacy reply</h1>\n' > "$legacy_art"
 lavish_session "$legacy_art"
-legacy_id=$("$ROOT/bin/fm-procevent-lavish.sh" source-id "$legacy_art")
+legacy_id=$(bash "$ROOT/bin/fm-procevent-lavish.sh" source-id "$legacy_art")
 fm_test_track_procevent_home "$LEGACY/home"
 new_task_endpoint "$LEGACY/home" worker-legacy
 printf 'legacy reply body\n' > "$LEGACY/reply-file"
 PATH="$LEGACY/bin:$PATH" FM_HOME="$LEGACY/home" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$legacy_art" --for worker-legacy \
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$legacy_art" --for worker-legacy \
   --agent-reply-file "$LEGACY/reply-file" >/dev/null \
   || fail "the older compatible Lavish reply path did not arm"
 wait_for "$LEGACY/reply" || fail "the older compatible poll never received its staged reply"
@@ -4861,13 +4861,13 @@ chmod +x "$REPLY_FAIL/bin/lavish-axi"
 reply_fail_art="$REPLY_FAIL/board.html"
 printf '<h1>reply failure</h1>\n' > "$reply_fail_art"
 lavish_session "$reply_fail_art"
-reply_fail_id=$("$ROOT/bin/fm-procevent-lavish.sh" source-id "$reply_fail_art")
+reply_fail_id=$(bash "$ROOT/bin/fm-procevent-lavish.sh" source-id "$reply_fail_art")
 fm_test_track_procevent_home "$REPLY_FAIL/home"
 new_task_endpoint "$REPLY_FAIL/home" worker-reply-fail
 printf 'reply that will fail\n' > "$REPLY_FAIL/reply-file"
 reply_fail_rc=0
 reply_fail_out=$(PATH="$REPLY_FAIL/bin:$PATH" FM_HOME="$REPLY_FAIL/home" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$reply_fail_art" --for worker-reply-fail \
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$reply_fail_art" --for worker-reply-fail \
   --agent-reply-file "$REPLY_FAIL/reply-file" 2>&1) || reply_fail_rc=$?
 [ "$reply_fail_rc" -ne 0 ] || fail "a refused reply let arm report success"
 assert_contains "$reply_fail_out" 'Lavish did not accept the staged reply' \
@@ -4888,7 +4888,7 @@ case "${1-}" in
 esac
 SH
 PATH="$REPLY_FAIL/bin:$PATH" FM_HOME="$REPLY_FAIL/home" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$reply_fail_art" --for worker-reply-fail \
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$reply_fail_art" --for worker-reply-fail \
   --agent-reply-file "$REPLY_FAIL/reply-file" >/dev/null \
   || fail "arm was not retryable with the same reply after Lavish refused it"
 [ "$(cat "$REPLY_FAIL/replies")" = 'reply that will fail' ] \
@@ -4902,14 +4902,14 @@ printf 'foreign reply\n' > "$REPLY_FAIL/foreign-reply"
 new_task_endpoint "$REPLY_FAIL/home" worker-intruder
 refused_rc=0
 refused_out=$(PATH="$REPLY_FAIL/bin:$PATH" FM_HOME="$REPLY_FAIL/home" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$reply_fail_art" --for worker-intruder \
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$reply_fail_art" --for worker-intruder \
   --agent-reply-file "$REPLY_FAIL/foreign-reply" 2>&1) || refused_rc=$?
 [ "$refused_rc" -ne 0 ] || fail "a non-owner arm with a reply was not refused"
 assert_contains "$refused_out" "owned by task worker-reply-fail" \
   "the non-owner arm was refused for an unexpected reason: $refused_out"
 refused_rc=0
 refused_out=$(PATH="$REPLY_FAIL/bin:$PATH" FM_HOME="$REPLY_FAIL/home" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$reply_fail_art" --for worker-reply-fail \
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$reply_fail_art" --for worker-reply-fail \
   --agent-reply-file "$REPLY_FAIL/foreign-reply" 2>&1) || refused_rc=$?
 [ "$refused_rc" -ne 0 ] || fail "an owner re-arm with no waiting round was not refused"
 assert_contains "$refused_out" "no captured round is waiting" \
@@ -4919,14 +4919,14 @@ printf '<h1>unreachable owner</h1>\n' > "$unreachable_art"
 lavish_session "$unreachable_art"
 refused_rc=0
 refused_out=$(PATH="$REPLY_FAIL/bin:$PATH" FM_HOME="$REPLY_FAIL/home" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$unreachable_art" --for worker-no-endpoint \
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$unreachable_art" --for worker-no-endpoint \
   --agent-reply-file "$REPLY_FAIL/foreign-reply" 2>&1) || refused_rc=$?
 [ "$refused_rc" -ne 0 ] || fail "an arm for a task with no endpoint was not refused"
 assert_contains "$refused_out" "would reach no endpoint" \
   "the endpointless arm was refused for an unexpected reason: $refused_out"
 [ ! -s "$REPLY_FAIL/replies" ] || fail "a refused arm posted its reply to the board: $(cat "$REPLY_FAIL/replies")"
 PATH="$REPLY_FAIL/bin:$PATH" FM_HOME="$REPLY_FAIL/home" \
-  "$ROOT/bin/fm-procevent-lavish.sh" retire "$reply_fail_art" >/dev/null 2>&1 || true
+  bash "$ROOT/bin/fm-procevent-lavish.sh" retire "$reply_fail_art" >/dev/null 2>&1 || true
 touch "$REPLY_FAIL/release"
 pass "an arm refused for ownership, round, or endpoint never posts its reply"
 
@@ -4958,7 +4958,7 @@ printf '<h1>direct poll reply</h1>\n' > "$poll_reply_art"
 lavish_session "$poll_reply_art"
 printf 'direct poll reply\n' > "$POLL_REPLY/reply-file"
 PATH="$POLL_REPLY/bin:$PATH" \
-  "$ROOT/bin/fm-procevent-lavish.sh" poll "$poll_reply_art" \
+  bash "$ROOT/bin/fm-procevent-lavish.sh" poll "$poll_reply_art" \
   --agent-reply-file "$POLL_REPLY/reply-file" >/dev/null \
   || fail "direct poll did not complete after synchronously posting its reply"
 [ "$(cat "$POLL_REPLY/order")" = $'reply\npoll' ] \
@@ -4983,13 +4983,13 @@ chmod +x "$UNKNOWN/bin/lavish-axi"
 unknown_art="$UNKNOWN/board.html"
 printf '<h1>unknown version</h1>\n' > "$unknown_art"
 lavish_session "$unknown_art"
-unknown_id=$("$ROOT/bin/fm-procevent-lavish.sh" source-id "$unknown_art")
+unknown_id=$(bash "$ROOT/bin/fm-procevent-lavish.sh" source-id "$unknown_art")
 fm_test_track_procevent_home "$UNKNOWN/home"
 new_task_endpoint "$UNKNOWN/home" worker-unknown
 printf 'reply for an unknown version\n' > "$UNKNOWN/reply-file"
 unknown_rc=0
 unknown_out=$(PATH="$UNKNOWN/bin:$PATH" FM_HOME="$UNKNOWN/home" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$unknown_art" --for worker-unknown \
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$unknown_art" --for worker-unknown \
   --agent-reply-file "$UNKNOWN/reply-file" 2>&1) || unknown_rc=$?
 [ "$unknown_rc" -ne 0 ] || fail "arm fell back to a legacy reply when the Lavish version was unknown"
 assert_contains "$unknown_out" 'cannot confirm a supported lavish-axi version' \
@@ -5001,7 +5001,7 @@ assert_contains "$unknown_out" 'cannot confirm a supported lavish-axi version' \
   || fail "arm consumed the worker's reply while the Lavish version was unknown"
 cp "$UNKNOWN/reply-file" "$UNKNOWN/staged-reply"
 unknown_rc=0
-PATH="$UNKNOWN/bin:$PATH" "$ROOT/bin/fm-procevent-lavish.sh" poll "$unknown_art" \
+PATH="$UNKNOWN/bin:$PATH" bash "$ROOT/bin/fm-procevent-lavish.sh" poll "$unknown_art" \
   --agent-reply-file "$UNKNOWN/staged-reply" >/dev/null 2>&1 || unknown_rc=$?
 [ "$unknown_rc" -ne 0 ] || fail "a reply-carrying poll proceeded with an unknown Lavish version"
 [ ! -e "$UNKNOWN/calls" ] || fail "a reply-carrying poll reached the board with an unknown Lavish version: $(cat "$UNKNOWN/calls")"
@@ -5044,13 +5044,13 @@ chmod +x "$DRAIN/bin/lavish-axi"
 drain_art="$DRAIN/board.html"
 printf '<h1>drain</h1>\n' > "$drain_art"
 lavish_session "$drain_art"
-drain_id=$("$ROOT/bin/fm-procevent-lavish.sh" source-id "$drain_art")
+drain_id=$(bash "$ROOT/bin/fm-procevent-lavish.sh" source-id "$drain_art")
 fm_test_track_procevent_home "$DRAIN/home"
 new_task_endpoint "$DRAIN/home" worker-drain
 printf 'first drain reply\n' > "$DRAIN/reply1"
 printf 'second drain reply\n' > "$DRAIN/reply2"
 PATH="$DRAIN/bin:$PATH" FM_HOME="$DRAIN/home" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$drain_art" --for worker-drain \
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$drain_art" --for worker-drain \
   --agent-reply-file "$DRAIN/reply1" >/dev/null \
   || fail "the first generation of the draining fixture did not arm"
 [ "$(cat "$DRAIN/replies" 2>/dev/null || true)" = "first drain reply" ] \
@@ -5089,7 +5089,7 @@ chmod 0600 "$drain_claim"
 [ "$(pe "$DRAIN/home" list | awk -v id="$drain_id" '$1 == id { print $3 }')" = task:worker-drain/round-open ] \
   || fail "fixture invalid: the stood-up first generation is not reported live: $(pe "$DRAIN/home" list)"
 PATH="$DRAIN/bin:$PATH" FM_HOME="$DRAIN/home" FM_PROCEVENT_LAUNCH_CONFIRM_SECONDS=5 \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$drain_art" --for worker-drain \
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$drain_art" --for worker-drain \
   --agent-reply-file "$DRAIN/reply2" > "$DRAIN/arm2.out" 2> "$DRAIN/arm2.err" &
 drain_arm=$!
 sleep 1
@@ -5119,12 +5119,12 @@ cp "$READY/bin/lavish-axi" "$UNDISP/bin/lavish-axi"
 undisp_art="$UNDISP/board.html"
 printf '<h1>undisplaceable</h1>\n' > "$undisp_art"
 lavish_session "$undisp_art"
-undisp_id=$("$ROOT/bin/fm-procevent-lavish.sh" source-id "$undisp_art")
+undisp_id=$(bash "$ROOT/bin/fm-procevent-lavish.sh" source-id "$undisp_art")
 fm_test_track_procevent_home "$UNDISP/home"
 export READY_MARK="$UNDISP/mark" READY_RELEASE="$UNDISP/release"
 : > "$READY_MARK"
 PATH="$UNDISP/bin:$PATH" FM_HOME="$UNDISP/home" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$undisp_art" >/dev/null
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$undisp_art" >/dev/null
 wait_for_lines "$READY_MARK" 1 || fail "the undisplaceable fixture's listener never ran"
 undisp_claim="$FM_PROCEVENT_CLAIM_ROOT/$undisp_id.claim"
 undisp_identity=$(sed -n '4p' "$undisp_claim")
@@ -5135,7 +5135,7 @@ chmod 0600 "$undisp_claim"
   || fail "fixture invalid: the reused-pid claim is not reported orphaned"
 set +e
 PATH="$UNDISP/bin:$PATH" FM_HOME="$UNDISP/home" FM_PROCEVENT_LAUNCH_CONFIRM_SECONDS=1 \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$undisp_art" > "$UNDISP/arm2.out" 2>/dev/null
+  bash "$ROOT/bin/fm-procevent-lavish.sh" arm "$undisp_art" > "$UNDISP/arm2.out" 2>/dev/null
 undisp_rc=$?
 set -e
 sleep 0.5
@@ -5151,7 +5151,7 @@ awk -v v="$undisp_identity" 'NR == 4 { print v; next } { print }' \
 chmod 0600 "$undisp_claim"
 touch "$READY_RELEASE"
 PATH="$UNDISP/bin:$PATH" FM_HOME="$UNDISP/home" \
-  "$ROOT/bin/fm-procevent-lavish.sh" retire "$undisp_art" >/dev/null 2>&1 || true
+  bash "$ROOT/bin/fm-procevent-lavish.sh" retire "$undisp_art" >/dev/null 2>&1 || true
 pass "arm does not launch beside a stale claim whose process group is alive"
 
 printf '\nall procevent tests passed\n'

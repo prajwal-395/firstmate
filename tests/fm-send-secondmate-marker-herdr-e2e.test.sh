@@ -25,7 +25,7 @@ set -u
 fm_live_gate opt-in FM_SEND_MARKER_HERDR_E2E git herdr jq pi
 
 LAB_HELPER=${HERDR_LAB_HELPER:-$ROOT/bin/fm-herdr-lab.sh}
-SESSION=$("$LAB_HELPER" name fm-send-secondmate-marker-v7)
+SESSION=$(bash "$LAB_HELPER" name fm-send-secondmate-marker-v7)
 TMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/fm-send-marker-herdr-e2e.XXXXXX")
 SENDER_HOME="$TMP_ROOT/sender-home"
 SECOND_HOME="$TMP_ROOT/secondmate-home"
@@ -40,7 +40,7 @@ DIRECT='FM_MARKER_HERDR_DIRECT captain input'
 cleanup() {
   local rc=$?
   trap - EXIT
-  if ! "$LAB_HELPER" teardown "$SESSION"; then
+  if ! bash "$LAB_HELPER" teardown "$SESSION"; then
     rc=1
   fi
   rm -rf "$TMP_ROOT"
@@ -107,9 +107,9 @@ EOF
 printf '#!/usr/bin/env bash\nexec %q -e %q "$@"\n' "$REAL_PI" "$CAPTURE_EXTENSION" > "$FAKEBIN/pi"
 chmod +x "$FAKEBIN/pi"
 
-"$LAB_HELPER" provision "$SESSION"
+bash "$LAB_HELPER" provision "$SESSION"
 PATH="$FAKEBIN:$ORIGINAL_PATH" FM_GATE_REFUSE_BYPASS=1 FM_HOME="$SENDER_HOME" HERDR_SESSION="$SESSION" \
-  "$ROOT/bin/fm-spawn.sh" "$ID" "$SECOND_HOME" --secondmate --harness pi --backend herdr >/dev/null
+  bash "$ROOT/bin/fm-spawn.sh" "$ID" "$SECOND_HOME" --secondmate --harness pi --backend herdr >/dev/null
 
 META="$SENDER_HOME/state/$ID.meta"
 [ -f "$META" ] || fail "real secondmate spawn did not write exact-id metadata"
@@ -135,7 +135,7 @@ wait_for_prompt() { # <needle>
 wait_for_idle() {
   local status _ stable=0
   for _ in $(seq 1 240); do
-    status=$("$LAB_HELPER" run "$SESSION" agent get "$PANE" 2>/dev/null \
+    status=$(bash "$LAB_HELPER" run "$SESSION" agent get "$PANE" 2>/dev/null \
       | jq -r '.result.agent.agent_status // empty' 2>/dev/null || true)
     case "$status" in
       idle|done)
@@ -157,7 +157,7 @@ wait_for_prompt 'Isolated marker capture secondmate' \
 wait_for_idle || fail "real Pi did not become idle after the startup capture"
 
 PATH="$FAKEBIN:$ORIGINAL_PATH" FM_GATE_REFUSE_BYPASS=1 FM_HOME="$SENDER_HOME" \
-  "$ROOT/bin/fm-send.sh" "$ID" "$REQUEST" >/dev/null
+  bash "$ROOT/bin/fm-send.sh" "$ID" "$REQUEST" >/dev/null
 wait_for_prompt "$REQUEST" || fail "real Pi did not receive the exact-id fm-send request"
 GOT=$(jq -r --arg needle "$REQUEST" 'select(.prompt | contains($needle)) | .prompt' "$CAPTURE" | tail -1)
 [ "$GOT" = "${FM_FROMFIRST_MARK}${REQUEST}" ] \
@@ -168,8 +168,8 @@ wait_for_idle || fail "real Pi did not become idle after the exact-id capture"
 
 # Direct terminal input bypasses fm-send's metadata-routed transformation and
 # therefore remains conversational captain input.
-"$LAB_HELPER" run "$SESSION" pane send-text "$PANE" "$DIRECT" >/dev/null
-"$LAB_HELPER" run "$SESSION" pane send-keys "$PANE" enter >/dev/null
+bash "$LAB_HELPER" run "$SESSION" pane send-text "$PANE" "$DIRECT" >/dev/null
+bash "$LAB_HELPER" run "$SESSION" pane send-keys "$PANE" enter >/dev/null
 wait_for_prompt "$DIRECT" || fail "real Pi did not receive direct terminal input"
 GOT=$(jq -r --arg needle "$DIRECT" 'select(.prompt | contains($needle)) | .prompt' "$CAPTURE" | tail -1)
 [ "$GOT" = "$DIRECT" ] || fail "direct captain input was changed or marked"$'\n'"--- bytes ---"$'\n'"$(printf '%s' "$GOT" | od -An -tx1)"

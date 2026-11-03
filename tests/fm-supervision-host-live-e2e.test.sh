@@ -61,7 +61,7 @@ mkdir -p "$FM/state" "$FM/config" "$LAB/tmuxbin"
 printf '#!/usr/bin/env bash\nexit 1\n' > "$LAB/tmuxbin/tmux"
 chmod +x "$LAB/tmuxbin/tmux"
 printf 'project=demo\nwindow=fm-demo\nharness=claude\n' > "$FM/state/demo.meta"
-FM_HOME="$FM" "$FM/bin/fm-afk-contract.sh" enter --words 'Watch the fleet. Merge nothing and dispatch nothing.' >/dev/null \
+FM_HOME="$FM" bash "$FM/bin/fm-afk-contract.sh" enter --words 'Watch the fleet. Merge nothing and dispatch nothing.' >/dev/null \
   || fail "could not record the lab's away posture"
 
 export FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999
@@ -71,7 +71,7 @@ unset FM_ROOT_OVERRIDE FM_STATE_OVERRIDE FM_CONFIG_OVERRIDE PI_CODING_AGENT
 FM_HOME="$FM" PATH="$LAB/tmuxbin:$PATH" "$FAKE_CLAUDE" -c '
   printf "%s\n" "$$" > "$FM_HOME/state/.lock"
   printf "%s\n" "$$" >> "$1/claude-pids"
-  "$FM_HOME/bin/fm-supervision-host.sh" park > "$1/host.out" 2>&1
+  bash "$FM_HOME/bin/fm-supervision-host.sh" park > "$1/host.out" 2>&1
   printf "%s\n" "$?" > "$1/host.rc"
 ' _ "$LAB" 2>> "$LAB/harness.err" &
 
@@ -112,7 +112,7 @@ grep -q '"task":"demo"' "$FM/state/branch-outcomes.jsonl" \
   || fail "the engine did not acknowledge its wake ($CLAUDE_VERSION)"$'\n'"$(diagnose)"
 [ ! -e "$FM/state/.claude-autoarm-epoch" ] || fail "a lab Stop hook fired inside the engine ($CLAUDE_VERSION)"
 [ "$(cat "$FM/state/.lock")" = "$lock_before" ] || fail "the engine rewrote the session lock ($CLAUDE_VERSION)"
-if FM_HOME="$FM" "$FM/bin/fm-lease.sh" check demo >/dev/null 2>&1; then
+if FM_HOME="$FM" bash "$FM/bin/fm-lease.sh" check demo >/dev/null 2>&1; then
   fail "a branch lease outlived the engine turn ($CLAUDE_VERSION)"
 fi
 wait_until 100 watcher_live || fail "the host is not parked on a live successor after handling ($CLAUDE_VERSION)"

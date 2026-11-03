@@ -52,7 +52,7 @@ write_policy
 
 run_resolver() {
   PATH="$FAKEBIN:$PATH" FM_HOME="$HOME_DIR" FM_TEST_CURL_LOG="$LOG" \
-    "$TOOL" --json "$BRIEF" "$@"
+    bash "$TOOL" --json "$BRIEF" "$@"
 }
 
 out=$(run_resolver --project starling-site)
@@ -125,7 +125,7 @@ cat > "$HOME_DIR/config/model-catalog.json" <<'JSON'
 JSON
 
 jq '. + {unrecognized_route_switch:true}' "$TMP_ROOT/default.json" > "$HOME_DIR/config/dispatch-policy.json"
-out=$("$ROOT/bin/fm-dispatch-policy-validate.sh" "$HOME_DIR/config/dispatch-policy.json" 2>&1)
+out=$(bash "$ROOT/bin/fm-dispatch-policy-validate.sh" "$HOME_DIR/config/dispatch-policy.json" 2>&1)
 assert_equals 1 "$?" "unknown policy fields are rejected"
 assert_contains "$out" 'unknown top-level policy fields' "schema refusal names the unknown field category"
 pass "the v2 policy schema rejects unsupported routing switches"
@@ -139,17 +139,17 @@ pass "version 2 resolves the first eligible rung and retains its configured work
 
 now_ms=$(( $(date +%s) * 1000 ))
 reset_ms=$((now_ms + 60000))
-"$ROOT/bin/fm-dispatch-reset.sh" record "$HOME_DIR/state" opencode deepseek-v4.1-flash-free secondary "$reset_ms" test
+bash "$ROOT/bin/fm-dispatch-reset.sh" record "$HOME_DIR/state" opencode deepseek-v4.1-flash-free secondary "$reset_ms" test
 out=$(run_resolver)
 assert_equals main "$(jq -r .profile.workspace <<<"$out")" "an active reset skips only its provider/model/workspace tuple"
-"$ROOT/bin/fm-dispatch-reset.sh" record "$HOME_DIR/state" opencode opencode/deepseek-v4.1-flash-free main "$reset_ms" test
+bash "$ROOT/bin/fm-dispatch-reset.sh" record "$HOME_DIR/state" opencode opencode/deepseek-v4.1-flash-free main "$reset_ms" test
 out=$(run_resolver)
 assert_equals glm-free "$(jq -r .explanation.chosen.profile.id <<<"$out")" "both accounts for a rung precede the next model"
 pass "generic exhaustion records affect launch selection by provider, model, and workspace"
 
 for model in opencode/deepseek-v4.1-flash-free opencode/glm-5.3-flash-free opencode/mimo-v2.6-flash-free; do
   for workspace in secondary main; do
-    "$ROOT/bin/fm-dispatch-reset.sh" record "$HOME_DIR/state" opencode "$model" "$workspace" "$reset_ms" test
+    bash "$ROOT/bin/fm-dispatch-reset.sh" record "$HOME_DIR/state" opencode "$model" "$workspace" "$reset_ms" test
   done
 done
 cat > "$TMP_ROOT/account-quota.json" <<'JSON'
@@ -168,7 +168,7 @@ pass "the configured reset-soonest account strategy selects from quota reset evi
 
 out=$(run_resolver --declare open-ended)
 assert_equals escalate "$(jq -r .status <<<"$out")" "Opus requires affirmative captain approval"
-out=$(PATH="$FAKEBIN:$PATH" FM_HOME="$HOME_DIR" FM_TEST_CURL_LOG="$LOG" "$TOOL" --json "$BRIEF" --declare open-ended --captain-approved)
+out=$(PATH="$FAKEBIN:$PATH" FM_HOME="$HOME_DIR" FM_TEST_CURL_LOG="$LOG" bash "$TOOL" --json "$BRIEF" --declare open-ended --captain-approved)
 assert_equals claude-opus-5-5 "$(jq -r .profile.model <<<"$out")" "explicit approval enables the declared open-ended Opus route"
 mkdir -p "$HOME_DIR/data"
 printf '%s\n' 'Research charter: this home cannot use Claude.' > "$HOME_DIR/data/charter.md"

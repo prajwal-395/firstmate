@@ -630,7 +630,7 @@ run_spawn() {  # <case-dir> <args...>
     FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$case_dir/wt" TMUX="fake,1,0" \
     CLAUDE_CONFIG_DIR='' \
     PATH="$case_dir/fakebin:$PATH" \
-    "$SPAWN" "$@" 2>&1
+    bash "$SPAWN" "$@" 2>&1
 }
 
 run_ship_spawn() {  # <case-dir> <id>
@@ -646,7 +646,7 @@ run_teardown() {  # <case-dir> <id> [args...]
   shift
   FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$(home_of "$case_dir")" \
     PATH="$case_dir/fakebin:$PATH" \
-    "$TEARDOWN" "$@" 2>&1
+    bash "$TEARDOWN" "$@" 2>&1
 }
 
 run_bootstrap() {  # <case-dir>
@@ -654,7 +654,7 @@ run_bootstrap() {  # <case-dir>
   FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$(home_of "$case_dir")" \
     FM_BOOTSTRAP_NETWORK=skip \
     PATH="$case_dir/fakebin:$PATH" \
-    "$BOOTSTRAP" 2>&1
+    bash "$BOOTSTRAP" 2>&1
 }
 
 # --- dispatch ---------------------------------------------------------------
@@ -781,7 +781,7 @@ test_captain_hold_preserves_relocated_backlog_on_backend_error() {
     esac
     rc=0
     out=$(env -u TASKS_AXI_BACKEND HOME="$case_dir/user-home" FM_HOME="$home" \
-      FM_DATA_OVERRIDE="$data" "$ROOT/bin/fm-captain-hold.sh" hold "$id" \
+      FM_DATA_OVERRIDE="$data" bash "$ROOT/bin/fm-captain-hold.sh" hold "$id" \
       --title "Hold regression" --reason "Captain must choose" 2>&1) || rc=$?
     if [ "$config_state" = dangling ]; then
       [ "$rc" -ne 0 ] || fail "captain hold accepted an unresolved backend and changed the wrong backlog"
@@ -1122,7 +1122,7 @@ test_completion_targets_a_nested_relative_data_directory() {
   out=$(cd "$case_dir" && \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$(home_of "$case_dir")" \
     FM_DATA_OVERRIDE="$relative_data" PATH="$case_dir/fakebin:$PATH" \
-    "$TEARDOWN" "$id" 2>&1) \
+    bash "$TEARDOWN" "$id" 2>&1) \
     || fail "relative-data teardown failed: $out"
   [ "$(tasks-axi show "$id" --file "$backlog" 2>/dev/null | sed -n 's/^  state: *//p' | head -1)" = "done" ] \
     || fail "relative-data teardown mutated a different backlog file"
@@ -1512,7 +1512,7 @@ test_deferred_signal_verification_outlives_an_unresponsive_tasks_axi() {
     HOME="$case_dir/user-home" FM_SPAWN_NO_GUARD=1 \
     FM_FAKE_PANE_PATH="$case_dir/wt" TMUX="fake,1,0" CLAUDE_CONFIG_DIR='' \
     FM_TASKS_AXI_TIMEOUT=3 PATH="$case_dir/fakebin:$PATH" \
-    "$SPAWN" "$id" "$case_dir/project" \
+    bash "$SPAWN" "$id" "$case_dir/project" \
     --mode no-mistakes --yolo off 2>&1) || rc=$?
   [ "$rc" -ne 0 ] || fail "an interrupted spawn reported success"
   case "$rc" in
@@ -1613,7 +1613,7 @@ test_completion_closes_a_scout_with_its_report() {
   printf 'findings\n' > "$(home_of "$case_dir")/data/$id/report.md"
   FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$(home_of "$case_dir")" \
     PATH="$case_dir/fakebin:$PATH" \
-    "$ROOT/bin/fm-captain-hold.sh" complete "$id" --none >/dev/null \
+    bash "$ROOT/bin/fm-captain-hold.sh" complete "$id" --none >/dev/null \
     || fail "could not record the scout's completed captain-call inventory"
 
   out=$(run_teardown "$case_dir" "$id") || fail "teardown failed: $out"
@@ -1683,7 +1683,7 @@ test_completion_records_a_relative_report_for_relocated_data() {
   printf 'findings\n' > "$relocated/$id/report.md"
   FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$(home_of "$case_dir")" \
     FM_DATA_OVERRIDE="$relocated////" PATH="$case_dir/fakebin:$PATH" \
-    "$ROOT/bin/fm-captain-hold.sh" complete "$id" --none >/dev/null \
+    bash "$ROOT/bin/fm-captain-hold.sh" complete "$id" --none >/dev/null \
     || fail "could not record the relocated scout's captain-call inventory"
 
   out=$(FM_DATA_OVERRIDE="$relocated////" run_teardown "$case_dir" "$id") \
@@ -1711,7 +1711,7 @@ test_space_containing_scout_report_marker_replays() {
   printf 'findings\n' > "$data/$id/report.md"
   FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$(home_of "$case_dir")" \
     FM_DATA_OVERRIDE="$data" PATH="$case_dir/fakebin:$PATH" \
-    "$ROOT/bin/fm-captain-hold.sh" complete "$id" --none >/dev/null \
+    bash "$ROOT/bin/fm-captain-hold.sh" complete "$id" --none >/dev/null \
     || fail "could not record the space-path scout's captain-call inventory"
   break_verb "$case_dir" "done"
   marker="$(home_of "$case_dir")/state/$id.backlog-close"
@@ -2848,7 +2848,7 @@ test_spawn_refuses_a_special_file_tasks_config() {
     FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$case_dir/wt" TMUX="fake,1,0" \
     CLAUDE_CONFIG_DIR='' \
     PATH="$case_dir/fakebin:$PATH" \
-    "$SPAWN" "$id" "$case_dir/project" --mode no-mistakes --yolo off 2>&1) || rc=$?
+    bash "$SPAWN" "$id" "$case_dir/project" --mode no-mistakes --yolo off 2>&1) || rc=$?
   [ "$rc" -ne 124 ] || fail "spawn hung reading a special-file tasks-axi config"
   [ "$rc" -ne 0 ] || fail "spawn accepted a special-file tasks-axi config"
   assert_contains "$out" "tasks-axi config is not a regular file" \

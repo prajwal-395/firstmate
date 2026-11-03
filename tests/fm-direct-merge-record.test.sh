@@ -131,7 +131,7 @@ run_record() {
   FM_HOME="$case_dir/home" \
   FM_STATE_OVERRIDE="$case_dir/state" \
   PATH="$case_dir/fakebin:$PATH" \
-    "$RECORD" "$@"
+    bash "$RECORD" "$@"
   rc=$?
   return "$rc"
 }
@@ -150,7 +150,7 @@ run_pr_merge() {
   FM_TEST_GH_MERGE_OUTPUT="$(cat "$case_dir/github-merge-output" 2>/dev/null || true)" \
   HOME="$case_dir/user-home" \
   PATH="$case_dir/fakebin:$PATH" \
-    "$PR_MERGE" "$@"
+    bash "$PR_MERGE" "$@"
   rc=$?
   return "$rc"
 }

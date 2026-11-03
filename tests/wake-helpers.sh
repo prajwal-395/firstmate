@@ -156,7 +156,7 @@ ack_drain_err() {  # <state> <stderr-file>
   sequence=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation [A-Za-z0-9._-][A-Za-z0-9._-]*$/\1/p' "$err")
   generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through [0-9][0-9]* --recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$err")
   [ -n "$sequence" ] && [ -n "$generation" ] || return 1
-  FM_STATE_OVERRIDE="$state" "$ROOT/bin/fm-wake-drain.sh" \
+  FM_STATE_OVERRIDE="$state" bash "$ROOT/bin/fm-wake-drain.sh" \
     --ack-through "$sequence" --recovery-generation "$generation"
 }
 

@@ -44,7 +44,7 @@ cleanup_labs() {
   local root
   for root in "$TMP_ROOT"/lab-*; do
     [ -f "$root/.fm-live-lab" ] || continue
-    PATH="$TMP_ROOT/fakebin:$PATH" "$ROOT/bin/fm-live-lab.sh" down "$root" >/dev/null 2>&1 || true
+    PATH="$TMP_ROOT/fakebin:$PATH" bash "$ROOT/bin/fm-live-lab.sh" down "$root" >/dev/null 2>&1 || true
   done
   fm_test_cleanup
 }
@@ -54,7 +54,7 @@ for mode in off on; do
   lab="$TMP_ROOT/lab-$mode"
   host=claude
   [ "$mode" = off ] && host=off
-  out=$(PATH="$TMP_ROOT/fakebin:$PATH" SHELL=/bin/sh "$ROOT/bin/fm-live-lab.sh" up --harness claude --mate --supervision-host "$host" --source "$TMP_ROOT/source" --timeout 0 "$lab" 2>&1)
+  out=$(PATH="$TMP_ROOT/fakebin:$PATH" SHELL=/bin/sh bash "$ROOT/bin/fm-live-lab.sh" up --harness claude --mate --supervision-host "$host" --source "$TMP_ROOT/source" --timeout 0 "$lab" 2>&1)
   rc=$?
   expect_code 1 "$rc" "unanswered probe leaves the $mode mate lab for inspection"
   assert_not_contains "$out" 'HOST_OFF: unbound variable' "up $mode sets mate readiness state"

@@ -77,7 +77,7 @@ in_home() {  # <command...>: run one real script against the case home
 # Spawn, write status lines, poll once, land locally, clean up.
 run_lifecycle() {
   local out
-  out=$(in_home "$ROOT/bin/fm-spawn.sh" "$TASK" "$PROJ_DIR" --mode local-only --yolo off 2>&1) \
+  out=$(in_home bash "$ROOT/bin/fm-spawn.sh" "$TASK" "$PROJ_DIR" --mode local-only --yolo off 2>&1) \
     || fail "spawn failed: $out"
   {
     printf 'working [at=1790000000]: setup done\n'
@@ -86,7 +86,7 @@ run_lifecycle() {
     printf 'partial line without its newline'
   } >> "$HOME_DIR/state/$TASK.status"
   out=$(in_home env FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 \
-    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 2 2>&1)
+    bash "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 2 2>&1)
   case "$out" in *"checkpoint:"*|*"signal:"*) ;; *) fail "watcher checkpoint did not run: $out" ;; esac
   LEDGER_AFTER_POLL=$(cat "$HOME_DIR/state/fleet-ledger.jsonl" 2>/dev/null || true)
   printf ' finished\ndone: ready in branch\n' >> "$HOME_DIR/state/$TASK.status"
@@ -95,8 +95,8 @@ run_lifecycle() {
   git -C "$WT_DIR" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' \
     commit -qm 'landed'
   printf 'local_done_head=%s\n' "$(git -C "$WT_DIR" rev-parse HEAD)" >> "$HOME_DIR/state/$TASK.meta"
-  out=$(in_home "$ROOT/bin/fm-merge-local.sh" "$TASK" 2>&1) || fail "local merge failed: $out"
-  out=$(in_home "$ROOT/bin/fm-teardown.sh" "$TASK" 2>&1) || fail "teardown failed: $out"
+  out=$(in_home bash "$ROOT/bin/fm-merge-local.sh" "$TASK" 2>&1) || fail "local merge failed: $out"
+  out=$(in_home bash "$ROOT/bin/fm-teardown.sh" "$TASK" 2>&1) || fail "teardown failed: $out"
 }
 
 ledger_rows() {  # <jq filter>: print one compact row per ledger record
@@ -157,11 +157,11 @@ test_flag_on_records_a_pr_registration() {
   # An unreadable forge answer: no draft refusal and no recorded head.
   printf '#!/usr/bin/env bash\nexit 1\n' > "$FAKEBIN/gh"
   chmod +x "$FAKEBIN/gh"
-  out=$(in_home "$ROOT/bin/fm-spawn.sh" "$TASK" "$PROJ_DIR" --mode direct-PR --yolo off 2>&1) \
+  out=$(in_home bash "$ROOT/bin/fm-spawn.sh" "$TASK" "$PROJ_DIR" --mode direct-PR --yolo off 2>&1) \
     || fail "spawn failed: $out"
   printf 'done: PR %s\n' "$pr_url" >> "$HOME_DIR/state/$TASK.status"
-  out=$(in_home "$ROOT/bin/fm-pr-check.sh" "$TASK" "$pr_url" 2>&1) || fail "PR registration failed: $out"
-  out=$(in_home env FM_PR_CHECK_MERGE=1 "$ROOT/bin/fm-pr-check.sh" "$TASK" "$pr_url" 2>&1) \
+  out=$(in_home bash "$ROOT/bin/fm-pr-check.sh" "$TASK" "$pr_url" 2>&1) || fail "PR registration failed: $out"
+  out=$(in_home env FM_PR_CHECK_MERGE=1 bash "$ROOT/bin/fm-pr-check.sh" "$TASK" "$pr_url" 2>&1) \
     || fail "merge-time PR re-record failed: $out"
   rows=$(ledger_rows '[.event, .state, .pr]')
   assert_equals "$(cat <<EOF
@@ -182,7 +182,7 @@ worker_status_command() {  # <state> <note> [<state-dir> [<config-dir>]]
   rm -rf "${HOME_DIR:?}/data/$TASK"
   (cd "$HOME_DIR" && in_home env FM_STATE_OVERRIDE="${3:-$HOME_DIR/state}" \
     FM_CONFIG_OVERRIDE="${4:-$HOME_DIR/config}" \
-    "$ROOT/bin/fm-brief.sh" "$TASK" sample --mode no-mistakes >/dev/null) \
+    bash "$ROOT/bin/fm-brief.sh" "$TASK" sample --mode no-mistakes >/dev/null) \
     || fail "brief scaffold failed"
   # shellcheck disable=SC2016 # Match literal backticks in the generated brief.
   cmd=$(sed -n '/`echo "{state}/s/.*`\(echo .*\)`.*/\1/p' "$HOME_DIR/data/$TASK/brief.md" | head -1)
@@ -208,7 +208,7 @@ test_worker_status_line_is_recorded_when_written() {
     "$(cat "$HOME_DIR/state/$TASK.status")" "status log"
   assert_equals '["task.status","needs-decision"," pick a lamp colour"]' \
     "$(ledger_rows '[.event, .state, .text]')" "ledger rows right after the append"
-  out=$(in_home "$ROOT/bin/fm-fleet-ledger.sh" capture 2>&1) || fail "backstop capture failed: $out"
+  out=$(in_home bash "$ROOT/bin/fm-fleet-ledger.sh" capture 2>&1) || fail "backstop capture failed: $out"
   assert_equals 1 "$(wc -l < "$HOME_DIR/state/fleet-ledger.jsonl" | tr -d ' ')" \
     "ledger records after the backstop capture"
   pass "flag on: a worker's status command records its line at once, and the watcher backstop does not record it again"
@@ -260,7 +260,7 @@ test_worker_status_line_lands_when_the_ledger_fails() {
   assert_equals "failed [at=1790000000]: tests broke" \
     "$(cat "$HOME_DIR/state/$TASK.status")" "status log"
   rmdir "$HOME_DIR/state/fleet-ledger.jsonl"
-  out=$(in_home "$ROOT/bin/fm-fleet-ledger.sh" capture 2>&1) || fail "backstop capture failed: $out"
+  out=$(in_home bash "$ROOT/bin/fm-fleet-ledger.sh" capture 2>&1) || fail "backstop capture failed: $out"
   assert_equals '["task.status","failed"]' "$(ledger_rows '[.event, .state]')" \
     "ledger rows after the backstop capture"
   pass "ledger failing: the worker's status line still lands exactly, quietly, and the backstop records it later"

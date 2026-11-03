@@ -734,7 +734,7 @@ mark_escalated_seen() {  # <state> <captured-endpoint-file>
 # launcher source it purely for its pure functions).
 fm_daemon_primary_harness() {
   if [ -z "${FM_DAEMON_PRIMARY_HARNESS:-}" ]; then
-    FM_DAEMON_PRIMARY_HARNESS=$("$FM_DAEMON_DIR/fm-harness.sh" 2>/dev/null || printf 'unknown')
+    FM_DAEMON_PRIMARY_HARNESS=$(bash "$FM_DAEMON_DIR/fm-harness.sh" 2>/dev/null || printf 'unknown')
     [ -n "$FM_DAEMON_PRIMARY_HARNESS" ] || FM_DAEMON_PRIMARY_HARNESS=unknown
   fi
   printf '%s' "$FM_DAEMON_PRIMARY_HARNESS"
@@ -1910,7 +1910,7 @@ handle_durable_wakes() {  # <watcher-reason> <state>
   local handled=0 failed=0 ack_through ack_generation
   out=$(mktemp "$state/.subsuper-wake-drain.XXXXXX") || return 1
   err=$(mktemp "$state/.subsuper-wake-drain.XXXXXX") || { rm -f "$out"; return 1; }
-  if ! "$FM_DAEMON_DIR/fm-wake-drain.sh" > "$out" 2> "$err"; then
+  if ! bash "$FM_DAEMON_DIR/fm-wake-drain.sh" > "$out" 2> "$err"; then
     cat "$err" >&2
     rm -f "$out" "$err"
     return 1
@@ -1938,7 +1938,7 @@ handle_durable_wakes() {  # <watcher-reason> <state>
     log "wake drain omitted its generation-bound acknowledgement; retaining durable wakes"
     return 1
   fi
-  "$FM_DAEMON_DIR/fm-wake-drain.sh" --ack-through "$ack_through" \
+  bash "$FM_DAEMON_DIR/fm-wake-drain.sh" --ack-through "$ack_through" \
     --recovery-generation "$ack_generation"
 }
 
@@ -2134,7 +2134,7 @@ fm_super_main() {
 
   start_watcher() {
     CUR_TMP=$(mktemp "${TMPDIR:-/tmp}/fm-watch.XXXXXX") || { log "error: mktemp failed; retrying in 5s"; sleep 5; return 1; }
-    "$WATCH" >"$CUR_TMP" 2>>"$WATCH_ERR" &
+    bash "$WATCH" >"$CUR_TMP" 2>>"$WATCH_ERR" &
     WATCHER_PID=$!
   }
 

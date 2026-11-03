@@ -354,7 +354,7 @@ test_drain_presents_no_channel_content_in_remote_mate() {
   seed_remote_mate "$dir/home"
   mkdir -p "$dir/home/data"
   FM_STATE_OVERRIDE="$dir/home/state" FM_HOME="$dir/home" \
-    "$ROOT/bin/fm-wake-drain.sh" > "$dir/drain.out" \
+    bash "$ROOT/bin/fm-wake-drain.sh" > "$dir/drain.out" \
     || fail "the drain failed over a remote mate home"
   out=$(cat "$dir/drain.out")
   case "$out" in *parent-replies*)
@@ -385,7 +385,7 @@ test_drain_ignores_stale_channel_records_from_an_older_watcher() {
   printf 'parent-replies\tstrong:1:2:3\t99\t0\n' \
     > "$dir/home/state/.status-presentation-cursor"
   FM_STATE_OVERRIDE="$dir/home/state" FM_HOME="$dir/home" \
-    "$ROOT/bin/fm-wake-drain.sh" > "$dir/drain.out" \
+    bash "$ROOT/bin/fm-wake-drain.sh" > "$dir/drain.out" \
     || fail "the drain failed over stale channel records"
   out=$(cat "$dir/drain.out")
   case "$out" in *parent-replies*|*old-phantom*)

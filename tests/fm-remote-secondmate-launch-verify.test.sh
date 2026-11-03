@@ -74,7 +74,7 @@ run_launch() { # <out-file> <err-file>; rc in LAUNCH_RC, stdout in file
   FM_HOME="$REMOTE_HOME" \
   PATH="$FAKEHOST/bin:$PATH" \
   FM_REMOTE_LAUNCH_WAIT=3 \
-    "$ROOT/bin/fm-remote-secondmate-control.sh" launch rsm codex - - herdr \
+    bash "$ROOT/bin/fm-remote-secondmate-control.sh" launch rsm codex - - herdr \
     > "$out" 2> "$err" || LAUNCH_RC=$?
 }
 

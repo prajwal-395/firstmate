@@ -249,7 +249,7 @@ test_secondmate_launch_relies_on_discovery() {
     FM_STATE_OVERRIDE="$world/home/state" FM_DATA_OVERRIDE="$world/home/data" \
     FM_PROJECTS_OVERRIDE="$world/home/projects" FM_CONFIG_OVERRIDE="$world/home/config" \
     FM_SPAWN_NO_GUARD=1 FM_FAKE_LAUNCH_LOG="$launchlog" \
-    "$ROOT/bin/fm-spawn.sh" sm "$home" omp --secondmate 2>&1)
+    bash "$ROOT/bin/fm-spawn.sh" sm "$home" omp --secondmate 2>&1)
   status=$?
   expect_code 0 "$status" "omp secondmate spawn should succeed: $out"
   assert_grep "harness=omp" "$world/home/state/sm.meta" "secondmate meta missing harness=omp"
@@ -288,7 +288,7 @@ test_secondmate_config_pinned_model_is_validated() {
     FM_STATE_OVERRIDE="$world/home/state" FM_DATA_OVERRIDE="$world/home/data" \
     FM_PROJECTS_OVERRIDE="$world/home/projects" FM_CONFIG_OVERRIDE="$world/home/config" \
     FM_SPAWN_NO_GUARD=1 FM_FAKE_LAUNCH_LOG="$launchlog" \
-    "$ROOT/bin/fm-spawn.sh" sm "$home" --secondmate 2>&1)
+    bash "$ROOT/bin/fm-spawn.sh" sm "$home" --secondmate 2>&1)
   status=$?
   expect_code 1 "$status" "a config-pinned unlisted omp model must refuse the secondmate spawn: $out"
   assert_contains "$out" "omp model 'openai-codex/gpt-nope' is not listed by 'omp models --json' although provider 'openai-codex' is" \
@@ -322,7 +322,7 @@ run_omp_secondmate_spawn() {  # <world> <spawn-args...>
     FM_STATE_OVERRIDE="$world/home/state" FM_DATA_OVERRIDE="$world/home/data" \
     FM_PROJECTS_OVERRIDE="$world/home/projects" FM_CONFIG_OVERRIDE="$world/home/config" \
     FM_SPAWN_NO_GUARD=1 FM_FAKE_LAUNCH_LOG="$world/launch.log" \
-    "$ROOT/bin/fm-spawn.sh" sm "$world/sm" "$@" 2>&1
+    bash "$ROOT/bin/fm-spawn.sh" sm "$world/sm" "$@" 2>&1
 }
 
 test_secondmate_omp_profile_pin() {
@@ -702,7 +702,7 @@ test_watch_extension_runs_the_supervision_host() {  # [away|quiet]
     # QUIET): the extension asks the record owner, so the same handback carries
     # no away note.
     for f in fm-afk-contract.sh fm-classify-lib.sh fm-timeout-lib.sh; do cp "$ROOT/bin/$f" "$repo/bin/$f"; done
-    FM_HOME="$home" FM_AFK_MODE=quiet "$ROOT/bin/fm-afk-contract.sh" enter --words 'keep routine wakes off my main' >/dev/null 2>&1 \
+    FM_HOME="$home" FM_AFK_MODE=quiet bash "$ROOT/bin/fm-afk-contract.sh" enter --words 'keep routine wakes off my main' >/dev/null 2>&1 \
       || fail "fixture: could not record quiet mode"
   else
     : > "$home/state/.afk-contract"

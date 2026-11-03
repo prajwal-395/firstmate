@@ -124,8 +124,8 @@ pass "composer shape, draft safety, and independent delivery signals"
 
 state="$TMP_ROOT/hook state"
 mkdir -p "$state"
-gen=$("$ROOT/bin/fm-busy-event.sh" arm "$state" worker)
-"$ROOT/bin/fm-cortex-plugin.sh" "$state" worker "$gen" || fail 'plugin writer failed'
+gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$state" worker)
+bash "$ROOT/bin/fm-cortex-plugin.sh" "$state" worker "$gen" || fail 'plugin writer failed'
 plugin="$state/worker.cortex-plugin"
 jq -e '.name == "firstmate-worker"' "$plugin/.cortex-plugin/plugin.json" >/dev/null || fail 'manifest missing'
 hooks="$plugin/hooks/hooks.json"
@@ -143,7 +143,7 @@ assert_present "$state/worker.turn-ended" 'Stop notification absent'
 run_hook UserPromptSubmit
 run_hook SessionEnd
 [ "$(fm_busy_classify tmux fake:w cortex worker "$state")" = 'idle cortex-hook' ] || fail 'SessionEnd did not settle'
-"$ROOT/bin/fm-busy-event.sh" arm "$state" worker >/dev/null
+bash "$ROOT/bin/fm-busy-event.sh" arm "$state" worker >/dev/null
 rm "$state/worker.turn-ended"
 run_hook Stop
 [ "$(fm_busy_classify tmux fake:w cortex worker "$state")" = 'busy fm-spawn' ] || fail 'stale Stop cleared replacement'
@@ -158,7 +158,7 @@ case "$stop_command" in
 esac
 wiring=$(fm_control_harness_wiring_paths cortex /unused "$state" worker)
 case "$wiring" in *"$hooks"*"$plugin/.cortex-plugin/plugin.json"*) ;; *) fail "plugin retirement paths missing: $wiring" ;; esac
-! "$ROOT/bin/fm-cortex-plugin.sh" "$state" 'bad id' "$gen" 2>/dev/null || fail 'invalid task id accepted'
+! bash "$ROOT/bin/fm-cortex-plugin.sh" "$state" 'bad id' "$gen" 2>/dev/null || fail 'invalid task id accepted'
 jq -e . "$hooks" >/dev/null || fail 'failed write replaced a valid plugin'
 pass "private plugin lifecycle and stale-generation rejection"
 

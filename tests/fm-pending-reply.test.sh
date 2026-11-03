@@ -123,7 +123,7 @@ run_send() {
   env PATH="$fb:$PATH" \
     FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_SEND_LOG="$log" FM_SEND_SETTLE=0 \
     FM_PENDING_REPLY_GRACE_SECS=0 \
-    "$SEND" "$@" 2>/dev/null
+    bash "$SEND" "$@" 2>/dev/null
 }
 
 phase_of() {  # <state> <corr>
@@ -1001,7 +1001,7 @@ test_helper_report_resolves() {
   export FM_PENDING_REPLY_NOW=9100
   corr=$(fm_pending_reply_create "$home" "$state" "hibit" "quick answer")
   fm_pending_reply_mark_delivered "$state" "$corr"
-  FM_HOME="$sm_home" "$REPORT" "done" "$corr" "all good" \
+  FM_HOME="$sm_home" bash "$REPORT" "done" "$corr" "all good" \
     || fail "helper report failed"
   [ -f "$state/hibit.status" ] || fail "helper must write the parent channel"
   if grep -Fq "corr=$corr" "$sm_home/state/hibit.status" 2>/dev/null; then
@@ -1527,7 +1527,7 @@ test_same_basename_self_home_corr_resolves_on_tick() {
     || fail "recovery and retries must preserve the legacy reply bytes without duplicates"
   fm_write_secondmate_meta "$state/mate.meta" "$sm_home"
   fb=$(make_stubs "$home")
-  out=$(PATH="$fb:$PATH" FM_HOME="$home" "$ROOT/bin/fm-fleet-snapshot.sh" --json) \
+  out=$(PATH="$fb:$PATH" FM_HOME="$home" bash "$ROOT/bin/fm-fleet-snapshot.sh" --json) \
     || fail "snapshot of the recovered reply should succeed"
   printf '%s' "$out" | jq -e '
     .tasks[] | select(.id == "mate") | .paths.status_log.last_event
@@ -1641,7 +1641,7 @@ test_mechanical_helper_writes_parent_channel() {
   export FM_PENDING_REPLY_NOW=11200
   corr=$(fm_pending_reply_create "$home" "$state" mate "status of the audit")
   fm_pending_reply_mark_delivered "$state" "$corr"
-  FM_HOME="$sm_home" "$REPORT" "done" "$corr" "audit clean" \
+  FM_HOME="$sm_home" bash "$REPORT" "done" "$corr" "audit clean" \
     || fail "mechanical helper should succeed from a seeded mate home"
   grep -Fq "corr=$corr" "$state/mate.status" \
     || fail "mechanical helper must append to the parent channel"
@@ -1654,17 +1654,17 @@ test_mechanical_helper_writes_parent_channel() {
   empty_corr=$(fm_pending_reply_create "$home" "$state" mate "answer must not be empty")
   fm_pending_reply_mark_delivered "$state" "$empty_corr"
   rc=0
-  FM_HOME="$sm_home" "$REPORT" "done" "$empty_corr" "" 2>/dev/null || rc=$?
+  FM_HOME="$sm_home" bash "$REPORT" "done" "$empty_corr" "" 2>/dev/null || rc=$?
   [ "$rc" -ne 0 ] || fail "helper must reject an empty status note"
   if fm_pending_reply_try_resolve "$state" "$empty_corr"; then
     fail "an empty helper report must not resolve an expectation"
   fi
   rc=0
-  env -u FM_HOME "$REPORT" "done" "$empty_corr" "must require FM_HOME" \
+  env -u FM_HOME bash "$REPORT" "done" "$empty_corr" "must require FM_HOME" \
     2>/dev/null || rc=$?
   [ "$rc" -ne 0 ] || fail "helper must require FM_HOME"
   rc=0
-  FM_HOME="$home" "$REPORT" "done" "$corr" "from a main home" 2>/dev/null || rc=$?
+  FM_HOME="$home" bash "$REPORT" "done" "$corr" "from a main home" 2>/dev/null || rc=$?
   [ "$rc" -ne 0 ] || fail "helper must refuse a main home that has no parent channel"
   pass "mechanical helper writes the parent channel from verb, corr, and note"
 }

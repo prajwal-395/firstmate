@@ -197,7 +197,7 @@ for harness in claude codex opencode pi pi-signed grok kimi cursor muse; do
           done)
     fi
     # shellcheck disable=SC2086  # deliberate: the foreground pids are separate arguments
-    verdicts=$("$ROOT/bin/fm-harness.sh" ancestry-descent "$pane_pid" $fg_pids 2>/dev/null || true)
+    verdicts=$(bash "$ROOT/bin/fm-harness.sh" ancestry-descent "$pane_pid" $fg_pids 2>/dev/null || true)
     case "$verdicts" in *"comm $expect_harness"*) break ;; esac
     sleep 0.2
   done

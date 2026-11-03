@@ -104,7 +104,7 @@ run_send() {
   : > "$log"
   env PATH="$fb:$PATH" \
     FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_SEND_LOG="$log" FM_SEND_SETTLE=0 \
-    "$SEND" "$@" 2>/dev/null
+    bash "$SEND" "$@" 2>/dev/null
 }
 
 setup_home() {  # <name> -> echoes a fresh home dir with an empty state/
@@ -114,7 +114,7 @@ setup_home() {  # <name> -> echoes a fresh home dir with an empty state/
 }
 
 drain_out() {  # <home>
-  FM_STATE_OVERRIDE="$1/state" "$DRAIN" 2>/dev/null
+  FM_STATE_OVERRIDE="$1/state" bash "$DRAIN" 2>/dev/null
 }
 
 test_answer_send_closes_open_decision() {
@@ -361,7 +361,7 @@ test_not_open_key_refuses_before_send() {
   : > "$log"
   env PATH="$fb:$PATH" \
     FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_SEND_LOG="$log" FM_SEND_SETTLE=0 \
-    "$SEND" t4 --resolve-key mistyped "the answer" >/dev/null 2>"$err"; rc=$?
+    bash "$SEND" t4 --resolve-key mistyped "the answer" >/dev/null 2>"$err"; rc=$?
   [ "$rc" -ne 0 ] || fail "a not-open key should refuse"
   assert_contains "$(cat "$err")" "--resolve-key 'mistyped'" "the refusal should name the bad key"
   assert_contains "$(cat "$err")" "nothing was sent" "the refusal should state nothing was sent"
@@ -390,7 +390,7 @@ test_failed_ring_still_closes_at_enqueue() {
   : > "$log"
   env PATH="$fb:$PATH" FM_FAKE_TMUX_SEND_FAIL=1 \
     FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_SEND_LOG="$log" FM_SEND_SETTLE=0 \
-    "$SEND" t5 --resolve-key creds "token is in the vault now" >/dev/null 2>&1; rc=$?
+    bash "$SEND" t5 --resolve-key creds "token is in the vault now" >/dev/null 2>&1; rc=$?
   expect_code 0 "$rc" "a failed doorbell must not fail the durably enqueued answer"
   grep -qF 'token is in the vault now' "$home/state/t5.inbox/001.msg" \
     || fail "the answer must be durably recorded despite the failed ring"
@@ -417,7 +417,7 @@ test_failed_enqueue_does_not_close() {
   : > "$log"
   env PATH="$fb:$PATH" \
     FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_SEND_LOG="$log" FM_SEND_SETTLE=0 \
-    "$SEND" t5 --resolve-key creds "token is in the vault now" >/dev/null 2>&1; rc=$?
+    bash "$SEND" t5 --resolve-key creds "token is in the vault now" >/dev/null 2>&1; rc=$?
   [ "$rc" -ne 0 ] || fail "a failed enqueue should exit nonzero"
   if grep -F 'resolved' "$home/state/t5.status" >/dev/null; then
     fail "a failed enqueue still closed the decision: $(cat "$home/state/t5.status")"
@@ -552,7 +552,7 @@ test_remote_secondmate_answer_closes_locally() {
   env PATH="$fb:$PATH" \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" FM_SEND_LOG="$log" FM_SEND_SETTLE=0 \
     FM_SSH_BIN="$fb/fake-ssh" FM_SSH_LOG="$ssh_log" FM_FAKE_SSH_RC=0 \
-    "$SEND" rsm --resolve-key upgrade-window "the weekend, freeze Friday" >/dev/null 2>&1; rc=$?
+    bash "$SEND" rsm --resolve-key upgrade-window "the weekend, freeze Friday" >/dev/null 2>&1; rc=$?
   expect_code 0 "$rc" "a remote secondmate answer send should succeed"
   assert_grep 'fm-remote-entrypoint.sh' "$ssh_log" \
     "the answer message should cross the remote transport"
@@ -589,7 +589,7 @@ test_remote_reply_corr_tag_does_not_block_resolve_key() {
   env PATH="$fb:$PATH" \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" FM_SEND_LOG="$log" FM_SEND_SETTLE=0 \
     FM_SSH_BIN="$fb/fake-ssh" FM_SSH_LOG="$ssh_log" FM_FAKE_SSH_RC=0 \
-    "$SEND" rsm --resolve-key loan-installment-cadence-amount "monthly" >/dev/null 2>&1; rc=$?
+    bash "$SEND" rsm --resolve-key loan-installment-cadence-amount "monthly" >/dev/null 2>&1; rc=$?
   expect_code 0 "$rc" "answering a corr-tagged remote decision should succeed, not refuse as unknown"
   sed -E 's/ \[at=[0-9]+\]//' "$home/state/rsm.status" | grep -qF 'resolved [key=loan-installment-cadence-amount]: answered: monthly' \
     || fail "the closing resolved line is missing:"$'\n'"$(cat "$home/state/rsm.status")"
@@ -612,7 +612,7 @@ test_remote_transport_failure_does_not_close() {
   env PATH="$fb:$PATH" \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" FM_SEND_LOG="$log" FM_SEND_SETTLE=0 \
     FM_SSH_BIN="$fb/fake-ssh" FM_SSH_LOG="$ssh_log" FM_FAKE_SSH_RC=1 \
-    "$SEND" rsm --resolve-key quota "quota refreshed, resume" >/dev/null 2>&1; rc=$?
+    bash "$SEND" rsm --resolve-key quota "quota refreshed, resume" >/dev/null 2>&1; rc=$?
   [ "$rc" -ne 0 ] || fail "a failed remote transport should exit nonzero"
   if grep -F 'resolved' "$home/state/rsm.status" >/dev/null; then
     fail "a failed remote send still closed the decision: $(cat "$home/state/rsm.status")"
@@ -634,30 +634,30 @@ test_flag_misuse_refuses() {
   # --resolve-key with --key (both orders) is refused: an answer is text.
   : > "$log"
   env PATH="$fb:$PATH" FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_SEND_LOG="$log" FM_SEND_SETTLE=0 \
-    "$SEND" t7 --resolve-key k --key Enter >/dev/null 2>"$err"; rc=$?
+    bash "$SEND" t7 --resolve-key k --key Enter >/dev/null 2>"$err"; rc=$?
   [ "$rc" -ne 0 ] || fail "--resolve-key before --key should refuse"
   assert_contains "$(cat "$err")" "cannot accompany --key" "the --key refusal should be explicit"
   : > "$log"
   env PATH="$fb:$PATH" FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_SEND_LOG="$log" FM_SEND_SETTLE=0 \
-    "$SEND" t7 --key Enter --resolve-key k >/dev/null 2>"$err"; rc=$?
+    bash "$SEND" t7 --key Enter --resolve-key k >/dev/null 2>"$err"; rc=$?
   [ "$rc" -ne 0 ] || fail "--resolve-key after --key should refuse instead of being silently dropped"
   assert_contains "$(cat "$err")" "cannot accompany --key" "the trailing --resolve-key refusal should be explicit"
 
   # An empty answer message is refused.
   env PATH="$fb:$PATH" FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_SEND_LOG="$log" FM_SEND_SETTLE=0 \
-    "$SEND" t7 --resolve-key k >/dev/null 2>"$err"; rc=$?
+    bash "$SEND" t7 --resolve-key k >/dev/null 2>"$err"; rc=$?
   [ "$rc" -ne 0 ] || fail "an empty answer message should refuse"
   assert_contains "$(cat "$err")" "nonempty answer message" "the empty-message refusal should be explicit"
 
   # An explicit backend target has no task ledger in this home.
   env PATH="$fb:$PATH" FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_SEND_LOG="$log" FM_SEND_SETTLE=0 \
-    "$SEND" sess:elsewhere --resolve-key k "answer" >/dev/null 2>"$err"; rc=$?
+    bash "$SEND" sess:elsewhere --resolve-key k "answer" >/dev/null 2>"$err"; rc=$?
   [ "$rc" -ne 0 ] || fail "an explicit backend target should refuse --resolve-key"
   assert_contains "$(cat "$err")" "no decision ledger" "the explicit-target refusal should be explicit"
 
   # A malformed key is refused before anything else.
   env PATH="$fb:$PATH" FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_SEND_LOG="$log" FM_SEND_SETTLE=0 \
-    "$SEND" t7 --resolve-key 'bad key!' "answer" >/dev/null 2>"$err"; rc=$?
+    bash "$SEND" t7 --resolve-key 'bad key!' "answer" >/dev/null 2>"$err"; rc=$?
   [ "$rc" -ne 0 ] || fail "a malformed key should refuse"
   assert_contains "$(cat "$err")" "not a valid decision key" "the malformed-key refusal should be explicit"
 
@@ -747,7 +747,7 @@ test_unclosable_reserved_key_refuses_before_send() {
   env PATH="$fb:$PATH" \
     FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_SEND_LOG="$log" FM_SEND_SETTLE=0 \
     FM_CLASSIFY_RESERVED_KEY_PREFIXES='pending-reply- secret-' \
-    "$SEND" t1 --resolve-key secret-abc "this must not silently no-op" >/dev/null 2>"$err"; rc=$?
+    bash "$SEND" t1 --resolve-key secret-abc "this must not silently no-op" >/dev/null 2>"$err"; rc=$?
   [ "$rc" -ne 0 ] || fail "a reserved key this send cannot close should refuse"
   assert_contains "$(cat "$err")" "--resolve-key 'secret-abc'" "the refusal should name the reserved key"
   assert_contains "$(cat "$err")" "cannot take effect" "the refusal should say the close cannot take effect"
@@ -775,7 +775,7 @@ test_long_decision_key_refuses_before_send() {
   : > "$log"
   env PATH="$fb:$PATH" \
     FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_SEND_LOG="$log" FM_SEND_SETTLE=0 \
-    "$SEND" t1 --resolve-key "$key" "answer the long-key decision" >/dev/null 2>"$err"; rc=$?
+    bash "$SEND" t1 --resolve-key "$key" "answer the long-key decision" >/dev/null 2>"$err"; rc=$?
   [ "$rc" -ne 0 ] || fail "a key whose close prefix cannot fit should refuse before sending"
   assert_contains "$(cat "$err")" "decision key of length 230" "the refusal should report the key-length cause"
   assert_contains "$(cat "$err")" "220-character status-line cap" "the refusal should report the truncation limit"
@@ -830,7 +830,7 @@ test_failed_close_recovery_command_is_shell_safe() {
 
   env PATH="$fb:$PATH" \
     FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_SEND_LOG="$log" FM_SEND_SETTLE=0 \
-    "$SEND" t1 --resolve-key quote-safety "$answer" >/dev/null 2>"$err"; rc=$?
+    bash "$SEND" t1 --resolve-key quote-safety "$answer" >/dev/null 2>"$err"; rc=$?
   chmod 0600 "$home/state/t1.status"
   [ "$rc" -ne 0 ] || fail "a delivered answer with a failed close append should fail loudly"
   diagnostic=$(cat "$err")
@@ -860,7 +860,7 @@ test_remote_reserved_pending_reply_key_closes_locally() {
   env PATH="$fb:$PATH" \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" FM_SEND_LOG="$log" FM_SEND_SETTLE=0 \
     FM_SSH_BIN="$fb/fake-ssh" FM_SSH_LOG="$ssh_log" FM_FAKE_SSH_RC=0 \
-    "$SEND" rsm --resolve-key "$key" "ack the missed-reply hold" >/dev/null 2>&1; rc=$?
+    bash "$SEND" rsm --resolve-key "$key" "ack the missed-reply hold" >/dev/null 2>&1; rc=$?
   expect_code 0 "$rc" "a remote reserved-key --resolve-key should succeed"
   grep -F "pending-reply-resolved: task=rsm pending-reply-id=$corr via=operator-resolve-key" \
     "$home/state/rsm.status" >/dev/null \
@@ -891,7 +891,7 @@ test_decision_answer_partition_relocates_under_the_record() {
   # Attended branch: the decision is refused at the partition, nothing sent.
   : > "$log"
   out=$(env PATH="$fb:$PATH" FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_SEND_LOG="$log" FM_SEND_SETTLE=0 \
-    FM_SUPERVISION_ACTOR=branch "$SEND" t1 --resolve-key api-shape "go with REST" 2>&1); rc=$?
+    FM_SUPERVISION_ACTOR=branch bash "$SEND" t1 --resolve-key api-shape "go with REST" 2>&1); rc=$?
   expect_code 6 "$rc" "an attended branch answering a decision must be refused at the partition"
   assert_contains "$out" "decision answer (fm-send --resolve-key) refused" "the partition refusal lost its action label"
   [ ! -e "$home/state/t1.inbox" ] || fail "a refused decision answer still reached the worker's inbox"
@@ -910,9 +910,9 @@ test_decision_answer_partition_relocates_under_the_record() {
     || fail "the branch's blocker answer did not reach the worker's inbox"
 
   # Under the record: the same decision answer is sent and closes the key.
-  FM_HOME="$home" "$ROOT/bin/fm-afk-contract.sh" enter >/dev/null || fail "away entry failed"
+  FM_HOME="$home" bash "$ROOT/bin/fm-afk-contract.sh" enter >/dev/null || fail "away entry failed"
   out=$(env PATH="$fb:$PATH" FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_SEND_LOG="$log" FM_SEND_SETTLE=0 \
-    FM_SUPERVISION_ACTOR=branch "$SEND" t1 --resolve-key api-shape "go with REST" 2>&1); rc=$?
+    FM_SUPERVISION_ACTOR=branch bash "$SEND" t1 --resolve-key api-shape "go with REST" 2>&1); rc=$?
   expect_code 0 "$rc" "under the away-posture record the branch's decision answer must be sent: $out"
   assert_contains "$out" "main is parked" "the relocation did not announce itself"
   sed -E 's/ \[at=[0-9]+\]//' "$home/state/t1.status" | grep -qF 'resolved [key=api-shape]: answered: go with REST' \
@@ -925,7 +925,7 @@ test_decision_answer_partition_relocates_under_the_record() {
   fi
 
   # Main never meets the partition, attended or not.
-  FM_HOME="$home" "$ROOT/bin/fm-afk-contract.sh" archive >/dev/null || fail "away archive failed"
+  FM_HOME="$home" bash "$ROOT/bin/fm-afk-contract.sh" archive >/dev/null || fail "away archive failed"
   printf 'needs-decision [key=db]: postgres or sqlite\n' >> "$home/state/t1.status"
   run_send "$fb" "$home" "$log" t1 --resolve-key db "postgres"; rc=$?
   expect_code 0 "$rc" "main answering a decision attended is unaffected by the partition"

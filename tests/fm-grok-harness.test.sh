@@ -83,7 +83,7 @@ EOF
 
   FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
     GROK_HOME="$grok_home" PATH="$fakebin:$PATH" \
-    "$TEARDOWN" "$id" --force >/dev/null 2>&1 \
+    bash "$TEARDOWN" "$id" --force >/dev/null 2>&1 \
     || fail "grok teardown failed"
 
   assert_absent "$wt/.fm-grok-turnend" "grok pointer survived teardown"
@@ -107,7 +107,7 @@ esac
 exit 1
 SH
   chmod +x "$fakebin/ps"
-  out=$(FM_HOME="$home" PATH="$fakebin:$PATH" "$ROOT/bin/fm-lock.sh" status)
+  out=$(FM_HOME="$home" PATH="$fakebin:$PATH" bash "$ROOT/bin/fm-lock.sh" status)
   assert_contains "$out" "lock: held by live harness pid" "fm-lock did not recognize grok as a live holder"
   pass "fm-lock recognizes grok harness processes"
 }

@@ -149,18 +149,18 @@ sha256_file() {
 printf 'complete handoff payload\n' > "$TMP_ROOT/complete-payload"
 complete_bytes=$(LC_ALL=C wc -c < "$TMP_ROOT/complete-payload" | tr -d ' ')
 complete_hash=$(sha256_file "$TMP_ROOT/complete-payload")
-if printf 'complete' | FM_HOME="$REMOTE" "$REMOTE_ROOT/bin/fm-remote-file.sh" \
+if printf 'complete' | FM_HOME="$REMOTE" bash "$REMOTE_ROOT/bin/fm-remote-file.sh" \
   put state/handoff/integrity.outbox.md 1024 "$complete_bytes" "$complete_hash" 1 >/dev/null 2>&1; then
   fail "confined put published a truncated payload"
 fi
 assert_absent "$REMOTE/state/handoff/integrity.outbox.md" "truncated confined put published a destination"
-FM_HOME="$REMOTE" "$REMOTE_ROOT/bin/fm-remote-file.sh" \
+FM_HOME="$REMOTE" bash "$REMOTE_ROOT/bin/fm-remote-file.sh" \
   put state/handoff/integrity.outbox.md 1024 "$complete_bytes" "$complete_hash" 2 \
   < "$TMP_ROOT/complete-payload" >/dev/null
 printf 'stale handoff payload\n' > "$TMP_ROOT/stale-payload"
 stale_bytes=$(LC_ALL=C wc -c < "$TMP_ROOT/stale-payload" | tr -d ' ')
 stale_hash=$(sha256_file "$TMP_ROOT/stale-payload")
-if FM_HOME="$REMOTE" "$REMOTE_ROOT/bin/fm-remote-file.sh" \
+if FM_HOME="$REMOTE" bash "$REMOTE_ROOT/bin/fm-remote-file.sh" \
   put state/handoff/integrity.outbox.md 1024 "$stale_bytes" "$stale_hash" 1 \
   < "$TMP_ROOT/stale-payload" >/dev/null 2>&1; then
   fail "confined put accepted a superseded payload generation"
@@ -179,7 +179,7 @@ race_hash=$(sha256_file "$TMP_ROOT/race-payload")
   (
     while [ ! -f "$TMP_ROOT/put.release" ]; do sleep 0.02; done
     cat "$TMP_ROOT/race-payload"
-  ) | FM_HOME="$REMOTE" "$REMOTE_ROOT/bin/fm-remote-file.sh" \
+  ) | FM_HOME="$REMOTE" bash "$REMOTE_ROOT/bin/fm-remote-file.sh" \
     put state/handoff/race.outbox.md 1024 "$race_bytes" "$race_hash" 1
 ) > "$TMP_ROOT/put-race.out" 2>&1 &
 put_race_pid=$!
@@ -221,7 +221,7 @@ EOF
 write_backlog $'- [ ] ios-a - first iOS task (repo: alpha)\n- [ ] ios-b - dependent iOS task (repo: alpha) blocked-by: ios-a - waits'
 : > "$SSH_COUNT"
 set +e
-FM_FAKE_SSH_MODE=after-receive handoff_env "$ROOT/bin/fm-backlog-handoff.sh" ios ios-a ios-b \
+FM_FAKE_SSH_MODE=after-receive handoff_env bash "$ROOT/bin/fm-backlog-handoff.sh" ios ios-a ios-b \
   > "$TMP_ROOT/ambiguous.out" 2>&1
 rc=$?
 set -e
@@ -241,7 +241,7 @@ assert_grep 'ios-b' "$REMOTE/data/backlog.md" "remote atomic receipt did not del
 [ "$(cat "$SSH_COUNT")" -eq 2 ] || fail "transport retried an ambiguously completed command"
 pass "ambiguous receipt leaves one durable outbox and no duplicate dispatchable source"
 
-out=$(handoff_env "$ROOT/bin/fm-backlog-handoff.sh" --resume-pending)
+out=$(handoff_env bash "$ROOT/bin/fm-backlog-handoff.sh" --resume-pending)
 assert_contains "$out" 'received: ios moved=0 already=2' "retry did not classify already-delivered keys idempotently"
 [ "$(grep -cF fm-remote-secondmate-control.sh "$WAKE_LOG")" -eq 1 ] \
   || fail "confirmed remote receipt did not wake its supported receiver endpoint exactly once"
@@ -259,7 +259,7 @@ rm -f "$REMOTE/data/backlog.md"
 write_backlog '- [ ] transfer-cut - survives a dropped transfer (repo: alpha)'
 : > "$SSH_COUNT"
 set +e
-FM_FAKE_SSH_MODE=after-put handoff_env "$ROOT/bin/fm-backlog-handoff.sh" ios transfer-cut \
+FM_FAKE_SSH_MODE=after-put handoff_env bash "$ROOT/bin/fm-backlog-handoff.sh" ios transfer-cut \
   > "$TMP_ROOT/transfer-cut.out" 2>&1
 rc=$?
 set -e
@@ -268,7 +268,7 @@ assert_no_grep 'transfer-cut' "$PARENT/data/backlog.md" "dropped transfer left t
 assert_present "$PARENT/data/handoff/ios.outbox.md" "dropped transfer lost the local outbox"
 assert_present "$REMOTE/state/handoff/ios.outbox.md" "dropped transfer did not atomically publish its remote scratch copy"
 assert_absent "$REMOTE/data/backlog.md" "dropped transfer applied a destination mutation"
-handoff_env "$ROOT/bin/fm-backlog-handoff.sh" --resume-pending >/dev/null \
+handoff_env bash "$ROOT/bin/fm-backlog-handoff.sh" --resume-pending >/dev/null \
   || fail "recovery after dropped transfer failed"
 assert_grep 'transfer-cut' "$REMOTE/data/backlog.md" "recovery after dropped transfer lost the item"
 assert_absent "$PARENT/data/handoff/ios.outbox.md" "recovery after dropped transfer left the local outbox"
@@ -277,7 +277,7 @@ pass "dropped transfer recovery overwrites scratch and delivers exactly once"
 rm -f "$REMOTE/data/backlog.md" "$TMP_ROOT/serialize.entered" "$TMP_ROOT/serialize.release"
 rm -rf "$TMP_ROOT/serialize.once"
 write_backlog '- [ ] serialized-a - first concurrent handoff (repo: alpha)'
-FM_FAKE_SSH_MODE=serialize handoff_env "$ROOT/bin/fm-backlog-handoff.sh" ios serialized-a \
+FM_FAKE_SSH_MODE=serialize handoff_env bash "$ROOT/bin/fm-backlog-handoff.sh" ios serialized-a \
   > "$TMP_ROOT/serialized-a.out" 2>&1 &
 handoff_a=$!
 wait_for_serialization=0
@@ -288,7 +288,7 @@ while [ ! -f "$TMP_ROOT/serialize.entered" ]; do
   sleep 0.02
 done
 write_backlog '- [ ] serialized-b - second concurrent handoff (repo: alpha)'
-FM_FAKE_SSH_MODE=serialize handoff_env "$ROOT/bin/fm-backlog-handoff.sh" ios serialized-b \
+FM_FAKE_SSH_MODE=serialize handoff_env bash "$ROOT/bin/fm-backlog-handoff.sh" ios serialized-b \
   > "$TMP_ROOT/serialized-b.out" 2>&1 &
 handoff_b=$!
 sleep 0.2
@@ -312,7 +312,7 @@ pass "concurrent handoffs serialize staging through confirmed cleanup"
 write_backlog '- [ ] stale-lock-item - remote stale lock recovery (repo: alpha)'
 printf '999999:abandoned:0:1\n' > "$REMOTE/data/backlog.md.lock"
 touch -t 202001010000 "$REMOTE/data/backlog.md.lock"
-handoff_env "$ROOT/bin/fm-backlog-handoff.sh" ios stale-lock-item >/dev/null \
+handoff_env bash "$ROOT/bin/fm-backlog-handoff.sh" ios stale-lock-item >/dev/null \
   || fail "host-local stale lock recovery did not retry receipt"
 assert_grep 'stale-lock-item' "$REMOTE/data/backlog.md" "stale-lock receipt lost the item"
 assert_absent "$REMOTE/data/backlog.md.lock" "stale destination lock survived successful receipt"
@@ -321,21 +321,21 @@ pass "receiver removes one proven dead stale lock and retries once"
 # Unreachable delivery keeps the backlog-format outbox visible to bootstrap.
 write_backlog '- [ ] pending-offline - waits for the remote Mac (repo: alpha)'
 set +e
-FM_FAKE_SSH_MODE=unreachable handoff_env "$ROOT/bin/fm-backlog-handoff.sh" ios pending-offline \
+FM_FAKE_SSH_MODE=unreachable handoff_env bash "$ROOT/bin/fm-backlog-handoff.sh" ios pending-offline \
   > "$TMP_ROOT/offline.out" 2>&1
 rc=$?
 set -e
 [ "$rc" -ne 0 ] || fail "offline handoff claimed success"
 bootstrap_out=$(FM_HOME="$PARENT" FM_ROOT_OVERRIDE="$ROOT" FM_BACKEND=tmux \
-  FM_BOOTSTRAP_DETECT_ONLY=1 "$ROOT/bin/fm-bootstrap.sh" 2>&1)
+  FM_BOOTSTRAP_DETECT_ONLY=1 bash "$ROOT/bin/fm-bootstrap.sh" 2>&1)
 assert_contains "$bootstrap_out" 'SECONDMATE_HANDOFF: secondmate ios: pending delivery: 1 item(s)' \
   "bootstrap did not surface the pending outbox count"
-handoff_env "$ROOT/bin/fm-backlog-handoff.sh" --resume-pending >/dev/null \
+handoff_env bash "$ROOT/bin/fm-backlog-handoff.sh" --resume-pending >/dev/null \
   || fail "pending bootstrap-visible outbox did not later converge"
 pass "bootstrap detects pending outbox handoffs without a journal"
 
 write_backlog '- [ ] remote-wake-fail - receiver failure stays recoverable (repo: alpha)'
-FM_FAKE_REMOTE_WAKE_RC=1 handoff_env "$ROOT/bin/fm-backlog-handoff.sh" ios remote-wake-fail \
+FM_FAKE_REMOTE_WAKE_RC=1 handoff_env bash "$ROOT/bin/fm-backlog-handoff.sh" ios remote-wake-fail \
   > "$TMP_ROOT/remote-wake-fail.out" 2>&1 \
   || fail "durably received remote handoff failed only because its best-effort wake failed"
 assert_contains "$(cat "$TMP_ROOT/remote-wake-fail.out")" 'receiver wake failed' \
@@ -344,7 +344,7 @@ assert_absent "$PARENT/data/handoff/ios.outbox.md" \
   "remote receiver wake failure retained the durably received outbox"
 assert_present "$PARENT/state/.backlog-handoff-ios.wake-pending" \
   "remote receiver wake failure was not tracked separately"
-handoff_env "$ROOT/bin/fm-backlog-handoff.sh" --resume-pending >/dev/null \
+handoff_env bash "$ROOT/bin/fm-backlog-handoff.sh" --resume-pending >/dev/null \
   || fail "remote receiver wake failure did not recover through resume-pending"
 assert_absent "$PARENT/state/.backlog-handoff-ios.wake-pending" \
   "remote receiver wake recovery left separate wake state pending"
@@ -358,7 +358,7 @@ pass "remote handoff releases durable work and separately retries its receiver w
 # behind a correlation the resume refuses to resend forever.
 write_backlog '- [ ] wake-escalated - escalated undelivered wake stays retryable (repo: alpha)'
 wakes_before=$(grep -cF fm-remote-secondmate-control.sh "$WAKE_LOG")
-FM_FAKE_REMOTE_WAKE_RC=255 handoff_env "$ROOT/bin/fm-backlog-handoff.sh" ios wake-escalated \
+FM_FAKE_REMOTE_WAKE_RC=255 handoff_env bash "$ROOT/bin/fm-backlog-handoff.sh" ios wake-escalated \
   > "$TMP_ROOT/wake-escalated.out" 2>&1 \
   || fail "durably received handoff failed only because its wake transport was lost"
 assert_grep 'wake-escalated' "$REMOTE/data/backlog.md" "lost wake transport did not leave the backlog durably received"
@@ -383,7 +383,7 @@ bash -c '. "$1"; fm_pending_reply_tick "$2"' _ "$ROOT/bin/fm-pending-reply-lib.s
 [ "$(grep -cF "blocked [key=pending-reply-$escalated_corr]" "$PARENT/state/ios.status")" -eq 1 ] \
   || fail "undelivered wake escalation was not published exactly once"
 set +e
-handoff_env "$ROOT/bin/fm-backlog-handoff.sh" --resume-pending > "$TMP_ROOT/wake-escalated-resume.out" 2>&1
+handoff_env bash "$ROOT/bin/fm-backlog-handoff.sh" --resume-pending > "$TMP_ROOT/wake-escalated-resume.out" 2>&1
 rc=$?
 set -e
 if [ "$rc" -ne 0 ]; then
@@ -401,7 +401,7 @@ assert_absent "$PARENT/state/.backlog-handoff-ios.wake-pending" "escalated wake 
 [ "$(grep -cF "blocked [key=pending-reply-$escalated_corr]" "$PARENT/state/ios.status")" -eq 1 ] \
   || fail "wake retry duplicated the published escalation"
 write_backlog '- [ ] after-escalated - next handoff flows once the escalated wake is retried (repo: alpha)'
-handoff_env "$ROOT/bin/fm-backlog-handoff.sh" ios after-escalated >/dev/null \
+handoff_env bash "$ROOT/bin/fm-backlog-handoff.sh" ios after-escalated >/dev/null \
   || fail "handoff after the escalated wake retry did not flow"
 [ "$(grep -cF after-escalated "$REMOTE/data/backlog.md")" -eq 1 ] \
   || fail "handoff after the escalated wake retry was lost or duplicated"
@@ -410,7 +410,7 @@ pass "an escalated undelivered receiver wake stays retryable instead of jamming 
 
 write_backlog '- [ ] wake-permanent-a - first handoff with permanently lost wake (repo: alpha)'
 wakes_before=$(grep -cF fm-remote-secondmate-control.sh "$WAKE_LOG")
-FM_FAKE_REMOTE_WAKE_RC=255 handoff_env "$ROOT/bin/fm-backlog-handoff.sh" ios wake-permanent-a \
+FM_FAKE_REMOTE_WAKE_RC=255 handoff_env bash "$ROOT/bin/fm-backlog-handoff.sh" ios wake-permanent-a \
   > "$TMP_ROOT/wake-permanent-a.out" 2>&1 \
   || fail "first durably received handoff was held hostage to a permanently lost wake"
 assert_absent "$PARENT/data/handoff/ios.outbox.md" "permanently lost wake retained the first durable outbox"
@@ -424,7 +424,7 @@ esac
 wakes_after_first=$(grep -cF fm-remote-secondmate-control.sh "$WAKE_LOG")
 [ "$wakes_after_first" -gt "$wakes_before" ] || fail "first permanently lost wake was not attempted"
 set +e
-FM_FAKE_REMOTE_WAKE_RC=255 handoff_env "$ROOT/bin/fm-backlog-handoff.sh" --resume-pending \
+FM_FAKE_REMOTE_WAKE_RC=255 handoff_env bash "$ROOT/bin/fm-backlog-handoff.sh" --resume-pending \
   > "$TMP_ROOT/wake-permanent-resume.out" 2>&1
 rc=$?
 set -e
@@ -434,7 +434,7 @@ set -e
 wakes_after_resume=$(grep -cF fm-remote-secondmate-control.sh "$WAKE_LOG")
 [ "$wakes_after_resume" -gt "$wakes_after_first" ] || fail "resume did not retry the separately pending wake"
 write_backlog '- [ ] wake-permanent-b - second handoff despite permanently lost wake (repo: alpha)'
-FM_FAKE_REMOTE_WAKE_RC=255 handoff_env "$ROOT/bin/fm-backlog-handoff.sh" ios wake-permanent-b \
+FM_FAKE_REMOTE_WAKE_RC=255 handoff_env bash "$ROOT/bin/fm-backlog-handoff.sh" ios wake-permanent-b \
   > "$TMP_ROOT/wake-permanent-b.out" 2>&1 \
   || fail "second durable handoff was blocked by the permanently lost wake"
 assert_absent "$PARENT/data/handoff/ios.outbox.md" "permanently lost wake retained the second durable outbox"
@@ -465,7 +465,7 @@ wakes_before=$(grep -cF fm-remote-secondmate-control.sh "$WAKE_LOG")
 set +e
 PATH="$RM_FAKEBIN:$PATH" FM_REAL_RM="$REAL_RM" \
   FM_FAIL_RM_PATH="$PARENT/data/handoff/ios.outbox.md" \
-  handoff_env "$ROOT/bin/fm-backlog-handoff.sh" ios cleanup-retry \
+  handoff_env bash "$ROOT/bin/fm-backlog-handoff.sh" ios cleanup-retry \
   > "$TMP_ROOT/cleanup-retry.out" 2>&1
 rc=$?
 set -e
@@ -480,7 +480,7 @@ wakes_after=$(grep -cF fm-remote-secondmate-control.sh "$WAKE_LOG")
 [ "$wakes_after" -eq $((wakes_before + 1)) ] \
   || fail "remote cleanup failure did not perform exactly one receiver wake"
 write_backlog '- [ ] after-cleanup - fresh work after confirmed cleanup failure (repo: alpha)'
-handoff_env "$ROOT/bin/fm-backlog-handoff.sh" ios after-cleanup >/dev/null \
+handoff_env bash "$ROOT/bin/fm-backlog-handoff.sh" ios after-cleanup >/dev/null \
   || fail "fresh handoff did not converge an older confirmed cleanup failure"
 [ "$(grep -cF fm-remote-secondmate-control.sh "$WAKE_LOG")" -eq $((wakes_after + 1)) ] \
   || fail "fresh handoff reused the older confirmed wake instead of waking its receiver"
@@ -498,7 +498,7 @@ write_backlog '- [ ] confirmed-marker-stale - completed handoff ignores marker c
 wakes_before=$(grep -cF fm-remote-secondmate-control.sh "$WAKE_LOG")
 PATH="$RM_FAKEBIN:$PATH" FM_REAL_RM="$REAL_RM" \
   FM_FAIL_RM_PATH="$PARENT/state/.backlog-handoff-ios.wake-pending" \
-  handoff_env "$ROOT/bin/fm-backlog-handoff.sh" ios confirmed-marker-stale \
+  handoff_env bash "$ROOT/bin/fm-backlog-handoff.sh" ios confirmed-marker-stale \
   > "$TMP_ROOT/confirmed-marker-stale.out" 2>&1 \
   || fail "confirmed marker cleanup failure falsely failed a completed handoff"
 assert_absent "$PARENT/data/handoff/ios.outbox.md" \
@@ -537,7 +537,7 @@ wakes_before=$(grep -cF fm-remote-secondmate-control.sh "$WAKE_LOG")
 PATH="$CONFIRM_MV_FAKEBIN:$PATH" FM_REAL_MV="$REAL_MV" \
   FM_CONFIRM_MV_PATH="$PARENT/state/.backlog-handoff-ios.wake-pending" \
   FM_CONFIRM_MV_COUNT="$TMP_ROOT/confirm-mv.count" \
-  handoff_env "$ROOT/bin/fm-backlog-handoff.sh" ios delivered-pending-old \
+  handoff_env bash "$ROOT/bin/fm-backlog-handoff.sh" ios delivered-pending-old \
   > "$TMP_ROOT/delivered-pending-old.out" 2>&1 \
   || fail "confirmed wake state promotion failure failed durable work"
 delivered_pending_marker=$(cat "$PARENT/state/.backlog-handoff-ios.wake-pending" 2>/dev/null || true)
@@ -549,7 +549,7 @@ delivered_pending_rec="$PARENT/state/pending-replies/$delivered_pending_corr"
 [ -n "$(grep '^delivered_epoch=' "$delivered_pending_rec" | cut -d= -f2-)" ] \
   || fail "pending marker fixture did not retain confirmed delivery evidence"
 write_backlog '- [ ] delivered-pending-new - new work after delivered pending marker (repo: alpha)'
-handoff_env "$ROOT/bin/fm-backlog-handoff.sh" ios delivered-pending-new >/dev/null \
+handoff_env bash "$ROOT/bin/fm-backlog-handoff.sh" ios delivered-pending-new >/dev/null \
   || fail "delivered pending marker blocked the next handoff"
 [ "$(grep -cF fm-remote-secondmate-control.sh "$WAKE_LOG")" -eq $((wakes_before + 2)) ] \
   || fail "delivered pending marker suppressed the new handoff wake"
@@ -582,7 +582,7 @@ pending_records_before=$(find "$PARENT/state/pending-replies" -maxdepth 1 -type 
 wakes_before=$(grep -cF fm-remote-secondmate-control.sh "$WAKE_LOG")
 PATH="$MV_FAKEBIN:$PATH" FM_REAL_MV="$REAL_MV" \
   FM_FAIL_MV_PATH="$PARENT/state/.backlog-handoff-ios.wake-pending" \
-  handoff_env "$ROOT/bin/fm-backlog-handoff.sh" ios wake-state-drop \
+  handoff_env bash "$ROOT/bin/fm-backlog-handoff.sh" ios wake-state-drop \
   > "$TMP_ROOT/wake-state-drop.out" 2>&1 \
   || fail "wake-state write failure held the durable outbox hostage"
 assert_contains "$(cat "$TMP_ROOT/wake-state-drop.out")" 'receiver wake state: DROPPED' \
@@ -598,12 +598,12 @@ pending_records_after=$(find "$PARENT/state/pending-replies" -maxdepth 1 -type f
   || fail "wake-state write failure left an unreferenced pending-reply record"
 [ "$(grep -cF fm-remote-secondmate-control.sh "$WAKE_LOG")" -eq "$wakes_before" ] \
   || fail "wake-state write failure attempted an untracked wake"
-handoff_env "$ROOT/bin/fm-backlog-handoff.sh" --resume-pending >/dev/null \
+handoff_env bash "$ROOT/bin/fm-backlog-handoff.sh" --resume-pending >/dev/null \
   || fail "resume treated the dropped wake as pending"
 [ "$(grep -cF fm-remote-secondmate-control.sh "$WAKE_LOG")" -eq "$wakes_before" ] \
   || fail "resume retried a wake whose state was dropped"
 write_backlog '- [ ] after-wake-state-drop - later handoff after dropped wake state (repo: alpha)'
-handoff_env "$ROOT/bin/fm-backlog-handoff.sh" ios after-wake-state-drop >/dev/null \
+handoff_env bash "$ROOT/bin/fm-backlog-handoff.sh" ios after-wake-state-drop >/dev/null \
   || fail "later handoff was blocked by dropped wake state"
 [ "$(grep -cF -- '- [ ] wake-state-drop -' "$REMOTE/data/backlog.md")" -eq 1 ] \
   || fail "wake-state failure lost or duplicated its durably received item"
@@ -616,7 +616,7 @@ pass "unrecordable best-effort wake state drops without blocking later handoffs"
 stale_wake_marker="$PARENT/state/.backlog-handoff-ios.wake-pending"
 printf 'invalid wake state\n' > "$stale_wake_marker"
 PATH="$RM_FAKEBIN:$PATH" FM_REAL_RM="$REAL_RM" FM_FAIL_RM_PATH="$stale_wake_marker" \
-  handoff_env "$ROOT/bin/fm-backlog-handoff.sh" --resume-pending \
+  handoff_env bash "$ROOT/bin/fm-backlog-handoff.sh" --resume-pending \
   > "$TMP_ROOT/stale-wake-resume.out" 2>&1 \
   || fail "resume was blocked by an undeletable invalid wake marker"
 assert_present "$stale_wake_marker" "invalid wake marker did not survive the forced removal failure"
@@ -626,7 +626,7 @@ assert_contains "$(cat "$TMP_ROOT/stale-wake-resume.out")" "stale wake marker re
   "resume did not name the surviving stale wake marker"
 write_backlog '- [ ] after-stale-wake - later handoff ignores stale wake state (repo: alpha)'
 PATH="$RM_FAKEBIN:$PATH" FM_REAL_RM="$REAL_RM" FM_FAIL_RM_PATH="$stale_wake_marker" \
-  handoff_env "$ROOT/bin/fm-backlog-handoff.sh" ios after-stale-wake \
+  handoff_env bash "$ROOT/bin/fm-backlog-handoff.sh" ios after-stale-wake \
   > "$TMP_ROOT/after-stale-wake.out" 2>&1 \
   || fail "later handoff was blocked by an undeletable invalid wake marker"
 assert_absent "$PARENT/data/handoff/ios.outbox.md" \
@@ -665,7 +665,7 @@ while [ ! -f "$TMP_ROOT/route.entered" ]; do
   [ "$route_wait" -le 250 ] || fail "route lock holder never acquired lifecycle locks"
   sleep 0.02
 done
-handoff_env "$ROOT/bin/fm-backlog-handoff.sh" ios route-race \
+handoff_env bash "$ROOT/bin/fm-backlog-handoff.sh" ios route-race \
   > "$TMP_ROOT/route-race.out" 2>&1 &
 route_handoff_pid=$!
 sleep 0.2
@@ -685,7 +685,7 @@ FRESH="$TMP_ROOT/fresh"
 mkdir -p "$FRESH/data" "$FRESH/state"
 : > "$SSH_COUNT"
 fresh_out=$(FM_HOME="$FRESH" FM_ROOT_OVERRIDE="$ROOT" FM_BACKEND=tmux \
-  FM_BOOTSTRAP_DETECT_ONLY=1 "$ROOT/bin/fm-bootstrap.sh" 2>&1)
+  FM_BOOTSTRAP_DETECT_ONLY=1 bash "$ROOT/bin/fm-bootstrap.sh" 2>&1)
 assert_not_contains "$fresh_out" 'SECONDMATE_HANDOFF:' "unconfigured bootstrap emitted a remote handoff diagnostic"
 [ ! -s "$SSH_COUNT" ] || fail "unconfigured bootstrap touched SSH"
 pass "unconfigured bootstrap has no remote handoff behavior"
@@ -704,7 +704,7 @@ recv_bytes=$(LC_ALL=C wc -c < "$RECV_HOME/state/handoff/ios.outbox.md" | tr -d '
 recv_hash=$(sha256_file "$RECV_HOME/state/handoff/ios.outbox.md")
 printf '1\n%s\n%s\n' "$recv_bytes" "$recv_hash" > "$RECV_HOME/state/handoff/.ios.upload-generation"
 printf 'backend = "beads"\n\n[beads]\ndb = "%s/missing/beads.db"\n' "$RECV_DECOY" > "$RECV_DECOY/.tasks.toml"
-recv_out=$(cd "$RECV_DECOY" && FM_HOME="$RECV_HOME" "$ROOT/bin/fm-backlog-receive.sh" \
+recv_out=$(cd "$RECV_DECOY" && FM_HOME="$RECV_HOME" bash "$ROOT/bin/fm-backlog-receive.sh" \
   state/handoff/ios.outbox.md "$recv_bytes" "$recv_hash" 1 2>&1) \
   || fail "receipt from a cwd with a beads .tasks.toml failed: $recv_out"
 assert_contains "$recv_out" 'received: ios moved=1 already=0' "decoy-cwd receipt did not move the item"

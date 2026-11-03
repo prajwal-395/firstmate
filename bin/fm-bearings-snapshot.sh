@@ -215,13 +215,13 @@ command -v jq >/dev/null 2>&1 || { echo "fm-bearings-snapshot: jq not found" >&2
 # neither. Acting on the fleet still waits for its `check`.
 RETURN_CATCHUP=null
 GUARD_RC=0
-GUARD_ERR=$("$SCRIPT_DIR/fm-afk-return.sh" guard 2>&1 >/dev/null) || GUARD_RC=$?
+GUARD_ERR=$(bash "$SCRIPT_DIR/fm-afk-return.sh" guard 2>&1 >/dev/null) || GUARD_RC=$?
 if [ "$GUARD_RC" -ne 0 ] && [ "$GUARD_RC" -ne 4 ]; then
   [ -z "$GUARD_ERR" ] || printf '%s\n' "$GUARD_ERR" >&2
   exit "$GUARD_RC"
 fi
 if [ "$GUARD_RC" -eq 4 ]; then
-  CATCHUP_LINE=$("$SCRIPT_DIR/fm-afk-return.sh" catchup-summary) || CATCHUP_LINE=""
+  CATCHUP_LINE=$(bash "$SCRIPT_DIR/fm-afk-return.sh" catchup-summary) || CATCHUP_LINE=""
   CATCHUP_BLOCKERS=${CATCHUP_LINE%%$'\t'*}
   case "$CATCHUP_BLOCKERS" in ''|*[!0-9]*) CATCHUP_BLOCKERS=0 ;; esac
   CATCHUP_REASON=""
@@ -233,12 +233,12 @@ fi
 NOW=${FM_BEARINGS_NOW:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}
 if [ "$ALL_LANDED" = 1 ] || [ "$ALL_SECONDMATES" = 1 ]; then
   if [ "$ALL_LANDED" = 1 ]; then
-    SNAP=$(FM_SNAPSHOT_NOW="$NOW" FM_SNAPSHOT_SECONDMATES=0 FM_SNAPSHOT_SECONDMATE_LANDED_PER_HOME=0 "$FLEET" --json) || exit $?
+    SNAP=$(FM_SNAPSHOT_NOW="$NOW" FM_SNAPSHOT_SECONDMATES=0 FM_SNAPSHOT_SECONDMATE_LANDED_PER_HOME=0 bash "$FLEET" --json) || exit $?
   else
-    SNAP=$(FM_SNAPSHOT_NOW="$NOW" FM_SNAPSHOT_SECONDMATES=0 "$FLEET" --json) || exit $?
+    SNAP=$(FM_SNAPSHOT_NOW="$NOW" FM_SNAPSHOT_SECONDMATES=0 bash "$FLEET" --json) || exit $?
   fi
 else
-  SNAP=$(FM_SNAPSHOT_NOW="$NOW" "$FLEET" --json) || exit $?
+  SNAP=$(FM_SNAPSHOT_NOW="$NOW" bash "$FLEET" --json) || exit $?
 fi
 HOME_LABEL=$(printf '%s' "$SNAP" | jq -er '.fm_home | strings | split("/") | (.[-2:] | join("/"))') \
   || { echo "fm-bearings-snapshot: invalid canonical snapshot" >&2; exit 1; }

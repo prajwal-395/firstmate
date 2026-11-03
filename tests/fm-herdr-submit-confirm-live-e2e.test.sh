@@ -35,7 +35,7 @@ fm_live_gate opt-in FM_HERDR_SUBMIT_CONFIRM_LIVE herdr jq claude
 herdr_forget_inherited_pane
 
 ORIGINAL_PATH=$PATH
-SESSION=$("$LAB_HELPER" name herdr-submit-confirm-live)
+SESSION=$(bash "$LAB_HELPER" name herdr-submit-confirm-live)
 TMP_ROOT=$(mktemp -d "$(cd "${TMPDIR:-/tmp}" && pwd -P)/fm-herdr-submit-confirm-live.XXXXXX")
 FAKEBIN="$TMP_ROOT/fakebin"
 mkdir -p "$FAKEBIN"
@@ -44,7 +44,7 @@ CHECKED=0
 cleanup() {
   local rc=$?
   trap - EXIT
-  if ! PATH="$ORIGINAL_PATH" "$LAB_HELPER" teardown "$SESSION"; then
+  if ! PATH="$ORIGINAL_PATH" bash "$LAB_HELPER" teardown "$SESSION"; then
     rc=1
   fi
   rm -rf "$TMP_ROOT"
@@ -68,13 +68,13 @@ exec env PATH="$ORIGINAL_PATH" "$LAB_HELPER" run "$SESSION" "\${args[@]}"
 EOF
 chmod +x "$FAKEBIN/herdr"
 
-"$LAB_HELPER" provision "$SESSION" || fail "could not provision the isolated Herdr lab"
+bash "$LAB_HELPER" provision "$SESSION" || fail "could not provision the isolated Herdr lab"
 export PATH="$FAKEBIN:$ORIGINAL_PATH"
 
 # shellcheck source=/dev/null
 . "$ROOT/bin/backends/herdr.sh"
 
-lab() { env PATH="$ORIGINAL_PATH" "$LAB_HELPER" run "$SESSION" "$@"; }
+lab() { env PATH="$ORIGINAL_PATH" bash "$LAB_HELPER" run "$SESSION" "$@"; }
 WS_JSON=$(lab workspace create --cwd "$ROOT" --label fm-submitlive --no-focus) \
   || fail "could not create the isolated submit-confirm workspace"
 PANE=$(printf '%s' "$WS_JSON" | jq -er '.result.root_pane.pane_id') \

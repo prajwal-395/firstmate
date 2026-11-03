@@ -158,7 +158,7 @@ run_guard_lib_home() {
 
 test_helper_lab_home_admits() {
   local lab plain out rc value name dir
-  lab=$("$LABHOME" create "$TMP/lab-home") || fail "lab-home create failed"
+  lab=$(bash "$LABHOME" create "$TMP/lab-home") || fail "lab-home create failed"
   plain="$TMP/plain-home"; mkdir -p "$plain"
 
   # gate + marked lab home -> permitted (env signal; the path backstop shares
@@ -226,8 +226,8 @@ test_lab_home_private_tmux_socket_survives_deep_paths() {
   done
   mkdir -p "$root"
   lab="$root/lab-home"
-  lab=$("$LABHOME" create "$lab") || fail "could not create lab home under a long path"
-  socket_dir=$("$LABHOME" tmux-dir "$lab") || fail "could not create the lab's private tmux directory"
+  lab=$(bash "$LABHOME" create "$lab") || fail "could not create lab home under a long path"
+  socket_dir=$(bash "$LABHOME" tmux-dir "$lab") || fail "could not create the lab's private tmux directory"
   socket_path="$socket_dir/tmux-$(id -u)/fm-lab"
   ready="$lab/state/primary-started"
   [ "${#lab}" -gt 120 ] || fail "lab path was not deliberately long enough"
@@ -243,7 +243,7 @@ test_lab_home_private_tmux_socket_survives_deep_paths() {
 
   cleanup_deep_lab() {
     env TMUX_TMPDIR="$socket_dir" "$real_tmux" -L fm-lab kill-server >/dev/null 2>&1 || true
-    "$LABHOME" teardown "$lab" >/dev/null 2>&1 || true
+    bash "$LABHOME" teardown "$lab" >/dev/null 2>&1 || true
     fm_test_cleanup
   }
   trap cleanup_deep_lab EXIT
@@ -257,7 +257,7 @@ test_lab_home_private_tmux_socket_survives_deep_paths() {
   [ -f "$ready" ] || fail "fake primary did not start"
   env TMUX_TMPDIR="$socket_dir" "$real_tmux" -L fm-lab has-session -t primary \
     || fail "primary session is not reachable through the lab's TMUX_TMPDIR"
-  if "$LABHOME" teardown "$lab" >/dev/null 2>&1; then
+  if bash "$LABHOME" teardown "$lab" >/dev/null 2>&1; then
     fail "lab teardown removed the directory while its server was running"
   fi
   [ -d "$socket_dir" ] || fail "refused active-server teardown removed the socket directory"
@@ -266,11 +266,11 @@ test_lab_home_private_tmux_socket_survives_deep_paths() {
   mkdir -p "$TMP/failing-tmux-bin"
   printf '#!/bin/sh\necho "tmux: probe failed" >&2\nexit 1\n' > "$TMP/failing-tmux-bin/tmux"
   chmod +x "$TMP/failing-tmux-bin/tmux"
-  if PATH="$TMP/failing-tmux-bin:$PATH" "$LABHOME" teardown "$lab" >/dev/null 2>&1; then
+  if PATH="$TMP/failing-tmux-bin:$PATH" bash "$LABHOME" teardown "$lab" >/dev/null 2>&1; then
     fail "lab teardown removed the directory when its tmux probe failed"
   fi
   [ -d "$socket_dir" ] || fail "failed-probe teardown removed the socket directory"
-  "$LABHOME" teardown "$lab" || fail "lab tmux directory teardown failed"
+  bash "$LABHOME" teardown "$lab" || fail "lab tmux directory teardown failed"
   [ ! -e "$socket_dir" ] || fail "lab teardown left the private tmux directory behind"
   trap fm_test_cleanup EXIT
   pass "fm-lab-home: a primary starts on a private short tmux socket from a long lab path and teardown removes it"
@@ -279,28 +279,28 @@ test_lab_home_private_tmux_socket_survives_deep_paths() {
 test_lab_home_helper() {
   local lab populated unlistable newline out rc
   # create on an absent path mints the marker and the stock layout.
-  lab=$("$LABHOME" create "$TMP/lab-new"); rc=$?
+  lab=$(bash "$LABHOME" create "$TMP/lab-new"); rc=$?
   expect_code 0 "$rc" "lab-home: create must succeed on a fresh path"
   assert_present "$lab/.fm-lab-home" "lab-home: create must write the marker"
   for d in state data config projects; do
     [ -d "$lab/$d" ] || fail "lab-home: missing stock dir $d"
   done
-  out=$("$LABHOME" create "$lab" 2>&1); rc=$?
+  out=$(bash "$LABHOME" create "$lab" 2>&1); rc=$?
   [ "$rc" -ne 0 ] || fail "lab-home: create on an existing lab home must refuse"
   # refuses a populated dir and leaves it unmarked.
   populated="$TMP/populated"; mkdir -p "$populated/state"; echo x > "$populated/state/x.meta"
-  out=$("$LABHOME" create "$populated" 2>&1); rc=$?
+  out=$(bash "$LABHOME" create "$populated" 2>&1); rc=$?
   [ "$rc" -ne 0 ] || fail "lab-home: create on a populated dir must refuse"
   assert_absent "$populated/.fm-lab-home" "lab-home: refused create must not write the marker"
   # refuses a populated dir it cannot list, rather than reading it as empty.
   unlistable="$TMP/unlistable"; mkdir -p "$unlistable/state"; chmod 300 "$unlistable"
-  out=$("$LABHOME" create "$unlistable" 2>&1); rc=$?
+  out=$(bash "$LABHOME" create "$unlistable" 2>&1); rc=$?
   chmod 700 "$unlistable"
   [ "$rc" -ne 0 ] || fail "lab-home: create on an unlistable dir must refuse"
   assert_absent "$unlistable/.fm-lab-home" "lab-home: unlistable create must not write the marker"
   # refuses a dir whose only entry has a newline-only name.
   newline="$TMP/newline-entry"; mkdir -p "$newline/"$'\n'
-  out=$("$LABHOME" create "$newline" 2>&1); rc=$?
+  out=$(bash "$LABHOME" create "$newline" 2>&1); rc=$?
   [ "$rc" -ne 0 ] || fail "lab-home: create on a dir holding a newline-named entry must refuse"
   assert_absent "$newline/.fm-lab-home" "lab-home: newline-entry create must not write the marker"
   pass "fm-lab-home: create mints marked stock homes only on fresh empty dirs; anything else is refused"
@@ -320,7 +320,7 @@ run_spawn() {
       FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
       FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$pane" TMUX=fake,1,0 \
       PATH="$fakebin:$PATH" "$@" \
-      "$SPAWN" "$id" "$proj" codex --mode no-mistakes --yolo off ) 2>&1
+      bash "$SPAWN" "$id" "$proj" codex --mode no-mistakes --yolo off ) 2>&1
 }
 
 test_spawn_refuses_and_admits() {
@@ -511,7 +511,7 @@ run_teardown_lab() {
 # still empty, then the fixture populates it).
 make_teardown_lab_case() {
   local name=$1
-  "$LABHOME" create "$TMP/$name" >/dev/null || return 1
+  bash "$LABHOME" create "$TMP/$name" >/dev/null || return 1
   make_teardown_case "$name"
 }
 

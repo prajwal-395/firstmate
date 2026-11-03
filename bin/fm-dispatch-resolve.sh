@@ -101,7 +101,7 @@ if [ "$(jq -r '.version // empty' "$RULES" 2>/dev/null)" != 2 ]; then
   die "dispatch policy must use version 2; migrate this home with bin/fm-migrate-unified-dispatch.sh"
 fi
 if [ -e "$RULES_PATH" ] || [ -L "$RULES_PATH" ]; then
-  "$SCRIPT_DIR/fm-dispatch-policy-validate.sh" "$RULES" >/dev/null 2>&1 || die "malformed version 2 dispatch policy: $RULES_PATH"
+  bash "$SCRIPT_DIR/fm-dispatch-policy-validate.sh" "$RULES" >/dev/null 2>&1 || die "malformed version 2 dispatch policy: $RULES_PATH"
   home_role=worker
   if [ -r "$FM_HOME/data/charter.md" ] && grep -qi research "$FM_HOME/data/charter.md"; then
     home_role=research
@@ -314,7 +314,7 @@ if [ "$(jq -r '.version // 1' "$RULES_PATH" 2>/dev/null)" = 2 ]; then
     | .rules |= map(.use = order_accounts(.use))
   ' "$RULES" > "$RULES.ordered" || emit_error "could not apply configured account selection strategy"
   mv "$RULES.ordered" "$RULES" || emit_error "could not install account-ordered policy snapshot"
-  "$SCRIPT_DIR/fm-dispatch-reset.sh" sync-quota "$STATE" "$RULES_PATH" "$QUOTA" >/dev/null 2>&1 \
+  bash "$SCRIPT_DIR/fm-dispatch-reset.sh" sync-quota "$STATE" "$RULES_PATH" "$QUOTA" >/dev/null 2>&1 \
     || emit_error "could not synchronize quota-axi exhaustion evidence"
 fi
 if [ -f "$STATE/dispatch-exhaustions.jsonl" ]; then

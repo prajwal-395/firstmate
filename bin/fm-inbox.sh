@@ -889,7 +889,7 @@ cmd_ready() {
   local resolved_model harness anc
   resolved_model=${FM_SUPERVISION_MODEL:-}
   if [ -z "$resolved_model" ] && [ "$lock_state" = held ] && [ -n "$lock_pid" ]; then
-    anc=$("$SELF_DIR/fm-harness.sh" ancestry "$lock_pid" 2>/dev/null || true)
+    anc=$(bash "$SELF_DIR/fm-harness.sh" ancestry "$lock_pid" 2>/dev/null || true)
     harness=${anc#* }
     case "$harness" in
       claude|cursor|agy) resolved_model=autoarm ;;

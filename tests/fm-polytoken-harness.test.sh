@@ -84,7 +84,7 @@ esac
 exit 1
 SH
   chmod +x "$fakebin/ps"
-  out=$(PATH="$fakebin:$PATH" "$HARNESS")
+  out=$(PATH="$fakebin:$PATH" bash "$HARNESS")
   [ "$out" = polytoken ] \
     || fail "a natively-named polytoken command must be detected by ancestry, got '$out'"
   pass "fm-harness.sh: ancestry detects a natively-named polytoken command"
@@ -103,11 +103,11 @@ exit 1
 SH
   chmod +x "$fakebin/ps"
   out=$(FAKE_PS_COMM=mypolytokentool FAKE_PS_ARGS='mypolytokentool --serve' \
-    PATH="$fakebin:$PATH" "$HARNESS")
+    PATH="$fakebin:$PATH" bash "$HARNESS")
   [ "$out" != polytoken ] \
     || fail "an unrelated mypolytokentool command must not detect polytoken, got '$out'"
   out=$(FAKE_PS_COMM=bash FAKE_PS_ARGS='bash -c "echo polytoken --help"' \
-    PATH="$fakebin:$PATH" "$HARNESS")
+    PATH="$fakebin:$PATH" bash "$HARNESS")
   [ "$out" != polytoken ] \
     || fail "a later shell argument naming polytoken must not detect polytoken, got '$out'"
   pass "fm-harness.sh: ancestry rejects unrelated polytoken mentions"
@@ -128,12 +128,12 @@ SH
   # AGENT=1 was observed reaching a real polytoken worker's tool subprocess
   # (verified live), so it must never promote to a polytoken identity when no
   # polytoken ancestry exists.
-  out=$(AGENT=1 "$HARNESS")
+  out=$(AGENT=1 bash "$HARNESS")
   [ "$out" != polytoken ] \
     || fail "an inherited AGENT=1 with no polytoken ancestry must not claim polytoken, got '$out'"
   # A structural polytoken ancestor outranks a retained CLAUDECODE, so a
   # cleared launch boundary is defense in depth rather than the only guard.
-  out=$(AGENT=1 CLAUDECODE=1 PATH="$fakebin:$PATH" "$HARNESS")
+  out=$(AGENT=1 CLAUDECODE=1 PATH="$fakebin:$PATH" bash "$HARNESS")
   [ "$out" = polytoken ] \
     || fail "a structural polytoken ancestor must outrank an inherited CLAUDECODE, got '$out'"
   pass "fm-harness.sh: no inherited launcher marker claims the polytoken identity"
@@ -439,7 +439,7 @@ test_polytoken_busy_writer_dispatches_without_argv_and_never_fails() {
   id=task
   turnend="$state_real/$id.turn-ended"
   mkdir -p "$state_real"
-  "$ROOT/bin/fm-busy-event.sh" arm "$state_real" "$id" >/dev/null || fail "the busy contract must arm"
+  bash "$ROOT/bin/fm-busy-event.sh" arm "$state_real" "$id" >/dev/null || fail "the busy contract must arm"
   gen=$(fm_busy_current_gen "$state_real" "$id") || fail "the armed generation must be readable"
   fm_polytoken_write_busy_script "$ROOT" "$state_real" "$id" "$gen" "$turnend" \
     || fail "the busy writer must be generated"
@@ -724,8 +724,8 @@ interrupt_task_case() {  # <name> <event-written-during-cancel> [reopen-after] -
   local name=$1 event=$2 reopen=${3:-} dir state hook port pid out
   dir=$(make_wiring_case "interrupttask-$name")
   state="$dir/state"
-  "$ROOT/bin/fm-busy-event.sh" arm "$state" task >/dev/null || fail "the busy contract must arm"
-  "$ROOT/bin/fm-busy-event.sh" apply "$state" task busy --current-gen \
+  bash "$ROOT/bin/fm-busy-event.sh" arm "$state" task >/dev/null || fail "the busy contract must arm"
+  bash "$ROOT/bin/fm-busy-event.sh" apply "$state" task busy --current-gen \
     --source polytoken-hook --event pre-model-turn >/dev/null || fail "the running turn's open must apply"
   printf -v hook '%q apply %q task busy --current-gen --source polytoken-hook --event %q' \
     "$ROOT/bin/fm-busy-event.sh" "$state" "$event"
@@ -899,7 +899,7 @@ run_polytoken_spawn() {
     FM_POLYTOKEN_READY_POLLS="${FM_POLYTOKEN_READY_POLLS:-40}" \
     FM_POLYTOKEN_POLL_INTERVAL="${FM_POLYTOKEN_POLL_INTERVAL:-0.1}" \
     PATH="$fakebin:$BASE_PATH" \
-    "$SPAWN" "$id" "$proj" --harness polytoken --model zai/glm-5.3-flash --effort low --mode no-mistakes --yolo off "$@" 2>&1
+    bash "$SPAWN" "$id" "$proj" --harness polytoken --model zai/glm-5.3-flash --effort low --mode no-mistakes --yolo off "$@" 2>&1
 }
 
 test_polytoken_launch_carries_the_hybrid_contract() {
@@ -1042,7 +1042,7 @@ test_polytoken_secondmate_is_refused() {
     FM_STATE_OVERRIDE="$HOME_DIR/state" FM_DATA_OVERRIDE="$HOME_DIR/data" \
     FM_PROJECTS_OVERRIDE="$HOME_DIR/projects" FM_CONFIG_OVERRIDE="$HOME_DIR/config" \
     FM_SPAWN_NO_GUARD=1 PATH="$FAKEBIN_DIR:$BASE_PATH" \
-    "$SPAWN" "$id" --secondmate polytoken 2>&1) || rc=$?
+    bash "$SPAWN" "$id" --secondmate polytoken 2>&1) || rc=$?
   [ "$rc" -ne 0 ] || fail "a polytoken secondmate spawn should be refused"
   assert_contains "$out" "polytoken is a verified crewmate/scout adapter only" \
     "the secondmate refusal lacked its concrete reason"

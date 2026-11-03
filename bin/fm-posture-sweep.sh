@@ -32,7 +32,7 @@ for meta in "$STATE"/*.meta; do
   id=$(basename "$meta" .meta)
   fm_backend_validate_task_endpoint "$meta" "$id" >/dev/null 2>&1 || continue
   output=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
-    "$SCRIPT_DIR/fm-control.sh" "$id" repair-posture 2>&1)
+    bash "$SCRIPT_DIR/fm-control.sh" "$id" repair-posture 2>&1)
   case "$output" in
     posture-repaired\ *) printf '%s\n' "$output" ;;
     posture-clean\ *|posture-skipped\ *|posture-deferred\ *) ;;

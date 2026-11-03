@@ -100,7 +100,7 @@ chmod +x "$FAKEBIN/fake-ssh"
 run_relaunch() {  # <args...>
   env FM_HOME="$HOME_DIR" FM_SSH_BIN="$FAKEBIN/fake-ssh" \
     FM_FAKE_RELAUNCH_MODE="${FM_FAKE_RELAUNCH_MODE:-}" \
-    "$ROOT/bin/fm-remote-secondmate-relaunch.sh" "$@" 2>&1
+    bash "$ROOT/bin/fm-remote-secondmate-relaunch.sh" "$@" 2>&1
 }
 
 # --- a successful relaunch republishes the parent's own route record --------

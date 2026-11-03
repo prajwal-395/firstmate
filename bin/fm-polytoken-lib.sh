@@ -501,6 +501,6 @@ fm_polytoken_interrupt_task() {  # <bin-dir> <state-dir> <id> <port> <credential
     return 0
   fi
   fm_polytoken_turn_settled "$port" "$token" || return 0
-  "$bin/fm-busy-event.sh" apply "$state" "$id" idle \
+  bash "$bin/fm-busy-event.sh" apply "$state" "$id" idle \
     --gen "$gen" --source fm-interrupt --event interrupt >/dev/null 2>&1 || true
 }

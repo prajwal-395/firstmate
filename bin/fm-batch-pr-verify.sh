@@ -483,7 +483,7 @@ batch_merge() {
       rc=1
       continue
     fi
-    if "$MERGE_BIN" "$task" "$url" >> "$batch/merge-log" 2>&1; then
+    if bash "$MERGE_BIN" "$task" "$url" >> "$batch/merge-log" 2>&1; then
       echo "$n: merged" | tee -a "$batch/merge-log"
     else
       echo "$n: merge failed, see merge-log" | tee -a "$batch/merge-refused"

@@ -33,7 +33,7 @@ CLAUDE_VERSION=$(claude --version 2>/dev/null | head -n 1)
 HERDR_VERSION=$(herdr --version 2>/dev/null | head -n 1)
 MODEL=${FM_WARM_COMPACT_LIVE_MODEL:-haiku}
 LAB_HELPER=${HERDR_LAB_HELPER:-$ROOT/bin/fm-herdr-lab.sh}
-SESSION=$("$LAB_HELPER" name fm-warm-compact)
+SESSION=$(bash "$LAB_HELPER" name fm-warm-compact)
 LAB=$(fm_test_tmproot fm-warm-compact-live)
 LAB=$(cd -P "$LAB" && pwd -P)
 FM="$LAB/fm"
@@ -56,7 +56,7 @@ cleanup() {
   fi
   pid=$(cat "$FM/state/.watch.lock/pid" 2>/dev/null || true)
   [ -z "$pid" ] || kill -TERM "$pid" 2>/dev/null || true
-  "$LAB_HELPER" teardown "$SESSION" || rc=1
+  bash "$LAB_HELPER" teardown "$SESSION" || rc=1
   [ -z "${FM_WARM_COMPACT_LIVE_TRACE:-}" ] || cp "$LAB/screens.log" /tmp/wc-screens.log 2>/dev/null
   rm -rf "${PROJECTS:?}/$(printf '%s' "$FM" | sed 's/[^A-Za-z0-9]/-/g')"
   fm_test_cleanup
@@ -78,7 +78,7 @@ wait_until() {  # <polls of 0.1s> <command...>
   return 1
 }
 
-lab() { "$LAB_HELPER" run "$SESSION" "$@"; }
+lab() { bash "$LAB_HELPER" run "$SESSION" "$@"; }
 screen() { lab pane read "$PANE" --source visible 2>/dev/null; }
 
 transcript() {
@@ -153,7 +153,7 @@ export CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0
 export PATH='$LAB/bin':"\$PATH"
 ENV
 
-"$LAB_HELPER" provision "$SESSION"
+bash "$LAB_HELPER" provision "$SESSION"
 OUT=$(lab workspace create --cwd "$FM" --label warm-compact-primary --no-focus)
 PANE=$(printf '%s' "$OUT" | jq -r '.result.root_pane.pane_id')
 [ -n "$PANE" ] && [ "$PANE" != null ] || fail "the lab workspace has no pane"
@@ -166,7 +166,7 @@ wait_until 600 shell_ready || fail "the lab pane's shell never answered"
 
 PROMPT='This is an isolated Firstmate test lab, not a real fleet. Reply with exactly READY now and use no tools. Later, whenever a "Stop hook feedback" message wakes you, do exactly this and nothing else: run `bin/fm-wake-drain.sh` once with the Bash tool, then run the exact `bin/fm-wake-drain.sh --ack-through ...` command that its WAKE_ACK_REQUIRED line prints, then reply with exactly ACKED. Never run any other command, never run bin/fm-watch-arm.sh, and never use any other tool.'
 lab pane run "$PANE" ". '$LAB/env'; printf '%s\\n' \"\$\$\" > state/.lock; exec claude --model $MODEL --effort low --dangerously-skip-permissions" >/dev/null
-FM_HOME="$FM" "$FM/bin/fm-afk-contract.sh" enter --words 'Watch the fleet. Merge nothing and dispatch nothing.' >/dev/null \
+FM_HOME="$FM" bash "$FM/bin/fm-afk-contract.sh" enter --words 'Watch the fleet. Merge nothing and dispatch nothing.' >/dev/null \
   || fail "could not record the lab's away posture"
 
 choose() {  # <screen> <option>: move the dialog cursor to <option> and confirm
@@ -220,7 +220,7 @@ printf 'done [at=%s]: the demo cleanup finished; nothing else is needed\n' "$(da
 wait_until "$POLLS" settled_at_least 1 || fail "the engine never handled the away wake"$'\n'"$(diagnose)"
 engine_session=$(sed -n 's/^session=//p' "$FM/state/.supervision-host-engine")
 evidence "engine conversation $engine_session handled one away wake"
-FM_HOME="$FM" "$FM/bin/fm-afk-contract.sh" archive >/dev/null 2>&1 || fail "could not end the lab's away posture"
+FM_HOME="$FM" bash "$FM/bin/fm-afk-contract.sh" archive >/dev/null 2>&1 || fail "could not end the lab's away posture"
 
 # --- both compactions, once -------------------------------------------------------
 

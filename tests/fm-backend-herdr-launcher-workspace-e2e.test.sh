@@ -48,7 +48,7 @@ herdr_forget_inherited_pane
 
 TMP_ROOT=$(mktemp -d "$(cd "${TMPDIR:-/tmp}" && pwd -P)/fm-herdr-launcher-e2e.XXXXXX")
 HERDR_LAB_HELPER="$ROOT/bin/fm-herdr-lab.sh"
-HERDR_LAB_SESSION=$("$HERDR_LAB_HELPER" name fm-herdr-launcher-ws) || {
+HERDR_LAB_SESSION=$(bash "$HERDR_LAB_HELPER" name fm-herdr-launcher-ws) || {
   rm -rf "$TMP_ROOT"
   printf 'not ok - could not generate an isolated Herdr lab session name\n' >&2
   exit 1
@@ -68,16 +68,16 @@ cleanup_all() {
     [ -n "$wt" ] && treehouse return --force "$wt" >/dev/null 2>&1
   done
   WORKTREES=()
-  "$HERDR_LAB_HELPER" teardown "$HERDR_LAB_SESSION" || status=$?
+  bash "$HERDR_LAB_HELPER" teardown "$HERDR_LAB_SESSION" || status=$?
   # Spawn leaves each state/<id>.git-hooks strip dir read-only.
   find "$TMP_ROOT" -type d -exec chmod u+rwx {} + 2>/dev/null
   rm -rf "$TMP_ROOT"
   return "$status"
 }
 trap cleanup_all EXIT
-"$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION" || fail "could not provision isolated Herdr lab session"
+bash "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION" || fail "could not provision isolated Herdr lab session"
 
-lab() { "$HERDR_LAB_HELPER" run "$HERDR_LAB_SESSION" "$@"; }
+lab() { bash "$HERDR_LAB_HELPER" run "$HERDR_LAB_SESSION" "$@"; }
 
 # --- helpers ----------------------------------------------------------------
 
@@ -132,12 +132,12 @@ spawn_from_launcher() {
     env HERDR_ENV=1 HERDR_PANE_ID="$pane" HERDR_SESSION="$HERDR_LAB_SESSION" \
       HERDR_SOCKET_PATH="$LAB_SOCKET" \
       FM_SPAWN_NO_GUARD=1 FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-      "$ROOT/bin/fm-spawn.sh" "$id" "$proj" "sh -c 'echo launcher-ws-ok'" --backend herdr "$@" \
+      bash "$ROOT/bin/fm-spawn.sh" "$id" "$proj" "sh -c 'echo launcher-ws-ok'" --backend herdr "$@" \
       >"$SPAWN_OUT" 2>"$SPAWN_ERR"
   else
     env -u HERDR_ENV -u HERDR_PANE_ID -u HERDR_SOCKET_PATH HERDR_SESSION="$HERDR_LAB_SESSION" \
       FM_SPAWN_NO_GUARD=1 FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-      "$ROOT/bin/fm-spawn.sh" "$id" "$proj" "sh -c 'echo launcher-ws-ok'" --backend herdr "$@" \
+      bash "$ROOT/bin/fm-spawn.sh" "$id" "$proj" "sh -c 'echo launcher-ws-ok'" --backend herdr "$@" \
       >"$SPAWN_OUT" 2>"$SPAWN_ERR"
   fi
   SPAWN_RC=$?
@@ -431,7 +431,7 @@ pass "real herdr E2E: a --secondmate launch still stands up that secondmate's ow
 
 FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$PRIMARY_HOME/state" FM_DATA_OVERRIDE="$PRIMARY_HOME/data" \
   FM_CONFIG_OVERRIDE="$PRIMARY_HOME/config" \
-  "$ROOT/bin/fm-teardown.sh" dupC >"$TMP_ROOT/teardown.out" 2>&1
+  bash "$ROOT/bin/fm-teardown.sh" dupC >"$TMP_ROOT/teardown.out" 2>&1
 status=$?
 [ "$status" -eq 0 ] || fail "fm-teardown.sh failed for dupC"$'\n'"$(cat "$TMP_ROOT/teardown.out")"
 [ ! -f "$DUPC_META" ] || fail "fm-teardown.sh did not remove dupC's meta"

@@ -99,7 +99,7 @@ test_exact_lane_id_send_still_works() {
   fm_write_meta "$home/state/mpf-lane-m8.meta" "window=sess:fm-mpf-lane-m8" "kind=ship"
 
   PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
-    "$SEND" mpf-lane-m8 "lost dispatch" >/dev/null 2>"$err"; rc=$?
+    bash "$SEND" mpf-lane-m8 "lost dispatch" >/dev/null 2>"$err"; rc=$?
   expect_code 0 "$rc" "exact task id send should succeed when metadata exists"
   got=$(cat "$log")
   assert_contains "$got" "target=sess:fm-mpf-lane-m8 literal=1 arg=: Firstmate instruction waiting" \
@@ -114,12 +114,12 @@ test_help_prints_usage() {
   local home="$TMP_ROOT/help" out err rc
   mkdir -p "$home/state"
   out="$TMP_ROOT/help.out"; err="$TMP_ROOT/help.err"
-  env -u FM_HOME "$SEND" --help >"$out" 2>"$err"; rc=$?
+  env -u FM_HOME bash "$SEND" --help >"$out" 2>"$err"; rc=$?
   expect_code 0 "$rc" "fm-send --help without FM_HOME should print usage and exit 0"
   assert_contains "$(cat "$out")" "Usage: fm-send.sh <target>" "--help should print the header usage line"
   assert_contains "$(cat "$out")" "--resolve-key" "--help should print the header contract"
   [ ! -s "$err" ] || fail "fm-send --help wrote to stderr: $(cat "$err")"
-  FM_HOME="$home" "$SEND" --help >"$out" 2>"$err"; rc=$?
+  FM_HOME="$home" bash "$SEND" --help >"$out" 2>"$err"; rc=$?
   expect_code 0 "$rc" "fm-send --help with FM_HOME should not treat the flag as a target"
   assert_contains "$(cat "$out")" "Usage: fm-send.sh <target>" "--help with FM_HOME should print usage"
   pass "fm-send --help prints the header usage before FM_HOME and target resolution"
@@ -131,7 +131,7 @@ test_unset_fm_home_fails() {
   fb=$(make_stubs "$dir"); err="$dir/send.err"; log="$dir/tmux.log"; : > "$log"
 
   env -u FM_HOME PATH="$fb:$PATH" FM_ROOT_OVERRIDE="$dir" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
-    "$SEND" sess:win "hello" >/dev/null 2>"$err"; rc=$?
+    bash "$SEND" sess:win "hello" >/dev/null 2>"$err"; rc=$?
   [ "$rc" -ne 0 ] || fail "unset FM_HOME should fail"
   assert_contains "$(cat "$err")" "FM_HOME is not set" "unset FM_HOME diagnostic should be explicit"
   [ ! -s "$log" ] || fail "unset FM_HOME still attempted a send"$'\n'"$(cat "$log")"
@@ -144,7 +144,7 @@ test_unresolvable_target_does_not_tmux_fallback() {
   fb=$(make_stubs "$dir"); home=$(setup_home unresolved); err="$dir/send.err"; log="$dir/tmux.log"; : > "$log"
 
   PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_FAKE_TMUX_WINDOW=lost-target FM_SEND_SETTLE=0 \
-    "$SEND" lost-target "hello" >/dev/null 2>"$err"; rc=$?
+    bash "$SEND" lost-target "hello" >/dev/null 2>"$err"; rc=$?
   [ "$rc" -ne 0 ] || fail "unresolvable target should fail"
   assert_contains "$(cat "$err")" "not resolvable" "unresolvable diagnostic should be loud"
   assert_contains "$(cat "$err")" "metadata window/terminal lookup" "unresolvable diagnostic should name the attempted lookup"
@@ -161,7 +161,7 @@ test_prefixless_herdr_pane_id_fails() {
     "window=default:wB:p2" "backend=herdr" "herdr_session=default" "herdr_pane_id=wB:p2" "kind=ship"
 
   PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
-    "$SEND" wB:p2 "nudge" >/dev/null 2>"$err"; rc=$?
+    bash "$SEND" wB:p2 "nudge" >/dev/null 2>"$err"; rc=$?
   [ "$rc" -ne 0 ] || fail "prefixless herdr pane id should fail"
   assert_contains "$(cat "$err")" "matches herdr_pane_id" "herdr pane diagnostic should name the meta match"
   assert_contains "$(cat "$err")" "expected <herdr-session>:<pane-id>" "herdr pane diagnostic should show expected shape"
@@ -176,7 +176,7 @@ test_unmatched_single_colon_target_must_exist() {
   fb=$(make_stubs "$dir"); home=$(setup_home deadexplicit); err="$dir/send.err"; log="$dir/tmux.log"; : > "$log"
 
   PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_FAKE_TMUX_DEAD_TARGET=sess:missing FM_SEND_SETTLE=0 \
-    "$SEND" sess:missing "hello" >/dev/null 2>"$err"; rc=$?
+    bash "$SEND" sess:missing "hello" >/dev/null 2>"$err"; rc=$?
   [ "$rc" -ne 0 ] || fail "dead explicit tmux-shaped target should fail"
   assert_contains "$(cat "$err")" "not a live tmux endpoint" "dead explicit target diagnostic should name the assumed backend"
   assert_contains "$(cat "$err")" "backend=tmux" "dead explicit target diagnostic should name the tried backend"
@@ -192,7 +192,7 @@ test_fm_prefixed_herdr_session_is_an_explicit_target() {
   : > "$herdr_log"
 
   PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_HERDR_LOG="$herdr_log" FM_SEND_SETTLE=0 \
-    "$SEND" fm-remote:w1:p2 --key Enter >/dev/null 2>"$err"; rc=$?
+    bash "$SEND" fm-remote:w1:p2 --key Enter >/dev/null 2>"$err"; rc=$?
   expect_code 0 "$rc" "an fm-prefixed Herdr session target should be accepted as explicit"
   assert_grep 'pane get w1:p2 --session fm-remote' "$herdr_log" "fm-prefixed Herdr target was not verified in its session"
   assert_grep 'pane send-keys w1:p2 enter --session fm-remote' "$herdr_log" "fm-prefixed Herdr target was not sent its key in its session"
@@ -207,7 +207,7 @@ test_healthy_fm_id_send_still_works() {
   fm_write_meta "$home/state/lane-ok.meta" "window=sess:fm-lane-ok" "kind=ship" "harness=codex"
 
   PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
-    "$SEND" fm-lane-ok "hello captain" >/dev/null 2>"$err"; rc=$?
+    bash "$SEND" fm-lane-ok "hello captain" >/dev/null 2>"$err"; rc=$?
   expect_code 0 "$rc" "healthy fm-id send should succeed"
   got=$(cat "$log")
   assert_contains "$got" "target=sess:fm-lane-ok literal=1 arg=: Firstmate instruction waiting" \
@@ -233,14 +233,14 @@ test_key_send_exit_status_follows_delivery() {
   fm_write_meta "$home/state/lane-key.meta" "window=sess:fm-lane-key" "kind=ship"
 
   PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
-    "$SEND" lane-key --key Escape >/dev/null 2>"$err"; rc=$?
+    bash "$SEND" lane-key --key Escape >/dev/null 2>"$err"; rc=$?
   expect_code 0 "$rc" "a delivered --key interrupt should report success"
   assert_contains "$(cat "$log")" "target=sess:fm-lane-key literal=0 arg=Escape" "the delivered case should send the named key"
 
   : > "$log"
   PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
     FM_FAKE_TMUX_SEND_KEY_FAIL=Escape \
-    "$SEND" lane-key --key Escape >/dev/null 2>"$err"; rc=$?
+    bash "$SEND" lane-key --key Escape >/dev/null 2>"$err"; rc=$?
   [ "$rc" -ne 0 ] || fail "an undelivered --key interrupt reported success"
   assert_contains "$(cat "$err")" "key 'Escape' not sent" "the undelivered case should name the key that failed"
   assert_contains "$(cat "$log")" "target=sess:fm-lane-key literal=0 arg=Escape" "the undelivered case should still have attempted the send"
@@ -258,7 +258,7 @@ test_empty_message_refuses_before_record() {
   fm_write_meta "$home/state/lane-empty.meta" "window=sess:fm-lane-empty" "kind=ship"
 
   PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
-    "$SEND" lane-empty >/dev/null 2>"$err"; rc=$?
+    bash "$SEND" lane-empty >/dev/null 2>"$err"; rc=$?
   [ "$rc" -ne 0 ] || fail "an empty steer should refuse"
   assert_contains "$(cat "$err")" "empty message" "the empty-message refusal should be explicit"
   assert_contains "$(cat "$err")" "nothing was sent" "the empty-message refusal should state nothing was sent"
@@ -266,7 +266,7 @@ test_empty_message_refuses_before_record() {
   [ ! -s "$log" ] || fail "a refused empty steer still attempted a send"$'\n'"$(cat "$log")"
 
   PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
-    "$SEND" lane-empty "   " >/dev/null 2>"$err"; rc=$?
+    bash "$SEND" lane-empty "   " >/dev/null 2>"$err"; rc=$?
   [ "$rc" -ne 0 ] || fail "a whitespace-only steer should refuse"
   assert_contains "$(cat "$err")" "empty message" "the whitespace-only refusal should be explicit"
   [ ! -d "$home/state/lane-empty.inbox" ] || fail "a refused whitespace-only steer still enqueued an inbox record"
@@ -284,7 +284,7 @@ test_unknown_leading_flag_refuses_before_record() {
   fm_write_meta "$home/state/lane-flag.meta" "window=sess:fm-lane-flag" "kind=ship"
 
   PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
-    "$SEND" lane-flag --file /tmp/msg >/dev/null 2>"$err"; rc=$?
+    bash "$SEND" lane-flag --file /tmp/msg >/dev/null 2>"$err"; rc=$?
   [ "$rc" -ne 0 ] || fail "an unrecognised leading flag should refuse"
   assert_contains "$(cat "$err")" "unknown option '--file'" "the refusal should name the bad flag"
   assert_contains "$(cat "$err")" "nothing was sent" "the refusal should state nothing was sent"
@@ -293,7 +293,7 @@ test_unknown_leading_flag_refuses_before_record() {
 
   # The "--" separator keeps dash-leading text sendable on purpose.
   PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_TMUX_LOG="$log" FM_SEND_SETTLE=0 \
-    "$SEND" lane-flag -- --file /tmp/msg >/dev/null 2>"$err"; rc=$?
+    bash "$SEND" lane-flag -- --file /tmp/msg >/dev/null 2>"$err"; rc=$?
   expect_code 0 "$rc" "dash-leading text after '--' should still send"
   grep -qF -- '--file /tmp/msg' "$home/state/lane-flag.inbox/001.msg" \
     || fail "dash-leading text after '--' should reach the inbox verbatim"

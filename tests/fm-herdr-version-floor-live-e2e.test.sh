@@ -53,7 +53,7 @@ EOF
 
 TMP_ROOT=$(mktemp -d "$(cd "${TMPDIR:-/tmp}" && pwd -P)/fm-herdr-version-floor.XXXXXX")
 ORIGINAL_PATH=$PATH
-LAB_SESSION=$("$LAB_HELPER" name fm-herdr-version-floor)
+LAB_SESSION=$(bash "$LAB_HELPER" name fm-herdr-version-floor)
 cleanup() {
   local status=$?
   rm -rf "$TMP_ROOT"
@@ -66,7 +66,7 @@ trap cleanup EXIT
 # only session any of these binaries can ever be pointed at.
 probe_client() {  # <binary-dir> -> "<version>\t<protocol>"
   local dir=$1 out
-  out=$(PATH="$dir:$ORIGINAL_PATH" "$LAB_HELPER" run "$LAB_SESSION" status --json 2>/dev/null) || return 1
+  out=$(PATH="$dir:$ORIGINAL_PATH" bash "$LAB_HELPER" run "$LAB_SESSION" status --json 2>/dev/null) || return 1
   printf '%s' "$out" | jq -er '"\(.client.version)\t\(.client.protocol)"' 2>/dev/null
 }
 

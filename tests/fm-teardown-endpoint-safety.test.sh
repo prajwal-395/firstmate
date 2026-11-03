@@ -59,7 +59,7 @@ run_case() {  # <case> <id>
   local dir=$1 id=$2
   FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" \
   FM_RUNTIME_LOG="$dir/runtime.log" PATH="$dir/fakebin:$PATH" \
-    "$TEARDOWN" "$id" --force
+    bash "$TEARDOWN" "$id" --force
 }
 
 assert_refused_without_mutation() {  # <case> <id> <description>
@@ -532,7 +532,7 @@ SH
   set +e
   env -u TMUX -u TMUX_PANE FM_TEST_TMUX_SOCKET="$socket_id" \
     FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_RUNTIME_LOG="$dir/runtime.log" \
-    PATH="$dir/fakebin:$PATH" "$TEARDOWN" invalid --force \
+    PATH="$dir/fakebin:$PATH" bash "$TEARDOWN" invalid --force \
     > "$dir/invalid.out" 2> "$dir/invalid.err"
   rc=$?
   set -e
@@ -568,7 +568,7 @@ SH
     "kind=scout" "mode=no-mistakes"
   env -u TMUX -u TMUX_PANE FM_TEST_TMUX_SOCKET="$socket_id" \
     FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_RUNTIME_LOG="$dir/runtime.log" \
-    PATH="$dir/fakebin:$PATH" "$TEARDOWN" "$target_id" --force \
+    PATH="$dir/fakebin:$PATH" bash "$TEARDOWN" "$target_id" --force \
     > "$dir/valid.out" 2> "$dir/valid.err" \
     || fail "isolated valid endpoint teardown failed: $(cat "$dir/valid.err")"
   isolated_tmux_window_exists "$dir" "$socket" "$session" "$target" \
@@ -1093,7 +1093,7 @@ test_reassigned_pool_slot_finishes_own_cleanup_without_touching_the_slot() {
   set +e
   FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" \
   FM_RUNTIME_LOG="$dir/runtime.log" PATH="$dir/fakebin:$PATH" \
-    "$TEARDOWN" "$id" > "$dir/stdout" 2> "$dir/stderr"
+    bash "$TEARDOWN" "$id" > "$dir/stdout" 2> "$dir/stderr"
   rc=$?
   set -e
   [ "$rc" -eq 0 ] || fail "teardown of a clean ship task whose slot was reassigned failed: $(cat "$dir/stderr")"
@@ -1142,7 +1142,7 @@ test_reassigned_pool_slot_keeps_claimant_codex_overlay_on_t3() {
   printf 'model = "gpt-5.6-sol"\n' > "$dir/worktree/.codex/config.toml"
   git -C "$dir/worktree" add .codex/config.toml
   git -C "$dir/worktree" -c user.name=t -c user.email=t@example.invalid commit -qm "project Codex config"
-  "$ROOT/bin/fm-t3code-codex-env.sh" install "$dir/worktree" "FM_TASK_ID=$other" || fail "install reassigned task's overlay"
+  bash "$ROOT/bin/fm-t3code-codex-env.sh" install "$dir/worktree" "FM_TASK_ID=$other" || fail "install reassigned task's overlay"
   cp "$dir/worktree/.codex/config.toml" "$dir/other-overlay.toml"
   t3_fake_start "$dir/t3-server"
   t3_fake_case "$dir/t3-case" "{\"threads\":{\"$thread\":{\"threadId\":\"$thread\",\"projectId\":\"proj-1\",\"status\":\"completed\",\"activeRunId\":null,\"archived\":false,\"worktreePath\":\"$dir/worktree\",\"pendingRequestCount\":0,\"items\":[],\"runs\":[]}}}"
@@ -1299,7 +1299,7 @@ test_failed_endpoint_close_refuses_before_removing_the_record() {
   set +e
   env -u TMUX -u TMUX_PANE FM_TEST_BLOCK_KILL=1 \
     FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_RUNTIME_LOG="$dir/runtime.log" \
-    PATH="$dir/fakebin:$PATH" "$TEARDOWN" "$id" \
+    PATH="$dir/fakebin:$PATH" bash "$TEARDOWN" "$id" \
     > "$dir/failed.out" 2> "$dir/failed.err"
   rc=$?
   set -e
@@ -1330,7 +1330,7 @@ test_failed_endpoint_close_refuses_before_removing_the_record() {
   # is what lets the rerun finish, so the refusal is recoverable, not terminal.
   env -u TMUX -u TMUX_PANE \
     FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_RUNTIME_LOG="$dir/runtime.log" \
-    PATH="$dir/fakebin:$PATH" "$TEARDOWN" "$id" \
+    PATH="$dir/fakebin:$PATH" bash "$TEARDOWN" "$id" \
     > "$dir/rerun.out" 2> "$dir/rerun.err" \
     || fail "the rerun after a recovered close still failed: $(cat "$dir/rerun.err")"
   assert_absent "$dir/home/state/$id.meta" "the recovered rerun left the task record behind"
@@ -1359,7 +1359,7 @@ test_forced_teardown_continues_past_a_close_it_could_not_make() {
   set +e
   env -u TMUX -u TMUX_PANE FM_TEST_BLOCK_KILL=1 \
     FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_RUNTIME_LOG="$dir/runtime.log" \
-    PATH="$dir/fakebin:$PATH" "$TEARDOWN" "$id" \
+    PATH="$dir/fakebin:$PATH" bash "$TEARDOWN" "$id" \
     > "$dir/unforced.out" 2> "$dir/unforced.err"
   rc=$?
   set -e
@@ -1370,7 +1370,7 @@ test_forced_teardown_continues_past_a_close_it_could_not_make() {
 
   env -u TMUX -u TMUX_PANE FM_TEST_BLOCK_KILL=1 \
     FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_RUNTIME_LOG="$dir/runtime.log" \
-    PATH="$dir/fakebin:$PATH" "$TEARDOWN" "$id" --force \
+    PATH="$dir/fakebin:$PATH" bash "$TEARDOWN" "$id" --force \
     > "$dir/forced.out" 2> "$dir/forced.err" \
     || fail "--force did not get past a close that failed: $(cat "$dir/forced.err")"
   assert_grep "teardown $id complete" "$dir/forced.out" "the forced cleanup did not finish"
@@ -1407,7 +1407,7 @@ test_unreadable_close_read_refuses_while_a_definitive_absence_completes() {
   set +e
   env -u TMUX -u TMUX_PANE FM_TEST_BLOCK_KILL=1 FM_TEST_UNREADABLE_LIST=1 \
     FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_RUNTIME_LOG="$dir/runtime.log" \
-    PATH="$dir/fakebin:$PATH" "$TEARDOWN" "$id" \
+    PATH="$dir/fakebin:$PATH" bash "$TEARDOWN" "$id" \
     > "$dir/unreadable.out" 2> "$dir/unreadable.err"
   rc=$?
   set -e
@@ -1431,7 +1431,7 @@ test_unreadable_close_read_refuses_while_a_definitive_absence_completes() {
   write_endpoint_close_meta "$dir" "$id" "gone session:fm-$id"
   env -u TMUX -u TMUX_PANE FM_TEST_BLOCK_KILL=1 \
     FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_RUNTIME_LOG="$dir/runtime.log" \
-    PATH="$dir/fakebin:$PATH" "$TEARDOWN" "$id" \
+    PATH="$dir/fakebin:$PATH" bash "$TEARDOWN" "$id" \
     > "$dir/missing-session.out" 2> "$dir/missing-session.err" \
     || fail "a definitively absent session refused its own cleanup: $(cat "$dir/missing-session.err")"
   assert_grep "teardown $id complete" "$dir/missing-session.out" \
@@ -1449,7 +1449,7 @@ test_unreadable_close_read_refuses_while_a_definitive_absence_completes() {
   write_endpoint_close_meta "$dir" "$id" "$session:fm-$id"
   env -u TMUX -u TMUX_PANE FM_TEST_BLOCK_KILL=1 \
     FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_RUNTIME_LOG="$dir/runtime.log" \
-    PATH="$dir/fakebin:$PATH" "$TEARDOWN" "$id" \
+    PATH="$dir/fakebin:$PATH" bash "$TEARDOWN" "$id" \
     > "$dir/missing-server.out" 2> "$dir/missing-server.err" \
     || fail "a definitively absent server refused its own cleanup: $(cat "$dir/missing-server.err")"
   assert_grep "teardown $id complete" "$dir/missing-server.out" \
@@ -1488,7 +1488,7 @@ test_forced_secondmate_child_close_failure_still_refuses() {
   set +e
   env -u TMUX -u TMUX_PANE FM_TEST_BLOCK_KILL=1 \
     FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_RUNTIME_LOG="$dir/runtime.log" \
-    PATH="$dir/fakebin:$PATH" "$TEARDOWN" "$parent" --force \
+    PATH="$dir/fakebin:$PATH" bash "$TEARDOWN" "$parent" --force \
     > "$dir/child.out" 2> "$dir/child.err"
   rc=$?
   set -e
@@ -1528,7 +1528,7 @@ test_orca_close_failure_refuses_even_under_force() {
   set +e
   env -u TMUX -u TMUX_PANE \
     FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_RUNTIME_LOG="$dir/runtime.log" \
-    PATH="$dir/fakebin:$orca_free" "$TEARDOWN" "$id" --force \
+    PATH="$dir/fakebin:$orca_free" bash "$TEARDOWN" "$id" --force \
     > "$dir/orca-forced.out" 2> "$dir/orca-forced.err"
   rc=$?
   set -e
@@ -1550,7 +1550,7 @@ test_orca_close_failure_refuses_even_under_force() {
   set +e
   env -u TMUX -u TMUX_PANE \
     FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_RUNTIME_LOG="$dir/runtime.log" \
-    PATH="$dir/fakebin:$orca_free" "$TEARDOWN" "$id" \
+    PATH="$dir/fakebin:$orca_free" bash "$TEARDOWN" "$id" \
     > "$dir/orca-unforced.out" 2> "$dir/orca-unforced.err"
   rc=$?
   set -e
@@ -1577,7 +1577,7 @@ test_already_gone_endpoint_still_completes_without_a_refusal() {
 
   env -u TMUX -u TMUX_PANE \
     FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_RUNTIME_LOG="$dir/runtime.log" \
-    PATH="$dir/fakebin:$PATH" "$TEARDOWN" "$id" \
+    PATH="$dir/fakebin:$PATH" bash "$TEARDOWN" "$id" \
     > "$dir/gone.out" 2> "$dir/gone.err" \
     || fail "an already-exited endpoint refused cleanup: $(cat "$dir/gone.err")"
   assert_grep "teardown $id complete" "$dir/gone.out" \

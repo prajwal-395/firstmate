@@ -164,7 +164,7 @@ first_reported_line() {  # <text>
 fall_back_to_nudge() {  # <id> <reason>
   local id=$1 reason=$2 out
   if out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
-    "$SCRIPT_DIR/fm-send.sh" "$id" "$FM_SECOND_MATE_NUDGE_MESSAGE" 2>&1); then
+    bash "$SCRIPT_DIR/fm-send.sh" "$id" "$FM_SECOND_MATE_NUDGE_MESSAGE" 2>&1); then
     nudged_count=$((nudged_count + 1))
     printf 'nudged: %s: %s\n' "$id" "$reason"
   else
@@ -192,7 +192,7 @@ retire_persist_request() {  # <array-index>
   id=${IDS[$i]}
   corr=${CORR[$i]}
   if [ "${PLACEMENT[i]}" = remote ]; then
-    FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-on.sh" "$id" \
+    FM_HOME="$FM_HOME" bash "$SCRIPT_DIR/fm-on.sh" "$id" \
       fm-remote-secondmate-control.sh ack "$id" "$corr" < /dev/null
   else
     fm_task_inbox_retire_corr "$STATE" "$id" "$corr"
@@ -217,12 +217,12 @@ restart_mate() {  # <array-index>
   id=${IDS[$i]}
   if [ "${PLACEMENT[i]}" = remote ]; then
     restart_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
-      "$SCRIPT_DIR/fm-remote-secondmate-relaunch.sh" \
+      bash "$SCRIPT_DIR/fm-remote-secondmate-relaunch.sh" \
       "$id" "${HARNESS[i]}" "${MODEL[i]:-default}" "${EFFORT[i]:-default}" < /dev/null 2>&1)
     restart_rc=$?
   else
     restart_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
-      "$SCRIPT_DIR/fm-control.sh" "$id" relaunch \
+      bash "$SCRIPT_DIR/fm-control.sh" "$id" relaunch \
       --harness "${HARNESS[i]}" --model "${MODEL[i]:-default}" --effort "${EFFORT[i]:-default}" 2>&1)
     restart_rc=$?
   fi
@@ -349,7 +349,7 @@ while [ "$i" -lt "${#IDS[@]}" ]; do
   # an unreadable pin is refused for that mate instead of resolving to whatever
   # it happened to run last time.
   if [ -z "${HARNESS[i]}" ]; then
-    if ! HARNESS[i]=$("$SCRIPT_DIR/fm-harness.sh" secondmate "$id"); then
+    if ! HARNESS[i]=$(bash "$SCRIPT_DIR/fm-harness.sh" secondmate "$id"); then
       REASON[i]="its configured runtime pin could not be read; fix config/secondmate-harness"
       i=$((i + 1))
       continue
@@ -360,7 +360,7 @@ while [ "$i" -lt "${#IDS[@]}" ]; do
   # Only a concrete recorded value pins that axis to the mate.
   case "${MODEL[i]}" in
     ''|default)
-      if ! MODEL[i]=$("$SCRIPT_DIR/fm-harness.sh" secondmate-model "$id"); then
+      if ! MODEL[i]=$(bash "$SCRIPT_DIR/fm-harness.sh" secondmate-model "$id"); then
         REASON[i]="its configured model pin could not be read; fix config/secondmate-harness"
         i=$((i + 1))
         continue
@@ -370,7 +370,7 @@ while [ "$i" -lt "${#IDS[@]}" ]; do
   case "${EFFORT[i]}" in
     low|medium|high|xhigh|max|ultra) ;;
     *)
-      if ! EFFORT[i]=$("$SCRIPT_DIR/fm-harness.sh" secondmate-effort "$id"); then
+      if ! EFFORT[i]=$(bash "$SCRIPT_DIR/fm-harness.sh" secondmate-effort "$id"); then
         REASON[i]="its configured effort pin could not be read; fix config/secondmate-harness"
         i=$((i + 1))
         continue
@@ -381,7 +381,7 @@ while [ "$i" -lt "${#IDS[@]}" ]; do
       esac
       ;;
   esac
-  if [ "${EFFORT[i]}" = ultra ] && ! "$SCRIPT_DIR/fm-harness.sh" validate-native-effort "${HARNESS[i]}" "${MODEL[i]}" "${EFFORT[i]}"; then
+  if [ "${EFFORT[i]}" = ultra ] && ! bash "$SCRIPT_DIR/fm-harness.sh" validate-native-effort "${HARNESS[i]}" "${MODEL[i]}" "${EFFORT[i]}"; then
     REASON[i]="its resolved Ultra profile does not select native Codex through Pi"
     i=$((i + 1))
     continue
@@ -395,7 +395,7 @@ while [ "$i" -lt "${#IDS[@]}" ]; do
   fi
   if ! send_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
     FM_PENDING_REPLY_EXISTING_CORR="$corr" \
-    "$SCRIPT_DIR/fm-send.sh" "$id" "$FM_SECONDMATE_PERSIST_REQUEST" 2>&1); then
+    bash "$SCRIPT_DIR/fm-send.sh" "$id" "$FM_SECONDMATE_PERSIST_REQUEST" 2>&1); then
     fm_pending_reply_discard_undelivered "$STATE" "$corr" >/dev/null 2>&1 || true
     REASON[i]="the request to write down its open work could not be delivered: $(first_reported_line "$send_out")"
     i=$((i + 1))

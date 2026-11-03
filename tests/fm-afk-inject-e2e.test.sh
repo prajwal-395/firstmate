@@ -181,7 +181,7 @@ start_daemon() {  # [primary-harness]
   FM_INJECT_CONFIRM_SLEEP=0.3 \
   FM_INJECT_CONFIRM_RETRIES=5 \
   FM_STALE_ESCALATE_SECS=999999 \
-  nohup "$DAEMON" >"$STATE_DIR/daemon.out" 2>"$STATE_DIR/daemon.err" &
+  nohup bash "$DAEMON" >"$STATE_DIR/daemon.out" 2>"$STATE_DIR/daemon.err" &
   DAEMON_PID=$!
   # Wait for the daemon to start and acquire the lock.
   local i=0

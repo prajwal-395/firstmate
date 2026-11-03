@@ -3087,7 +3087,7 @@ status_span_only_suppressed_child_facts() {  # <status-file> <start-offset> [<en
 crew_absorb_class() {  # <id>
   local id=$1 line state src
   [ -n "$id" ] || { printf 'none'; return; }
-  line=$("$FM_CREW_STATE_BIN" "$id" 2>/dev/null) || true
+  line=$(bash "$FM_CREW_STATE_BIN" "$id" 2>/dev/null) || true
   case "$line" in state:*) ;; *) printf 'none'; return ;; esac
   state=${line#state: }; state=${state%% *}
   if [ "$state" = paused ]; then printf 'paused'; return; fi
@@ -3157,7 +3157,7 @@ FM_GATE_HUMAN_DECISION='ask-user: authority decision'
 crew_gate_awaits_human_decision() {  # <id> -> <run-id> on stdout
   local id=$1 line state src rest part human='' run=''
   [ -n "$id" ] || return 1
-  line=$("$FM_CREW_STATE_BIN" "$id" 2>/dev/null) || true
+  line=$(bash "$FM_CREW_STATE_BIN" "$id" 2>/dev/null) || true
   case "$line" in state:*) ;; *) return 1 ;; esac
   state=${line#state: }; state=${state%% *}
   [ "$state" = parked ] || return 1
@@ -3200,7 +3200,7 @@ crew_is_declared_stopped() {  # <id>
 crew_run_is_validating() {  # <id> -> "<run-id> <step>" on stdout
   local id=$1 line state src rest part step='' run=''
   [ -n "$id" ] || return 1
-  line=$("$FM_CREW_STATE_BIN" "$id" 2>/dev/null) || true
+  line=$(bash "$FM_CREW_STATE_BIN" "$id" 2>/dev/null) || true
   case "$line" in state:*) ;; *) return 1 ;; esac
   state=${line#state: }; state=${state%% *}
   [ "$state" = working ] || return 1

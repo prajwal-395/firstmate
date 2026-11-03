@@ -570,11 +570,11 @@ run_session_start() {
   if [ -n "$pi_harness" ]; then
     env -u CLAUDECODE -u GROK_AGENT PI_CODING_AGENT=true FM_PI_HARNESS="$pi_harness" \
       FM_HOME="$home" FM_ROOT_OVERRIDE="$root" PATH="$path" \
-      "$SESSION_START"
+      bash "$SESSION_START"
   else
     env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
       FM_HOME="$home" FM_ROOT_OVERRIDE="$root" PATH="$path" \
-      "$SESSION_START"
+      bash "$SESSION_START"
   fi
 }
 
@@ -584,7 +584,7 @@ run_pi_session_start() {  # <home> <root> <path> [fm-session-start args...]
   env -u CLAUDECODE -u GROK_AGENT PI_CODING_AGENT=true FM_PI_HARNESS=pi \
     FM_FAKE_HARNESS_PID="$SESSION_START_TEST_HARNESS_PID" \
     FM_HOME="$home" FM_ROOT_OVERRIDE="$root" PATH="$path" \
-    "$SESSION_START" "$@"
+    bash "$SESSION_START" "$@"
 }
 
 run_named_harness_session_start() {  # <harness> <home> <root> <path> [fm-session-start args...]
@@ -593,7 +593,7 @@ run_named_harness_session_start() {  # <harness> <home> <root> <path> [fm-sessio
   env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
     FM_FAKE_HARNESS="$harness" FM_FAKE_HARNESS_PID="$SESSION_START_TEST_HARNESS_PID" \
     FM_HOME="$home" FM_ROOT_OVERRIDE="$root" PATH="$path" \
-    "$SESSION_START" "$@"
+    bash "$SESSION_START" "$@"
 }
 
 # prepare_session_start_secondmate <name>: a throwaway main home and Pi
@@ -698,7 +698,7 @@ run_session_start_herdr_secondmate() {
 wait_for_network_stage() {
   local home=$1 root=$2 limit=${3:-30}
   FM_HOME="$home" FM_ROOT_OVERRIDE="$root" \
-    "$ROOT/bin/fm-startup-network.sh" wait "$limit"
+    bash "$ROOT/bin/fm-startup-network.sh" wait "$limit"
 }
 
 wait_for_network_wake() {
@@ -713,7 +713,7 @@ wait_for_network_wake() {
 
 network_stage_report() {
   local home=$1 root=$2
-  FM_HOME="$home" FM_ROOT_OVERRIDE="$root" "$ROOT/bin/fm-startup-network.sh" report
+  FM_HOME="$home" FM_ROOT_OVERRIDE="$root" bash "$ROOT/bin/fm-startup-network.sh" report
 }
 
 hash_file_for_test() {
@@ -1008,7 +1008,7 @@ SH
       lock_concurrency_barrier "$ready" 40
       if FM_HOME="$home" FM_FAKE_LOCK_STATE="$home/state" \
         FM_FAKE_HARNESS_PID="$harness_pid" PATH="$fakebin:$BASE_PATH" \
-        "$ROOT/bin/fm-lock.sh" >/dev/null 2>&1; then
+        bash "$ROOT/bin/fm-lock.sh" >/dev/null 2>&1; then
         printf '%s\n' "$harness_pid" >> "$winners"
       fi
       : > "$completed/$i"
@@ -1680,14 +1680,14 @@ EOF
   # A crash window the locked start must preserve: the supervision branch
   # stored a leading routine row and a captain row that never reached Pi, plus one lease whose
   # supervising process died and one still held by a live process.
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-a --verdict routine --summary 'worker recovered automatically' >/dev/null \
     || fail "could not seed the unread routine branch outcome"
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-b --verdict captain --summary 'PR https://example.com/pr/b checks green' >/dev/null \
     || fail "could not seed the unread branch outcome"
   printf 'branch\t999999\t123\n' > "$home/state/.lease-task-dead"
-  FM_HOME="$home" FM_SUPERVISION_ACTOR=branch FM_LEASE_HOLDER_PID=$$ "$ROOT/bin/fm-lease.sh" claim task-live --actor branch \
+  FM_HOME="$home" FM_SUPERVISION_ACTOR=branch FM_LEASE_HOLDER_PID=$$ bash "$ROOT/bin/fm-lease.sh" claim task-live --actor branch \
     || fail "could not seed the live lease"
 
   out=$(run_pi_session_start "$home" "$root" "$fakebin:$BASE_PATH")
@@ -1695,7 +1695,7 @@ EOF
     "locked start did not replay the leading routine branch outcome"
   assert_contains "$out" "worker recovered automatically" "replayed routine outcome lost its content"
   assert_not_contains "$out" "https://example.com/pr/b" "locked start crossed the captain delivery barrier"
-  assert_contains "$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" unread)" \
+  assert_contains "$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" unread)" \
     "https://example.com/pr/b" "locked start marked the unrendered captain outcome read"
   [ "$(cat "$home/state/.branch-outcomes-cursor")" = 1 ] || fail "locked start advanced past the captain row"
   [ ! -e "$home/state/.lease-task-dead" ] || fail "locked start left a provably dead lease in place"
@@ -1707,7 +1707,7 @@ EOF
   case "$out" in
     *"BRANCH OUTCOMES"*) fail "second start re-presented already-replayed branch outcomes" ;;
   esac
-  assert_contains "$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" unread)" \
+  assert_contains "$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" unread)" \
     "https://example.com/pr/b" "second start consumed the captain row without a Pi entry"
   pass "locked Pi session start replays leading routine outcomes, preserves the captain barrier, and sweeps only dead leases"
 }
@@ -1724,7 +1724,7 @@ EOF
   # outcomes; this case pins a home that does not run it.
   : > "$home/config/supervision-host-off"
 
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-b --verdict captain --summary 'unread Pi branch outcome' >/dev/null \
     || fail "could not seed the non-Pi unread branch outcome"
   rm -f "$home/state/.branch-outcomes-cursor"
@@ -1749,12 +1749,12 @@ EOF
   make_fake_ps_claude "$fakebin"
   store="$home/state/branch-outcomes.jsonl"
   tail="$home/state/.branch-outcomes-tail.jsonl"
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" append \
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-a --verdict captain --summary 'decision still waiting' >/dev/null \
     || fail "could not store the captain outcome"
-  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" mark-read --through 1 || fail "could not mark the outcome read"
+  FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" mark-read --through 1 || fail "could not mark the outcome read"
   rm -f "$tail"
-  FM_HOME="$home" "$ROOT/bin/fm-afk-contract.sh" enter --words 'away for the afternoon' >/dev/null \
+  FM_HOME="$home" bash "$ROOT/bin/fm-afk-contract.sh" enter --words 'away for the afternoon' >/dev/null \
     || fail "could not record the away posture"
 
   out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
@@ -2271,7 +2271,7 @@ EOF
   # it was never waiting for. So the guarantee asserted here is the one that
   # actually matters: once BOTH deadlines have passed, nothing hung is left.
   FM_HOME="$home" FM_ROOT_OVERRIDE="$root" FM_STARTUP_NETWORK_TIMEOUT=2 \
-    "$ROOT/bin/fm-startup-network.sh" wait 30 >/dev/null || true
+    bash "$ROOT/bin/fm-startup-network.sh" wait 30 >/dev/null || true
   sleep 1
   stray=$(pgrep -f "$fakebin/git" 2>/dev/null | wc -l | tr -d ' ')
   [ "$stray" -eq 0 ] || fail "the runtime bound left $stray hung subprocess(es) behind"
@@ -2459,7 +2459,7 @@ EOF
   fm_write_secondmate_meta "$home/state/qrmate.meta" "$mate" "firstmate:fm-qrmate" alpha claude
   reemit=$(FM_FAKE_HARNESS_PID=$$ FM_HOME="$home" FM_ROOT_OVERRIDE="$root" PATH="$fakebin:$BASE_PATH" \
     env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
-    "$SESSION_START" --reemit)
+    bash "$SESSION_START" --reemit)
   assert_contains "$reemit" "SESSION START (CONTEXT RE-EMIT) - $home" "--reemit did not label itself"
   if grep -Fq "secondmate-watcher-quiet-qrmate" "$home/state/.wake-queue" 2>/dev/null; then
     fail "--reemit swept a quiet mate although the mutating sweeps belong to true startup"
@@ -2487,7 +2487,7 @@ FIXTURE
 
   reemit=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" FM_FAKE_HARNESS_PID=$$ PATH="$fakebin:$BASE_PATH" \
     env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
-    "$SESSION_START" --reemit)
+    bash "$SESSION_START" --reemit)
   [ "${#reemit}" -gt 10000 ] || fail "re-emit fixture did not exceed the hook output limit"
   head2k=$(printf '%s' "$reemit" | head -c 2000)
   assert_contains "$head2k" "RE-EMIT CUE" "the re-emit cue is not inside the first 2000 characters"
@@ -2519,7 +2519,7 @@ EOF
   append_wake "$home/state" signal task-r "done: queued after the re-emit too" || fail "seed second wake failed"
   reemit=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" FM_FAKE_HARNESS_PID=$$ PATH="$fakebin:$BASE_PATH" \
     env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
-    "$SESSION_START" --reemit)
+    bash "$SESSION_START" --reemit)
 
   assert_contains "$reemit" "SESSION START (CONTEXT RE-EMIT) - $home" "--reemit did not label itself"
   assert_not_contains "$reemit" "SECONDMATE_LIVENESS" "--reemit repeated a mutating sweep startup already ran"
@@ -2529,7 +2529,7 @@ EOF
   generation=$(printf '%s\n' "$reemit" | sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through [0-9][0-9]* --recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' | tail -1)
   [ -n "$sequence" ] && [ -n "$generation" ] \
     || fail "--reemit omitted the generation-bound wake acknowledgement"
-  FM_STATE_OVERRIDE="$home/state" "$ROOT/bin/fm-wake-drain.sh" --ack-through "$sequence" \
+  FM_STATE_OVERRIDE="$home/state" bash "$ROOT/bin/fm-wake-drain.sh" --ack-through "$sequence" \
     --recovery-generation "$generation" || fail "--reemit wake acknowledgement failed"
   [ ! -s "$home/state/.wake-queue" ] || fail "--reemit acknowledgement left queued wakes behind"
   assert_contains "$reemit" "CONTEXT" "--reemit dropped the context digest"
@@ -2738,7 +2738,7 @@ EOF
 
   reemit=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" PATH="$fakebin:$BASE_PATH" \
     env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
-    "$SESSION_START" --reemit)
+    bash "$SESSION_START" --reemit)
 
   # A re-emit skips the sweeps because it ALREADY ran them, not because it lacks
   # the lock, so it must still own repair rather than deferring to a lock holder.
@@ -2753,7 +2753,7 @@ EOF
   printf '%s\n' "$holder_pid" > "$home/state/.lock"
   readonly_out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" PATH="$fakebin:$BASE_PATH" \
     env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
-    "$SESSION_START" --reemit)
+    bash "$SESSION_START" --reemit)
   kill "$holder_pid" 2>/dev/null || true
   wait "$holder_pid" 2>/dev/null || true
 
@@ -2859,7 +2859,7 @@ $rec
 EOF
   make_fake_toolchain "$fakebin"
   make_fake_ps_claude "$fakebin"
-  FM_AFK_MODE=quiet FM_HOME="$home" "$ROOT/bin/fm-afk-contract.sh" enter >/dev/null 2>&1 || fail "quiet entry failed"
+  FM_AFK_MODE=quiet FM_HOME="$home" bash "$ROOT/bin/fm-afk-contract.sh" enter >/dev/null 2>&1 || fail "quiet entry failed"
   printf 'quiet\n%s\n' "$(date '+%s')" > "$home/state/.afk"
 
   out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
@@ -2869,7 +2869,7 @@ EOF
   assert_contains "$out" "the quiet daemon owns the watcher" "AFK digest lost the quiet daemon line"
   assert_not_contains "$out" "hold-for-return" "AFK digest read the quiet record as hold-for-return"
 
-  FM_HOME="$home" "$ROOT/bin/fm-afk-contract.sh" enter >/dev/null 2>&1 || fail "away entry over quiet failed"
+  FM_HOME="$home" bash "$ROOT/bin/fm-afk-contract.sh" enter >/dev/null 2>&1 || fail "away entry over quiet failed"
   out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
   assert_contains "$out" "present - away posture recorded at" "AFK digest did not name the away record"
   assert_contains "$out" "hold-for-return only" "AFK digest lost hold-for-return for an away record"
@@ -3065,14 +3065,14 @@ EOF
 
   # Home is the checkout, FM_HOME exported, no marker: today's wording, no cause line.
   out=$(env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT FM_FAKE_HARNESS=omp \
-    FM_HOME="$root" FM_ROOT_OVERRIDE="$root" PATH="$fakebin:$BASE_PATH" "$SESSION_START")
+    FM_HOME="$root" FM_ROOT_OVERRIDE="$root" PATH="$fakebin:$BASE_PATH" bash "$SESSION_START")
   assert_contains "$out" "OMP_WATCH_EXTENSION: not loaded - restart omp with this home as its working directory" "omp diagnostic lost today's wording for the checkout home"
   assert_not_contains "$out" "fm <project>" "omp diagnostic named the launcher for the checkout home"
   assert_not_contains "$out" "OMP_WATCH_CAUSE" "omp diagnostic named a cause that no fact establishes"
 
   # FM_HOME unset in the process environment.
   out=$(env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT -u FM_HOME FM_FAKE_HARNESS=omp \
-    FM_ROOT_OVERRIDE="$root" PATH="$fakebin:$BASE_PATH" "$SESSION_START")
+    FM_ROOT_OVERRIDE="$root" PATH="$fakebin:$BASE_PATH" bash "$SESSION_START")
   assert_contains "$out" "OMP_WATCH_EXTENSION: not loaded - restart omp with this home as its working directory" "omp diagnostic lost the checkout wording with FM_HOME unset"
   assert_not_contains "$out" "OMP_WATCH_CAUSE" "omp diagnostic named a cause for the checkout home with FM_HOME unset"
 
@@ -3080,7 +3080,7 @@ EOF
   install_omp_extension_fixtures "$root"
   write_omp_loaded_markers "$root" "$root" 424242
   out=$(env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT FM_FAKE_HARNESS=omp \
-    FM_HOME="$root" FM_ROOT_OVERRIDE="$root" PATH="$fakebin:$BASE_PATH" "$SESSION_START")
+    FM_HOME="$root" FM_ROOT_OVERRIDE="$root" PATH="$fakebin:$BASE_PATH" bash "$SESSION_START")
   assert_contains "$out" "OMP_WATCH_EXTENSION: not loaded" "stale-pid marker must still report not loaded"
   assert_contains "$out" "OMP_WATCH_CAUSE: the extension marker $root/state/.omp-watch-extension-loaded names pid 424242, which is not this session" "omp diagnostic did not name the foreign marker pid"
   assert_not_contains "$out" "FM_HOME is unset" "omp diagnostic named an unset FM_HOME cause"

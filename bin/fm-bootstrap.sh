@@ -366,7 +366,7 @@ fleet_sync() {
   monitor_was_on=0
   case $- in *m*) monitor_was_on=1 ;; esac
   set -m 2>/dev/null || true
-  "$FM_ROOT/bin/fm-fleet-sync.sh" >"$tmp" 2>/dev/null &
+  bash "$FM_ROOT/bin/fm-fleet-sync.sh" >"$tmp" 2>/dev/null &
   pid=$!
 
   start=$SECONDS
@@ -444,7 +444,7 @@ secondmate_sync() {
       echo "NUDGE_SECONDMATES: secondmate $id: send failed: cannot record retry marker"
       return 0
     fi
-    if out=$(FM_HOME="$FM_HOME" FM_ROOT_OVERRIDE="$FM_ROOT" FM_STATE_OVERRIDE="$STATE" "$SCRIPT_DIR/fm-send.sh" "$selector" "$SECOND_MATE_NUDGE_MESSAGE" 2>&1); then
+    if out=$(FM_HOME="$FM_HOME" FM_ROOT_OVERRIDE="$FM_ROOT" FM_STATE_OVERRIDE="$STATE" bash "$SCRIPT_DIR/fm-send.sh" "$selector" "$SECOND_MATE_NUDGE_MESSAGE" 2>&1); then
       rm -f "$marker"
       echo "BOOTSTRAP_INFO: nudged $selector with '$SECOND_MATE_NUDGE_MESSAGE'"
     else
@@ -517,7 +517,7 @@ secondmate_sync() {
         echo "NUDGE_SECONDMATES: secondmate $id: send failed: retry target is not at recorded instruction commit"
         continue
       }
-      if out=$(FM_HOME="$FM_HOME" FM_ROOT_OVERRIDE="$FM_ROOT" FM_STATE_OVERRIDE="$STATE" "$SCRIPT_DIR/fm-send.sh" "$selector" "$SECOND_MATE_NUDGE_MESSAGE" 2>&1); then
+      if out=$(FM_HOME="$FM_HOME" FM_ROOT_OVERRIDE="$FM_ROOT" FM_STATE_OVERRIDE="$STATE" bash "$SCRIPT_DIR/fm-send.sh" "$selector" "$SECOND_MATE_NUDGE_MESSAGE" 2>&1); then
         rm -f "$marker"
         echo "BOOTSTRAP_INFO: nudged $selector with '$SECOND_MATE_NUDGE_MESSAGE'"
       else
@@ -642,7 +642,7 @@ secondmate_sync() {
       echo "NUDGE_SECONDMATES: secondmate $id: send failed: cannot lock remote inheritance transaction"
       return 0
     fi
-    if ! "$SCRIPT_DIR/fm-procevent-remote-reply.sh" arm "$id" >/dev/null 2>&1; then
+    if ! bash "$SCRIPT_DIR/fm-procevent-remote-reply.sh" arm "$id" >/dev/null 2>&1; then
       echo "SECONDMATE_LIVENESS: secondmate $id: skipped: remote reply source could not be registered"
     fi
     remote_generation=$(fm_remote_inherit_generation_next "$STATE" "$id" 2>/dev/null || true)
@@ -670,7 +670,7 @@ secondmate_sync() {
     left=$(( deadline - $(date +%s) ))
     if [ "$left" -lt 1 ]; then
       sync_rc=124
-    elif sync_out=$(fm_run_timed "$left" "$SCRIPT_DIR/fm-on.sh" "$id" fm-remote-secondmate-control.sh sync "$id" \
+    elif sync_out=$(fm_run_timed "$left" bash "$SCRIPT_DIR/fm-on.sh" "$id" fm-remote-secondmate-control.sh sync "$id" \
       "$primary_head" < /dev/null 2>&1); then
       :
     else
@@ -690,7 +690,7 @@ secondmate_sync() {
     if [ "$left" -lt 1 ]; then
       inherit_rc=124
     elif inherit_out=$(FM_CONFIG_INHERIT_LIVE=1 \
-      fm_run_timed "$left" "$SCRIPT_DIR/fm-remote-inherit-push.sh" "$id" "$remote_generation" 2>&1); then
+      fm_run_timed "$left" bash "$SCRIPT_DIR/fm-remote-inherit-push.sh" "$id" "$remote_generation" 2>&1); then
       :
     else
       inherit_rc=$?
@@ -707,7 +707,7 @@ secondmate_sync() {
     fi
     if [ "$converged" -eq 1 ] && [ "$nudge_needed" -eq 1 ]; then
       if out=$(FM_HOME="$FM_HOME" FM_ROOT_OVERRIDE="$FM_ROOT" FM_STATE_OVERRIDE="$STATE" \
-        "$SCRIPT_DIR/fm-send.sh" "fm-$id" "$REMOTE_SECOND_MATE_NUDGE_MESSAGE" 2>&1); then
+        bash "$SCRIPT_DIR/fm-send.sh" "fm-$id" "$REMOTE_SECOND_MATE_NUDGE_MESSAGE" 2>&1); then
         rm -f "$remote_marker"
         [ "${FM_BOOTSTRAP_VERBOSE_FACTS:-0}" != 1 ] || echo "BOOTSTRAP_INFO: nudged remote fm-$id after convergence"
       else
@@ -845,7 +845,7 @@ secondmate_liveness_one() {  # <meta> <id>
 
 secondmate_handoff_resume() {
   [ -d "$DATA/handoff" ] || return 0
-  "$SCRIPT_DIR/fm-backlog-handoff.sh" --resume-pending >/dev/null 2>&1 || true
+  bash "$SCRIPT_DIR/fm-backlog-handoff.sh" --resume-pending >/dev/null 2>&1 || true
 }
 
 secondmate_handoff_detect() {
@@ -1082,7 +1082,7 @@ x_mode_setup() {
 
   x_mode_supervision_repair() {
     local out
-    out=$("$SCRIPT_DIR/fm-supervision-instructions.sh" --repair-line 2>/dev/null) \
+    out=$(bash "$SCRIPT_DIR/fm-supervision-instructions.sh" --repair-line 2>/dev/null) \
       || out='repair missing watcher supervision according to the session-start operating block.'
     printf '%s\n' "$out"
   }
@@ -1170,8 +1170,8 @@ crew_dispatch_validate() {
     echo "CREW_DISPATCH: legacy config/dispatch-policy.json requires migration: FM_HOME=<home> bin/fm-migrate-unified-dispatch.sh --force"
     return 0
   fi
-  if ! "$SCRIPT_DIR/fm-dispatch-policy-validate.sh" "$file" >/dev/null 2>&1; then
-    err=$("$SCRIPT_DIR/fm-dispatch-policy-validate.sh" "$file" 2>&1 | sed -n 's/^error: malformed dispatch policy: //p')
+  if ! bash "$SCRIPT_DIR/fm-dispatch-policy-validate.sh" "$file" >/dev/null 2>&1; then
+    err=$(bash "$SCRIPT_DIR/fm-dispatch-policy-validate.sh" "$file" 2>&1 | sed -n 's/^error: malformed dispatch policy: //p')
     echo "CREW_DISPATCH: invalid config/dispatch-policy.json - ${err:-version 2 schema validation failed}"
     return 0
   fi
@@ -1472,7 +1472,7 @@ detect_local_config() {
   fi
   crew_dispatch_validate
   if [ -x "$FM_ROOT/bin/fm-project-registry-validate.sh" ]; then
-    out=$("$FM_ROOT/bin/fm-project-registry-validate.sh" "$DATA/projects.md" 2>&1) || {
+    out=$(bash "$FM_ROOT/bin/fm-project-registry-validate.sh" "$DATA/projects.md" 2>&1) || {
       printf '%s\n' "$out"
     }
   fi
@@ -1615,7 +1615,7 @@ if [ "${FM_BOOTSTRAP_DETECT_ONLY:-0}" != 1 ]; then
   if local_phase; then
     posture_rc=0
     posture_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
-      "$SCRIPT_DIR/fm-posture-sweep.sh" 2>&1) || posture_rc=$?
+      bash "$SCRIPT_DIR/fm-posture-sweep.sh" 2>&1) || posture_rc=$?
     [ -z "$posture_out" ] || printf '%s\n' "$posture_out"
     if [ "$posture_rc" -ne 0 ]; then
       echo "POSTURE_SWEEP: one or more repairs failed; inspect the preceding POSTURE_REPAIR_FAILED lines"
@@ -1624,7 +1624,7 @@ if [ "${FM_BOOTSTRAP_DETECT_ONLY:-0}" != 1 ]; then
   fi
   if local_phase && [ -e "$CONFIG/pr-health-monitor" ] && command -v jq >/dev/null 2>&1 \
     && [ -d "$DATA" ] && [ -x "$SCRIPT_DIR/fm-pr-health.sh" ]; then
-    "$SCRIPT_DIR/fm-pr-health.sh" arm >/dev/null \
+    bash "$SCRIPT_DIR/fm-pr-health.sh" arm >/dev/null \
       || echo "MISSING: the PR health monitor could not be armed; owned PRs are not watched"
   fi
   if [ -n "$fleet_sync_pid" ]; then

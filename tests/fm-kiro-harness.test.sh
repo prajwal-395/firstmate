@@ -69,7 +69,7 @@ esac
 exit 1
 SH
   chmod +x "$fakebin/ps"
-  out=$(PATH="$fakebin:$PATH" "$HARNESS")
+  out=$(PATH="$fakebin:$PATH" bash "$HARNESS")
   [ "$out" = kiro ] \
     || fail "the kiro-cli command must be detected by ancestry, got '$out'"
   pass "fm-harness.sh: ancestry detects the kiro-cli command"
@@ -89,12 +89,12 @@ SH
   chmod +x "$fakebin/ps"
 
   out=$(FAKE_PS_COMM=kiroctl FAKE_PS_ARGS='kiroctl --serve' \
-    PATH="$fakebin:$PATH" "$HARNESS")
+    PATH="$fakebin:$PATH" bash "$HARNESS")
   [ "$out" != kiro ] \
     || fail "an unrelated kiroctl command must not detect kiro, got '$out'"
 
   out=$(FAKE_PS_COMM=bash FAKE_PS_ARGS='bash -c "echo kiro-cli --help"' \
-    PATH="$fakebin:$PATH" "$HARNESS")
+    PATH="$fakebin:$PATH" bash "$HARNESS")
   [ "$out" != kiro ] \
     || fail "a later shell argument naming kiro-cli must not detect kiro, got '$out'"
   pass "fm-harness.sh: ancestry rejects unrelated kiro mentions"
@@ -117,7 +117,7 @@ SH
   # to claude (the marker-vs-ancestry boundary in fm-harness-precedence.test.sh).
   # The spawn still clears the marker as defense in depth (launch test), but the
   # ancestry signal alone is enough here.
-  out=$(CLAUDECODE=1 PATH="$fakebin:$PATH" "$HARNESS")
+  out=$(CLAUDECODE=1 PATH="$fakebin:$PATH" bash "$HARNESS")
   [ "$out" = kiro ] \
     || fail "a real kiro-cli ancestry must outrank an inherited CLAUDECODE, got '$out'"
   pass "fm-harness.sh: kiro's ancestry outranks an inherited CLAUDECODE (markerless harness)"
@@ -471,7 +471,7 @@ run_kiro_spawn() {
     FM_FAKE_KIRO_MODELS_RENAMED="${FM_FAKE_KIRO_MODELS_RENAMED:-0}" \
     FM_KIRO_MODELS_TIMEOUT="${FM_KIRO_MODELS_TIMEOUT:-1}" \
     PATH="$fakebin:$BASE_PATH" \
-    "$SPAWN" "$id" "$proj" --harness kiro --mode no-mistakes --yolo off "$@" 2>&1
+    bash "$SPAWN" "$id" "$proj" --harness kiro --mode no-mistakes --yolo off "$@" 2>&1
 }
 
 test_kiro_launch_carries_brief_agent_engine_and_clears_markers() {
@@ -684,7 +684,7 @@ test_kiro_secondmate_is_refused() {
     FM_STATE_OVERRIDE="$HOME_DIR/state" FM_DATA_OVERRIDE="$HOME_DIR/data" \
     FM_PROJECTS_OVERRIDE="$HOME_DIR/projects" FM_CONFIG_OVERRIDE="$HOME_DIR/config" \
     FM_SPAWN_NO_GUARD=1 PATH="$FAKEBIN_DIR:$BASE_PATH" \
-    "$SPAWN" "$id" --secondmate kiro 2>&1) || rc=$?
+    bash "$SPAWN" "$id" --secondmate kiro 2>&1) || rc=$?
   [ "$rc" -ne 0 ] || fail "a kiro secondmate launch must be refused"
   assert_contains "$out" "kiro is a verified crewmate/scout adapter only" \
     "the secondmate refusal did not name the reason"
@@ -705,7 +705,7 @@ test_kiro_teardown_removes_the_per_task_home() {
     FM_STATE_OVERRIDE="$HOME_DIR/state" FM_DATA_OVERRIDE="$HOME_DIR/data" \
     FM_PROJECTS_OVERRIDE="$HOME_DIR/projects" FM_CONFIG_OVERRIDE="$HOME_DIR/config" \
     FM_SPAWN_NO_GUARD=1 TMUX="fake,1,0" PATH="$FAKEBIN_DIR:$BASE_PATH" \
-    "$TEARDOWN" "$id" --force 2>&1)
+    bash "$TEARDOWN" "$id" --force 2>&1)
   rc=$?
   expect_code 0 "$rc" "kiro teardown should succeed: $out"
   [ ! -e "$home_dir" ] || fail "teardown left the per-task kiro home behind"

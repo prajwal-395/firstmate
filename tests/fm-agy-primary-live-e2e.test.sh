@@ -33,7 +33,7 @@ stop_watchers() {
   local home
   for home in "$HOME_DIR" "$SM_HOME"; do
     [ -x "$home/bin/fm-watch-arm.sh" ] || continue
-    FM_HOME="$home" "$home/bin/fm-watch-arm.sh" --stop >/dev/null 2>&1 || true
+    FM_HOME="$home" bash "$home/bin/fm-watch-arm.sh" --stop >/dev/null 2>&1 || true
   done
 }
 
@@ -74,7 +74,7 @@ mkdir -p "$HOME_DIR/state" "$HOME_DIR/data" "$HOME_DIR/config"
 printf 'Live marker: %s\n' "$MARKER" > "$HOME_DIR/data/learnings.md"
 printf '# Backlog\n\n- live probe\n' > "$HOME_DIR/data/backlog.md"
 
-HOME="$AGY_USER_HOME" "$HOME_DIR/bin/fm-agy-trust.sh" "$HOME_DIR" "live-primary" >/dev/null 2>&1 || true
+HOME="$AGY_USER_HOME" bash "$HOME_DIR/bin/fm-agy-trust.sh" "$HOME_DIR" "live-primary" >/dev/null 2>&1 || true
 
 # --- SessionStart -------------------------------------------------------------
 OUT=$(run_agy "$HOME_DIR" "Reply with the exact live marker token from session start context and nothing else.")
@@ -144,7 +144,7 @@ printf '%s\n' "$SM_ID" > "$SM_HOME/.fm-secondmate-home"
 printf 'Live marker: %s\n' "$SM_MARKER" > "$SM_HOME/data/learnings.md"
 printf '# Charter\n\nLive secondmate charter.\n' > "$SM_HOME/data/charter.md"
 
-HOME="$AGY_USER_HOME" "$SM_HOME/bin/fm-agy-trust.sh" --secondmate-home "$SM_HOME" "$SM_ID" >/dev/null \
+HOME="$AGY_USER_HOME" bash "$SM_HOME/bin/fm-agy-trust.sh" --secondmate-home "$SM_HOME" "$SM_ID" >/dev/null \
   || fail "fm-agy-trust.sh --secondmate-home refused the seeded secondmate home"
 jq -e --arg p "$SM_HOME" '.trustedWorkspaces | index($p) != null' \
   "$AGY_USER_HOME/.gemini/antigravity-cli/settings.json" >/dev/null 2>&1 \

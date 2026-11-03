@@ -146,7 +146,7 @@ test_frontier_annotations_preserve_dispatch_and_board_schema() {
   assert_equals "$before" "$after" "frontier export modified backlog.md"
   assert_present "$dir/out/proj-a/plan.toml" "exported plan was not written"
   assert_present "$dir/out/proj-a/evidence.jsonl" "exported evidence file was not written"
-  "$BOARD" validate "$dir/result.json" >/dev/null \
+  bash "$BOARD" validate "$dir/result.json" >/dev/null \
     || fail "frontier output did not validate under fm-bearings-board.sh"
   jq -e '
     .charted[0].dispatchable == true

@@ -324,7 +324,7 @@ esac
 # the answer stays visible. The answer token lives only in the record.
 DOORBELL_TEXT='Firstmate operational input waiting'
 operational=$(printf 'signal: %s/state/probe.status changed. Reply with exactly OPERATIONAL_PROCESSED and nothing else.' "$LAB" \
-  | FM_HOME="$FM_HOME_DIR" "$OPERATIONAL_INPUT" record watcher) \
+  | FM_HOME="$FM_HOME_DIR" bash "$OPERATIONAL_INPUT" record watcher) \
   || fail "could not publish the operational probe record"
 case "$operational" in
   *"$DOORBELL_TEXT"*) : ;;

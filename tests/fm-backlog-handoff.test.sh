@@ -84,7 +84,7 @@ EOF
     FM_FAKE_TMUX_LOG="$TMP_ROOT/live-wake-tmux.log" \
     FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/live-wake-fake/pane.txt" \
     FM_SEND_SETTLE=0 FM_SEND_SLEEP=0 FM_SEND_RETRIES=1 \
-    "$ROOT/bin/fm-backlog-handoff.sh" design wake-item > "$out" 2>&1 \
+    bash "$ROOT/bin/fm-backlog-handoff.sh" design wake-item > "$out" 2>&1 \
     || fail "handoff to a live receiver failed: $(cat "$out")"
   grep -F 'wake-item' "$sub/data/backlog.md" >/dev/null \
     || fail "live receiver did not receive the routed backlog item"
@@ -101,7 +101,7 @@ EOF
     FM_FAKE_TMUX_LOG="$TMP_ROOT/live-wake-tmux.log" \
     FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/live-wake-fake/pane.txt" \
     FM_SEND_SETTLE=0 FM_SEND_SLEEP=0 FM_SEND_RETRIES=1 \
-    "$ROOT/bin/fm-backlog-handoff.sh" design wake-item > "$TMP_ROOT/live-wake-rerun.out" 2>&1 \
+    bash "$ROOT/bin/fm-backlog-handoff.sh" design wake-item > "$TMP_ROOT/live-wake-rerun.out" 2>&1 \
     || fail "idempotent successful handoff rerun failed: $(cat "$TMP_ROOT/live-wake-rerun.out")"
   [ "$(inbox_record_count "$home/state" design)" -eq "$wake_count" ] \
     || fail "idempotent successful handoff rerun duplicated the receiver inbox record"
@@ -123,7 +123,7 @@ test_failed_wake_retries_when_the_item_is_already_present() {
 EOF
   printf '## Queued\n\n## Done\n' > "$sub/data/backlog.md"
 
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-backlog-handoff.sh" design retry-item 2>&1) || rc=$?
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-backlog-handoff.sh" design retry-item 2>&1) || rc=$?
   [ "$rc" -ne 0 ] || fail "handoff without a receiver endpoint reported success"
   assert_contains "$out" "receiver was not woken" "missing receiver failure was not observable"
   assert_grep 'retry-item' "$sub/data/backlog.md" "failed wake lost the durably handed-off item"
@@ -140,7 +140,7 @@ home=$sub
 worktree=$sub
 EOF
   : > "$TMP_ROOT/default-tmux.log"
-  FM_HOME="$home" "$ROOT/bin/fm-backlog-handoff.sh" design retry-item > "$TMP_ROOT/retry-wake.out" 2>&1 \
+  FM_HOME="$home" bash "$ROOT/bin/fm-backlog-handoff.sh" design retry-item > "$TMP_ROOT/retry-wake.out" 2>&1 \
     || fail "an already-present handoff did not retry its receiver wake: $(cat "$TMP_ROOT/retry-wake.out")"
   assert_contains "$(inbox_body_stream "$home/state" design)" \
     'New routed work is in your backlog.' \
@@ -174,7 +174,7 @@ SH
     FM_HOME="$home" FM_FAKE_TMUX_WINDOW='firstmate:fm-design' \
     FM_FAKE_TMUX_LOG="$TMP_ROOT/known-fail-tmux.log" \
     FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/known-fail-fake/pane.txt" \
-    "$ROOT/bin/fm-backlog-handoff.sh" design known-fail 2>&1) || rc=$?
+    bash "$ROOT/bin/fm-backlog-handoff.sh" design known-fail 2>&1) || rc=$?
   [ "$rc" -eq 0 ] || fail "failed advisory doorbell negated durable handoff: $out"
   assert_contains "$out" 'doorbell did not reach' \
     "failed advisory doorbell was not reported"
@@ -188,7 +188,7 @@ SH
   [ -n "$(grep '^delivered_epoch=' "$corr" | cut -d= -f2-)" ] \
     || fail "durable enqueue was not recorded as delivered"
 
-  FM_HOME="$home" "$ROOT/bin/fm-backlog-handoff.sh" design known-fail \
+  FM_HOME="$home" bash "$ROOT/bin/fm-backlog-handoff.sh" design known-fail \
     > "$TMP_ROOT/known-fail-retry.out" 2>&1 \
     || fail "idempotent handoff after failed doorbell failed: $(cat "$TMP_ROOT/known-fail-retry.out")"
   [ "$(inbox_record_count "$home/state" design)" -eq "$rec_count" ] \
@@ -226,7 +226,7 @@ SH
     FM_FAKE_TMUX_WINDOW='firstmate:fm-design' \
     FM_FAKE_TMUX_LOG="$TMP_ROOT/reconcile-race-tmux.log" \
     FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/reconcile-race-fake/pane.txt" \
-    "$ROOT/bin/fm-backlog-handoff.sh" design reconcile-race \
+    bash "$ROOT/bin/fm-backlog-handoff.sh" design reconcile-race \
     > "$TMP_ROOT/reconcile-race.out" 2>&1 &
   handoff=$!
   i=0
@@ -252,7 +252,7 @@ SH
   [ "$(inbox_record_count "$home/state" design)" -eq 1 ] \
     || fail "advisory ring race did not retain exactly one inbox record"
 
-  FM_HOME="$home" "$ROOT/bin/fm-backlog-handoff.sh" design reconcile-race \
+  FM_HOME="$home" bash "$ROOT/bin/fm-backlog-handoff.sh" design reconcile-race \
     > "$TMP_ROOT/reconcile-race-retry.out" 2>&1 \
     || fail "idempotent handoff after the ring race failed: $(cat "$TMP_ROOT/reconcile-race-retry.out")"
   [ "$(inbox_record_count "$home/state" design)" -eq 1 ] \
@@ -294,7 +294,7 @@ SH
 
   set +e
   FM_REAL_TASKS_AXI="$real_tasks" PATH="$fakebin:$PATH" FM_HOME="$home" \
-    "$ROOT/bin/fm-backlog-handoff.sh" design crash-item > "$TMP_ROOT/move-crash.out" 2>&1
+    bash "$ROOT/bin/fm-backlog-handoff.sh" design crash-item > "$TMP_ROOT/move-crash.out" 2>&1
   rc=$?
   set +e
   [ "$rc" -ne 0 ] || fail "post-move crash fixture unexpectedly reported success"
@@ -309,7 +309,7 @@ SH
 ## Done
 EOF
   rc=0
-  FM_HOME="$home" "$ROOT/bin/fm-backlog-handoff.sh" design unrelated-move \
+  FM_HOME="$home" bash "$ROOT/bin/fm-backlog-handoff.sh" design unrelated-move \
     > "$TMP_ROOT/move-crash-unrelated.out" 2>&1 || rc=$?
   [ "$rc" -ne 0 ] || fail "unrelated moving handoff discarded a post-move prepared wake"
   assert_contains "$(cat "$TMP_ROOT/move-crash-unrelated.out")" \
@@ -323,7 +323,7 @@ EOF
     "unrelated moving handoff moved work despite the unresolved older wake"
 
   : > "$TMP_ROOT/default-tmux.log"
-  FM_HOME="$home" "$ROOT/bin/fm-backlog-handoff.sh" design crash-item \
+  FM_HOME="$home" bash "$ROOT/bin/fm-backlog-handoff.sh" design crash-item \
     > "$TMP_ROOT/move-crash-retry.out" 2>&1 \
     || fail "post-move crash recovery failed: $(cat "$TMP_ROOT/move-crash-retry.out")"
   assert_contains "$(inbox_body_stream "$home/state" design)" \
@@ -371,7 +371,7 @@ SH
 
   set +e
   FM_REAL_TASKS_AXI="$real_tasks" PATH="$fakebin:$PATH" FM_HOME="$home" \
-    "$ROOT/bin/fm-backlog-handoff.sh" design pre-move-crash > "$TMP_ROOT/pre-move-crash.out" 2>&1
+    bash "$ROOT/bin/fm-backlog-handoff.sh" design pre-move-crash > "$TMP_ROOT/pre-move-crash.out" 2>&1
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "pre-move crash fixture unexpectedly reported success"
@@ -387,7 +387,7 @@ SH
 ## Done
 EOF
   rc=0
-  FM_HOME="$home" "$ROOT/bin/fm-backlog-handoff.sh" design unrelated-ready \
+  FM_HOME="$home" bash "$ROOT/bin/fm-backlog-handoff.sh" design unrelated-ready \
     > "$TMP_ROOT/pre-move-unrelated.out" 2>&1 || rc=$?
   [ "$rc" -ne 0 ] || fail "unrelated handoff accepted another batch's prepared wake"
   assert_contains "$(cat "$TMP_ROOT/pre-move-unrelated.out")" \
@@ -400,7 +400,7 @@ EOF
   assert_present "$home/state/.backlog-handoff-design.wake-pending" \
     "unrelated handoff discarded another batch's prepared wake"
 
-  FM_HOME="$home" "$ROOT/bin/fm-backlog-handoff.sh" design pre-move-crash \
+  FM_HOME="$home" bash "$ROOT/bin/fm-backlog-handoff.sh" design pre-move-crash \
     > "$TMP_ROOT/pre-move-crash-retry.out" 2>&1 \
     || fail "pre-move crash recovery failed: $(cat "$TMP_ROOT/pre-move-crash-retry.out")"
   assert_grep 'pre-move-crash' "$sub/data/backlog.md" "pre-move crash recovery did not move the item"
@@ -445,7 +445,7 @@ SH
   PATH="$fakebin:$PATH" FM_REAL_RM="$real_rm" \
     FM_CONFIRM_CRASH_ONCE="$TMP_ROOT/confirm-crash.once" \
     FM_CONFIRM_WAKE_MARKER="$home/state/.backlog-handoff-design.wake-pending" \
-    FM_HOME="$home" "$ROOT/bin/fm-backlog-handoff.sh" design confirm-crash \
+    FM_HOME="$home" bash "$ROOT/bin/fm-backlog-handoff.sh" design confirm-crash \
     > "$TMP_ROOT/confirm-crash.out" 2>&1
   rc=$?
   set +e
@@ -468,7 +468,7 @@ SH
 
 ## Done
 EOF
-  FM_HOME="$home" "$ROOT/bin/fm-backlog-handoff.sh" design after-crash \
+  FM_HOME="$home" bash "$ROOT/bin/fm-backlog-handoff.sh" design after-crash \
     > "$TMP_ROOT/after-confirm-crash.out" 2>&1 \
     || fail "new handoff after a confirmation crash failed: $(cat "$TMP_ROOT/after-confirm-crash.out")"
   [ "$(inbox_record_count "$home/state" design)" -eq "$((wake_count + 1))" ] \
@@ -478,7 +478,7 @@ EOF
   assert_grep 'after-crash' "$sub/data/backlog.md" \
     "new item after a confirmation crash was not durably handed off"
 
-  FM_HOME="$home" "$ROOT/bin/fm-backlog-handoff.sh" design confirm-crash \
+  FM_HOME="$home" bash "$ROOT/bin/fm-backlog-handoff.sh" design confirm-crash \
     > "$TMP_ROOT/confirm-crash-retry.out" 2>&1 \
     || fail "post-confirmation crash recovery failed: $(cat "$TMP_ROOT/confirm-crash-retry.out")"
   [ "$(inbox_record_count "$home/state" design)" -eq "$((wake_count + 1))" ] \
@@ -521,7 +521,7 @@ SH
 
   set +e
   PATH="$fakebin:$PATH" FM_REAL_MV="$real_mv" FM_HOME="$home" \
-    "$ROOT/bin/fm-backlog-handoff.sh" design attempt-crash \
+    bash "$ROOT/bin/fm-backlog-handoff.sh" design attempt-crash \
     > "$TMP_ROOT/attempt-crash.out" 2>&1
   rc=$?
   set +e
@@ -532,7 +532,7 @@ SH
     || fail "delivery bookkeeping crash unexpectedly reached the later doorbell step"
 
   rc=0
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-backlog-handoff.sh" design attempt-crash 2>&1) || rc=$?
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-backlog-handoff.sh" design attempt-crash 2>&1) || rc=$?
   [ "$rc" -ne 0 ] || fail "immediate retry resent or accepted an unresolved delivery attempt"
   assert_contains "$out" 'delivery for design is unresolved; refusing to resend correlation' \
     "immediate retry did not report the unresolved delivery boundary"
@@ -577,7 +577,7 @@ SH
     FM_FAKE_TMUX_WINDOW='firstmate:fm-design' \
     FM_FAKE_TMUX_LOG="$TMP_ROOT/concurrent-tmux.log" \
     FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/concurrent-fake/pane.txt" \
-    "$ROOT/bin/fm-backlog-handoff.sh" design concurrent-a > "$TMP_ROOT/concurrent-a.out" 2>&1 &
+    bash "$ROOT/bin/fm-backlog-handoff.sh" design concurrent-a > "$TMP_ROOT/concurrent-a.out" 2>&1 &
   first=$!
   i=0
   while [ ! -f "$TMP_ROOT/concurrent.entered" ]; do
@@ -599,7 +599,7 @@ EOF
     FM_FAKE_TMUX_WINDOW='firstmate:fm-design' \
     FM_FAKE_TMUX_LOG="$TMP_ROOT/concurrent-tmux.log" \
     FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/concurrent-fake/pane.txt" \
-    "$ROOT/bin/fm-backlog-handoff.sh" design concurrent-b > "$TMP_ROOT/concurrent-b.out" 2>&1 &
+    bash "$ROOT/bin/fm-backlog-handoff.sh" design concurrent-b > "$TMP_ROOT/concurrent-b.out" 2>&1 &
   second=$!
   sleep 0.2
   assert_grep 'concurrent-b' "$home/data/backlog.md" \
@@ -647,7 +647,7 @@ SH
     FM_FAKE_TMUX_WINDOW='firstmate:fm-design' \
     FM_FAKE_TMUX_LOG="$TMP_ROOT/teardown-race-tmux.log" \
     FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/teardown-race-fake/pane.txt" \
-    "$ROOT/bin/fm-backlog-handoff.sh" design teardown-race > "$TMP_ROOT/teardown-race-handoff.out" 2>&1 &
+    bash "$ROOT/bin/fm-backlog-handoff.sh" design teardown-race > "$TMP_ROOT/teardown-race-handoff.out" 2>&1 &
   handoff=$!
   i=0
   while [ ! -f "$TMP_ROOT/teardown-race.entered" ]; do
@@ -660,7 +660,7 @@ SH
     FM_FAKE_TMUX_WINDOW='firstmate:fm-design' \
     FM_FAKE_TMUX_LOG="$TMP_ROOT/teardown-race-tmux.log" \
     FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/teardown-race-fake/pane.txt" \
-    "$ROOT/bin/fm-teardown.sh" design --force > "$TMP_ROOT/teardown-race-teardown.out" 2>&1 &
+    bash "$ROOT/bin/fm-teardown.sh" design --force > "$TMP_ROOT/teardown-race-teardown.out" 2>&1 &
   teardown=$!
   sleep 0.3
   kill -0 "$teardown" 2>/dev/null \
@@ -711,7 +711,7 @@ SH
     FM_FAKE_TMUX_WINDOW='firstmate:fm-design' \
     FM_FAKE_TMUX_LOG="$TMP_ROOT/teardown-home-fail-tmux.log" \
     FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/teardown-home-fail-fake/pane.txt" \
-    "$ROOT/bin/fm-teardown.sh" design --force > "$TMP_ROOT/teardown-home-fail.out" 2>&1
+    bash "$ROOT/bin/fm-teardown.sh" design --force > "$TMP_ROOT/teardown-home-fail.out" 2>&1
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "teardown ignored the receiver-home removal failure"
@@ -728,7 +728,7 @@ SH
     FM_FAKE_TMUX_WINDOW='firstmate:fm-design' \
     FM_FAKE_TMUX_LOG="$TMP_ROOT/teardown-home-fail-tmux.log" \
     FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/teardown-home-fail-fake/pane.txt" \
-    "$ROOT/bin/fm-teardown.sh" design --force > "$TMP_ROOT/teardown-home-retry.out" 2>&1 \
+    bash "$ROOT/bin/fm-teardown.sh" design --force > "$TMP_ROOT/teardown-home-retry.out" 2>&1 \
     || fail "teardown retry did not retire the preserved wake: $(cat "$TMP_ROOT/teardown-home-retry.out")"
   assert_absent "$sub" "teardown retry left the receiver home"
   assert_absent "$marker" "teardown retry left the pending wake marker"
@@ -794,7 +794,7 @@ seed_public_commitment() {
   (cd "$home" && tasks-axi public-followup bind-work "$obligation" \
     --relation-file "$home/relation.json") >/dev/null \
     || fail "could not bind work to the public commitment"
-  FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" "$ROOT/bin/fm-public-followup.sh" register \
+  FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" bash "$ROOT/bin/fm-public-followup.sh" register \
     "$obligation" --relation rel-code --work-home "$work_home" --work-id "$work_id" \
     --generation 1 >/dev/null \
     || fail "could not register the public commitment"
@@ -819,7 +819,7 @@ EOF
   seed_public_commitment "$home" pf-handoff main promised-item
 
   local out rc=0
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-backlog-handoff.sh" design promised-item plain-item 2>&1) || rc=$?
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-backlog-handoff.sh" design promised-item plain-item 2>&1) || rc=$?
   [ "$rc" -eq 0 ] || fail "handoff must still succeed while reporting the stale binding: $out"
   assert_contains "$out" "handed off 2 item(s)" "the move itself must still be reported"
   assert_grep 'promised-item' "$sub/data/backlog.md" "the promised item did not reach the secondmate backlog"
@@ -851,7 +851,7 @@ test_handoff_is_silent_about_public_commitments_without_the_relay() {
 EOF
 
   local out rc=0
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-backlog-handoff.sh" design quiet-item 2>&1) || rc=$?
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-backlog-handoff.sh" design quiet-item 2>&1) || rc=$?
   [ "$rc" -eq 0 ] || fail "handoff failed in a relay-free home: $out"
   case "$out" in
     *"public reply"*) fail "a relay-free home must not mention public commitments: $out" ;;
@@ -883,7 +883,7 @@ EOF
   local expected_block
   expected_block=$(extract_item_block "$home/data/backlog.md" body-item)
 
-  FM_HOME="$home" "$ROOT/bin/fm-backlog-handoff.sh" design body-item >/dev/null \
+  FM_HOME="$home" bash "$ROOT/bin/fm-backlog-handoff.sh" design body-item >/dev/null \
     || fail "handoff of body-followed-by-item failed"
 
   local dest_block
@@ -933,7 +933,7 @@ EOF
   local expected_block
   expected_block=$(extract_item_block "$home/data/backlog.md" section-tail)
 
-  FM_HOME="$home" "$ROOT/bin/fm-backlog-handoff.sh" design section-tail >/dev/null \
+  FM_HOME="$home" bash "$ROOT/bin/fm-backlog-handoff.sh" design section-tail >/dev/null \
     || fail "handoff of body-followed-by-section failed"
 
   local dest_block
@@ -983,7 +983,7 @@ test_body_moves_when_last_lines_of_file() {
   local expected_block
   expected_block=$(extract_item_block "$home/data/backlog.md" eof-item)
 
-  FM_HOME="$home" "$ROOT/bin/fm-backlog-handoff.sh" design eof-item >/dev/null \
+  FM_HOME="$home" bash "$ROOT/bin/fm-backlog-handoff.sh" design eof-item >/dev/null \
     || fail "handoff of EOF body item failed"
 
   local dest_block
@@ -1028,7 +1028,7 @@ test_eof_body_before_seeded_destination_section_keeps_boundary() {
     printf '%s\n' '## Done'
   } > "$expected_destination"
 
-  FM_HOME="$home" "$ROOT/bin/fm-backlog-handoff.sh" design seeded-eof-item >/dev/null \
+  FM_HOME="$home" bash "$ROOT/bin/fm-backlog-handoff.sh" design seeded-eof-item >/dev/null \
     || fail "handoff of EOF body into seeded backlog failed"
 
   cmp -s "$expected_destination" "$sub/data/backlog.md" \
@@ -1056,7 +1056,7 @@ test_untouched_eof_line_preserves_terminator() {
     printf '%s' '  keep body without a final newline'
   } > "$expected_source"
 
-  FM_HOME="$home" "$ROOT/bin/fm-backlog-handoff.sh" design move-item >/dev/null \
+  FM_HOME="$home" bash "$ROOT/bin/fm-backlog-handoff.sh" design move-item >/dev/null \
     || fail "handoff before untouched EOF preservation check failed"
 
   cmp -s "$expected_source" "$home/data/backlog.md" \
@@ -1082,7 +1082,7 @@ test_body_handoff_is_idempotent() {
 ## Done
 EOF
 
-  FM_HOME="$home" "$ROOT/bin/fm-backlog-handoff.sh" design idem-item >/dev/null \
+  FM_HOME="$home" bash "$ROOT/bin/fm-backlog-handoff.sh" design idem-item >/dev/null \
     || fail "first handoff of body-carrying item failed"
 
   local main_after dest_after
@@ -1090,7 +1090,7 @@ EOF
   dest_after=$(cat "$sub/data/backlog.md")
 
   local out
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-backlog-handoff.sh" design idem-item 2>&1) \
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-backlog-handoff.sh" design idem-item 2>&1) \
     || fail "idempotent re-run of body-carrying item failed"
   assert_contains "$out" "already present" "re-run did not report skip of already-present key"
 
@@ -1140,7 +1140,7 @@ EOF
   cp "$home/data/backlog.md" "$source_before"
   cp "$sub/data/backlog.md" "$destination_before"
 
-  if out=$(FM_HOME="$home" "$ROOT/bin/fm-backlog-handoff.sh" design malformed-body 2>&1); then
+  if out=$(FM_HOME="$home" bash "$ROOT/bin/fm-backlog-handoff.sh" design malformed-body 2>&1); then
     fail "handoff accepted a noncanonical indented continuation"
   fi
 
@@ -1176,7 +1176,7 @@ EOF
   local expected_block
   expected_block=$(extract_item_block "$home/data/backlog.md" ha-codex-fast-default-4e)
 
-  FM_HOME="$home" "$ROOT/bin/fm-backlog-handoff.sh" design ha-codex-fast-default-4e >/dev/null \
+  FM_HOME="$home" bash "$ROOT/bin/fm-backlog-handoff.sh" design ha-codex-fast-default-4e >/dev/null \
     || fail "handoff of ## Intent body item failed"
 
   local dest_block
@@ -1231,7 +1231,7 @@ EOF
   local expected_block
   expected_block=$(extract_item_block "$home/data/backlog.md" multi-para)
 
-  FM_HOME="$home" "$ROOT/bin/fm-backlog-handoff.sh" design multi-para >/dev/null \
+  FM_HOME="$home" bash "$ROOT/bin/fm-backlog-handoff.sh" design multi-para >/dev/null \
     || fail "handoff of multi-paragraph body failed"
 
   local dest_block
@@ -1263,7 +1263,7 @@ EOF
   main_after=$(cat "$home/data/backlog.md")
   dest_after=$(cat "$sub/data/backlog.md")
   local out
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-backlog-handoff.sh" design multi-para 2>&1) \
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-backlog-handoff.sh" design multi-para 2>&1) \
     || fail "idempotent re-run of multi-paragraph body failed"
   assert_contains "$out" "already present" "re-run did not report skip of already-present key"
   [ "$main_after" = "$(cat "$home/data/backlog.md")" ] \
@@ -1290,7 +1290,7 @@ test_registry_home_with_pre_home_parentheses() {
   # Prose parentheses before (home: ...) and punctuation inside scope match the live registry shape.
   printf -- '- %s - issue triage (id is legacy) (home: %s; scope: issue triage (child); semicolon is meaningful; projects: alpha; added 2026-07-09)\n' \
     "$id" "$sub_abs" > "$home/data/secondmates.md"
-  FM_HOME="$home" "$ROOT/bin/fm-home-seed.sh" validate >/dev/null \
+  FM_HOME="$home" bash "$ROOT/bin/fm-home-seed.sh" validate >/dev/null \
     || fail "home-seed validation rejected punctuation-bearing registry fields"
 
   cat > "$home/data/backlog.md" <<'EOF'
@@ -1301,7 +1301,7 @@ test_registry_home_with_pre_home_parentheses() {
 ## Done
 EOF
 
-  FM_HOME="$home" "$ROOT/bin/fm-backlog-handoff.sh" "$id" paren-item >/dev/null \
+  FM_HOME="$home" bash "$ROOT/bin/fm-backlog-handoff.sh" "$id" paren-item >/dev/null \
     || fail "handoff failed for registry entry with parentheses before (home: ...)"
 
   assert_grep 'paren-item' "$sub/data/backlog.md" \
@@ -1332,7 +1332,7 @@ test_registry_home_missing_field_fails_cleanly() {
 EOF
 
   local out rc=0
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-backlog-handoff.sh" "$id" orphan-item 2>&1) || rc=$?
+  out=$(FM_HOME="$home" bash "$ROOT/bin/fm-backlog-handoff.sh" "$id" orphan-item 2>&1) || rc=$?
   [ "$rc" -ne 0 ] || fail "handoff succeeded for registry entry with no (home: ...) field"
   assert_contains "$out" "has no home" \
     "missing (home: ...) field did not report the clean 'has no home' error"
@@ -1360,7 +1360,7 @@ EOF
   mkdir -p "$decoy"
   printf 'backend = "beads"\n\n[beads]\ndb = "%s/missing/beads.db"\n' "$decoy" > "$decoy/.tasks.toml"
 
-  out=$(cd "$decoy" && FM_HOME="$home" "$ROOT/bin/fm-backlog-handoff.sh" design decoy-item 2>&1) \
+  out=$(cd "$decoy" && FM_HOME="$home" bash "$ROOT/bin/fm-backlog-handoff.sh" design decoy-item 2>&1) \
     || fail "handoff from a cwd with a beads .tasks.toml failed: $out"
   assert_grep 'decoy-item' "$sub/data/backlog.md" "item did not reach the secondmate backlog"
   assert_no_grep 'decoy-item' "$home/data/backlog.md" "item stayed in the main backlog"

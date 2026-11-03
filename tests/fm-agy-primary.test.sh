@@ -296,7 +296,7 @@ run_agy_stop() {
   local dir=$1 payload=$2
   AGY_CHILD_CMD='
     printf "%s\n" "$$" > "$FM_HOME/state/.lock"
-    "$FM_HOME/bin/fm-turnend-guard-agy.sh"
+    bash "$FM_HOME/bin/fm-turnend-guard-agy.sh"
   '
   printf '%s' "$payload" | run_under_agy FM_HOME="$dir" FM_AGY_PARK_POLL=1 2>/dev/null
 }
@@ -599,7 +599,7 @@ test_session_lock_agy_ancestry_and_supervision_model() {
   model=$(run_under_agy FM_HOME="$dir" 2>/dev/null)
   assert_equals "autoarm" "$model" "fm_supervision_model must return autoarm when fm-harness.sh detects agy"
 
-  block=$("$ROOT/bin/fm-supervision-instructions.sh" --harness agy 2>/dev/null || true)
+  block=$(bash "$ROOT/bin/fm-supervision-instructions.sh" --harness agy 2>/dev/null || true)
   assert_contains "$block" "SUPERVISION OPERATING INSTRUCTIONS - primary harness: agy" \
     "fm-supervision-instructions.sh --harness agy must emit the agy header"
   assert_contains "$block" "Mode: Antigravity Stop-hook-owned supervision." \
@@ -607,7 +607,7 @@ test_session_lock_agy_ancestry_and_supervision_model() {
   assert_contains "$block" "bin/fm-turnend-guard-agy.sh" \
     "fm-supervision-instructions.sh --harness agy must reference bin/fm-turnend-guard-agy.sh"
 
-  repair=$("$ROOT/bin/fm-supervision-instructions.sh" --harness agy --repair-line 2>/dev/null || true)
+  repair=$(bash "$ROOT/bin/fm-supervision-instructions.sh" --harness agy --repair-line 2>/dev/null || true)
   assert_contains "$repair" "Stop-hook park" \
     "fm-supervision-instructions.sh --harness agy --repair-line must mention Stop-hook park"
 

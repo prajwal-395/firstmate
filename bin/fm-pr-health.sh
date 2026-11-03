@@ -124,7 +124,7 @@ live_tasks() { # id <TAB> worktree, for each task that is not a secondmate
 }
 
 owned_json() { # -> $TMP/owned.json
-  "$SCRIPT_DIR/fm-contributions.sh" owned > "$TMP/owned.json" 2> "$TMP/owned.err"
+  bash "$SCRIPT_DIR/fm-contributions.sh" owned > "$TMP/owned.json" 2> "$TMP/owned.err"
 }
 
 save_health() { # json-file
@@ -317,7 +317,7 @@ enroll_new() { # deadline : enroll recorded and branch PRs not yet durably owned
       && jq -e --arg id "$id" --arg url "$url" 'any(.[]; .url == $url and (.tasks | index($id)) != null)' "$TMP/owned.json" >/dev/null; then
       continue
     fi
-    "$SCRIPT_DIR/fm-contributions.sh" enroll "$id" "$url" >/dev/null 2>&1 || continue
+    bash "$SCRIPT_DIR/fm-contributions.sh" enroll "$id" "$url" >/dev/null 2>&1 || continue
     jq --arg id "$id" --arg url "$url" '
       if any(.[]; .url == $url) then map(if .url == $url then .tasks = (.tasks + [$id] | unique) else . end)
       else . + [{url:$url,tasks:[$id],final:false}] end' "$TMP/owned.json" > "$TMP/next.json" \
@@ -487,8 +487,8 @@ arm() {
     "exec $(printf '%q' "$SCRIPT_DIR/fm-pr-health.sh") poll" > "$staged"
   chmod 700 "$staged"
   mv -f -- "$staged" "$STATE/pr-health.check.sh"
-  "$SCRIPT_DIR/fm-check-register.sh" pr-health
-  "$SCRIPT_DIR/fm-contributions.sh" arm >/dev/null || fail 'the contribution observer could not be armed'
+  bash "$SCRIPT_DIR/fm-check-register.sh" pr-health
+  bash "$SCRIPT_DIR/fm-contributions.sh" arm >/dev/null || fail 'the contribution observer could not be armed'
 }
 
 case "${1:-}" in

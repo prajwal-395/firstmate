@@ -25,7 +25,7 @@ run_spawn() {
     FM_PROJECTS_OVERRIDE='' \
     FM_CONFIG_OVERRIDE='' \
     FM_SPAWN_NO_GUARD=1 \
-    "$SPAWN" "$@" 2>&1
+    bash "$SPAWN" "$@" 2>&1
 }
 
 # Ship spawns carry an explicit delivery contract (AGENTS.md section 7); the
@@ -89,14 +89,14 @@ test_projects_path_scoping() {
     if [ "$use_override" = yes ]; then
       out=$(FM_ROOT_OVERRIDE='' FM_STATE_OVERRIDE='' FM_DATA_OVERRIDE='' FM_CONFIG_OVERRIDE='' \
         FM_HOME="$home" FM_PROJECTS_OVERRIDE="$projects" FM_SPAWN_NO_GUARD=1 \
-        "$SPAWN" "$id" projects/alpha codex --mode no-mistakes --yolo off 2>&1)
+        bash "$SPAWN" "$id" projects/alpha codex --mode no-mistakes --yolo off 2>&1)
     else
       mkdir -p "$home/projects/alpha"
       git -C "$home/projects/alpha" init -q || fail "$label: could not initialize home project fixture"
       git -c user.name=test -c user.email=test@example.com -C "$home/projects/alpha" commit -q --allow-empty -m init || fail "$label: could not commit home project fixture"
       out=$(FM_ROOT_OVERRIDE='' FM_STATE_OVERRIDE='' FM_DATA_OVERRIDE='' FM_PROJECTS_OVERRIDE='' FM_CONFIG_OVERRIDE='' \
         FM_HOME="$home" FM_SPAWN_NO_GUARD=1 \
-        "$SPAWN" "$id" projects/alpha codex --mode no-mistakes --yolo off 2>&1)
+        bash "$SPAWN" "$id" projects/alpha codex --mode no-mistakes --yolo off 2>&1)
     fi
     status=$?
     [ "$status" -ne 0 ] || fail "$label: spawn with missing brief should fail"

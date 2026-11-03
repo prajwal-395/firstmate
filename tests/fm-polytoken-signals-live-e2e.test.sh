@@ -46,7 +46,7 @@ cleanup() {
   fi
   if [ -n "$LAB_TMUX_DIR" ]; then
     TMUX_TMPDIR="$LAB_TMUX_DIR" "$REAL_TMUX" kill-server >/dev/null 2>&1 || true
-    "$LAB_HOME_HELPER" teardown "$LAB/fm" || exit 1
+    bash "$LAB_HOME_HELPER" teardown "$LAB/fm" || exit 1
   fi
   [ -z "$LAB" ] || { chmod -R u+w "$LAB" 2>/dev/null; rm -rf -- "$LAB"; }
 }
@@ -83,8 +83,8 @@ H="$LAB/fm"
 U="$LAB/user-home"
 PROJ="$LAB/project"
 WT="$LAB/wt"
-"$LAB_HOME_HELPER" create "$H" >/dev/null || fail "could not mark the lab home"
-LAB_TMUX_DIR=$("$LAB_HOME_HELPER" tmux-dir "$H") || fail "could not isolate tmux"
+bash "$LAB_HOME_HELPER" create "$H" >/dev/null || fail "could not mark the lab home"
+LAB_TMUX_DIR=$(bash "$LAB_HOME_HELPER" tmux-dir "$H") || fail "could not isolate tmux"
 export TMUX_TMPDIR="$LAB_TMUX_DIR"
 fm_test_spawn_home "$H" polytoken
 printf 'tmux\n' > "$H/config/backend"
@@ -136,7 +136,7 @@ wait_record() {  # <prefix> <what>
 # The launch is fm-spawn's own generated command; its readiness gate already
 # requires the session to surface in `polytoken sessions` and a hook-written
 # busy record before the spawn reports success.
-FM_SPAWN_NO_GUARD=1 "$ROOT/bin/fm-spawn.sh" "$ID" "$PROJ" --scout --harness polytoken \
+FM_SPAWN_NO_GUARD=1 bash "$ROOT/bin/fm-spawn.sh" "$ID" "$PROJ" --scout --harness polytoken \
   --model zai/glm-5.3-flash --effort low > "$LAB/spawn.log" 2>&1 \
   || fail "fm-spawn's generated polytoken launch failed: $(cat "$LAB/spawn.log")"
 TARGET=$(meta_value window)
@@ -171,7 +171,7 @@ wait_record "idle polytoken-hook " "the finished brief turn never closed the bus
 [ -f "$H/state/$ID.turn-ended" ] || fail "the stop hook never touched the turn-ended marker"
 pass "$VERSION: the stop hook closes the busy record and touches the turn-ended marker"
 
-"$ROOT/bin/fm-send.sh" "$ID" "Read the message in $H/state/$ID.inbox, acknowledge it by moving it into the handled/ subdirectory, then write steered into steer.txt. Complete that work and end the turn." \
+bash "$ROOT/bin/fm-send.sh" "$ID" "Read the message in $H/state/$ID.inbox, acknowledge it by moving it into the handled/ subdirectory, then write steered into steer.txt. Complete that work and end the turn." \
   > "$LAB/send.log" 2>&1 || fail "fm-send could not steer the worker: $(cat "$LAB/send.log")"
 wait_file "$WT/steer.txt"
 wait_record "idle polytoken-hook " "the acknowledgement turn did not finish"
@@ -179,7 +179,7 @@ handled=$(find "$H/state/$ID.inbox/handled" -name '*.msg' -print | wc -l | tr -d
 [ "$handled" -gt 0 ] || fail "the durable steer was not acknowledged"
 pass "$VERSION: fm-send's durable message is read, acted on, and acknowledged"
 
-"$ROOT/bin/fm-send.sh" "$ID" 'Runtime interrupt verification: run sleep 90 in your shell tool and wait for it to finish. Do not respond before it finishes.' \
+bash "$ROOT/bin/fm-send.sh" "$ID" 'Runtime interrupt verification: run sleep 90 in your shell tool and wait for it to finish. Do not respond before it finishes.' \
   > "$LAB/send-interrupt.log" 2>&1 || fail "fm-send could not start the interrupt turn"
 wait_record "busy polytoken-hook " "the interrupt turn never opened the busy record"
 busy_row=
@@ -190,7 +190,7 @@ done
 [ -n "$busy_row" ] || fail "the running turn never rendered the pinned busy row"
 pass "$VERSION: fm-send steers a real turn that opens the busy record and renders the busy row"
 
-"$ROOT/bin/fm-control.sh" "$ID" interrupt > "$LAB/interrupt.log" 2>&1 \
+bash "$ROOT/bin/fm-control.sh" "$ID" interrupt > "$LAB/interrupt.log" 2>&1 \
   || fail "fm-control interrupt failed: $(cat "$LAB/interrupt.log")"
 grep -q 'cancel=cancelled' "$LAB/interrupt.log" \
   || fail "fm-control interrupt did not report a settled cancel: $(cat "$LAB/interrupt.log")"
@@ -204,7 +204,7 @@ done
 [ "$(fm_backend_agent_state tmux "$TARGET")" = alive ] || fail "the interrupt did not leave the worker alive"
 pass "$VERSION: fm-control interrupt cancels the real turn over REST and leaves the worker alive"
 
-"$ROOT/bin/fm-control.sh" "$ID" relaunch \
+bash "$ROOT/bin/fm-control.sh" "$ID" relaunch \
   --note 'Runtime relaunch verification: compute 17 times 29 with your shell tool and write only the result to relaunched.txt. Do no other work.' \
   > "$LAB/relaunch.log" 2>&1 || fail "fm-control relaunch failed: $(cat "$LAB/relaunch.log")"
 SESSION2=$(meta_value polytoken_session)
@@ -217,15 +217,15 @@ wait_file "$WT/relaunched.txt"
 pass "$VERSION: fm-control relaunch replaces the worker through the generated launch and rebinds its session"
 
 wait_record "idle polytoken-hook " "the relaunched worker's turn never closed the busy record"
-"$ROOT/bin/fm-control.sh" "$ID" exit > "$LAB/exit.log" 2>&1 \
+bash "$ROOT/bin/fm-control.sh" "$ID" exit > "$LAB/exit.log" 2>&1 \
   || fail "fm-control exit failed: $(cat "$LAB/exit.log")"
 [ "$(fm_backend_agent_state tmux "$TARGET")" = dead ] \
   || fail "the tmux backend does not classify the exited worker dead"
 pass "$VERSION: fm-control exit stops the real worker and the backend reads it dead"
 
 printf '# Polytoken guard report\nNo unresolved decisions.\n' > "$H/data/$ID/report.md"
-"$ROOT/bin/fm-captain-hold.sh" complete "$ID" --none >/dev/null || fail "could not complete the lab report inventory"
-"$ROOT/bin/fm-teardown.sh" "$ID" > "$LAB/teardown.log" 2>&1 \
+bash "$ROOT/bin/fm-captain-hold.sh" complete "$ID" --none >/dev/null || fail "could not complete the lab report inventory"
+bash "$ROOT/bin/fm-teardown.sh" "$ID" > "$LAB/teardown.log" 2>&1 \
   || fail "fm-teardown failed: $(cat "$LAB/teardown.log")"
 [ ! -e "$META" ] || fail "teardown retained the lab task metadata"
 pass "$VERSION: teardown retires the task and its generated Polytoken artifacts"

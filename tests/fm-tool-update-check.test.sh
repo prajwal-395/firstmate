@@ -104,7 +104,7 @@ run_check() {
   local home=$1 path=$2 out=$3
   shift 3
   local status=0
-  env FM_CHECK_TIMEOUT=30 "$@" FM_HOME="$home" PATH="$path" FM_TOOL_UPDATE_INTERVAL=0 "$CHECK" >"$out" 2>&1 || status=$?
+  env FM_CHECK_TIMEOUT=30 "$@" FM_HOME="$home" PATH="$path" FM_TOOL_UPDATE_INTERVAL=0 bash "$CHECK" >"$out" 2>&1 || status=$?
   expect_code 0 "$status" "check exit"
 }
 
@@ -337,7 +337,7 @@ test_unusable_announce_pattern_is_reported_not_read_as_silence() {
   # Arming is a deliberate operator action, so the same registry refuses it
   # rather than arming a check with a source that can never fire.
   status=0
-  FM_HOME="$home" "$CHECK" arm >/dev/null 2>&1 || status=$?
+  FM_HOME="$home" bash "$CHECK" arm >/dev/null 2>&1 || status=$?
   expect_code 1 "$status" "arm with an unusable announce_pattern exit"
   assert_absent "$home/state/tool-updates.check.sh" "arm registered a check whose announcement source cannot fire"
   pass "an announce_pattern that cannot be used is reported instead of read as silence"
@@ -878,10 +878,10 @@ SH
   assert_contains "$report" "firstmate check failed: origin did not answer where main points" "the network probe did not use its own bound"
 
   status=0
-  FM_HOME="$home" FM_TOOL_UPDATE_GIT_PROBE_SECS=0 "$CHECK" >/dev/null 2>&1 || status=$?
+  FM_HOME="$home" FM_TOOL_UPDATE_GIT_PROBE_SECS=0 bash "$CHECK" >/dev/null 2>&1 || status=$?
   expect_code 2 "$status" "zero git probe bound exit"
   status=0
-  FM_HOME="$home" FM_TOOL_UPDATE_GIT_PROBE_SECS=999 "$CHECK" >/dev/null 2>&1 || status=$?
+  FM_HOME="$home" FM_TOOL_UPDATE_GIT_PROBE_SECS=999 bash "$CHECK" >/dev/null 2>&1 || status=$?
   expect_code 2 "$status" "oversized git probe bound exit"
   pass "the network probe bound is configurable and refuses what it cannot use"
 }
@@ -931,10 +931,10 @@ SH
   assert_contains "$report" "slowtool check failed: $dir/slow-version-fixture did not report a version" "the version probe did not use its own bound"
 
   status=0
-  FM_HOME="$home" FM_TOOL_UPDATE_VERSION_PROBE_SECS=0 "$CHECK" >/dev/null 2>&1 || status=$?
+  FM_HOME="$home" FM_TOOL_UPDATE_VERSION_PROBE_SECS=0 bash "$CHECK" >/dev/null 2>&1 || status=$?
   expect_code 2 "$status" "zero version probe bound exit"
   status=0
-  FM_HOME="$home" FM_TOOL_UPDATE_VERSION_PROBE_SECS=999 "$CHECK" >/dev/null 2>&1 || status=$?
+  FM_HOME="$home" FM_TOOL_UPDATE_VERSION_PROBE_SECS=999 bash "$CHECK" >/dev/null 2>&1 || status=$?
   expect_code 2 "$status" "oversized version probe bound exit"
   pass "the version probe bound is configurable and refuses what it cannot use"
 }
@@ -1066,7 +1066,7 @@ test_probes_are_skipped_between_intervals() {
 
   status=0
   FM_HOME="$home" PATH="$(fixture_path "$dir")" FM_CHECK_TIMEOUT=30 FM_TOOL_UPDATE_INTERVAL=900 FM_TOOL_UPDATE_NOW="$now" \
-    "$CHECK" >"$out" 2>&1 || status=$?
+    bash "$CHECK" >"$out" 2>&1 || status=$?
   expect_code 0 "$status" "first cadence run exit"
   assert_grep 'fm-tool-updates-v1' "$home/state/.tool-updates" "the first run did not record its sweep"
 
@@ -1074,13 +1074,13 @@ test_probes_are_skipped_between_intervals() {
   make_copy "$dir" "$TOOL" 'no version here'
   status=0
   FM_HOME="$home" PATH="$(fixture_path "$dir")" FM_CHECK_TIMEOUT=30 FM_TOOL_UPDATE_INTERVAL=900 FM_TOOL_UPDATE_NOW="$((now + 300))" \
-    "$CHECK" >"$out" 2>&1 || status=$?
+    bash "$CHECK" >"$out" 2>&1 || status=$?
   expect_code 0 "$status" "gated cadence run exit"
   [ ! -s "$out" ] || fail "a run inside the interval probed and spoke: $(cat "$out")"
 
   status=0
   FM_HOME="$home" PATH="$(fixture_path "$dir")" FM_CHECK_TIMEOUT=30 FM_TOOL_UPDATE_INTERVAL=900 FM_TOOL_UPDATE_NOW="$((now + 901))" \
-    "$CHECK" >"$out" 2>&1 || status=$?
+    bash "$CHECK" >"$out" 2>&1 || status=$?
   expect_code 0 "$status" "due cadence run exit"
   assert_contains "$(cat "$out")" "did not report a version" "the run after the interval did not probe"
   pass "probes run once per interval, not on every poll"
@@ -1101,7 +1101,7 @@ test_an_oversized_budget_is_cut_to_fit_and_reported() {
   out="$home/out.txt"
   status=0
   env FM_HOME="$home" PATH="$(fixture_path "$stale:$fresh")" FM_TOOL_UPDATE_INTERVAL=0 \
-    FM_TOOL_UPDATE_BUDGET_SECS=60 FM_CHECK_TIMEOUT=30 "$CHECK" >"$out" 2>&1 || status=$?
+    FM_TOOL_UPDATE_BUDGET_SECS=60 FM_CHECK_TIMEOUT=30 bash "$CHECK" >"$out" 2>&1 || status=$?
   expect_code 0 "$status" "oversized budget exit"
   report=$(cat "$out")
   # The cut leaves room for the whole-second rounding and the kill grace as well
@@ -1115,7 +1115,7 @@ test_an_oversized_budget_is_cut_to_fit_and_reported() {
   rm -f "$home/state/.tool-updates"
   status=0
   env FM_HOME="$home" PATH="$(fixture_path "$stale:$fresh")" FM_TOOL_UPDATE_INTERVAL=0 \
-    FM_CHECK_TIMEOUT=30 "$CHECK" >"$out" 2>&1 || status=$?
+    FM_CHECK_TIMEOUT=30 bash "$CHECK" >"$out" 2>&1 || status=$?
   expect_code 0 "$status" "default budget exit"
   report=$(cat "$out")
   assert_not_contains "$report" "sweep budget" "the default budget was cut at the default watcher bound"
@@ -1126,7 +1126,7 @@ test_an_oversized_budget_is_cut_to_fit_and_reported() {
   rm -f "$home/state/.tool-updates"
   status=0
   env FM_HOME="$home" PATH="$(fixture_path "$stale:$fresh")" FM_TOOL_UPDATE_INTERVAL=0 \
-    FM_TOOL_UPDATE_BUDGET_SECS=60 FM_CHECK_TIMEOUT=120 "$CHECK" >"$out" 2>&1 || status=$?
+    FM_TOOL_UPDATE_BUDGET_SECS=60 FM_CHECK_TIMEOUT=120 bash "$CHECK" >"$out" 2>&1 || status=$?
   expect_code 0 "$status" "fitting budget exit"
   report=$(cat "$out")
   assert_not_contains "$report" "sweep budget" "a budget that fits the watcher bound was cut anyway"
@@ -1138,19 +1138,19 @@ test_invalid_environment_and_action_refuse() {
   local home status
   home=$(make_home refuse)
   status=0
-  FM_HOME="$home" FM_TOOL_UPDATE_INTERVAL=5 "$CHECK" >/dev/null 2>&1 || status=$?
+  FM_HOME="$home" FM_TOOL_UPDATE_INTERVAL=5 bash "$CHECK" >/dev/null 2>&1 || status=$?
   expect_code 2 "$status" "too-small interval exit"
   status=0
-  FM_HOME="$home" FM_TOOL_UPDATE_PROBE_SECS=0 "$CHECK" >/dev/null 2>&1 || status=$?
+  FM_HOME="$home" FM_TOOL_UPDATE_PROBE_SECS=0 bash "$CHECK" >/dev/null 2>&1 || status=$?
   expect_code 2 "$status" "zero probe bound exit"
   status=0
-  FM_HOME="$home" FM_TOOL_UPDATE_BUDGET_SECS=999 "$CHECK" >/dev/null 2>&1 || status=$?
+  FM_HOME="$home" FM_TOOL_UPDATE_BUDGET_SECS=999 bash "$CHECK" >/dev/null 2>&1 || status=$?
   expect_code 2 "$status" "oversized budget exit"
   status=0
-  FM_HOME="$home" "$CHECK" sweep >/dev/null 2>&1 || status=$?
+  FM_HOME="$home" bash "$CHECK" sweep >/dev/null 2>&1 || status=$?
   expect_code 2 "$status" "unknown action exit"
   status=0
-  FM_HOME="$home" "$CHECK" --help >/dev/null 2>&1 || status=$?
+  FM_HOME="$home" bash "$CHECK" --help >/dev/null 2>&1 || status=$?
   expect_code 0 "$status" "help exit"
   pass "an out of range bound or unknown action refuses instead of guessing"
 }
@@ -1163,13 +1163,13 @@ test_arm_registers_the_check_and_disarm_removes_it() {
   dir="$TMP_ROOT/arm/bin"
   make_copy "$dir" "$TOOL" 'herdr 0.8.2'
   status=0
-  FM_HOME="$home" "$CHECK" arm >/dev/null 2>&1 || status=$?
+  FM_HOME="$home" bash "$CHECK" arm >/dev/null 2>&1 || status=$?
   expect_code 1 "$status" "arm without a registry exit"
   assert_absent "$home/state/tool-updates.check.sh" "arm wrote a check shim without a registry"
 
   write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\"}]}"
   status=0
-  FM_HOME="$home" "$CHECK" arm >/dev/null || status=$?
+  FM_HOME="$home" bash "$CHECK" arm >/dev/null || status=$?
   expect_code 0 "$status" "arm exit"
   assert_present "$home/state/tool-updates.check.sh" "arm did not write the check shim"
   assert_present "$home/state/tool-updates.check-trust" "arm did not register the check's bytes"
@@ -1178,10 +1178,10 @@ test_arm_registers_the_check_and_disarm_removes_it() {
   assert_grep 'fm-custom-check-v1' "$home/state/tool-updates.check-trust" "the trust binding has the wrong schema"
 
   # Arming twice must stay valid rather than invalidating its own binding.
-  FM_HOME="$home" "$CHECK" arm >/dev/null || fail "arming twice failed"
+  FM_HOME="$home" bash "$CHECK" arm >/dev/null || fail "arming twice failed"
   assert_grep 'fm-custom-check-v1' "$home/state/tool-updates.check-trust" "re-arming lost the trust binding"
 
-  FM_HOME="$home" "$CHECK" disarm >/dev/null || fail "disarm failed"
+  FM_HOME="$home" bash "$CHECK" disarm >/dev/null || fail "disarm failed"
   assert_absent "$home/state/tool-updates.check.sh" "disarm left the check shim behind"
   assert_absent "$home/state/tool-updates.check-trust" "disarm left the trust binding behind"
   assert_absent "$home/state/.tool-updates" "disarm left the report record behind"
@@ -1203,7 +1203,7 @@ test_arm_refuses_a_symlink_at_the_shim_path() {
   ln -s "$target" "$home/state/tool-updates.check.sh"
 
   status=0
-  FM_HOME="$home" "$CHECK" arm >/dev/null 2>&1 || status=$?
+  FM_HOME="$home" bash "$CHECK" arm >/dev/null 2>&1 || status=$?
   expect_code 1 "$status" "arm over a symlink exit"
   [ "$(cat "$target")" = 'a file the shim must not touch' ] || fail "arm followed the symlink and overwrote its target"
   [ "$(stat -c %a "$target" 2>/dev/null || stat -f %Lp "$target")" = "$mode" ] || fail "arm changed the mode of the symlink's target"
@@ -1228,7 +1228,7 @@ test_a_failed_registration_leaves_no_unregistered_shim() {
   ln -s "$target" "$home/state/tool-updates.check-trust"
 
   status=0
-  FM_HOME="$home" "$CHECK" arm >/dev/null 2>&1 || status=$?
+  FM_HOME="$home" bash "$CHECK" arm >/dev/null 2>&1 || status=$?
   expect_code 1 "$status" "arm with an unusable trust path exit"
   assert_absent "$home/state/tool-updates.check.sh" "a failed registration left an unregistered check shim behind"
   [ "$(cat "$target")" = 'a file the trust binding must not touch' ] || fail "arm wrote through the trust symlink"
@@ -1242,7 +1242,7 @@ test_a_failed_registration_leaves_no_unregistered_shim() {
   cp "$stale_shim" "$home/state/tool-updates.check.sh"
   chmod 0700 "$home/state/tool-updates.check.sh"
   status=0
-  FM_HOME="$home" "$CHECK" arm >/dev/null 2>&1 || status=$?
+  FM_HOME="$home" bash "$CHECK" arm >/dev/null 2>&1 || status=$?
   expect_code 1 "$status" "arm over an existing shim with an unusable trust path exit"
   assert_absent "$home/state/tool-updates.check.sh" "a failed arm left a shim behind that no trust binding covers"
   pass "a failed registration never leaves a shim without a matching trust binding"
@@ -1258,7 +1258,7 @@ test_a_failed_rearm_leaves_no_shim_the_trust_binding_lost() {
   dir="$TMP_ROOT/arm-rearm-fail/bin"
   make_copy "$dir" "$TOOL" 'herdr 0.8.2'
   write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\"}]}"
-  FM_HOME="$home" "$CHECK" arm >/dev/null || fail "the first arm failed"
+  FM_HOME="$home" bash "$CHECK" arm >/dev/null || fail "the first arm failed"
   assert_present "$home/state/tool-updates.check-trust" "the first arm did not bind the shim"
 
   # A hash tool that answers with nothing makes the register write a binding it
@@ -1272,7 +1272,7 @@ test_a_failed_rearm_leaves_no_shim_the_trust_binding_lost() {
   chmod 0700 "$home/state/tool-updates.check.sh"
 
   status=0
-  env FM_HOME="$home" PATH="$(fixture_path "$fake")" "$CHECK" arm >/dev/null 2>&1 || status=$?
+  env FM_HOME="$home" PATH="$(fixture_path "$fake")" bash "$CHECK" arm >/dev/null 2>&1 || status=$?
   expect_code 1 "$status" "arm whose registration cannot hash exit"
   assert_absent "$home/state/tool-updates.check.sh" "a failed re-arm left a shim behind after the trust binding was removed"
   assert_absent "$home/state/tool-updates.check-trust" "the failed registration left a trust binding behind"
@@ -1293,7 +1293,7 @@ test_arm_resolves_a_relative_home_into_the_shim() {
   write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\"}]}"
 
   status=0
-  (cd "$TMP_ROOT" && FM_HOME=arm-relative "$CHECK" arm >/dev/null 2>&1) || status=$?
+  (cd "$TMP_ROOT" && FM_HOME=arm-relative bash "$CHECK" arm >/dev/null 2>&1) || status=$?
   expect_code 0 "$status" "arm with a relative home exit"
 
   out="$home/out.txt"
@@ -1315,14 +1315,14 @@ test_armed_check_wakes_the_watcher_with_the_skew_report() {
   make_copy "$stale" "$TOOL" 'herdr 0.8.0'
   make_copy "$fresh" "$TOOL" 'herdr 0.8.2'
   write_config "$home" "{\"tools\":[{\"name\":\"herdr\",\"command\":\"$TOOL\"}]}"
-  FM_HOME="$home" "$CHECK" arm >/dev/null || fail "could not arm the watched tool check"
+  FM_HOME="$home" bash "$CHECK" arm >/dev/null || fail "could not arm the watched tool check"
 
   out="$home/out.txt"
   err="$home/err.txt"
   status=0
   env FM_HOME="$home" PATH="$(fixture_path "$stale:$fresh")" FM_CHECK_TIMEOUT=30 FM_TOOL_UPDATE_INTERVAL=0 \
     FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=1 \
-    "$CHECKPOINT" --seconds 10 >"$out" 2>"$err" || status=$?
+    bash "$CHECKPOINT" --seconds 10 >"$out" 2>"$err" || status=$?
   expect_code 0 "$status" "watcher checkpoint exit"
   assert_contains "$(cat "$out")" "check:" "the armed check did not reach the watcher as a check wake"
   assert_contains "$(cat "$out")" "tool updates: herdr update not in effect" "the wake did not carry the PATH skew report"

@@ -428,13 +428,13 @@ write_parity_corpus() {
   for kind in $generic_kinds; do
     for body in 'plain body' $'multi\nline\n\nbody' $'trailing newline\n' $'two trailing newlines\n\n' 'colon: inside: body' 'ünïcödé body ✓' ' '; do
       index=$((index + 1))
-      printf '%s' "$body" | "$OPERATIONAL_INPUT" encode "$kind" >"$dir/case-$index.txt" \
+      printf '%s' "$body" | bash "$OPERATIONAL_INPUT" encode "$kind" >"$dir/case-$index.txt" \
         || fail "the owner could not encode kind $kind for the parity corpus"
     done
   done
   for body in 'plain body' $'multi\nline\n\nbody' $'trailing newline\n' $'two trailing newlines\n\n' 'colon: inside: body' 'ünïcödé body ✓' ' '; do
     index=$((index + 1))
-    printf '%s' "$body" | "$OPERATIONAL_INPUT" encode from-firstmate >"$dir/case-$index.txt" \
+    printf '%s' "$body" | bash "$OPERATIONAL_INPUT" encode from-firstmate >"$dir/case-$index.txt" \
       || fail "the owner could not encode from-firstmate for the parity corpus"
   done
   for body in \
@@ -496,7 +496,7 @@ JS
   index=1
   while [ "$index" -le "$count" ]; do
     file="$corpus/case-$index.txt"
-    if shell_verdict=$("$OPERATIONAL_INPUT" classify <"$file" 2>/dev/null); then
+    if shell_verdict=$(bash "$OPERATIONAL_INPUT" classify <"$file" 2>/dev/null); then
       :
     else
       shell_verdict=none
@@ -531,7 +531,7 @@ test_doorbell_parity_with_shell_owner() {
   mkdir -p "$state"
   for kind in $(canonical_generic_kinds); do
     index=$((index + 1))
-    printf 'body for %s' "$kind" | FM_STATE_OVERRIDE="$state" "$OPERATIONAL_INPUT" record "$kind" \
+    printf 'body for %s' "$kind" | FM_STATE_OVERRIDE="$state" bash "$OPERATIONAL_INPUT" record "$kind" \
       | tr -d '\n' >"$dir/case-$index.txt" || fail "the owner could not publish a $kind record"
   done
   doorbell=$(cat "$dir/case-1.txt")
@@ -581,7 +581,7 @@ JS
   assert_contains "$out" "classified $count" "the port did not classify every doorbell case"
   index=1
   while [ "$index" -le "$count" ]; do
-    shell_verdict=$("$OPERATIONAL_INPUT" doorbell-kind <"$dir/case-$index.txt" 2>/dev/null) || shell_verdict=none
+    shell_verdict=$(bash "$OPERATIONAL_INPUT" doorbell-kind <"$dir/case-$index.txt" 2>/dev/null) || shell_verdict=none
     port_verdict=$(awk -F '\t' -v i="$index" '$1 == i { print $2 }' "$dir/port-verdicts.tsv")
     if [ "$shell_verdict" != "$port_verdict" ]; then
       mismatches=$((mismatches + 1))

@@ -26,13 +26,13 @@ run_inbox() {
   local home=$1
   shift
   FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
-    FM_CONFIG_OVERRIDE="$home/config" "$INBOX_BIN" "$@"
+    FM_CONFIG_OVERRIDE="$home/config" bash "$INBOX_BIN" "$@"
 }
 
 run_lock() {
   local home=$1
   shift
-  FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$LOCK_BIN" "$@"
+  FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" bash "$LOCK_BIN" "$@"
 }
 
 json_get() {
@@ -80,7 +80,7 @@ chmod +x "$isolated/bin/fm-inbox.sh"
 home=$(make_home human-wake-fail)
 set +e
 fail_out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
-  "$isolated/bin/fm-inbox.sh" note "saved but not announced" 2>&1)
+  bash "$isolated/bin/fm-inbox.sh" note "saved but not announced" 2>&1)
 fail_code=$?
 set -e
 expect_code 1 "$fail_code" "plain note still exits 1 when announcement fails"
@@ -150,7 +150,7 @@ pass "a crash between recording the request id and publishing the note reuses th
 home=$(make_home announce-fail)
 set +e
 saved_out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
-  "$isolated/bin/fm-inbox.sh" note --request-id repair-1 --json "please announce" 2>/dev/null)
+  bash "$isolated/bin/fm-inbox.sh" note --request-id repair-1 --json "please announce" 2>/dev/null)
 saved_code=$?
 set -e
 expect_code 3 "$saved_code" "request-id note exits 3 when saved but not announced"
@@ -166,7 +166,7 @@ assert_equals "0" "$(count_wakes "$home")" "isolated submit wrote no wake"
 
 set +e
 replay_fail=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
-  "$isolated/bin/fm-inbox.sh" note --request-id repair-1 --json "please announce" 2>/dev/null)
+  bash "$isolated/bin/fm-inbox.sh" note --request-id repair-1 --json "please announce" 2>/dev/null)
 replay_fail_code=$?
 set -e
 expect_code 3 "$replay_fail_code" "replay while still unannounced also exits 3"
@@ -197,7 +197,7 @@ assert_equals "1" "$(count_wakes "$home")" \
 home=$(make_home announce-repair)
 set +e
 unannounced=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
-  "$isolated/bin/fm-inbox.sh" note --request-id repair-2 --json "announce me" 2>/dev/null)
+  bash "$isolated/bin/fm-inbox.sh" note --request-id repair-2 --json "announce me" 2>/dev/null)
 set -e
 unannounced_id=$(printf '%s' "$unannounced" | json_get id)
 assert_equals "0" "$(count_wakes "$home")" "the isolated submit wrote no wake"
@@ -212,7 +212,7 @@ pass "saved-but-unannounced notes are repairable without creating a second note"
 home=$(make_home announce-acked)
 set +e
 acked=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
-  "$isolated/bin/fm-inbox.sh" note --request-id acked-1 --json "drained before repair" 2>/dev/null)
+  bash "$isolated/bin/fm-inbox.sh" note --request-id acked-1 --json "drained before repair" 2>/dev/null)
 set -e
 acked_id=$(printf '%s' "$acked" | json_get id)
 run_inbox "$home" drain --ack "$acked_id" >/dev/null || fail "drain --ack failed"

@@ -94,7 +94,7 @@ assert_present "$STATE_ROOT/.seq-claims/$FRESH_KEEP" "fresh boundary seed missin
 
 HOME="$ACCOUNT_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_REMOTE_JOB_STATE_ROOT="$STATE_ROOT" \
   FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux \
-  "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" --serve \
+  /bin/bash "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" --serve \
   > "$TMP_ROOT/worker.out" 2> "$TMP_ROOT/worker.err" &
 WORKER_PID=$!
 

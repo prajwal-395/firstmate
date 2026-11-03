@@ -41,12 +41,12 @@ fixture() {
     FX_BACKUP="$dir/backup.git"
     git init -q --bare "$FX_BACKUP"
     git -C "$FX_WT" remote add backup "file://$FX_BACKUP"
-    "$GUARD" write "$guard" "$FX_WT" "$FX_BRANCH" "$prefix" backup backup/ || fail "guard write failed"
+    bash "$GUARD" write "$guard" "$FX_WT" "$FX_BRANCH" "$prefix" backup backup/ || fail "guard write failed"
   else
-    "$GUARD" write "$guard" "$FX_WT" "$FX_BRANCH" "$prefix" || fail "guard write failed"
+    bash "$GUARD" write "$guard" "$FX_WT" "$FX_BRANCH" "$prefix" || fail "guard write failed"
   fi
   FX_HOOKS="$dir/hooks"
-  "$STRIP" install --push-guard "$guard" "$FX_HOOKS" "$FX_WT" || fail "install --push-guard failed"
+  bash "$STRIP" install --push-guard "$guard" "$FX_HOOKS" "$FX_WT" || fail "install --push-guard failed"
 }
 
 push() {  # <args...>; sets PUSH_OUT and PUSH_RC
@@ -142,7 +142,7 @@ EOF
 
 test_unreadable_guard_refuses_everything() {
   local out rc
-  out=$(printf 'refs/heads/a 1 refs/heads/a 0\n' | "$GUARD" "$TMP_ROOT/no-such-guard" other https://example.test/x 2>&1)
+  out=$(printf 'refs/heads/a 1 refs/heads/a 0\n' | bash "$GUARD" "$TMP_ROOT/no-such-guard" other https://example.test/x 2>&1)
   rc=$?
   [ "$rc" -ne 0 ] || fail "a missing guard file let a push through"
   assert_contains "$out" "unreadable" "a missing guard file was refused without saying why"

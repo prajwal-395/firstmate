@@ -669,7 +669,7 @@ test_windows_clear_rekeys_the_lock_under_the_same_pid() {
   win_lock() {  # <session-id>
     env -u CLAUDE_PID -u CLAUDE_CODE_SESSION_ID PATH="$fakebin:$PATH" \
       FM_TEST_WIN_TABLE="$WIN_TABLE" FM_HOME="$home" \
-      CLAUDE_PID=7204 CLAUDE_CODE_SESSION_ID="$1" "$ROOT/bin/fm-lock.sh" 2>&1
+      CLAUDE_PID=7204 CLAUDE_CODE_SESSION_ID="$1" bash "$ROOT/bin/fm-lock.sh" 2>&1
   }
   out=$(win_lock S1) || fail "the Windows session could not acquire its lock: $out"
   [ "$(cat "$home/state/.lock")" = 'win:7204' ] || fail "the lock names '$(cat "$home/state/.lock")', not win:7204"
@@ -738,19 +738,19 @@ test_windows_task_lease_follows_a_tagged_lock_holder() {
   # so it stays live while that session does and the other actor is refused.
   env -u CLAUDE_PID -u CLAUDE_CODE_SESSION_ID -u FM_LEASE_HOLDER_PID PATH="$fakebin:$PATH" \
     FM_TEST_WIN_TABLE="$WIN_TABLE" FM_HOME="$home" FM_SUPERVISION_ACTOR=branch \
-    "$ROOT/bin/fm-lease.sh" claim task-1 --actor branch || fail "branch lease claim failed under a tagged lock"
+    bash "$ROOT/bin/fm-lease.sh" claim task-1 --actor branch || fail "branch lease claim failed under a tagged lock"
   out=$(cut -f2 "$home/state/.lease-task-1")
   [ "$out" = 'win:7204' ] || fail "the lease recorded holder '$out', not the tagged lock holder win:7204"
   out=$(env -u CLAUDE_PID -u CLAUDE_CODE_SESSION_ID -u FM_LEASE_HOLDER_PID PATH="$fakebin:$PATH" \
     FM_TEST_WIN_TABLE="$WIN_TABLE" FM_HOME="$home" FM_SUPERVISION_ACTOR=main \
-    "$ROOT/bin/fm-lease.sh" claim task-1 2>&1)
+    bash "$ROOT/bin/fm-lease.sh" claim task-1 2>&1)
   status=$?
   [ "$status" -eq 6 ] || fail "the other actor's claim over a live tagged lease exited $status, not 6: $out"
 
   # Once the tagged holder is gone from the Windows table, the lease is stale.
   env -u CLAUDE_PID -u CLAUDE_CODE_SESSION_ID -u FM_LEASE_HOLDER_PID PATH="$fakebin:$PATH" \
     FM_TEST_WIN_TABLE='' FM_HOME="$home" FM_SUPERVISION_ACTOR=main \
-    "$ROOT/bin/fm-lease.sh" claim task-1 || fail "a lease whose tagged holder exited still blocked the other actor"
+    bash "$ROOT/bin/fm-lease.sh" claim task-1 || fail "a lease whose tagged holder exited still blocked the other actor"
 
   # A caller-supplied tagged holder naming a live harness is taken whole ahead
   # of the lock holder, never as its digits; a dead one falls back to the lock.
@@ -760,14 +760,14 @@ test_windows_task_lease_follows_a_tagged_lock_holder() {
   env -u CLAUDE_PID -u CLAUDE_CODE_SESSION_ID PATH="$fakebin:$PATH" \
     FM_TEST_WIN_TABLE="$table" FM_HOME="$home" FM_SUPERVISION_ACTOR=branch \
     FM_LEASE_HOLDER_PID=win:7300 \
-    "$ROOT/bin/fm-lease.sh" claim task-1 --actor branch || fail "branch lease claim failed with a tagged FM_LEASE_HOLDER_PID"
+    bash "$ROOT/bin/fm-lease.sh" claim task-1 --actor branch || fail "branch lease claim failed with a tagged FM_LEASE_HOLDER_PID"
   out=$(cut -f2 "$home/state/.lease-task-1")
   [ "$out" = 'win:7300' ] || fail "a caller-supplied tagged holder was recorded as '$out', not win:7300"
   rm -f "$home/state/.lease-task-1"
   env -u CLAUDE_PID -u CLAUDE_CODE_SESSION_ID PATH="$fakebin:$PATH" \
     FM_TEST_WIN_TABLE="$WIN_TABLE" FM_HOME="$home" FM_SUPERVISION_ACTOR=branch \
     FM_LEASE_HOLDER_PID=win:7300 \
-    "$ROOT/bin/fm-lease.sh" claim task-1 --actor branch || fail "branch lease claim failed with a dead tagged FM_LEASE_HOLDER_PID"
+    bash "$ROOT/bin/fm-lease.sh" claim task-1 --actor branch || fail "branch lease claim failed with a dead tagged FM_LEASE_HOLDER_PID"
   out=$(cut -f2 "$home/state/.lease-task-1")
   [ "$out" = 'win:7204' ] || fail "a dead caller-supplied tagged holder was recorded as '$out', not the lock holder win:7204"
   pass "session-lock: a task lease follows a live tagged lock holder and goes stale when it exits"
@@ -1389,7 +1389,7 @@ test_failed_lock_write_restores_previous_sidecar() {
   env -u CLAUDE_CODE_SESSION_ID -u CLAUDE_PID \
     FM_HOME="$dir" FM_LOCK="$ROOT/bin/fm-lock.sh" \
     "$NAMED_CLAUDE" -c '
-      CLAUDE_CODE_SESSION_ID=S1 CLAUDE_PID=$$ "$FM_LOCK" > "$FM_HOME/state/acquire.out" 2>&1
+      CLAUDE_CODE_SESSION_ID=S1 CLAUDE_PID=$$ bash "$FM_LOCK" > "$FM_HOME/state/acquire.out" 2>&1
       printf "%s\n" "$?" > "$FM_HOME/state/acquire.rc"
       printf "%s\n" "$$" > "$FM_HOME/state/stale-pid"
     '
@@ -1403,7 +1403,7 @@ test_failed_lock_write_restores_previous_sidecar() {
   env -u CLAUDE_CODE_SESSION_ID -u CLAUDE_PID \
     FM_HOME="$dir" FM_LOCK="$ROOT/bin/fm-lock.sh" \
     "$NAMED_CLAUDE" -c '
-      CLAUDE_CODE_SESSION_ID=S2 CLAUDE_PID=$$ "$FM_LOCK" > "$FM_HOME/state/reclaim.out" 2>&1
+      CLAUDE_CODE_SESSION_ID=S2 CLAUDE_PID=$$ bash "$FM_LOCK" > "$FM_HOME/state/reclaim.out" 2>&1
       printf "%s\n" "$?" > "$FM_HOME/state/reclaim.rc"
     '
   chmod u+w "$dir/state/.lock" 2>/dev/null || true
@@ -1431,7 +1431,7 @@ test_failed_lock_write_removes_new_sidecar_when_none_existed() {
   env -u CLAUDE_CODE_SESSION_ID -u CLAUDE_PID \
     FM_HOME="$dir" FM_LOCK="$ROOT/bin/fm-lock.sh" \
     "$NAMED_CLAUDE" -c '
-      CLAUDE_CODE_SESSION_ID=S2 CLAUDE_PID=$$ "$FM_LOCK" > "$FM_HOME/state/reclaim.out" 2>&1
+      CLAUDE_CODE_SESSION_ID=S2 CLAUDE_PID=$$ bash "$FM_LOCK" > "$FM_HOME/state/reclaim.out" 2>&1
       printf "%s\n" "$?" > "$FM_HOME/state/reclaim.rc"
     '
   chmod u+w "$dir/state/.lock" 2>/dev/null || true
@@ -1457,7 +1457,7 @@ test_verified_reclaim_keeps_new_sidecar() {
   env -u CLAUDE_CODE_SESSION_ID -u CLAUDE_PID \
     FM_HOME="$dir" FM_LOCK="$ROOT/bin/fm-lock.sh" \
     "$NAMED_CLAUDE" -c '
-      CLAUDE_CODE_SESSION_ID=S2 CLAUDE_PID=$$ "$FM_LOCK" > "$FM_HOME/state/reclaim.out" 2>&1
+      CLAUDE_CODE_SESSION_ID=S2 CLAUDE_PID=$$ bash "$FM_LOCK" > "$FM_HOME/state/reclaim.out" 2>&1
       printf "%s\n" "$?" > "$FM_HOME/state/reclaim.rc"
       printf "%s\n" "$$" > "$FM_HOME/state/new-pid"
     '
@@ -1492,7 +1492,7 @@ test_reanchor_keeps_task_leases_live() {
   env -u CLAUDE_CODE_SESSION_ID -u CLAUDE_PID \
     FM_HOME="$dir" FM_LOCK="$ROOT/bin/fm-lock.sh" \
     "$NAMED_CLAUDE" -c '
-      CLAUDE_CODE_SESSION_ID=S1 CLAUDE_PID=$$ "$FM_LOCK" > "$FM_HOME/state/reanchor.out" 2>&1
+      CLAUDE_CODE_SESSION_ID=S1 CLAUDE_PID=$$ bash "$FM_LOCK" > "$FM_HOME/state/reanchor.out" 2>&1
       printf "%s\n" "$?" > "$FM_HOME/state/reanchor.rc"
       printf "%s\n" "$$" > "$FM_HOME/state/model-pid"
       while [ ! -e "$FM_HOME/state/stop" ] && [ "$SECONDS" -lt "${FM_TEST_STUB_MAX_BLOCK_SECONDS:-120}" ]; do sleep 0.05; done
@@ -1512,11 +1512,11 @@ test_reanchor_keeps_task_leases_live() {
   cmp -s "$dir/state/lease-t3-before" "$dir/state/.lease-t3" \
     || fail "a lease recorded against another pid changed: $(cat "$dir/state/.lease-t3")"
   env -u FM_SUPERVISION_ACTOR -u FM_LEASE_HOLDER_PID FM_HOME="$dir" \
-    "$ROOT/bin/fm-lease.sh" claim t1 > "$dir/state/main-claim.out" 2>&1
+    bash "$ROOT/bin/fm-lease.sh" claim t1 > "$dir/state/main-claim.out" 2>&1
   lease_rc=$?
   expect_code 6 "$lease_rc" "main claimed the branch's task after the re-anchor: $(cat "$dir/state/main-claim.out")"
   env -u FM_SUPERVISION_ACTOR FM_HOME="$dir" FM_SUPERVISION_ACTOR=branch FM_LEASE_HOLDER_PID="$model_pid" \
-    "$ROOT/bin/fm-lease.sh" claim t2 > "$dir/state/branch-claim.out" 2>&1
+    bash "$ROOT/bin/fm-lease.sh" claim t2 > "$dir/state/branch-claim.out" 2>&1
   lease_rc=$?
   expect_code 6 "$lease_rc" "the branch claimed main's task after the re-anchor: $(cat "$dir/state/branch-claim.out")"
   : > "$dir/state/stop"
@@ -1552,7 +1552,7 @@ test_reanchor_keeps_autoarm_midturn_healthy() {
   env -u CLAUDE_CODE_SESSION_ID -u CLAUDE_PID \
     FM_HOME="$dir" FM_LOCK="$ROOT/bin/fm-lock.sh" \
     "$NAMED_CLAUDE" -c '
-      CLAUDE_CODE_SESSION_ID=S1 CLAUDE_PID=$$ "$FM_LOCK" > "$FM_HOME/state/reanchor.out" 2>&1
+      CLAUDE_CODE_SESSION_ID=S1 CLAUDE_PID=$$ bash "$FM_LOCK" > "$FM_HOME/state/reanchor.out" 2>&1
       printf "%s\n" "$?" > "$FM_HOME/state/reanchor.rc"
       printf "%s\n" "$$" > "$FM_HOME/state/model-pid"
       while [ ! -e "$FM_HOME/state/stop" ] && [ "$SECONDS" -lt "${FM_TEST_STUB_MAX_BLOCK_SECONDS:-120}" ]; do sleep 0.05; done

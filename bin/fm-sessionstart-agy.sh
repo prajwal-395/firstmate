@@ -38,7 +38,7 @@ if [ -z "$SOURCE" ] && [ ! -t 0 ]; then
   ')
 fi
 
-DIGEST=$("$SCRIPT_DIR/fm-sessionstart-run.sh" --source "${SOURCE:-startup}" </dev/null 2>/dev/null || true)
+DIGEST=$(bash "$SCRIPT_DIR/fm-sessionstart-run.sh" --source "${SOURCE:-startup}" </dev/null 2>/dev/null || true)
 if [ -z "$DIGEST" ] || ! command -v jq >/dev/null 2>&1; then
   printf '{}\n'
   exit 0

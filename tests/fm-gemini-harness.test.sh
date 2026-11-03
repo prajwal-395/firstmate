@@ -37,16 +37,16 @@ test_gemini_marker_outranks_inherited_claudecode() {
   fm_fake_blind_ancestry "$fakebin"
   # This is the exact hazard: gemini does not clear an inherited CLAUDECODE, so
   # a gemini worker under a claude primary carries both markers at once.
-  out=$(PATH="$fakebin:$base_path" CLAUDECODE=1 GEMINI_CLI=1 "$HARNESS")
+  out=$(PATH="$fakebin:$base_path" CLAUDECODE=1 GEMINI_CLI=1 bash "$HARNESS")
   [ "$out" = gemini ] || fail "CLAUDECODE + GEMINI_CLI must detect gemini, got '$out'"
   # Drive the two signals apart so the case above cannot go quietly vacuous:
   # each marker alone must still produce its own verdict.
-  out=$(env -u CLAUDECODE PATH="$fakebin:$base_path" GEMINI_CLI=1 "$HARNESS")
+  out=$(env -u CLAUDECODE PATH="$fakebin:$base_path" GEMINI_CLI=1 bash "$HARNESS")
   [ "$out" = gemini ] || fail "GEMINI_CLI alone must detect gemini, got '$out'"
-  out=$(env -u GEMINI_CLI PATH="$fakebin:$base_path" CLAUDECODE=1 "$HARNESS")
+  out=$(env -u GEMINI_CLI PATH="$fakebin:$base_path" CLAUDECODE=1 bash "$HARNESS")
   [ "$out" = claude ] || fail "CLAUDECODE alone must still detect claude, got '$out'"
   # Cursor's marker still outranks gemini's, preserving the documented order.
-  out=$(PATH="$fakebin:$base_path" CURSOR_AGENT=1 GEMINI_CLI=1 "$HARNESS")
+  out=$(PATH="$fakebin:$base_path" CURSOR_AGENT=1 GEMINI_CLI=1 bash "$HARNESS")
   [ "$out" = cursor ] || fail "CURSOR_AGENT must still outrank GEMINI_CLI, got '$out'"
   pass "fm-harness.sh: gemini's marker outranks an inherited CLAUDECODE"
 }
@@ -57,12 +57,12 @@ test_gemini_does_not_claim_inherited_ai_agent() {
   # tool process, so it proves nothing about which harness is running. A session
   # with AI_AGENT but no GEMINI_CLI must not be read as gemini.
   out=$(env -u GEMINI_CLI -u CLAUDECODE -u CURSOR_AGENT -u CURSOR_INVOKED_AS \
-        -u PI_CODING_AGENT -u GROK_AGENT AI_AGENT=gemini-cli_0-58-0_agent "$HARNESS")
+        -u PI_CODING_AGENT -u GROK_AGENT AI_AGENT=gemini-cli_0-58-0_agent bash "$HARNESS")
   [ "$out" != gemini ] \
     || fail "AI_AGENT must never claim the gemini identity, got '$out'"
   # A non-1 GEMINI_CLI is not the verified marker value either.
   out=$(env -u CLAUDECODE -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI \
-        -u PI_CODING_AGENT -u GROK_AGENT GEMINI_CLI=0 "$HARNESS")
+        -u PI_CODING_AGENT -u GROK_AGENT GEMINI_CLI=0 bash "$HARNESS")
   [ "$out" != gemini ] \
     || fail "GEMINI_CLI=0 must not claim the gemini identity, got '$out'"
   pass "fm-harness.sh: an inherited AI_AGENT never claims the gemini identity"
@@ -84,7 +84,7 @@ exit 1
 SH
   chmod +x "$fakebin/ps"
   out=$(env -u GEMINI_CLI -u CLAUDECODE -u CURSOR_AGENT -u CURSOR_INVOKED_AS \
-        -u PI_CODING_AGENT -u GROK_AGENT PATH="$fakebin:$PATH" "$HARNESS")
+        -u PI_CODING_AGENT -u GROK_AGENT PATH="$fakebin:$PATH" bash "$HARNESS")
   [ "$out" = gemini ] \
     || fail "a natively-named gemini command must be detected by ancestry, got '$out'"
   pass "fm-harness.sh: ancestry detects a natively-named gemini command"
@@ -105,13 +105,13 @@ SH
 
   out=$(env -u GEMINI_CLI -u CLAUDECODE -u CURSOR_AGENT -u CURSOR_INVOKED_AS \
         -u PI_CODING_AGENT -u GROK_AGENT FAKE_PS_COMM=gemini-helper \
-        FAKE_PS_ARGS='gemini-helper --serve' PATH="$fakebin:$PATH" "$HARNESS")
+        FAKE_PS_ARGS='gemini-helper --serve' PATH="$fakebin:$PATH" bash "$HARNESS")
   [ "$out" != gemini ] \
     || fail "an unrelated gemini-helper command must not detect gemini, got '$out'"
 
   out=$(env -u GEMINI_CLI -u CLAUDECODE -u CURSOR_AGENT -u CURSOR_INVOKED_AS \
         -u PI_CODING_AGENT -u GROK_AGENT FAKE_PS_COMM=node \
-        FAKE_PS_ARGS='node server.js --model gemini' PATH="$fakebin:$PATH" "$HARNESS")
+        FAKE_PS_ARGS='node server.js --model gemini' PATH="$fakebin:$PATH" bash "$HARNESS")
   [ "$out" != gemini ] \
     || fail "a later node argument naming gemini must not detect gemini, got '$out'"
   pass "fm-harness.sh: ancestry rejects unrelated gemini mentions"

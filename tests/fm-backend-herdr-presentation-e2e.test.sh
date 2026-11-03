@@ -275,7 +275,7 @@ export FM_BACKEND_HERDR_WORKSPACE_MOVER="$FAKEBIN/herdr-workspace-mover"
 herdr_forget_inherited_pane
 
 HERDR_LAB_SESSION=$(PATH="$HERDR_ORIGINAL_PATH" \
-  "$HERDR_LAB_HELPER" name fm-herdr-presentation-projection)
+  bash "$HERDR_LAB_HELPER" name fm-herdr-presentation-projection)
 export HERDR_SESSION="$HERDR_LAB_SESSION" HERDR_LAB_SESSION
 LAB_READY=0
 RECORDED_WORKTREES=""
@@ -301,7 +301,7 @@ $RECORDED_WORKTREES
 EOF
   if [ "$LAB_READY" -eq 1 ]; then
     PATH="$HERDR_ORIGINAL_PATH" \
-      "$HERDR_LAB_HELPER" teardown "$HERDR_LAB_SESSION" >/dev/null 2>&1 || true
+      bash "$HERDR_LAB_HELPER" teardown "$HERDR_LAB_SESSION" >/dev/null 2>&1 || true
     LAB_READY=0
   fi
   find "$TMP_ROOT" -type d -exec chmod u+rwx {} + 2>/dev/null || true
@@ -310,12 +310,12 @@ EOF
 trap cleanup_all EXIT
 
 PATH="$HERDR_ORIGINAL_PATH" \
-  "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION" \
+  bash "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION" \
   || fail "could not provision the isolated Herdr lab"
 LAB_READY=1
 
 lab() {
-  PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" run "$HERDR_LAB_SESSION" "$@"
+  PATH="$HERDR_ORIGINAL_PATH" bash "$HERDR_LAB_HELPER" run "$HERDR_LAB_SESSION" "$@"
 }
 
 focus_snapshot() {
@@ -455,7 +455,7 @@ finish_concurrent_recovery() {  # <id> <home> <status> <stdout> <stderr>
 spawn_secondmate_task() {
   local id=$1 home=$2
   FM_GATE_REFUSE_BYPASS=1 FM_SPAWN_NO_GUARD=1 FM_HOME="$HOME_DIR" FM_ROOT_OVERRIDE="$ROOT" \
-    "$ROOT/bin/fm-spawn.sh" "$id" "$home" "sh -c 'while :; do sleep 60; done'" --secondmate --backend herdr
+    bash "$ROOT/bin/fm-spawn.sh" "$id" "$home" "sh -c 'while :; do sleep 60; done'" --secondmate --backend herdr
 }
 
 teardown_task() {  # <id> <home>
@@ -463,7 +463,7 @@ teardown_task() {  # <id> <home>
   FM_GATE_REFUSE_BYPASS=1 FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
     FM_CONFIG_OVERRIDE="$home/config" \
-    "$ROOT/bin/fm-teardown.sh" "$id" --force
+    bash "$ROOT/bin/fm-teardown.sh" "$id" --force
 }
 
 finish_concurrent_teardown() {  # <id> <status> <stdout> <stderr>
@@ -1218,10 +1218,10 @@ for RESTART_ID in fm-hibit-resume-r1 wheelhouse-healing-r1; do
     *) fail "$RESTART_ID fresh projection label did not apply concise prefix handling: $OLD_RESTART_LABEL" ;;
   esac
   PATH="$HERDR_ORIGINAL_PATH" \
-    "$HERDR_LAB_HELPER" stop "$HERDR_LAB_SESSION" >/dev/null \
+    bash "$HERDR_LAB_HELPER" stop "$HERDR_LAB_SESSION" >/dev/null \
     || fail "could not stop the isolated session for $RESTART_ID validation"
   PATH="$HERDR_ORIGINAL_PATH" \
-    "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION" \
+    bash "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION" \
     || fail "could not reprovision the isolated session for $RESTART_ID validation"
   # Stopping the whole Herdr session also ends the anchor's agent. Its restored
   # shell remains useful as the durable layout anchor, but its task record no
@@ -1252,9 +1252,9 @@ for RESTART_ID in fm-hibit-resume-r1 wheelhouse-healing-r1; do
   assert_focus_is "$RECLAIM_FOCUS" "$RESTART_ID same-identity reclaim"
 
   if [ "$RESTART_ID" = fm-hibit-resume-r1 ]; then
-    PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" stop "$HERDR_LAB_SESSION" >/dev/null \
+    PATH="$HERDR_ORIGINAL_PATH" bash "$HERDR_LAB_HELPER" stop "$HERDR_LAB_SESSION" >/dev/null \
       || fail "could not stop the isolated session for idempotent reclaim"
-    PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION" \
+    PATH="$HERDR_ORIGINAL_PATH" bash "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION" \
       || fail "could not reprovision the isolated session for idempotent reclaim"
     PRIOR_RESTART_WT=$NEW_RESTART_WT
     PRIOR_RESTART_PANE=$NEW_RESTART_PANE
@@ -1297,9 +1297,9 @@ CROSS_BOUND_HOME=$(grep '^home=' "$SECOND_HOME_A/state/$CROSS_RESTART_ID.herdr-p
   || fail "cross-home restart journal did not bind the secondmate's exact home"
 [ ! -e "$HOME_DIR/state/$CROSS_RESTART_ID.herdr-presentation" ] \
   || fail "cross-home restart published a journal in the primary home"
-PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" stop "$HERDR_LAB_SESSION" >/dev/null \
+PATH="$HERDR_ORIGINAL_PATH" bash "$HERDR_LAB_HELPER" stop "$HERDR_LAB_SESSION" >/dev/null \
   || fail "could not stop the isolated session for cross-home restart"
-PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION" \
+PATH="$HERDR_ORIGINAL_PATH" bash "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION" \
   || fail "could not reprovision the isolated session for cross-home restart"
 spawn_task "$CROSS_RESTART_ID" "$SECOND_HOME_A" "$RECOVERY_PROJECT_DIR" > "$TMP_ROOT/cross-restart-resume.out" 2> "$TMP_ROOT/cross-restart-resume.err" \
   || fail "cross-home same-identity reclaim failed: $(cat "$TMP_ROOT/cross-restart-resume.err")"
@@ -1335,9 +1335,9 @@ PRIMARY_WAVE_WSID=$(grep '^herdr_workspace_id=' "$PRIMARY_WAVE_META" | cut -d= -
 BRAVO_WAVE_WSID=$(grep '^herdr_workspace_id=' "$BRAVO_WAVE_META" | cut -d= -f2-)
 PRIMARY_WAVE_OLD_PANE=$(grep '^herdr_pane_id=' "$PRIMARY_WAVE_META" | cut -d= -f2-)
 BRAVO_WAVE_OLD_PANE=$(grep '^herdr_pane_id=' "$BRAVO_WAVE_META" | cut -d= -f2-)
-PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" stop "$HERDR_LAB_SESSION" >/dev/null \
+PATH="$HERDR_ORIGINAL_PATH" bash "$HERDR_LAB_HELPER" stop "$HERDR_LAB_SESSION" >/dev/null \
   || fail "could not stop the isolated session for concurrent recovery"
-PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION" \
+PATH="$HERDR_ORIGINAL_PATH" bash "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION" \
   || fail "could not reprovision the isolated session for concurrent recovery"
 CONCURRENT_RECOVERY_FOCUS=$(focus_snapshot)
 spawn_task "$PRIMARY_WAVE_ID" "$HOME_DIR" "$RECOVERY_PROJECT_DIR" > "$TMP_ROOT/primary-wave-resume.out" 2> "$TMP_ROOT/primary-wave-resume.err" &
@@ -1386,9 +1386,9 @@ spawn_task "$LOCK_REFUSE_ID" "$HOME_DIR" "$RECOVERY_PROJECT_DIR" > "$TMP_ROOT/lo
 LOCK_REFUSE_META="$HOME_DIR/state/$LOCK_REFUSE_ID.meta"
 LOCK_REFUSE_OLD_WT=$(remember_meta_worktree "$LOCK_REFUSE_META")
 LOCK_REFUSE_OLD_PANE=$(grep '^herdr_pane_id=' "$LOCK_REFUSE_META" | cut -d= -f2-)
-PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" stop "$HERDR_LAB_SESSION" >/dev/null \
+PATH="$HERDR_ORIGINAL_PATH" bash "$HERDR_LAB_HELPER" stop "$HERDR_LAB_SESSION" >/dev/null \
   || fail "could not stop the isolated session for resume lock-refuse"
-PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION" \
+PATH="$HERDR_ORIGINAL_PATH" bash "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION" \
   || fail "could not reprovision the isolated session for resume lock-refuse"
 
 LOCK_REFUSE_READY="$TMP_ROOT/lock-refuse-ready"
@@ -1442,9 +1442,9 @@ LOCK_WAIT_META=$LOCK_REFUSE_META
 LOCK_WAIT_OLD_WT=$LOCK_REFUSE_OLD_WT
 LOCK_WAIT_WSID=$(grep '^herdr_workspace_id=' "$LOCK_WAIT_META" | cut -d= -f2-)
 LOCK_WAIT_OLD_PANE=$LOCK_REFUSE_OLD_PANE
-PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" stop "$HERDR_LAB_SESSION" >/dev/null \
+PATH="$HERDR_ORIGINAL_PATH" bash "$HERDR_LAB_HELPER" stop "$HERDR_LAB_SESSION" >/dev/null \
   || fail "could not stop the isolated session for resume lock-wait"
-PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION" \
+PATH="$HERDR_ORIGINAL_PATH" bash "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION" \
   || fail "could not reprovision the isolated session for resume lock-wait"
 
 LOCK_WAIT_READY="$TMP_ROOT/lock-wait-ready"
@@ -1587,7 +1587,7 @@ pass "real Herdr lab: missing, renamed, and duplicate tokens trigger zero destru
 STATUS_JSON=$(lab status --json)
 HERDR_VERSION=$(printf '%s' "$STATUS_JSON" | jq -r '.client.version // "unknown"')
 PATH="$HERDR_ORIGINAL_PATH" \
-  "$HERDR_LAB_HELPER" teardown "$HERDR_LAB_SESSION" \
+  bash "$HERDR_LAB_HELPER" teardown "$HERDR_LAB_SESSION" \
   || fail "guarded Herdr lab teardown or default-session tripwire verification failed"
 LAB_READY=0
 pass "real Herdr lab validation completed on Herdr $HERDR_VERSION with the default-session tripwire intact"

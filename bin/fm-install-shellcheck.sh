@@ -14,7 +14,7 @@
 set -eu
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION="$("$ROOT/bin/fm-lint.sh" --required-version)"
+VERSION="$(bash "$ROOT/bin/fm-lint.sh" --required-version)"
 
 die() {
   printf 'fm-install-shellcheck.sh: %s\n' "$*" >&2

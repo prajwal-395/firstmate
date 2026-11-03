@@ -217,7 +217,7 @@ cmd_arm() {
   local timeout
   timeout=$(perl -e 'print int($ARGV[0] * 0.8 + 0.5)' "$interval") || timeout=30
   [ "$timeout" -ge 5 ] || timeout=5
-  "$SCRIPT_DIR/fm-procevent.sh" register quota "$CANONICAL_SOURCE_ID" \
+  bash "$SCRIPT_DIR/fm-procevent.sh" register quota "$CANONICAL_SOURCE_ID" \
     -- "$SCRIPT_DIR/fm-procevent-quota.sh" poll --interval "$interval" --threshold "$threshold" --provider "$PROVIDER" --timeout "$timeout" || exit 1
   printf 'armed: %s\n' "$CANONICAL_SOURCE_ID"
   printf 'provider: %s\n' "${PROVIDER:-(aggregate)}"
@@ -314,7 +314,7 @@ cmd_retire() {
   done
   resolve_provider "$provider"
   id=$CANONICAL_SOURCE_ID
-  "$SCRIPT_DIR/fm-procevent.sh" retire "$id"
+  bash "$SCRIPT_DIR/fm-procevent.sh" retire "$id"
 }
 
 case "${1-}" in

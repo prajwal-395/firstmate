@@ -701,7 +701,7 @@ run_pr_merge() {
   FM_TEST_TEA_LOG="$case_dir/tea.log" \
   HOME="${FM_TEST_USER_HOME:-$case_dir/user-home}" \
   PATH="$case_dir/fakebin:$PATH" \
-    "$PR_MERGE" "$@"
+    bash "$PR_MERGE" "$@"
   rc=$?
   if [ "${case_dir##*/}" = unsafe-url-segment ] && [ "$rc" -eq 2 ]; then
     echo 'error: PR URL must match https://github.com/<owner>/<repo>/pull/<number>' >&2
@@ -723,7 +723,7 @@ write_away_record() {
   local case_dir=$1
   shift
   FM_HOME="$case_dir/home" FM_STATE_OVERRIDE="$case_dir/state" \
-    "$ROOT/bin/fm-afk-contract.sh" enter "$@" >/dev/null
+    bash "$ROOT/bin/fm-afk-contract.sh" enter "$@" >/dev/null
 }
 
 test_verified_merge_records_pr_and_head() {
@@ -2399,7 +2399,7 @@ test_gitlab_missing_tool_refuses_before_recording() {
     FM_TEST_GLAB_LOG="$case_dir/glab.log" \
     FM_TEST_GLAB_JSON="$case_dir/mr.json" \
     PATH="$case_dir/no$tool" \
-      "$PR_MERGE" task-x1 "$MR_URL" > "$case_dir/stdout" 2> "$case_dir/stderr"
+      bash "$PR_MERGE" task-x1 "$MR_URL" > "$case_dir/stdout" 2> "$case_dir/stderr"
     rc=$?
     set -e
 
@@ -2641,7 +2641,7 @@ test_forgejo_missing_tool_refuses_before_recording() {
     FM_TEST_GH_AXI_LOG="$case_dir/gh-axi.log" \
     FM_TEST_TEA_LOG="$case_dir/tea.log" \
     PATH="$case_dir/no$tool" \
-      "$PR_MERGE" task-x1 "$FJ_URL" > "$case_dir/stdout" 2> "$case_dir/stderr"
+      bash "$PR_MERGE" task-x1 "$FJ_URL" > "$case_dir/stdout" 2> "$case_dir/stderr"
     rc=$?
     set -e
 
@@ -3038,7 +3038,7 @@ test_distinct_merged_prs_keep_distinct_wakes() {
     || fail "distinct-merge-wakes: first merge wake was missing or duplicated"
   [ "$(grep -c -F "$second_url" "$case_dir/state/.wake-queue")" -eq 1 ] \
     || fail "distinct-merge-wakes: second merge wake was missing or duplicated"
-  FM_STATE_OVERRIDE="$case_dir/state" "$ROOT/bin/fm-wake-drain.sh" \
+  FM_STATE_OVERRIDE="$case_dir/state" bash "$ROOT/bin/fm-wake-drain.sh" \
     >"$case_dir/drain.out" 2>"$case_dir/drain.err" \
     || fail "distinct-merge-wakes: wake drain failed"
   assert_grep "$first_url" "$case_dir/drain.out" \
@@ -4109,7 +4109,7 @@ SH
   # The lock goes with the merge rather than leaking: the captain's return
   # archives the record on its first try once the merge is done.
   FM_HOME="$case_dir/home" FM_STATE_OVERRIDE="$case_dir/state" \
-    "$ROOT/bin/fm-afk-contract.sh" archive >/dev/null \
+    bash "$ROOT/bin/fm-afk-contract.sh" archive >/dev/null \
     || fail "away-archive-at-merge: the record stayed locked after the merge"
 
   case_dir=$(make_case away-replace-at-merge)

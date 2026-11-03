@@ -164,7 +164,7 @@ QUOTA_AXI_CALLS="$CALLS" QUOTA_AXI_FIXTURE="$FIXTURE" "$FAKEBIN/quota-axi" --jso
 call_choose() {
   local output rc call_count
   output=$(QUOTA_AXI_CALLS="$CALLS" QUOTA_AXI_FIXTURE="$FIXTURE" \
-    PATH="$FAKEBIN:$PATH" "$BIN/fm-quota-choose.sh" "$@")
+    PATH="$FAKEBIN:$PATH" bash "$BIN/fm-quota-choose.sh" "$@")
   rc=$?
   call_count=$(wc -l < "$CALLS" | tr -d '[:space:]')
   [ "$call_count" = 1 ] || fail "helper took an additional quota snapshot"
@@ -181,7 +181,7 @@ ok() {
   printf 'ok - %s\n' "$1"
 }
 
-if help=$("$BIN/fm-quota-choose.sh" --help 2>&1); then
+if help=$(bash "$BIN/fm-quota-choose.sh" --help 2>&1); then
   fail "help unexpectedly exited zero"
 fi
 printf '%s\n' "$help" | grep -Fq \

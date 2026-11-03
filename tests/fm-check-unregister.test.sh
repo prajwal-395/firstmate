@@ -25,7 +25,7 @@ write_registered_check() {
 printf 'custom-ready\n'
 SH
   chmod 0700 "$home/state/$id.check.sh"
-  FM_HOME="$home" "$REGISTER" "$id" >/dev/null \
+  FM_HOME="$home" bash "$REGISTER" "$id" >/dev/null \
     || fail "could not register custom check $id"
 }
 
@@ -64,7 +64,7 @@ test_empty_id_and_empty_state_refuse_without_stray_rm() {
 
   status=0
   PATH="$home/fakebin:$PATH" STATE='' ID='' FM_HOME="$home" \
-    "$UNREGISTER" >"$out" 2>"$err" || status=$?
+    bash "$UNREGISTER" >"$out" 2>"$err" || status=$?
   expect_code 2 "$status" "unregister with no id"
   assert_contains "$(cat "$err")" "error:" "missing-id refusal had no stderr"
   assert_present "$canary_empty_id" "empty-id expansion deleted state/.check.sh"
@@ -75,7 +75,7 @@ test_empty_id_and_empty_state_refuse_without_stray_rm() {
   status=0
   : > "$log"
   PATH="$home/fakebin:$PATH" STATE='' ID='' FM_HOME="$home" \
-    "$UNREGISTER" "" >"$out" 2>"$err" || status=$?
+    bash "$UNREGISTER" "" >"$out" 2>"$err" || status=$?
   expect_code 2 "$status" "unregister with empty id"
   assert_contains "$(cat "$err")" "error:" "empty-id refusal had no stderr"
   assert_present "$canary_empty_id" "empty-string id deleted state/.check.sh"
@@ -84,7 +84,7 @@ test_empty_id_and_empty_state_refuse_without_stray_rm() {
   status=0
   : > "$log"
   PATH="$home/fakebin:$PATH" STATE='' ID='' FM_HOME="$home" \
-    "$UNREGISTER" "../escape" >"$out" 2>"$err" || status=$?
+    bash "$UNREGISTER" "../escape" >"$out" 2>"$err" || status=$?
   expect_code 2 "$status" "unregister with unsafe id"
   assert_present "$canary_empty_id" "unsafe id deleted state/.check.sh"
   assert_rm_not_invoked "$log"
@@ -94,7 +94,7 @@ test_empty_id_and_empty_state_refuse_without_stray_rm() {
   status=0
   : > "$log"
   PATH="$home/fakebin:$PATH" STATE='' ID='' FM_HOME="$home/nostate-home" \
-    "$UNREGISTER" demo-check >"$out" 2>"$err" || status=$?
+    bash "$UNREGISTER" demo-check >"$out" 2>"$err" || status=$?
   expect_code 1 "$status" "unregister with missing state dir"
   assert_contains "$(cat "$err")" "state directory is unavailable" \
     "missing state dir refusal used the wrong stderr"
@@ -107,7 +107,7 @@ test_empty_id_and_empty_state_refuse_without_stray_rm() {
   : > "$log"
   PATH="$home/fakebin:$PATH" STATE='' ID='' FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/missing-state" \
-    "$UNREGISTER" demo-check >"$out" 2>"$err" || status=$?
+    bash "$UNREGISTER" demo-check >"$out" 2>"$err" || status=$?
   expect_code 1 "$status" "unregister with empty-equivalent state override"
   assert_contains "$(cat "$err")" "state directory is unavailable" \
     "non-directory state override refusal used the wrong stderr"
@@ -119,7 +119,7 @@ test_empty_id_and_empty_state_refuse_without_stray_rm() {
   status=0
   : > "$log"
   PATH="$home/fakebin:$PATH" FM_HOME="$home" FM_STATE_OVERRIDE='' \
-    "$UNREGISTER" override-empty >"$out" 2>"$err" || status=$?
+    bash "$UNREGISTER" override-empty >"$out" 2>"$err" || status=$?
   expect_code 1 "$status" "unregister with explicitly empty state override"
   assert_contains "$(cat "$err")" "state directory is unavailable" \
     "empty state override refusal used the wrong stderr"
@@ -147,7 +147,7 @@ test_happy_path_removes_only_check_and_trust() {
   assert_present "$home/state/demo-check.check-trust" "fixture check-trust missing before unregister"
 
   status=0
-  STATE='' ID='' FM_HOME="$home" "$UNREGISTER" demo-check >"$out" 2>"$err" || status=$?
+  STATE='' ID='' FM_HOME="$home" bash "$UNREGISTER" demo-check >"$out" 2>"$err" || status=$?
   expect_code 0 "$status" "happy-path unregister"
   assert_contains "$(cat "$out")" "unregistered: state/demo-check.check.sh" \
     "happy path did not report unregistration"
@@ -169,7 +169,7 @@ test_unsafe_hardlink_or_symlink_is_refused() {
   ln "$home/state/custom.check.sh" "$alias"
 
   status=0
-  FM_HOME="$home" "$UNREGISTER" custom >"$out" 2>"$err" || status=$?
+  FM_HOME="$home" bash "$UNREGISTER" custom >"$out" 2>"$err" || status=$?
   expect_code 1 "$status" "unregister hard-linked check.sh"
   assert_contains "$(cat "$err")" "unsafe to remove" "hard-link refusal used the wrong stderr"
   assert_present "$home/state/custom.check.sh" "hard-link refusal deleted check.sh"
@@ -183,7 +183,7 @@ test_unsafe_hardlink_or_symlink_is_refused() {
   ln -s "$home/outside.check.sh" "$home/state/custom.check.sh"
 
   status=0
-  FM_HOME="$home" "$UNREGISTER" custom >"$out" 2>"$err" || status=$?
+  FM_HOME="$home" bash "$UNREGISTER" custom >"$out" 2>"$err" || status=$?
   expect_code 1 "$status" "unregister symlink check.sh"
   assert_contains "$(cat "$err")" "unsafe to remove" "symlink refusal used the wrong stderr"
   assert_present "$home/state/custom.check.sh" "symlink refusal removed the state symlink"

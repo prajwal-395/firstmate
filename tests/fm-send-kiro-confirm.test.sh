@@ -116,7 +116,7 @@ run_send() {
   (
     export FM_GATE_REFUSE_BYPASS=1 FM_SEND_SETTLE=0
     export PATH="$fb:$PATH" FM_ROOT_OVERRIDE="$dir" FM_HOME="$dir"
-    "$SEND" sess:win 'steer the kiro pane' >"$dir/out" 2>"$dir/err"
+    bash "$SEND" sess:win 'steer the kiro pane' >"$dir/out" 2>"$dir/err"
   ) || rc=$?
   printf '%s\n' "$rc" >"$dir/rc"
   printf '%s\n' "$dir"

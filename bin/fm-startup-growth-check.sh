@@ -236,7 +236,7 @@ check_due() {
 evaluate_budget() {
   local report line reason valid=yes budget='' total='' status='' exception=''
   if ! report=$(FM_HOME="$FM_HOME" FM_CONFIG_OVERRIDE="$CONFIG_DIR" FM_DATA_OVERRIDE="$DATA_DIR" \
-    "$BUDGET_BIN" report 2>&1); then
+    bash "$BUDGET_BIN" report 2>&1); then
     reason=${report##*startup-memory-budget: }
     append_finding "startup memory budget unavailable owner=bin/fm-startup-memory-budget.sh reason=${reason//$'\n'/ }"
     return 0
@@ -382,7 +382,7 @@ arm() {
   fi
   trap 'arm_failed "arming was interrupted"' HUP INT TERM
   shim_write "$want" "$state_device" || arm_failed "check shim path is unavailable"
-  FM_HOME="$home" "$REGISTER_BIN" "$CHECK_ID" >/dev/null || arm_failed "could not register the check shim"
+  FM_HOME="$home" bash "$REGISTER_BIN" "$CHECK_ID" >/dev/null || arm_failed "could not register the check shim"
   trap - HUP INT TERM
   [ -z "$ARM_BACKUP" ] || rm -f -- "$ARM_BACKUP"
   ARM_BACKUP=

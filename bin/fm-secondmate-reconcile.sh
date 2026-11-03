@@ -381,7 +381,7 @@ cmd_process_requests() {
     esac
     rc=0
     FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
-      "$SCRIPT_DIR/fm-secondmate-reconcile.sh" notify --snapshot "$claimed" \
+      bash "$SCRIPT_DIR/fm-secondmate-reconcile.sh" notify --snapshot "$claimed" \
       > "$output" 2>&1 || rc=$?
     if [ "$rc" -eq 0 ] \
       && ! grep -Eq '^(skipped|failed|sent-unrecorded):' "$output" 2>/dev/null; then
@@ -417,7 +417,7 @@ cmd_notify() {
   command -v jq >/dev/null 2>&1 || fail "jq is required"
 
   if [ -z "$snapshot_src" ]; then
-    snapshot=$("$SCRIPT_DIR/fm-fleet-snapshot.sh" --json) || fail "cannot read the fleet snapshot"
+    snapshot=$(bash "$SCRIPT_DIR/fm-fleet-snapshot.sh" --json) || fail "cannot read the fleet snapshot"
   elif [ "$snapshot_src" = - ]; then
     snapshot=$(cat)
   else
@@ -524,7 +524,7 @@ cmd_notify() {
     send_rc=0
     FM_TASK_INBOX_LOCK_WAIT_SECS=0 FM_SEND_EXPECTED_SPAWN_GEN="$sampled_spawn_gen" \
       FM_SEND_EXPECTED_REMOTE_HOST="$expected_remote_host" \
-      "$SCRIPT_DIR/fm-send.sh" "$id" --fire-and-forget "$did" \
+      bash "$SCRIPT_DIR/fm-send.sh" "$id" --fire-and-forget "$did" \
       "$(reconcile_text)" >/dev/null 2>&1 || send_rc=$?
     # exit 3 is "typed but unconfirmed": the mate may already hold the ask, so
     # record the nudge rather than risk asking twice.

@@ -371,7 +371,7 @@ wait_pid_dead "$watcher_pid" || fail "intentionally stopped watcher stayed alive
 wait_pid_dead "$arm_pid" || fail "intentionally stopped arm stayed alive"
 sleep 2
 alarm=$(FM_HOME="$HOME_DIR" FM_ROOT_OVERRIDE="$PROJECT" FM_GUARD_GRACE=1 \
-  FM_SUPERVISION_MODEL=extension "$PROJECT/bin/fm-guard.sh" 2>&1)
+  FM_SUPERVISION_MODEL=extension bash "$PROJECT/bin/fm-guard.sh" 2>&1)
 printf '%s\n' "$alarm" | grep -Fq 'WATCHER DOWN - SUPERVISION IS OFF' \
   || fail "an intentionally stopped live Pi chain did not raise the genuine outage alarm: $alarm"
 

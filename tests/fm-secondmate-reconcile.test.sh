@@ -156,7 +156,7 @@ run_remote_notify() {  # <home> <fakebin> <snapshot>
   FM_SSH_BIN="$fakebin/fake-ssh" FM_REMOTE_CODE_ROOT="$ROOT" \
     PATH="$fakebin:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
     FM_STATE_OVERRIDE="$home/state" \
-    "$RECONCILE" notify --snapshot "$snap"
+    bash "$RECONCILE" notify --snapshot "$snap"
 }
 
 # Age the home's cooldown record so the next run sees the window as elapsed.
@@ -172,7 +172,7 @@ run_notify() {  # <home> <fakebin> <name> <snapshot> [extra args...]
     FM_FAKE_TMUX_WINDOW="firstmate:fm-mate" \
     FM_FAKE_TMUX_LOG="$TMP_ROOT/$name-tmux.log" \
     FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/$name-fake/pane.txt" \
-    "$RECONCILE" notify --snapshot "$snap" "$@"
+    bash "$RECONCILE" notify --snapshot "$snap" "$@"
 }
 
 inbox_records() {  # <state-dir> <task-id>
@@ -362,7 +362,7 @@ test_the_ask_never_arms_a_reply_expectation_or_a_re_ring() {
     FM_FAKE_TMUX_WINDOW="firstmate:fm-mate" \
     FM_FAKE_TMUX_LOG="$TMP_ROOT/fireforget-tmux.log" \
     FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/fireforget-fake/pane.txt" \
-    "$ROOT/bin/fm-send.sh" mate "an ordinary steer that does expect handling" >/dev/null 2>&1 \
+    bash "$ROOT/bin/fm-send.sh" mate "an ordinary steer that does expect handling" >/dev/null 2>&1 \
     || fail "the control steer could not be recorded"
   ladder=$(FM_TASK_INBOX_GRACE_SECS=0 bash -c '. "$1"; fm_task_inbox_due_action "$2" "$3"' _ \
     "$ROOT/bin/fm-task-inbox-lib.sh" "$home/state" mate 2>&1 || true)
@@ -727,7 +727,7 @@ test_reconcile_request_rejects_an_unbounded_input_without_filling_storage() {
   { read -r home; read -r _; read -r _; } < <(make_main_home bounded-request bounded-request-mate)
   started=$(date +%s)
   if yes x | FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$home/state" \
-      FM_RECONCILE_REQUEST_MAX_BYTES=64 "$RECONCILE" request --snapshot - \
+      FM_RECONCILE_REQUEST_MAX_BYTES=64 bash "$RECONCILE" request --snapshot - \
       > "$home/request.out" 2> "$home/request.err"; then
     fail "an oversized streaming request was accepted"
   fi
@@ -748,7 +748,7 @@ test_reconcile_request_requires_one_snapshot_document() {
   write_snapshot "$quiet" single-document-mate '{"kind":null,"ids":[]}'
   cat "$snap" "$quiet" > "$stream"
   if FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$home/state" \
-      "$RECONCILE" request --snapshot "$stream" > "$home/request.out" 2> "$home/request.err"; then
+      bash "$RECONCILE" request --snapshot "$stream" > "$home/request.out" 2> "$home/request.err"; then
     fail "a multi-document reconcile request was accepted"
   fi
   files=$(find "$home/state/reconcile-notify" -maxdepth 1 -type f -name 'request-*.json' | wc -l | tr -d '[:space:]')
@@ -786,7 +786,7 @@ META
   i=0
   while [ "$i" -lt 4 ]; do
     FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$home/state" \
-      "$RECONCILE" request --snapshot "$snap" >/dev/null \
+      bash "$RECONCILE" request --snapshot "$snap" >/dev/null \
       || fail "a repeated reconcile request could not be published"
     i=$((i + 1))
   done
@@ -797,12 +797,12 @@ META
     id,spawn_gen,host:(.host // null),kind:.reconcile_inventory.kind,ids:.reconcile_inventory.ids}]}' \
     "$snap" > "$bearings"
   FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$home/state" \
-    "$RECONCILE" request --snapshot "$bearings" >/dev/null \
+    bash "$RECONCILE" request --snapshot "$bearings" >/dev/null \
     || fail "the equivalent Bearings request could not be published"
   requests=$(find "$home/state/reconcile-notify" -maxdepth 1 -type f -name 'request-*.json' | wc -l | tr -d '[:space:]')
   [ "$requests" -eq 2 ] || fail "equivalent fleet and Bearings requests used different target keys"
   FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$home/state" \
-    "$RECONCILE" request --snapshot "$snap" >/dev/null \
+    bash "$RECONCILE" request --snapshot "$snap" >/dev/null \
     || fail "the fleet request could not replace its Bearings representation"
   jq '(.secondmate_current.records[] | select(.id == "coalesce-a") | .spawn_gen) = "spawn-coalesce-a-v2"' \
     "$snap" > "$snap.next"
@@ -811,7 +811,7 @@ META
     "$home/state/coalesce-a.meta" > "$home/state/coalesce-a.meta.next"
   mv "$home/state/coalesce-a.meta.next" "$home/state/coalesce-a.meta"
   FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$home/state" \
-    "$RECONCILE" request --snapshot "$snap" >/dev/null \
+    bash "$RECONCILE" request --snapshot "$snap" >/dev/null \
     || fail "the relaunched target request could not replace its predecessor"
   requests=$(find "$home/state/reconcile-notify" -maxdepth 1 -type f -name 'request-*.json' | wc -l | tr -d '[:space:]')
   [ "$requests" -eq 2 ] || fail "a target relaunch created an additional pending request"
@@ -833,7 +833,7 @@ META
   if PATH="$fakebin:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$home/state" \
       FM_FAKE_TMUX_WINDOW='' FM_FAKE_TMUX_LOG="$home/tmux.log" \
       FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/coalesced-requests-fake/pane.txt" \
-      "$RECONCILE" process-requests > "$out"; then
+      bash "$RECONCILE" process-requests > "$out"; then
     : > "$release_a"
     : > "$release_b"
     wait "$holder_a" 2>/dev/null || true
@@ -855,7 +855,7 @@ META
   PATH="$fakebin:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$home/state" \
     FM_FAKE_TMUX_WINDOW='firstmate:fm-coalesce-a' FM_FAKE_TMUX_LOG="$home/tmux.log" \
     FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/coalesced-requests-fake/pane.txt" \
-    "$RECONCILE" process-requests > "$out" 2>&1 || true
+    bash "$RECONCILE" process-requests > "$out" 2>&1 || true
   : > "$release_b2"
   wait "$holder_b2" 2>/dev/null || true
   [ -s "$home/state/coalesce-a.reconcile-nudged" ] \
@@ -869,7 +869,7 @@ META
   PATH="$fakebin:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$home/state" \
     FM_FAKE_TMUX_WINDOW='firstmate:fm-coalesce-b' FM_FAKE_TMUX_LOG="$home/tmux.log" \
     FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/coalesced-requests-fake/pane.txt" \
-    "$RECONCILE" process-requests > "$out" 2>&1 \
+    bash "$RECONCILE" process-requests > "$out" 2>&1 \
     || fail "the remaining target request could not be delivered"
   requests=$(find "$home/state/reconcile-notify" -maxdepth 1 -type f -name '*.json' | wc -l | tr -d '[:space:]')
   [ "$requests" -eq 0 ] || fail "successful delivery did not clear the remaining coalesced request"
@@ -894,7 +894,7 @@ test_bearings_request_returns_before_remote_delivery_and_supervision_sends_later
   warm=$(FM_SSH_BIN="$fakebin/fake-ssh" FM_REMOTE_CODE_ROOT="$ROOT" \
     PATH="$fakebin:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
     FM_STATE_OVERRIDE="$home/state" FM_SNAPSHOT_BUDGET=3 FM_SNAPSHOT_NOW_EPOCH=2000 \
-    FM_BEARINGS_NOW=2026-09-01T22:00:00Z "$ROOT/bin/fm-bearings-snapshot.sh" --json) \
+    FM_BEARINGS_NOW=2026-09-01T22:00:00Z bash "$ROOT/bin/fm-bearings-snapshot.sh" --json) \
     || fail "the initial remote ledger could not seed the parent cache"
   printf '%s' "$warm" | jq -e '.secondmate_reconcile | any(.id == "remote-offpath-mate" and .kind == "orphan_in_flight")' >/dev/null \
     || fail "the warm remote ledger did not carry its inventory mismatch"
@@ -905,10 +905,10 @@ test_bearings_request_returns_before_remote_delivery_and_supervision_sends_later
     FM_SSH_BIN="$fakebin/fake-ssh" FM_REMOTE_CODE_ROOT="$ROOT" \
     PATH="$fakebin:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
     FM_STATE_OVERRIDE="$home/state" FM_SNAPSHOT_BUDGET=1 FM_SNAPSHOT_NOW_EPOCH=2000 \
-    FM_BEARINGS_NOW=2026-09-01T22:00:00Z "$ROOT/bin/fm-bearings-snapshot.sh" --json) \
+    FM_BEARINGS_NOW=2026-09-01T22:00:00Z bash "$ROOT/bin/fm-bearings-snapshot.sh" --json) \
     || fail "Bearings failed while the remote queue was delayed"
   printf '%s\n' "$snap" | FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$home/state" \
-    "$RECONCILE" request --snapshot - > "$home/request.out" \
+    bash "$RECONCILE" request --snapshot - > "$home/request.out" \
     || fail "the reconcile notify request could not be recorded"
   elapsed=$(( $(date +%s) - started ))
   [ "$elapsed" -lt 5 ] \
@@ -931,7 +931,7 @@ test_bearings_request_returns_before_remote_delivery_and_supervision_sends_later
     PATH="$fakebin:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
     FM_STATE_OVERRIDE="$home/state" FM_POLL=1 FM_HOME_SUMMARY_INTERVAL=999999 \
     FM_SECONDMATE_LIVENESS_SECS=99999999 \
-    "$ROOT/bin/fm-watch.sh" > "$home/watch.out" 2> "$home/watch.err" &
+    bash "$ROOT/bin/fm-watch.sh" > "$home/watch.out" 2> "$home/watch.err" &
   watcher=$!
   i=0
   processing=''

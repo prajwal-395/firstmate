@@ -187,7 +187,7 @@ chmod +x "$FAKEBIN/quota-axi"
 fail() { printf 'not ok - %s\n' "$1" >&2; exit 1; }
 ok() { printf 'ok - %s\n' "$1"; }
 
-if help=$("$BIN/fm-procevent-quota.sh" --help 2>&1); then
+if help=$(bash "$BIN/fm-procevent-quota.sh" --help 2>&1); then
   fail "help unexpectedly exited zero"
 fi
 printf '%s\n' "$help" | grep -Fq 'fm-procevent-quota.sh retire [--provider <provider>]' \
@@ -198,20 +198,20 @@ fi
 ok "help renders only the complete header"
 
 out=$(QUOTA_AXI_EXHAUSTED_DETAIL=1 QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" \
-  "$BIN/fm-procevent-quota.sh" poll)
+  bash "$BIN/fm-procevent-quota.sh" poll)
 printf '%s\n' "$out" | grep -qx 'status: exhausted' \
   || fail "default aggregate poll did not report exhaustion"
 printf '%s\n' "$out" | grep -qx 'quota: quota' \
   || fail "default aggregate poll did not use the aggregate source"
 ok "poll accepts its documented defaults"
 
-out=$(QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" "$BIN/fm-procevent-quota.sh" poll --interval 0.01 --threshold 10 --provider codex --timeout 1)
+out=$(QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" bash "$BIN/fm-procevent-quota.sh" poll --interval 0.01 --threshold 10 --provider codex --timeout 1)
 printf '%s\n' "$out" | grep -qx 'status: exhausted' || fail "provider watch did not report exhaustion"
 printf '%s\n' "$out" | grep -qx 'condition_polls: 2' || fail "provider watch did not wait through the healthy poll"
 ok "provider watch blocks until a model scope is exhausted"
 
 out=$(QUOTA_AXI_EXHAUSTED_DETAIL=1 QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" \
-  "$BIN/fm-procevent-quota.sh" poll --interval 1 --threshold 10 --provider codex --timeout 1)
+  bash "$BIN/fm-procevent-quota.sh" poll --interval 1 --threshold 10 --provider codex --timeout 1)
 detail=$(printf '%s\n' "$out" | sed -n 's/^detail: //p')
 printf '%s\n' "$detail" | jq -e '
   .best.scope == "all_models" and
@@ -220,31 +220,31 @@ printf '%s\n' "$detail" | jq -e '
 ok "exhausted poll records the triggering scope"
 
 out=$(QUOTA_AXI_UNKNOWN_EXHAUSTED=1 QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" \
-  "$BIN/fm-procevent-quota.sh" poll --interval 1 --threshold 10 --provider codex --timeout 1)
+  bash "$BIN/fm-procevent-quota.sh" poll --interval 1 --threshold 10 --provider codex --timeout 1)
 printf '%s\n' "$out" | grep -qx 'status: exhausted' \
   || fail "unknown headroom with exhausted runway did not wake as exhausted"
 ok "poll detects exhausted runway under unknown headroom"
 
 rm -f "$COUNT"
-out=$(QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" "$BIN/fm-procevent-quota.sh" poll --interval 0.01 --threshold 10 --provider '' --timeout 1)
+out=$(QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" bash "$BIN/fm-procevent-quota.sh" poll --interval 0.01 --threshold 10 --provider '' --timeout 1)
 printf '%s\n' "$out" | grep -qx 'status: exhausted' || fail "aggregate watch did not report exhaustion"
 printf '%s\n' "$out" | grep -qx 'condition_polls: 2' || fail "aggregate watch did not evaluate all providers"
 ok "aggregate watch blocks until any scope is exhausted"
 
 rm -f "$COUNT"
-out=$(QUOTA_AXI_EMPTY_FIRST=1 QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" "$BIN/fm-procevent-quota.sh" poll --interval 0.01 --threshold 10 --provider '' --timeout 1)
+out=$(QUOTA_AXI_EMPTY_FIRST=1 QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" bash "$BIN/fm-procevent-quota.sh" poll --interval 0.01 --threshold 10 --provider '' --timeout 1)
 printf '%s\n' "$out" | grep -qx 'status: exhausted' || fail "empty aggregate quota did not continue polling"
 printf '%s\n' "$out" | grep -qx 'condition_polls: 2' || fail "empty aggregate quota stopped early"
 ok "aggregate watch preserves empty quota uncertainty"
 
-if err=$(QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" "$BIN/fm-procevent-quota.sh" arm --provider 2>&1); then
+if err=$(QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" bash "$BIN/fm-procevent-quota.sh" arm --provider 2>&1); then
   fail "missing provider value unexpectedly armed a watch"
 fi
 [ "$err" = "error: --provider needs a value" ] || fail "missing provider value returned: $err"
 ok "arm rejects a missing provider value"
 
 for provider in -- codex-; do
-  if err=$(QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" "$BIN/fm-procevent-quota.sh" arm --provider "$provider" 2>&1); then
+  if err=$(QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" bash "$BIN/fm-procevent-quota.sh" arm --provider "$provider" 2>&1); then
     fail "noncanonical provider unexpectedly armed a watch: $provider"
   fi
   [ "$err" = "error: invalid provider: $provider" ] || fail "noncanonical provider returned: $err"
@@ -252,55 +252,55 @@ done
 ok "arm rejects noncanonical provider identities"
 
 out=$(FM_HOME="$LAB/retire-home" FM_STATE_OVERRIDE="$LAB/retire-state" \
-  "$BIN/fm-procevent-quota.sh" retire --provider codex)
+  bash "$BIN/fm-procevent-quota.sh" retire --provider codex)
 [ "$out" = "retired: quota-codex" ] || fail "provider retire targeted the wrong source: $out"
 ok "provider retire resolves the armed source id"
 
-if err=$(QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" "$BIN/fm-procevent-quota.sh" poll --interval 1 --threshold 100.5 --provider codex --timeout 1 2>&1); then
+if err=$(QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" bash "$BIN/fm-procevent-quota.sh" poll --interval 1 --threshold 100.5 --provider codex --timeout 1 2>&1); then
   fail "threshold above 100 unexpectedly started polling"
 fi
 [ "$err" = "error: --threshold needs a percent 0-100" ] || fail "invalid threshold returned: $err"
 ok "poll rejects a decimal threshold above 100"
 
 rm -f "$COUNT"
-out=$(QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" "$BIN/fm-procevent-quota.sh" poll --interval 0.01 --threshold 010 --provider codex --timeout 1)
+out=$(QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" bash "$BIN/fm-procevent-quota.sh" poll --interval 0.01 --threshold 010 --provider codex --timeout 1)
 printf '%s\n' "$out" | grep -qx 'status: exhausted' || fail "leading-zero threshold did not evaluate quota"
 printf '%s\n' "$out" | grep -qx 'condition_polls: 2' || fail "leading-zero threshold stopped before exhaustion"
 ok "poll accepts a leading-zero threshold"
 
 rm -f "$COUNT"
-out=$(QUOTA_AXI_AT_THRESHOLD=1 QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" "$BIN/fm-procevent-quota.sh" poll --interval 0.01 --threshold 10 --provider codex --timeout 1)
+out=$(QUOTA_AXI_AT_THRESHOLD=1 QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" bash "$BIN/fm-procevent-quota.sh" poll --interval 0.01 --threshold 10 --provider codex --timeout 1)
 printf '%s\n' "$out" | grep -qx 'status: low' || fail "quota below the threshold did not report low"
 printf '%s\n' "$out" | grep -qx 'condition_polls: 2' || fail "quota at the threshold fired before dropping below it"
 ok "poll fires only after quota drops below the threshold"
 
-if err=$(QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" "$BIN/fm-procevent-quota.sh" poll --provider 2>&1); then
+if err=$(QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" bash "$BIN/fm-procevent-quota.sh" poll --provider 2>&1); then
   fail "missing poll provider value unexpectedly succeeded"
 fi
 [ "$err" = "error: --provider needs a value" ] || fail "missing poll provider returned: $err"
 ok "poll rejects a missing option value"
 
 rm -f "$COUNT"
-out=$(FM_TIMEOUT_MECHANISM_OVERRIDE=bash QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" "$BIN/fm-procevent-quota.sh" poll --interval 0.01 --threshold 10 --provider codex --timeout 1)
+out=$(FM_TIMEOUT_MECHANISM_OVERRIDE=bash QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" bash "$BIN/fm-procevent-quota.sh" poll --interval 0.01 --threshold 10 --provider codex --timeout 1)
 printf '%s\n' "$out" | grep -qx 'status: exhausted' || fail "bash timeout fallback did not poll quota"
 printf '%s\n' "$out" | grep -qx 'condition_polls: 2' || fail "bash timeout fallback stopped before exhaustion"
 ok "quota polling uses the shared bash timeout fallback"
 
 for malformed in schema duplicate types range runway availability known-empty semantics-mismatch identity; do
-  out=$(QUOTA_AXI_MALFORMED="$malformed" QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" "$BIN/fm-procevent-quota.sh" poll --interval 1 --threshold 10 --provider codex --timeout 1)
+  out=$(QUOTA_AXI_MALFORMED="$malformed" QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" bash "$BIN/fm-procevent-quota.sh" poll --interval 1 --threshold 10 --provider codex --timeout 1)
   printf '%s\n' "$out" | grep -qx 'status: error' || fail "$malformed snapshot did not report an error"
   printf '%s\n' "$out" | grep -qx 'condition_polls: 1' || fail "$malformed snapshot did not stop immediately"
 done
 ok "poll rejects malformed schema-five snapshots"
 
 for malformed in schema6-keyless schema6-duplicate; do
-  out=$(QUOTA_AXI_MALFORMED="$malformed" QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" "$BIN/fm-procevent-quota.sh" poll --interval 1 --threshold 10 --provider codex --timeout 1)
+  out=$(QUOTA_AXI_MALFORMED="$malformed" QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" bash "$BIN/fm-procevent-quota.sh" poll --interval 1 --threshold 10 --provider codex --timeout 1)
   printf '%s\n' "$out" | grep -qx 'status: error' || fail "$malformed snapshot did not report an error"
   printf '%s\n' "$out" | grep -qx 'condition_polls: 1' || fail "$malformed snapshot did not stop immediately"
 done
 ok "poll rejects schema-six snapshots missing or repeating an account key"
 
-out=$(QUOTA_AXI_SCHEMA6=1 QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" "$BIN/fm-procevent-quota.sh" poll --interval 1 --threshold 10 --provider '' --timeout 1)
+out=$(QUOTA_AXI_SCHEMA6=1 QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" bash "$BIN/fm-procevent-quota.sh" poll --interval 1 --threshold 10 --provider '' --timeout 1)
 printf '%s\n' "$out" | grep -qx 'status: exhausted' || fail "schema 6 aggregate watch did not report the exhausted account"
 printf '%s\n' "$out" | grep -qx 'condition_polls: 1' || fail "schema 6 aggregate watch did not fire on the first poll"
 detail=$(printf '%s\n' "$out" | sed -n 's/^detail: //p')
@@ -311,12 +311,12 @@ printf '%s\n' "$detail" | jq -e '
 ' >/dev/null || fail "schema 6 aggregate detail did not keep each account separate: $detail"
 ok "aggregate watch reads every schema 6 account row without combining them"
 
-out=$(QUOTA_AXI_SCHEMA6=1 QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" "$BIN/fm-procevent-quota.sh" poll --interval 1 --threshold 10 --provider cursor --timeout 1)
+out=$(QUOTA_AXI_SCHEMA6=1 QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" bash "$BIN/fm-procevent-quota.sh" poll --interval 1 --threshold 10 --provider cursor --timeout 1)
 printf '%s\n' "$out" | grep -qx 'status: low' || fail "schema 6 provider watch included another provider's exhausted account"
 detail=$(printf '%s\n' "$out" | sed -n 's/^detail: //p')
 printf '%s\n' "$detail" | jq -e '.provider == "cursor" and .accountKey == "default" and .best.effectivePercentRemaining == 5' >/dev/null \
   || fail "schema 6 provider detail did not name the default account: $detail"
-out=$(QUOTA_AXI_SCHEMA6=1 QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" "$BIN/fm-procevent-quota.sh" poll --interval 1 --threshold 10 --provider codex --timeout 1)
+out=$(QUOTA_AXI_SCHEMA6=1 QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" bash "$BIN/fm-procevent-quota.sh" poll --interval 1 --threshold 10 --provider codex --timeout 1)
 printf '%s\n' "$out" | grep -qx 'status: exhausted' || fail "expanded provider watch did not report the exhausted account"
 printf '%s\n' "$out" | grep -qx 'condition_polls: 1' || fail "expanded provider watch did not stop immediately"
 detail=$(printf '%s\n' "$out" | sed -n 's/^detail: //p')
@@ -329,7 +329,7 @@ printf '%s\n' "$detail" | jq -e '
 ' >/dev/null || fail "provider watch did not preserve independent account evidence: $detail"
 ok "provider watch classifies every matching account and preserves accountKey in details"
 
-out=$(QUOTA_AXI_SCHEMA5_PAIR=1 QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" "$BIN/fm-procevent-quota.sh" poll --interval 1 --threshold 10 --provider codex --timeout 1)
+out=$(QUOTA_AXI_SCHEMA5_PAIR=1 QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" bash "$BIN/fm-procevent-quota.sh" poll --interval 1 --threshold 10 --provider codex --timeout 1)
 printf '%s\n' "$out" | grep -qx 'status: low' || fail "schema 5 provider watch did not bind the keyless codex row"
 detail=$(printf '%s\n' "$out" | sed -n 's/^detail: //p')
 printf '%s\n' "$detail" | jq -e '.provider == "codex" and (has("accountKey") | not) and .best.effectivePercentRemaining == 3' >/dev/null \
@@ -337,20 +337,20 @@ printf '%s\n' "$detail" | jq -e '.provider == "codex" and (has("accountKey") | n
 ok "the same path still binds a schema 5 row by provider alone"
 
 rm -f "$COUNT"
-out=$(QUOTA_AXI_UNKNOWN_FIRST=1 QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" "$BIN/fm-procevent-quota.sh" poll --interval 0.01 --threshold 10 --provider codex --timeout 1)
+out=$(QUOTA_AXI_UNKNOWN_FIRST=1 QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" bash "$BIN/fm-procevent-quota.sh" poll --interval 0.01 --threshold 10 --provider codex --timeout 1)
 printf '%s\n' "$out" | grep -qx 'status: exhausted' || fail "unknown quota did not continue to exhaustion"
 printf '%s\n' "$out" | grep -qx 'condition_polls: 2' || fail "unknown quota stopped polling"
 ok "poll preserves provider-level unknown quota"
 
 rm -f "$COUNT"
-out=$(QUOTA_AXI_KNOWN_UNKNOWN_FIRST=1 QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" "$BIN/fm-procevent-quota.sh" poll --interval 0.01 --threshold 10 --provider codex --timeout 1)
+out=$(QUOTA_AXI_KNOWN_UNKNOWN_FIRST=1 QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" bash "$BIN/fm-procevent-quota.sh" poll --interval 0.01 --threshold 10 --provider codex --timeout 1)
 printf '%s\n' "$out" | grep -qx 'status: exhausted' || fail "known semantics with unknown headroom did not continue polling"
 printf '%s\n' "$out" | grep -qx 'condition_polls: 2' || fail "known semantics with unknown headroom stopped early"
 ok "poll preserves unknown headroom under known semantics"
 
 # One slow (timed-out) read then a good read must keep the watch live.
 rm -f "$COUNT"
-out=$(QUOTA_AXI_SLOW_FIRST=1 QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" "$BIN/fm-procevent-quota.sh" poll --interval 0.01 --threshold 10 --provider codex --timeout 1)
+out=$(QUOTA_AXI_SLOW_FIRST=1 QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" bash "$BIN/fm-procevent-quota.sh" poll --interval 0.01 --threshold 10 --provider codex --timeout 1)
 printf '%s\n' "$out" | grep -qx 'status: exhausted' \
   || fail "one slow read then a good read did not stay live: $out"
 printf '%s\n' "$out" | grep -qx 'condition_polls: 3' \
@@ -359,7 +359,7 @@ ok "one slow read then a good read stays live"
 
 # N consecutive timed-out reads go terminal with distinct slow-read detail.
 rm -f "$COUNT"
-out=$(QUOTA_AXI_ALWAYS_SLOW=1 QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" "$BIN/fm-procevent-quota.sh" poll --interval 0.01 --threshold 10 --provider codex --timeout 1)
+out=$(QUOTA_AXI_ALWAYS_SLOW=1 QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" bash "$BIN/fm-procevent-quota.sh" poll --interval 0.01 --threshold 10 --provider codex --timeout 1)
 printf '%s\n' "$out" | grep -qx 'status: error' \
   || fail "consecutive slow reads did not go terminal: $out"
 printf '%s\n' "$out" | grep -qx 'condition_polls: 3' \
@@ -387,7 +387,7 @@ ok "missing quota-axi reports missing immediately"
 
 # An incompatible quota-axi reports incompatible (distinct from missing and slow).
 rm -f "$COUNT"
-out=$(QUOTA_AXI_VERSION=0.1.50 QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" "$BIN/fm-procevent-quota.sh" poll --interval 0.01 --threshold 10 --provider codex --timeout 1)
+out=$(QUOTA_AXI_VERSION=0.1.50 QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" bash "$BIN/fm-procevent-quota.sh" poll --interval 0.01 --threshold 10 --provider codex --timeout 1)
 printf '%s\n' "$out" | grep -qx 'status: error' \
   || fail "incompatible quota-axi did not go terminal: $out"
 printf '%s\n' "$out" | grep -qx 'detail: quota-axi is incompatible' \
@@ -403,7 +403,7 @@ ok "incompatible quota-axi reports incompatible immediately"
 # A healthy read must reset the consecutive-failure streak: two timeouts, one
 # healthy, two more timeouts, then exhausted reaches the sixth poll.
 rm -f "$COUNT"
-out=$(QUOTA_AXI_RESET_STREAK=1 QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" "$BIN/fm-procevent-quota.sh" poll --interval 0.01 --threshold 10 --provider codex --timeout 1)
+out=$(QUOTA_AXI_RESET_STREAK=1 QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" bash "$BIN/fm-procevent-quota.sh" poll --interval 0.01 --threshold 10 --provider codex --timeout 1)
 printf '%s\n' "$out" | grep -qx 'status: exhausted' \
   || fail "reset-streak sequence did not stay live through six polls: $out"
 printf '%s\n' "$out" | grep -qx 'condition_polls: 6' \
@@ -412,7 +412,7 @@ ok "a healthy read resets the consecutive-failure streak"
 
 # A slow --version probe is a timeout, not an incompatible tool.
 rm -f "$COUNT"
-out=$(QUOTA_AXI_SLOW_VERSION=1 QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" "$BIN/fm-procevent-quota.sh" poll --interval 0.01 --threshold 10 --provider codex --timeout 1)
+out=$(QUOTA_AXI_SLOW_VERSION=1 QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" bash "$BIN/fm-procevent-quota.sh" poll --interval 0.01 --threshold 10 --provider codex --timeout 1)
 printf '%s\n' "$out" | grep -qx 'status: error' \
   || fail "slow version probe did not go terminal: $out"
 printf '%s\n' "$out" | grep -Fq '3 consecutive read failures; last quota-axi read timed out' \
@@ -423,7 +423,7 @@ ok "slow version probe reports timeout not incompatible"
 
 # A failing --version probe is an execution failure, not an incompatible tool.
 rm -f "$COUNT"
-out=$(QUOTA_AXI_VERSION_FAIL=1 QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" "$BIN/fm-procevent-quota.sh" poll --interval 0.01 --threshold 10 --provider codex --timeout 1)
+out=$(QUOTA_AXI_VERSION_FAIL=1 QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" bash "$BIN/fm-procevent-quota.sh" poll --interval 0.01 --threshold 10 --provider codex --timeout 1)
 printf '%s\n' "$out" | grep -qx 'status: error' \
   || fail "failing version probe did not go terminal: $out"
 printf '%s\n' "$out" | grep -Fq '3 consecutive read failures; last quota-axi read failed' \
@@ -435,7 +435,7 @@ printf '%s\n' "$out" | grep -Fq 'timed out' \
 ok "failing version probe reports failure not incompatible"
 
 rm -f "$COUNT"
-out=$(QUOTA_AXI_VERSION_FAIL=1 QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" "$BIN/fm-procevent-quota.sh" poll --interval 0.01 --threshold 10 --provider codex)
+out=$(QUOTA_AXI_VERSION_FAIL=1 QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" bash "$BIN/fm-procevent-quota.sh" poll --interval 0.01 --threshold 10 --provider codex)
 printf '%s\n' "$out" | grep -qx 'status: error' \
   || fail "untimed failing version probe did not go terminal: $out"
 printf '%s\n' "$out" | grep -qx 'condition_polls: 3' \
@@ -449,7 +449,7 @@ ok "untimed failing version probe reports failure not incompatible"
 # Mixed streak: two immediate JSON failures then one timeout - wording names the
 # streak and the last cause, without calling every failure a slow read.
 rm -f "$COUNT"
-out=$(QUOTA_AXI_FAIL_THEN_SLOW=1 QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" "$BIN/fm-procevent-quota.sh" poll --interval 0.01 --threshold 10 --provider codex --timeout 1)
+out=$(QUOTA_AXI_FAIL_THEN_SLOW=1 QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" bash "$BIN/fm-procevent-quota.sh" poll --interval 0.01 --threshold 10 --provider codex --timeout 1)
 printf '%s\n' "$out" | grep -qx 'status: error' \
   || fail "mixed failure streak did not go terminal: $out"
 printf '%s\n' "$out" | grep -Fq '3 consecutive read failures; last quota-axi read timed out' \
@@ -464,7 +464,7 @@ ok "mixed failure streak names the last cause without calling all reads slow"
 rm -f "$COUNT" "$VERSION_COUNT"
 out=$(QUOTA_AXI_VERSION_OK_COUNT=1 QUOTA_AXI_VERSION_LATER=fail \
   QUOTA_AXI_COUNT="$COUNT" QUOTA_AXI_VERSION_COUNT="$VERSION_COUNT" \
-  PATH="$FAKEBIN:$PATH" "$BIN/fm-procevent-quota.sh" poll --interval 0.01 --threshold 10 --provider codex --timeout 1)
+  PATH="$FAKEBIN:$PATH" bash "$BIN/fm-procevent-quota.sh" poll --interval 0.01 --threshold 10 --provider codex --timeout 1)
 printf '%s\n' "$out" | grep -qx 'status: error' \
   || fail "later version failure did not go terminal: $out"
 printf '%s\n' "$out" | grep -qx 'condition_polls: 4' \
@@ -483,7 +483,7 @@ ok "later version probe failure reports failed not incompatible"
 rm -f "$COUNT" "$VERSION_COUNT"
 out=$(QUOTA_AXI_VERSION_OK_COUNT=1 QUOTA_AXI_VERSION_LATER=slow \
   QUOTA_AXI_COUNT="$COUNT" QUOTA_AXI_VERSION_COUNT="$VERSION_COUNT" \
-  PATH="$FAKEBIN:$PATH" "$BIN/fm-procevent-quota.sh" poll --interval 0.01 --threshold 10 --provider codex --timeout 1)
+  PATH="$FAKEBIN:$PATH" bash "$BIN/fm-procevent-quota.sh" poll --interval 0.01 --threshold 10 --provider codex --timeout 1)
 printf '%s\n' "$out" | grep -qx 'status: error' \
   || fail "later slow version probe did not go terminal: $out"
 printf '%s\n' "$out" | grep -qx 'condition_polls: 4' \

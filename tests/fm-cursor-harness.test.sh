@@ -371,20 +371,20 @@ test_cursor_marker_outranks_inherited_claudecode() {
   fm_fake_blind_ancestry "$fakebin"
   # This is the exact hazard: cursor does NOT clear an inherited CLAUDECODE, so
   # a cursor session started by hand under a claude primary carries both markers.
-  out=$(PATH="$fakebin:$base_path" CLAUDECODE=1 CURSOR_AGENT=1 "$HARNESS")
+  out=$(PATH="$fakebin:$base_path" CLAUDECODE=1 CURSOR_AGENT=1 bash "$HARNESS")
   [ "$out" = cursor ] || fail "CLAUDECODE + CURSOR_AGENT must detect cursor, got '$out'"
-  out=$(PATH="$fakebin:$base_path" CLAUDECODE=1 CURSOR_INVOKED_AS=cursor-agent "$HARNESS")
+  out=$(PATH="$fakebin:$base_path" CLAUDECODE=1 CURSOR_INVOKED_AS=cursor-agent bash "$HARNESS")
   [ "$out" = cursor ] || fail "CLAUDECODE + CURSOR_INVOKED_AS must detect cursor, got '$out'"
   # Both cursor markers stand alone, and neither steals a plain claude session.
-  out=$(env -u CLAUDECODE PATH="$fakebin:$base_path" CURSOR_AGENT=1 "$HARNESS")
+  out=$(env -u CLAUDECODE PATH="$fakebin:$base_path" CURSOR_AGENT=1 bash "$HARNESS")
   [ "$out" = cursor ] || fail "CURSOR_AGENT alone must detect cursor, got '$out'"
   out=$(env -u CURSOR_AGENT -u CURSOR_INVOKED_AS PATH="$fakebin:$base_path" \
-        CLAUDECODE=1 "$HARNESS")
+        CLAUDECODE=1 bash "$HARNESS")
   [ "$out" = claude ] || fail "CLAUDECODE alone must still detect claude, got '$out'"
   # A CURSOR_* variable that is not the invocation identity proves nothing.
   out=$(env -u CURSOR_AGENT PATH="$fakebin:$base_path" CLAUDECODE=1 \
         CURSOR_API_ENDPOINT=https://example \
-        CURSOR_INVOKED_AS=something-else "$HARNESS")
+        CURSOR_INVOKED_AS=something-else bash "$HARNESS")
   [ "$out" = claude ] \
     || fail "an unrelated CURSOR_* setting must not claim the cursor identity, got '$out'"
   # The ordering is a marker-layer tiebreak, not a licence to overrule the

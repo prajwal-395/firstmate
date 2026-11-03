@@ -39,14 +39,14 @@ wait_dead() {
 
 test_healthy_server_is_reused_and_dead_one_restarted() {
   local first second pid1 pid2
-  first=$("$SERVER" ensure "$STATE" default task-a) || fail "the default server did not start"
+  first=$(bash "$SERVER" ensure "$STATE" default task-a) || fail "the default server did not start"
   pid1=$(server_pid default)
-  second=$("$SERVER" ensure "$STATE" default task-b) || fail "a healthy server was not reused"
+  second=$(bash "$SERVER" ensure "$STATE" default task-b) || fail "a healthy server was not reused"
   [ "$first" = "$second" ] || fail "a reused server changed its address: $first vs $second"
   [ "$(server_pid default)" = "$pid1" ] || fail "reusing a healthy server started another"
   kill "$pid1"
   wait_dead "$pid1" || fail "the fake server did not stop"
-  "$SERVER" ensure "$STATE" default task-c >/dev/null || fail "a dead server was not restarted"
+  bash "$SERVER" ensure "$STATE" default task-c >/dev/null || fail "a dead server was not restarted"
   pid2=$(server_pid default)
   [ "$pid2" != "$pid1" ] || fail "the restarted server reused the dead process"
   kill -0 "$pid2" 2>/dev/null || fail "the restarted server is not a live new process"
@@ -56,12 +56,12 @@ test_healthy_server_is_reused_and_dead_one_restarted() {
 test_release_keeps_server_until_last_lease_leaves() {
   local pid
   pid=$(server_pid default)
-  "$SERVER" release "$STATE" default task-a ses_one "$TEST_ROOT/wt" || fail "releasing task-a failed"
+  bash "$SERVER" release "$STATE" default task-a ses_one "$TEST_ROOT/wt" || fail "releasing task-a failed"
   grep -q "POST /session/ses_one/abort $TEST_ROOT/wt" "$FAKE/api.log" || fail "release did not abort the task session"
   grep -q "DELETE /session/ses_one $TEST_ROOT/wt" "$FAKE/api.log" || fail "release did not delete the task session"
-  "$SERVER" release "$STATE" default task-b || fail "releasing task-b failed"
+  bash "$SERVER" release "$STATE" default task-b || fail "releasing task-b failed"
   kill -0 "$pid" 2>/dev/null || fail "the server stopped while task-c still held a lease"
-  "$SERVER" release "$STATE" default task-c || fail "releasing the last lease failed"
+  bash "$SERVER" release "$STATE" default task-c || fail "releasing the last lease failed"
   wait_dead "$pid" || fail "the server outlived its last lease"
   [ ! -e "$STATE/opencode-server-default" ] || fail "a stopped server left its record behind"
   pass "release ends the task session and stops the server only after the last lease"
@@ -70,23 +70,23 @@ test_release_keeps_server_until_last_lease_leaves() {
 test_profiles_get_separate_servers_on_their_own_databases() {
   local main_url default_url port
   touch "$TEST_ROOT/main.db"
-  main_url=$("$SERVER" ensure "$STATE" default task-d | cut -f1) || fail "the default server did not start"
+  main_url=$(bash "$SERVER" ensure "$STATE" default task-d | cut -f1) || fail "the default server did not start"
   # A pinned profile proves its database through the workspace library before
   # it starts; a missing workspace id must refuse rather than start unpinned.
-  if "$SERVER" ensure "$STATE" main task-e 2>/dev/null; then
+  if bash "$SERVER" ensure "$STATE" main task-e 2>/dev/null; then
     fail "a pinned profile started without its workspace id"
   fi
   [ ! -e "$STATE/opencode-server-main" ] || fail "a refused pinned profile still recorded a server"
   default_url=$main_url
   port=${default_url##*:}
   [ -z "$(cat "$FAKE/servers/$port.db")" ] || fail "the default server must run on the machine's own database"
-  "$SERVER" release "$STATE" default task-d || fail "releasing task-d failed"
+  bash "$SERVER" release "$STATE" default task-d || fail "releasing task-d failed"
   pass "the default profile runs unpinned and a pinned profile refuses without its workspace"
 }
 
 test_start_failure_reports_unavailable() {
   touch "$FAKE/serve-fails"
-  if FM_OPENCODE_SERVER_START_POLLS=4 "$SERVER" ensure "$STATE" default task-f 2>/dev/null; then
+  if FM_OPENCODE_SERVER_START_POLLS=4 bash "$SERVER" ensure "$STATE" default task-f 2>/dev/null; then
     fail "a server that cannot start was reported available"
   fi
   rm -f "$FAKE/serve-fails"
@@ -96,39 +96,39 @@ test_start_failure_reports_unavailable() {
 
 test_prompt_carries_model_and_variant() {
   local url session
-  url=$("$SERVER" ensure "$STATE" default task-g | cut -f1) || fail "the default server did not start"
+  url=$(bash "$SERVER" ensure "$STATE" default task-g | cut -f1) || fail "the default server did not start"
   [ -n "$url" ] || fail "ensure printed no address"
-  session=$("$SERVER" session "$STATE" default "$TEST_ROOT/wt" "Firstmate task task-g" task-g generation-g) || fail "session creation failed"
-  "$SERVER" prompt "$STATE" default "$session" "$TEST_ROOT/wt" anthropic/claude-sonnet-4-5 high 'Read the brief.' \
+  session=$(bash "$SERVER" session "$STATE" default "$TEST_ROOT/wt" "Firstmate task task-g" task-g generation-g) || fail "session creation failed"
+  bash "$SERVER" prompt "$STATE" default "$session" "$TEST_ROOT/wt" anthropic/claude-sonnet-4-5 high 'Read the brief.' \
     || fail "prompt submission failed"
   [ "$(jq -r '.model.providerID + "|" + .model.modelID + "|" + .variant + "|" + .parts[0].text' "$FAKE/prompt.json")" \
     = 'anthropic|claude-sonnet-4-5|high|Read the brief.' ] || fail "prompt lost its model, variant, or text: $(cat "$FAKE/prompt.json")"
-  "$SERVER" prompt "$STATE" default "$session" "$TEST_ROOT/wt" '' '' 'Next.' || fail "default-model prompt failed"
+  bash "$SERVER" prompt "$STATE" default "$session" "$TEST_ROOT/wt" '' '' 'Next.' || fail "default-model prompt failed"
   [ "$(jq -c 'has("model"), has("variant")' "$FAKE/prompt.json" | tr '\n' ' ')" = 'false false ' ] \
     || fail "a default-model prompt must leave the model to the server: $(cat "$FAKE/prompt.json")"
-  "$SERVER" release "$STATE" default task-g "$session" "$TEST_ROOT/wt" || fail "releasing task-g failed"
+  bash "$SERVER" release "$STATE" default task-g "$session" "$TEST_ROOT/wt" || fail "releasing task-g failed"
   pass "the first prompt carries the task's model and effort variant, and omits them when unset"
 }
 
 test_reused_worktree_session_events_belong_only_to_current_task() {
   local first second old_gen current_gen
-  "$SERVER" ensure "$STATE" default old-tenant >/dev/null || fail "the shared server did not start for the old tenant"
-  "$SERVER" ensure "$STATE" default current-tenant >/dev/null || fail "the shared server was not reused for the current tenant"
-  old_gen=$("$ROOT/bin/fm-busy-event.sh" arm "$STATE" old-tenant) || fail "the old tenant busy state was not armed"
-  current_gen=$("$ROOT/bin/fm-busy-event.sh" arm "$STATE" current-tenant) || fail "the current tenant busy state was not armed"
-  first=$("$SERVER" session "$STATE" default "$TEST_ROOT/wt" "Firstmate task old-tenant" old-tenant "$old_gen") \
+  bash "$SERVER" ensure "$STATE" default old-tenant >/dev/null || fail "the shared server did not start for the old tenant"
+  bash "$SERVER" ensure "$STATE" default current-tenant >/dev/null || fail "the shared server was not reused for the current tenant"
+  old_gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$STATE" old-tenant) || fail "the old tenant busy state was not armed"
+  current_gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$STATE" current-tenant) || fail "the current tenant busy state was not armed"
+  first=$(bash "$SERVER" session "$STATE" default "$TEST_ROOT/wt" "Firstmate task old-tenant" old-tenant "$old_gen") \
     || fail "the old tenant session was not created"
-  "$SERVER" release "$STATE" default old-tenant "$first" "$TEST_ROOT/wt" || fail "the old tenant session was not retired"
-  "$SERVER" event "$STATE" default "$first" turn-end || fail "a late old-tenant event was not safely ignored"
+  bash "$SERVER" release "$STATE" default old-tenant "$first" "$TEST_ROOT/wt" || fail "the old tenant session was not retired"
+  bash "$SERVER" event "$STATE" default "$first" turn-end || fail "a late old-tenant event was not safely ignored"
   [ ! -e "$STATE/old-tenant.turn-ended" ] || fail "the reused worktree's stale session touched the earlier tenant"
-  second=$("$SERVER" session "$STATE" default "$TEST_ROOT/wt" "Firstmate task current-tenant" current-tenant "$current_gen") \
+  second=$(bash "$SERVER" session "$STATE" default "$TEST_ROOT/wt" "Firstmate task current-tenant" current-tenant "$current_gen") \
     || fail "the current tenant session was not created"
-  "$SERVER" event "$STATE" default "$second" turn-end || fail "the current tenant turn-end event failed"
+  bash "$SERVER" event "$STATE" default "$second" turn-end || fail "the current tenant turn-end event failed"
   [ -e "$STATE/current-tenant.turn-ended" ] || fail "the current tenant did not receive its own turn-end"
   [ ! -e "$STATE/old-tenant.turn-ended" ] || fail "the current tenant event touched the earlier tenant"
-  "$SERVER" event "$STATE" default "$second" busy || fail "the current tenant busy event failed"
+  bash "$SERVER" event "$STATE" default "$second" busy || fail "the current tenant busy event failed"
   grep -q 'state=busy' "$STATE/current-tenant.busy-state" || fail "the current session's busy event did not reach its task"
-  "$SERVER" release "$STATE" default current-tenant "$second" "$TEST_ROOT/wt" || fail "the current tenant session was not retired"
+  bash "$SERVER" release "$STATE" default current-tenant "$second" "$TEST_ROOT/wt" || fail "the current tenant session was not retired"
   pass "two sequential tasks sharing a worktree slot route turn-end only to the current session owner"
 }
 

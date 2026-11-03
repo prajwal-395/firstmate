@@ -143,7 +143,7 @@ if [ "$PROVIDER" = github ] && [ "${FM_PR_CHECK_MERGE:-}" != 1 ] && command -v g
   fi
 fi
 
-"$FM_ROOT/bin/fm-guard.sh" || true
+bash "$FM_ROOT/bin/fm-guard.sh" || true
 
 # pr_head is recorded only when the forge's CLI can supply it. gh exposes the
 # head commit as a selectable field; plain glab exposes it only inside its JSON
@@ -257,7 +257,7 @@ fi
 # owns verdict freshness, required actors and external feedback separately from
 # the exact merged-state poll. Registration is local and performs no forge read.
 if command -v jq >/dev/null 2>&1; then
-  "$SCRIPT_DIR/fm-contributions.sh" arm >/dev/null \
+  bash "$SCRIPT_DIR/fm-contributions.sh" arm >/dev/null \
     || printf 'contributions: observation not armed; coverage is unconfirmed\n' >&2
 else
   printf 'contributions: jq unavailable; coverage is unconfirmed\n' >&2

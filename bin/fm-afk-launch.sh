@@ -280,7 +280,7 @@ fm_afk_launch_quiet_needs_nothing() {
     FM_AFK_LAUNCH_QUIET_WHY="$FM_SUPERVISION_HOST_UNREADY${FM_SUPERVISION_ENGINE_PROBLEM:+: $FM_SUPERVISION_ENGINE_PROBLEM}"
   elif ! fm_supervision_host_main_key "$FM_AFK_LAUNCH_STATE" >/dev/null; then
     FM_AFK_LAUNCH_QUIET_WHY="the main session could not be identified"
-  elif ! FM_STATE_OVERRIDE="$FM_AFK_LAUNCH_STATE" "$FM_AFK_LAUNCH_DIR/fm-host-mirror.sh" check; then
+  elif ! FM_STATE_OVERRIDE="$FM_AFK_LAUNCH_STATE" bash "$FM_AFK_LAUNCH_DIR/fm-host-mirror.sh" check; then
     FM_AFK_LAUNCH_QUIET_WHY="the dialog mirror is missing or could not be read"
   fi
   [ -z "$FM_AFK_LAUNCH_QUIET_WHY" ]
@@ -386,7 +386,7 @@ fm_afk_launch_enter() {
         return 3 ;;
     esac
   fi
-  "$FM_AFK_CONTRACT_CMD" enter "$@" || return
+  bash "$FM_AFK_CONTRACT_CMD" enter "$@" || return
   fm_afk_launch_host_engine_note
 }
 
@@ -938,7 +938,7 @@ fm_afk_launch_stop() {
     result=1
   fi
   if [ "$result" -eq 0 ] && fm_afk_contract_present "$FM_AFK_LAUNCH_STATE"; then
-    if archived=$("$FM_AFK_CONTRACT_CMD" archive); then
+    if archived=$(bash "$FM_AFK_CONTRACT_CMD" archive); then
       fm_afk_launch_log "away-posture record archived at $archived"
     else
       fm_afk_launch_log "failed to archive the away-posture record; it still stands"

@@ -27,12 +27,12 @@ DRAIN="$ROOT/bin/fm-wake-drain.sh"
 ack_stopped_cycle() {  # <state>
   local state=$1 err sequence generation
   err="$state/.test-cycle-drain.err"
-  FM_STATE_OVERRIDE="$state" "$DRAIN" >/dev/null 2> "$err" || return 1
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" >/dev/null 2> "$err" || return 1
   sequence=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation [A-Za-z0-9._-][A-Za-z0-9._-]*$/\1/p' "$err")
   generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through [0-9][0-9]* --recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$err")
   rm -f "$err"
   [ -n "$sequence" ] && [ -n "$generation" ] || return 1
-  FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-through "$sequence" \
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" --ack-through "$sequence" \
     --recovery-generation "$generation"
 }
 
@@ -192,7 +192,7 @@ wedge_threshold_round() {  # <state> <fakebin> <out> <capture> <window> <verdict
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_PAUSE_RESURFACE_SECS="${FM_TEST_PAUSE_RESURFACE:-999}" FM_STALE_ESCALATE_SECS="${FM_TEST_STALE_ESCALATE:-1}" \
     FM_POLL=1 FM_SIGNAL_GRACE=1 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" >> "$out" &
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 bash "$WATCH" >> "$out" &
   pid=$!
   if [ "$mode" = exit ]; then
     wait_for_exit "$pid" 100 || { reap "$pid"; return 1; }
@@ -253,7 +253,7 @@ run_hold() {  # <dir> <args...>
   local dir=$1
   shift
   FM_HOME="$dir" FM_STATE_OVERRIDE="$dir/state" FM_DATA_OVERRIDE="$dir/data" \
-    FM_CONFIG_OVERRIDE="$dir/config" "$ROOT/bin/fm-captain-hold.sh" "$@" >/dev/null 2>&1
+    FM_CONFIG_OVERRIDE="$dir/config" bash "$ROOT/bin/fm-captain-hold.sh" "$@" >/dev/null 2>&1
 }
 
 # --- the away-posture record: captain-held items are never rechecked ----------
@@ -270,12 +270,12 @@ iso_utc_at() {  # <epoch>
 }
 
 write_away_record() {  # <state>
-  if ! FM_HOME="$(dirname "$1")" FM_STATE_OVERRIDE="$1" "$ROOT/bin/fm-afk-contract.sh" enter >/dev/null 2>&1; then
+  if ! FM_HOME="$(dirname "$1")" FM_STATE_OVERRIDE="$1" bash "$ROOT/bin/fm-afk-contract.sh" enter >/dev/null 2>&1; then
     fail "could not write the away-posture record in $1"
   fi
 }
 
 archive_away_record() {  # <state>
-  FM_HOME="$(dirname "$1")" FM_STATE_OVERRIDE="$1" "$ROOT/bin/fm-afk-contract.sh" archive >/dev/null 2>&1 \
+  FM_HOME="$(dirname "$1")" FM_STATE_OVERRIDE="$1" bash "$ROOT/bin/fm-afk-contract.sh" archive >/dev/null 2>&1 \
     || fail "could not archive the away-posture record in $1"
 }

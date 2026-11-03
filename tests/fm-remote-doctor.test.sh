@@ -324,7 +324,7 @@ doctor() {
     SHELL="${CASE_ENV_SHELL-${SHELL-}}" \
     FM_REMOTE_JOB_PLATFORM_OVERRIDE="${CASE_PLATFORM_OVERRIDE-}" \
     FM_REMOTE_JOB_ACTIVE="${CASE_REMOTE_JOB_ACTIVE-1}" \
-    "$ROOT/bin/fm-remote-doctor.sh" "$@" 2>&1
+    bash "$ROOT/bin/fm-remote-doctor.sh" "$@" 2>&1
   )
   DOCTOR_RC=$?
   set -e
@@ -848,7 +848,7 @@ for tool in herdr tasks-axi treehouse claude; do
   ln -s "$CASE_BIN/$tool" "$CASE_HOME/.local/bin/$tool"
 done
 HOME="$CASE_HOME" FM_ROOT_OVERRIDE="$ROOT" FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux \
-  "$ROOT/bin/fm-remote-job-worker.sh" > "$CASE_STATE/worker.out" 2> "$CASE_STATE/worker.err" &
+  /bin/bash "$ROOT/bin/fm-remote-job-worker.sh" > "$CASE_STATE/worker.out" 2> "$CASE_STATE/worker.err" &
 DOCTOR_WORKER_PID=$!
 for _ in $(seq 1 100); do
   [ -f "$CASE_HOME/.firstmate/remote-job/worker.ready" ] && break

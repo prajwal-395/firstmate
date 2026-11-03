@@ -299,7 +299,7 @@ cmd_launch() {
   esac
   case "$effort" in -|low|medium|high|xhigh|max|ultra) ;; *) die "invalid remote secondmate effort: $effort" ;; esac
   if [ "$effort" = ultra ]; then
-    "$SCRIPT_DIR/fm-harness.sh" validate-native-effort "$harness" "$model" "$effort" || return 1
+    bash "$SCRIPT_DIR/fm-harness.sh" validate-native-effort "$harness" "$model" "$effort" || return 1
   fi
   # The selected backend's session-provider server must survive every SSH
   # disconnection a remote route depends on: the herdr server belongs to the
@@ -350,7 +350,7 @@ cmd_launch() {
     FM_CONFIG_OVERRIDE="$TARGET_HOME/config" FM_SKIP_SECONDMATE_INHERIT=1
     FM_SKIP_SECONDMATE_SYNC=1)
   [ "$selected_backend" != herdr ] || launch_env=("HERDR_SESSION=$REMOTE_HERDR_SESSION" "${launch_env[@]}")
-  if ! out=$(env "${launch_env[@]}" "$SCRIPT_DIR/fm-spawn.sh" "${ARGS[@]}" 2>&1); then
+  if ! out=$(env "${launch_env[@]}" bash "$SCRIPT_DIR/fm-spawn.sh" "${ARGS[@]}" 2>&1); then
     [ -z "$out" ] || printf '%s\n' "$out" >&2
     die "remote host-local secondmate launch failed"
   fi
@@ -394,7 +394,7 @@ cmd_relaunch() {
   case "$effort" in -|default|low|medium|high|xhigh|max|ultra) ;; *) die "invalid remote secondmate effort: $effort" ;; esac
   case "$model" in *[[:space:]]*) die "invalid remote secondmate model: $model" ;; esac
   if [ "$effort" = ultra ]; then
-    "$SCRIPT_DIR/fm-harness.sh" validate-native-effort "$harness" "$model" "$effort" || return 1
+    bash "$SCRIPT_DIR/fm-harness.sh" validate-native-effort "$harness" "$model" "$effort" || return 1
   fi
   remote_endpoint_require "$id"
   [ "$model" != - ] || model=default
@@ -409,7 +409,7 @@ cmd_relaunch() {
     FM_CONFIG_OVERRIDE="$TARGET_HOME/config" FM_SKIP_SECONDMATE_INHERIT=1
     FM_SKIP_SECONDMATE_SYNC=1)
   [ "$REMOTE_ENDPOINT_BACKEND" != herdr ] || relaunch_env=("HERDR_SESSION=$REMOTE_HERDR_SESSION" "${relaunch_env[@]}")
-  env "${relaunch_env[@]}" "$SCRIPT_DIR/fm-control.sh" "${control_args[@]}"
+  env "${relaunch_env[@]}" bash "$SCRIPT_DIR/fm-control.sh" "${control_args[@]}"
   # A parent tracking this route needs the identity the relaunch actually
   # produced, not the one it asked for, so it can republish its own record the
   # same way cmd_launch's caller already does. Reading it back from the
@@ -499,7 +499,7 @@ cmd_key() {
   FM_HOME="$FM_ROOT" FM_ROOT_OVERRIDE="$FM_ROOT" \
     FM_STATE_OVERRIDE="$CONTROL_STATE" FM_DATA_OVERRIDE="$CONTROL_DATA" \
     FM_CONFIG_OVERRIDE="$TARGET_HOME/config" \
-    "$SCRIPT_DIR/fm-send.sh" "fm-$id" --key "$key"
+    bash "$SCRIPT_DIR/fm-send.sh" "fm-$id" --key "$key"
 }
 
 cmd_capture() {
@@ -576,7 +576,7 @@ cmd_update() {
   validate_id "$id"
   validate_home "$id"
   if ! update_out=$(FM_HOME="$FM_ROOT" FM_ROOT_OVERRIDE="$FM_ROOT" \
-    "$SCRIPT_DIR/fm-update.sh" 2>&1); then
+    bash "$SCRIPT_DIR/fm-update.sh" 2>&1); then
     [ -z "$update_out" ] || printf '%s\n' "$update_out" >&2
     die "remote code root update failed"
   fi
@@ -605,17 +605,17 @@ cmd_retire() {
     fi
   fi
   FM_HOME="$TARGET_HOME" FM_ROOT_OVERRIDE="$FM_ROOT" FM_STATE_OVERRIDE="$TARGET_HOME/state" \
-    FM_CONFIG_OVERRIDE="$TARGET_HOME/config" "$SCRIPT_DIR/fm-guard.sh" || true
+    FM_CONFIG_OVERRIDE="$TARGET_HOME/config" bash "$SCRIPT_DIR/fm-guard.sh" || true
   if [ -n "$force" ]; then
     FM_HOME="$FM_ROOT" FM_ROOT_OVERRIDE="$FM_ROOT" \
       FM_STATE_OVERRIDE="$CONTROL_STATE" FM_DATA_OVERRIDE="$CONTROL_DATA" \
       FM_CONFIG_OVERRIDE="$TARGET_HOME/config" FM_TEARDOWN_GUARD_DONE=1 \
-      "$SCRIPT_DIR/fm-teardown.sh" "$id" --force
+      bash "$SCRIPT_DIR/fm-teardown.sh" "$id" --force
   else
     FM_HOME="$FM_ROOT" FM_ROOT_OVERRIDE="$FM_ROOT" \
       FM_STATE_OVERRIDE="$CONTROL_STATE" FM_DATA_OVERRIDE="$CONTROL_DATA" \
       FM_CONFIG_OVERRIDE="$TARGET_HOME/config" FM_TEARDOWN_GUARD_DONE=1 \
-      "$SCRIPT_DIR/fm-teardown.sh" "$id"
+      bash "$SCRIPT_DIR/fm-teardown.sh" "$id"
   fi
 }
 

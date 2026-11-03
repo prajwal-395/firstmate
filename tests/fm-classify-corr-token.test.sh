@@ -38,7 +38,7 @@ CORR2=7ab3e5dd13c9a993
 # (which decisions are open) rather than about the section's layout.
 drain_open() {  # <state> <out>
   local state=$1 out=$2
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed over $state"
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$out" || fail "drain failed over $state"
   grep -F 'OPEN DECISIONS' "$out" >/dev/null || return 0
   cat "$out"
 }
@@ -524,7 +524,7 @@ schema=fm-secondmate-parent.v1
 route=local
 parent_home=$parent
 EOF
-  FM_HOME="$mate" "$REPORT" "done" "$corr" "audit clean" \
+  FM_HOME="$mate" bash "$REPORT" "done" "$corr" "audit clean" \
     || fail "$REPORT failed writing a correlated report"
   helper_line=$(tail -1 "$state/pinned.status")
   status_line_at_epoch "$helper_line" >/dev/null || fail "report helper emitted no time"
@@ -534,7 +534,7 @@ EOF
   status_is_terminal_verb "$helper_line" \
     || fail "the helper's own line is not seen as a terminal captain verb"
 
-  FM_HOME="$mate" "$REPORT" --doc needs-decision "$corr" data/x/report.md "see the report" \
+  FM_HOME="$mate" bash "$REPORT" --doc needs-decision "$corr" data/x/report.md "see the report" \
     || fail "$REPORT failed writing a correlated doc-pointer report"
   helper_line=$(tail -1 "$state/pinned.status")
   status_line_at_epoch "$helper_line" >/dev/null || fail "doc report helper emitted no time"

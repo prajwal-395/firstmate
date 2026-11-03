@@ -336,7 +336,7 @@ warn_stale_public_commitments() { # <secondmate-id> <moved-key>...
   shift
   for key in "$@"; do
     rc=0
-    out=$("$SCRIPT_DIR/fm-public-followup.sh" guard-work main "$key" 2>/dev/null) || rc=$?
+    out=$(bash "$SCRIPT_DIR/fm-public-followup.sh" guard-work main "$key" 2>/dev/null) || rc=$?
     [ "$rc" -ne 0 ] || continue
     [ -z "$out" ] || printf '%s\n' "$out" >&2
     printf 'warning: %s still owes a public reply bound to main/%s; rebind it to secondmate:%s (bin/fm-tasks-axi.sh public-followup bind-work, then bin/fm-public-followup.sh register <obligation-id> --relation <relation-id> --work-home secondmate:%s --work-id %s --generation <n>) or the promised reply will be reconciled against work this home no longer owns.\n' \
@@ -562,7 +562,7 @@ wake_secondmate_receiver() { # <secondmate-id> <correlation-id>
   }
   out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_ROOT_OVERRIDE="$FM_ROOT" \
     FM_PENDING_REPLY_EXISTING_CORR="$corr" \
-    "$SCRIPT_DIR/fm-send.sh" "$id" "$RECEIVER_WAKE_MESSAGE" 2>&1) || rc=$?
+    bash "$SCRIPT_DIR/fm-send.sh" "$id" "$RECEIVER_WAKE_MESSAGE" 2>&1) || rc=$?
   if [ "$rc" -ne 0 ]; then
     [ -z "$out" ] || printf '%s\n' "$out" >&2
     printf 'error: backlog delivery to secondmate %s succeeded, but its receiver wake failed; retry a tracked remote wake with --resume-pending or a later new handoff, and retry a local wake by rerunning its handoff\n' "$id" >&2
@@ -689,14 +689,14 @@ remote_deliver_outbox() { # <secondmate-id> <outbox-path>
       return 1
     }
   remote_rel="state/handoff/$id.outbox.md"
-  if ! "$SCRIPT_DIR/fm-on.sh" --stdin "$id" fm-remote-file.sh put "$remote_rel" 1048576 \
+  if ! bash "$SCRIPT_DIR/fm-on.sh" --stdin "$id" fm-remote-file.sh put "$remote_rel" 1048576 \
     "$bytes" "$hash" "$generation" <"$snapshot"; then
     rm -f -- "$snapshot"
     echo "error: handoff transfer to $id was unavailable or completion is unknown; outbox preserved at $outbox" >&2
     return 1
   fi
   rm -f -- "$snapshot"
-  if ! receive_out=$("$SCRIPT_DIR/fm-on.sh" "$id" fm-backlog-receive.sh \
+  if ! receive_out=$(bash "$SCRIPT_DIR/fm-on.sh" "$id" fm-backlog-receive.sh \
     "$remote_rel" "$bytes" "$hash" "$generation" </dev/null 2>&1); then
     [ -z "$receive_out" ] || printf '%s\n' "$receive_out" >&2
     echo "error: handoff receipt by $id was unavailable or completion is unknown; outbox preserved at $outbox" >&2

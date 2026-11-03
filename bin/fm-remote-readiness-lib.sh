@@ -31,7 +31,7 @@ FM_REMOTE_READINESS_OUT=
 fm_remote_readiness_probe() { # <bin-dir> <secondmate-id> [doctor-args...]
   local bin_dir=$1 id=$2 out rc
   shift 2
-  out=$("$bin_dir/fm-on.sh" "$id" fm-remote-doctor.sh "$@" </dev/null 2>&1)
+  out=$(bash "$bin_dir/fm-on.sh" "$id" fm-remote-doctor.sh "$@" </dev/null 2>&1)
   rc=$?
   FM_REMOTE_READINESS_OUT=$out
   return "$rc"

@@ -127,7 +127,7 @@ fm_on() {
   FM_FAKE_REMOTE_ENTRYPOINT="$REMOTE_ROOT/bin/fm-remote-entrypoint.sh" \
   FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux \
   FM_REMOTE_JOB_STATE_ROOT="$TMP_ROOT/remote-jobs" \
-  "$ROOT/bin/fm-on.sh" "$@"
+  bash "$ROOT/bin/fm-on.sh" "$@"
 }
 
 # The pre-feature user path had no executable transport at all. The regression
@@ -367,7 +367,7 @@ chmod +x "$DOCTOR_BIN/uname"
 # These tool-resolution assertions require Herdr specifically; the unqualified
 # doctor accepts either remote backend, covered by fm-remote-doctor.test.sh.
 set +e
-out=$(HOME="$DOCTOR_HOME" PATH="$DOCTOR_BIN:/usr/bin:/bin:/usr/sbin:/sbin" "$ROOT/bin/fm-remote-doctor.sh" --backend herdr 2>&1)
+out=$(HOME="$DOCTOR_HOME" PATH="$DOCTOR_BIN:/usr/bin:/bin:/usr/sbin:/sbin" bash "$ROOT/bin/fm-remote-doctor.sh" --backend herdr 2>&1)
 rc=$?
 set -e
 [ "$rc" -ne 0 ] || fail "the remote doctor passed with a missing required tool"
@@ -393,7 +393,7 @@ printf '#!/usr/bin/env bash\nexit 0\n' > "$DOCTOR_BIN/treehouse"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$DOCTOR_BIN/claude"
 chmod +x "$DOCTOR_BIN/jq" "$DOCTOR_BIN/herdr" "$DOCTOR_BIN/tasks-axi" "$DOCTOR_BIN/treehouse" "$DOCTOR_BIN/claude"
 set +e
-out=$(HOME="$DOCTOR_HOME" PATH="$DOCTOR_BIN:/usr/bin:/bin:/usr/sbin:/sbin" "$ROOT/bin/fm-remote-doctor.sh" --backend herdr 2>&1)
+out=$(HOME="$DOCTOR_HOME" PATH="$DOCTOR_BIN:/usr/bin:/bin:/usr/sbin:/sbin" bash "$ROOT/bin/fm-remote-doctor.sh" --backend herdr 2>&1)
 rc=$?
 set -e
 assert_contains "$out" "required git=$DOCTOR_BIN/git" "the remote doctor did not report where the required tool resolved"
@@ -446,7 +446,7 @@ untracked_home_b64=$(printf '%s' "$REMOTE_HOME" | base64 | tr -d '\n')
 untracked_argv_b64=$(printf '%s\0' fm-untracked.sh | base64 | tr -d '\n')
 set +e
 out=$(FM_GIT_SHADOW_LOG="$GIT_SHADOW_LOG" FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux \
-  FM_REMOTE_JOB_STATE_ROOT="$TMP_ROOT/remote-jobs" "$REMOTE_ROOT/bin/fm-remote-entrypoint.sh" \
+  FM_REMOTE_JOB_STATE_ROOT="$TMP_ROOT/remote-jobs" bash "$REMOTE_ROOT/bin/fm-remote-entrypoint.sh" \
   1 "$untracked_root_b64" "$untracked_home_b64" "$untracked_argv_b64" 2>&1)
 rc=$?
 set -e
@@ -491,7 +491,7 @@ chmod +x "$REMOTE_ROOT/bin/fm-remote-doctor.sh"
 pass "doctor bootstrap remains authenticated when git is unavailable"
 
 if FM_HOME="$LOCAL_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_SSH_BIN="$FAKEBIN/fake-ssh" \
-  "$ROOT/bin/fm-on.sh" '-oProxyCommand=bad' fm-probe-two.sh >/dev/null 2>&1; then
+  bash "$ROOT/bin/fm-on.sh" '-oProxyCommand=bad' fm-probe-two.sh >/dev/null 2>&1; then
   fail "an option-shaped SSH route was accepted"
 fi
 ssh_before_bad_path=$(cat "$SSH_COUNT")
@@ -508,11 +508,11 @@ pass "transport rejects shell escape, traversal, symlink, and option-injection s
 root_b64=$(printf '%s' "$REMOTE_ROOT" | base64 | tr -d '\n')
 home_b64=$(printf '%s' "$REMOTE_HOME" | base64 | tr -d '\n')
 argv_b64=$(printf '%s\0' fm-probe-two.sh | base64 | tr -d '\n')
-if "$REMOTE_ROOT/bin/fm-remote-entrypoint.sh" 2 "$root_b64" "$home_b64" "$argv_b64" >/dev/null 2>&1; then
+if bash "$REMOTE_ROOT/bin/fm-remote-entrypoint.sh" 2 "$root_b64" "$home_b64" "$argv_b64" >/dev/null 2>&1; then
   fail "an incompatible transport protocol was accepted"
 fi
 traversal_root_b64=$(printf '%s' "$REMOTE_ROOT/../remote-root" | base64 | tr -d '\n')
-if "$REMOTE_ROOT/bin/fm-remote-entrypoint.sh" 1 "$traversal_root_b64" "$home_b64" "$argv_b64" >/dev/null 2>&1; then
+if bash "$REMOTE_ROOT/bin/fm-remote-entrypoint.sh" 1 "$traversal_root_b64" "$home_b64" "$argv_b64" >/dev/null 2>&1; then
   fail "the fixed entrypoint accepted traversal in the configured root"
 fi
 pass "the fixed entrypoint refuses incompatible protocols and unsafe roots"

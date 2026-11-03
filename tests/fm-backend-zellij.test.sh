@@ -853,7 +853,7 @@ test_teardown_passes_recorded_tab_id_to_zellij_kill() {
   fb=$(make_zellij_fakebin "$dir")
   out=$( PATH="$fb:$PATH" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
     FM_ZELLIJ_LOG="$dir/log" FM_ZELLIJ_RESPONSES="$dir/responses" FM_ZELLIJ_SESSION_LIST="firstmate" \
-    "$ROOT/bin/fm-teardown.sh" zghost 2>&1 )
+    bash "$ROOT/bin/fm-teardown.sh" zghost 2>&1 )
   status=$?
   expect_code 0 "$status" "fm-teardown should succeed for a zellij scout whose worktree is already gone: $out"
   zellij_assert_call_order "$dir/log" $'\x1f''list-panes'$'\x1f''--json' $'\x1f''list-tabs'$'\x1f''--json' \
@@ -900,7 +900,7 @@ test_forced_secondmate_teardown_kills_zellij_children_with_child_home_tag() {
   out=$( PATH="$fb:$PATH" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
     FM_ROOT_OVERRIDE="$ROOT" \
     FM_ZELLIJ_LOG="$dir/log" FM_ZELLIJ_RESPONSES="$dir/responses" FM_ZELLIJ_SESSION_LIST="firstmate" \
-    "$ROOT/bin/fm-teardown.sh" smz --force 2>&1 )
+    bash "$ROOT/bin/fm-teardown.sh" smz --force 2>&1 )
   status=$?
   expect_code 0 "$status" "fm-teardown should force-retire a secondmate with a zellij child: $out"
   assert_contains "$(cat "$dir/log")" $'\x1f''close-tab-by-id'$'\x1f''4' \
@@ -1230,7 +1230,7 @@ SH
 
   out=$( PATH="$fb:$PATH" FM_ROOT_OVERRIDE="$neutral" FM_STATE_OVERRIDE="$state" \
     FM_ZELLIJ_LOG="$dir/log" FM_ZELLIJ_RESPONSES="$dir/responses" FM_ZELLIJ_SESSION_LIST="firstmate" \
-    "$ROOT/bin/fm-peek.sh" firstmate:7 5 2>/dev/null )
+    bash "$ROOT/bin/fm-peek.sh" firstmate:7 5 2>/dev/null )
   [ "$out" = "captured zellij pane" ] || fail "fm-peek did not capture through zellij for an explicit metadata-matched target, got '$out'"
   zellij_assert_call_order "$dir/log" $'\x1f''list-panes'$'\x1f''--json' $'\x1f''dump-screen' \
     "fm-peek did not verify the pane before capture"
@@ -1240,7 +1240,7 @@ SH
   : > "$dir/log"
   PATH="$fb:$PATH" FM_ROOT_OVERRIDE="$neutral" FM_HOME="$neutral" FM_STATE_OVERRIDE="$state" \
     FM_ZELLIJ_LOG="$dir/log" FM_ZELLIJ_RESPONSES="$dir/responses" FM_ZELLIJ_SESSION_LIST="firstmate" \
-    "$ROOT/bin/fm-send.sh" firstmate:7 --key Escape >/dev/null 2>&1
+    bash "$ROOT/bin/fm-send.sh" firstmate:7 --key Escape >/dev/null 2>&1
   expect_code 0 $? "fm-send --key should route an explicit metadata-matched target through zellij"
   zellij_assert_call_order "$dir/log" $'\x1f''list-panes'$'\x1f''--json' $'\x1f''send-keys' \
     "fm-send did not verify the pane before send-key"
@@ -1263,7 +1263,7 @@ test_scripts_verify_label_for_fm_targets() {
 
   out=$( PATH="$fb:$PATH" FM_ROOT_OVERRIDE="$neutral" FM_STATE_OVERRIDE="$state" \
     FM_ZELLIJ_LOG="$dir/log" FM_ZELLIJ_RESPONSES="$dir/responses" FM_ZELLIJ_SESSION_LIST="firstmate" \
-    "$ROOT/bin/fm-peek.sh" fm-zlabel 5 2>/dev/null )
+    bash "$ROOT/bin/fm-peek.sh" fm-zlabel 5 2>/dev/null )
   [ "$out" = "captured through fm-id" ] || fail "fm-peek did not capture through zellij for an fm-id target with a matching tab label, got '$out'"
   zellij_assert_call_order "$dir/log" $'\x1f''list-tabs'$'\x1f''--json' $'\x1f''dump-screen' \
     "fm-peek did not verify the fm-id tab label before capture"
@@ -1283,7 +1283,7 @@ test_scripts_reject_fm_target_label_mismatch() {
 
   PATH="$fb:$PATH" FM_ROOT_OVERRIDE="$neutral" FM_HOME="$neutral" FM_STATE_OVERRIDE="$state" \
     FM_ZELLIJ_LOG="$dir/log" FM_ZELLIJ_RESPONSES="$dir/responses" FM_ZELLIJ_SESSION_LIST="firstmate" \
-    "$ROOT/bin/fm-send.sh" fm-zreuse --key Escape >/dev/null 2>&1
+    bash "$ROOT/bin/fm-send.sh" fm-zreuse --key Escape >/dev/null 2>&1
   status=$?
   [ "$status" -ne 0 ] || fail "fm-send --key should reject an fm-id zellij target whose pane belongs to a differently named tab"
   assert_not_contains "$(cat "$dir/log")" $'\x1f''send-keys' \

@@ -51,12 +51,12 @@ test_green_batch_leaves_project_untouched() {
   make_repo "$repo"
   commit_branch "$repo" pr1 tests/test_one.py "def test_one(): assert True" pr1
   commit_branch "$repo" pr2 tests/test_two.py "def test_two(): assert True" pr2
-  out=$("$VERIFY" build --repo "$repo" --out "$batch" --no-forge pr1:task-a=pr1 pr2:task-b=pr2)
+  out=$(bash "$VERIFY" build --repo "$repo" --out "$batch" --no-forge pr1:task-a=pr1 pr2:task-b=pr2)
   status=$?
   expect_code_out 0 "$status" "$out" "build of two clean members"
   assert_contains "$out" "members: 2" "build reports both members stacked"
   [ "$(grep -c . "$batch/members")" = 2 ] || fail "members file holds both stacked PRs"
-  out=$("$VERIFY" verify --repo "$repo" --batch "$batch" --lock "$TMP_ROOT/green.lock" \
+  out=$(bash "$VERIFY" verify --repo "$repo" --batch "$batch" --lock "$TMP_ROOT/green.lock" \
     --select-cmd "true" --test-cmd ":")
   status=$?
   expect_code_out 0 "$status" "$out" "verify of a green stack"
@@ -82,14 +82,14 @@ exit 0
 STUB
   chmod +x "$home/bin/fm-pr-merge.sh"
   mkdir -p "$TMP_ROOT/moved/calls"
-  out=$("$VERIFY" build --repo "$repo" --out "$batch" --no-forge pr1:task-a=pr1 pr2:task-b=pr2)
+  out=$(bash "$VERIFY" build --repo "$repo" --out "$batch" --no-forge pr1:task-a=pr1 pr2:task-b=pr2)
   expect_code_out 0 "$?" "$out" "build before the head moves"
   git -C "$repo" checkout -q pr1
   echo "drift = True" >> "$repo/tests/test_one.py"
   git -C "$repo" commit -qam drift
   git -C "$repo" checkout -q main
   out=$(FM_ROOT_OVERRIDE="$home" FM_MERGE_LOG="$TMP_ROOT/moved/calls" \
-    "$VERIFY" merge --repo "$repo" --batch "$batch" --no-forge)
+    bash "$VERIFY" merge --repo "$repo" --batch "$batch" --no-forge)
   status=$?
   [ "$status" -ne 0 ] || fail "merge with a moved head should exit non-zero"
   assert_contains "$(cat "$batch/merge-refused")" "pr1: head moved after build" "moved member is refused by name"
@@ -112,15 +112,15 @@ if grep -rq POISON src/ 2>/dev/null; then exit 1; fi
 exit 0
 CHECK
   chmod +x "$TMP_ROOT/red-check.sh"
-  out=$("$VERIFY" build --repo "$repo" --out "$batch" --no-forge \
+  out=$(bash "$VERIFY" build --repo "$repo" --out "$batch" --no-forge \
     good1:task-g1=good1 bad:task-bad=bad good2:task-g2=good2)
   expect_code_out 0 "$?" "$out" "build of the three-member stack"
-  out=$("$VERIFY" verify --repo "$repo" --batch "$batch" --lock "$TMP_ROOT/red.lock" \
+  out=$(bash "$VERIFY" verify --repo "$repo" --batch "$batch" --lock "$TMP_ROOT/red.lock" \
     --select-cmd "true" --test-cmd "$TMP_ROOT/red-check.sh")
   status=$?
   [ "$status" -ne 0 ] || fail "verify with the poisoned member should exit non-zero"
   assert_contains "$(cat "$batch/result")" "verdict: red" "result records the red verdict"
-  out=$("$VERIFY" bisect --repo "$repo" --batch "$batch" --lock "$TMP_ROOT/red.lock" \
+  out=$(bash "$VERIFY" bisect --repo "$repo" --batch "$batch" --lock "$TMP_ROOT/red.lock" \
     --test-cmd "$TMP_ROOT/red-check.sh")
   expect_code_out 0 "$?" "$out" "bisect of the red batch"
   assert_contains "$(cat "$batch/bisect")" "culprit: bad" "bisect names the poisoned member"
@@ -133,10 +133,10 @@ test_verify_refuses_empty_test_union() {
   local repo="$TMP_ROOT/empty/proj" batch="$TMP_ROOT/empty/batch" out status
   make_repo "$repo"
   commit_branch "$repo" docs README.md "more words" docs
-  out=$("$VERIFY" build --repo "$repo" --out "$batch" --no-forge docs:task-d=docs \
+  out=$(bash "$VERIFY" build --repo "$repo" --out "$batch" --no-forge docs:task-d=docs \
     --test-glob '(^|/)test_[^/]*\.py$')
   expect_code_out 0 "$?" "$out" "build of the docs-only member"
-  out=$("$VERIFY" verify --repo "$repo" --batch "$batch" --lock "$TMP_ROOT/empty.lock" \
+  out=$(bash "$VERIFY" verify --repo "$repo" --batch "$batch" --lock "$TMP_ROOT/empty.lock" \
     --select-cmd "true" --test-cmd ":")
   status=$?
   [ "$status" -ne 0 ] || fail "verify with no selectable tests should exit non-zero"

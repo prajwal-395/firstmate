@@ -103,7 +103,7 @@ reset_log() {
 run() {
   local __exit=$1 __out=$2 __err=$3 _out _code
   shift 3
-  _out=$(PATH="$FAKEBIN:$BASE_PATH" FM_HOME="$HOME_DIR" TYPESAFE_API_KEY="$KEY" "$TOOL" "$@" 2> "$TMP_ROOT/stderr")
+  _out=$(PATH="$FAKEBIN:$BASE_PATH" FM_HOME="$HOME_DIR" TYPESAFE_API_KEY="$KEY" bash "$TOOL" "$@" 2> "$TMP_ROOT/stderr")
   _code=$?
   printf -v "$__exit" '%s' "$_code"
   printf -v "$__out" '%s' "$_out"
@@ -117,7 +117,7 @@ NL_MATE='
 
 # --- absent key: off, silent on stdout, no network ---------------------------
 reset_log
-out=$(PATH="$FAKEBIN:$BASE_PATH" FM_HOME="$HOME_DIR" "$TOOL" "$INTAKE" 2> "$TMP_ROOT/stderr")
+out=$(PATH="$FAKEBIN:$BASE_PATH" FM_HOME="$HOME_DIR" bash "$TOOL" "$INTAKE" 2> "$TMP_ROOT/stderr")
 code=$?
 err=$(cat "$TMP_ROOT/stderr")
 expect_code 0 "$code" "absent key exits 0"
@@ -259,7 +259,7 @@ TS_URL='https://api.typesafe.ai/v1/systemone'
 # --- both keys, typesafe healthy: the primary rung answers with one call -----
 reset_log
 write_response "$RESPONSE" vep 0.92
-out=$(PATH="$FAKEBIN:$BASE_PATH" FM_HOME="$HOME_DIR" TYPESAFE_API_KEY="$TSKEY" AI_GATEWAY_API_KEY="$GWKEY" "$TOOL" "$INTAKE" --project video-editing-pilot 2> "$TMP_ROOT/stderr"); code=$?; err=$(cat "$TMP_ROOT/stderr")
+out=$(PATH="$FAKEBIN:$BASE_PATH" FM_HOME="$HOME_DIR" TYPESAFE_API_KEY="$TSKEY" AI_GATEWAY_API_KEY="$GWKEY" bash "$TOOL" "$INTAKE" --project video-editing-pilot 2> "$TMP_ROOT/stderr"); code=$?; err=$(cat "$TMP_ROOT/stderr")
 expect_code 0 "$code" "both-keys healthy exits 0"
 assert_contains "$out" '  status: clear' "both-keys healthy resolves"
 assert_contains "$out" '  rung: typesafe' "both-keys healthy stays on the typesafe rung"
@@ -275,7 +275,7 @@ pass "both keys with a healthy typesafe stay on the primary rung"
 # --- typesafe 429 descends to the gateway once ---------------------------------
 reset_log
 write_response "$RESPONSE" vep 0.92
-out=$(PATH="$FAKEBIN:$BASE_PATH" FM_HOME="$HOME_DIR" TYPESAFE_API_KEY="$TSKEY" AI_GATEWAY_API_KEY="$GWKEY" FAKE_CURL_HTTP=429 FAKE_CURL_HTTP2=200 "$TOOL" "$INTAKE" --project video-editing-pilot 2> "$TMP_ROOT/stderr"); code=$?; err=$(cat "$TMP_ROOT/stderr")
+out=$(PATH="$FAKEBIN:$BASE_PATH" FM_HOME="$HOME_DIR" TYPESAFE_API_KEY="$TSKEY" AI_GATEWAY_API_KEY="$GWKEY" FAKE_CURL_HTTP=429 FAKE_CURL_HTTP2=200 bash "$TOOL" "$INTAKE" --project video-editing-pilot 2> "$TMP_ROOT/stderr"); code=$?; err=$(cat "$TMP_ROOT/stderr")
 expect_code 0 "$code" "ladder fallback exits 0"
 assert_contains "$out" '  status: clear' "ladder fallback resolves"
 assert_contains "$out" '  rung: gateway' "ladder fallback names the serving rung"

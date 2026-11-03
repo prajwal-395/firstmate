@@ -49,7 +49,7 @@ make_split() {  # <name>; prints the case directory
 wrapper_from_code() {  # <case-dir> <tasks-axi args...>
   local dir=$1
   shift
-  (cd "$dir/code" && FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$dir/code" "$WRAPPER" "$@")
+  (cd "$dir/code" && FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$dir/code" bash "$WRAPPER" "$@")
 }
 
 # Only the shadow-backlog lines matter here; the rest of a detect-only local
@@ -59,10 +59,10 @@ bootstrap_backlog_lines() {  # <code-root> [<home>]
   local code=$1 home=${2:-}
   if [ -n "$home" ]; then
     PATH="$BASE_PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$code" FM_BOOTSTRAP_DETECT_ONLY=1 \
-      FM_BOOTSTRAP_NETWORK=skip "$BOOTSTRAP" 2>&1 | grep '^BACKLOG_RECONCILE: code-root' || true
+      FM_BOOTSTRAP_NETWORK=skip bash "$BOOTSTRAP" 2>&1 | grep '^BACKLOG_RECONCILE: code-root' || true
   else
     PATH="$BASE_PATH" FM_ROOT_OVERRIDE="$code" FM_BOOTSTRAP_DETECT_ONLY=1 \
-      FM_BOOTSTRAP_NETWORK=skip "$BOOTSTRAP" 2>&1 | grep '^BACKLOG_RECONCILE: code-root' || true
+      FM_BOOTSTRAP_NETWORK=skip bash "$BOOTSTRAP" 2>&1 | grep '^BACKLOG_RECONCILE: code-root' || true
   fi
 }
 
@@ -169,7 +169,7 @@ test_wrapper_overrides_ambient_file() {
   local dir
   dir=$(make_split wrapper-ambient)
   empty_backlog "$dir/decoy.md"
-  (cd "$dir/code" && TASKS_AXI_FILE="$dir/decoy.md" FM_HOME="$dir/home" "$WRAPPER" add amb-1 "ambient" >/dev/null) \
+  (cd "$dir/code" && TASKS_AXI_FILE="$dir/decoy.md" FM_HOME="$dir/home" bash "$WRAPPER" add amb-1 "ambient" >/dev/null) \
     || fail "add under an ambient TASKS_AXI_FILE failed"
   assert_grep "amb-1" "$dir/home/data/backlog.md" "an ambient TASKS_AXI_FILE diverted the write from the home"
   assert_no_grep "amb-1" "$dir/decoy.md" "an ambient TASKS_AXI_FILE received the write"
@@ -198,7 +198,7 @@ test_wrapper_refusals() {
   [ -L "$dir/home/data/backlog.md" ] || fail "a refused call still replaced the home link"
   assert_equals "$before" "$(cat "$dir/home/real-backlog.md")" "a refused call changed the backlog"
 
-  out=$(cd "$dir/code" && FM_HOME="$dir/missing-home" "$WRAPPER" list 2>&1)
+  out=$(cd "$dir/code" && FM_HOME="$dir/missing-home" bash "$WRAPPER" list 2>&1)
   rc=$?
   expect_code 2 "$rc" "missing data directory"
   pass "fm-tasks-axi.sh refuses caller --file, a symlinked home backlog, and an unresolvable home"
@@ -233,7 +233,7 @@ test_wrapper_single_home() {
   mkdir -p "$dir/data"
   fm_test_tasks_toml "$dir/.tasks.toml"
   empty_backlog "$dir/data/backlog.md"
-  (cd "$dir" && FM_ROOT_OVERRIDE="$dir" "$WRAPPER" add solo-1 "single home" >/dev/null) \
+  (cd "$dir" && FM_ROOT_OVERRIDE="$dir" bash "$WRAPPER" add solo-1 "single home" >/dev/null) \
     || fail "add in the single-home layout failed"
   assert_grep "solo-1" "$dir/data/backlog.md" "the single-home layout lost its own backlog write"
   pass "fm-tasks-axi.sh keeps the single-home layout addressing its own code-root backlog"

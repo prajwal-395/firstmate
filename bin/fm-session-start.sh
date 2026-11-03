@@ -308,20 +308,20 @@ if [ -z "${FM_SESSION_START_STAGE_FILE:-}" ]; then
     if [ -n "$SESSION_SOURCE" ]; then
       fm_run_timed "$SESSION_START_BUDGET" \
         env FM_SESSION_START_STAGE_FILE="$SESSION_START_STAGE_FILE" \
-        "$SCRIPT_DIR/fm-session-start.sh" --reemit --source "$SESSION_SOURCE"
+        bash "$SCRIPT_DIR/fm-session-start.sh" --reemit --source "$SESSION_SOURCE"
     else
       fm_run_timed "$SESSION_START_BUDGET" \
         env FM_SESSION_START_STAGE_FILE="$SESSION_START_STAGE_FILE" \
-        "$SCRIPT_DIR/fm-session-start.sh" --reemit
+        bash "$SCRIPT_DIR/fm-session-start.sh" --reemit
     fi
   elif [ -n "$SESSION_SOURCE" ]; then
     fm_run_timed "$SESSION_START_BUDGET" \
       env FM_SESSION_START_STAGE_FILE="$SESSION_START_STAGE_FILE" \
-      "$SCRIPT_DIR/fm-session-start.sh" --source "$SESSION_SOURCE"
+      bash "$SCRIPT_DIR/fm-session-start.sh" --source "$SESSION_SOURCE"
   else
     fm_run_timed "$SESSION_START_BUDGET" \
       env FM_SESSION_START_STAGE_FILE="$SESSION_START_STAGE_FILE" \
-      "$SCRIPT_DIR/fm-session-start.sh"
+      bash "$SCRIPT_DIR/fm-session-start.sh"
   fi
   SESSION_START_RC=$?
   # ANY nonzero child exit is a truncation: the banner contract promises that
@@ -361,7 +361,7 @@ if [ -z "${FM_SESSION_START_STAGE_FILE:-}" ]; then
   exit 0
 fi
 
-PRIMARY_HARNESS=$("$SCRIPT_DIR/fm-harness.sh" 2>/dev/null || printf unknown)
+PRIMARY_HARNESS=$(bash "$SCRIPT_DIR/fm-harness.sh" 2>/dev/null || printf unknown)
 
 # shellcheck source=bin/fm-backend.sh
 . "$SCRIPT_DIR/fm-backend.sh"
@@ -693,7 +693,7 @@ fi
 # --- 1. lock -----------------------------------------------------------
 stage lock
 subsection "LOCK"
-LOCK_OUT=$("$SCRIPT_DIR/fm-lock.sh" 2>&1)
+LOCK_OUT=$(bash "$SCRIPT_DIR/fm-lock.sh" 2>&1)
 LOCK_RC=$?
 printf '%s\n' "$LOCK_OUT"
 READ_ONLY=0
@@ -722,7 +722,7 @@ print_agents_refresh_if_required "$REBUILDING_SESSION_PID"
 # Purely local resolution - no network, no gh call.
 stage role
 subsection "HOME ROLE"
-FM_HOME="$FM_HOME" FM_CONFIG_OVERRIDE="$CONFIG" "$SCRIPT_DIR/fm-role.sh" report 2>/dev/null \
+FM_HOME="$FM_HOME" FM_CONFIG_OVERRIDE="$CONFIG" bash "$SCRIPT_DIR/fm-role.sh" report 2>/dev/null \
   || printf 'fm-role: unknown (bin/fm-role.sh report failed)\n'
 
 if [ "$READ_ONLY" -eq 0 ]; then
@@ -753,7 +753,7 @@ if [ "$READ_ONLY" -eq 0 ]; then
   # Publication is side-band and best-effort, so it can never change the
   # session-start result. A context re-emit is not another session start.
   if [ "$REEMIT" -eq 0 ]; then
-    "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
+    bash "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
   fi
   # Every network call and the potentially slow inactive-outcome startup scan
   # are launched HERE, detached and bounded, so they run concurrently with the
@@ -766,7 +766,7 @@ if [ "$READ_ONLY" -eq 0 ]; then
   # steer, or merge anyway, so it has no action left for an auth verdict to gate.
   NETWORK_STAGE_LOCKED=1
   [ "$REEMIT" -eq 0 ] || NETWORK_STAGE_LOCKED=0
-  "$SCRIPT_DIR/fm-startup-network.sh" start \
+  bash "$SCRIPT_DIR/fm-startup-network.sh" start \
     --locked "$NETWORK_STAGE_LOCKED" --harvest-pid $$ >/dev/null 2>&1 || true
 fi
 
@@ -779,17 +779,17 @@ subsection "BOOTSTRAP"
 if [ "$READ_ONLY" -eq 1 ]; then
   BOOT_OUT=$(FM_BOOTSTRAP_DETECT_ONLY=1 FM_BOOTSTRAP_NETWORK=skip \
     FM_TASKS_AXI_COMPATIBLE="$TASKS_AXI_COMPATIBLE" \
-    FM_TASKS_AXI_CHECK_REASON="$TASKS_AXI_CHECK_REASON" "$SCRIPT_DIR/fm-bootstrap.sh" 2>&1)
+    FM_TASKS_AXI_CHECK_REASON="$TASKS_AXI_CHECK_REASON" bash "$SCRIPT_DIR/fm-bootstrap.sh" 2>&1)
 elif [ "$REEMIT" -eq 1 ]; then
   BOOT_OUT=$(FM_BOOTSTRAP_DETECT_ONLY=1 FM_BOOTSTRAP_LOCKED=1 FM_BOOTSTRAP_NETWORK=skip \
     FM_TASKS_AXI_COMPATIBLE="$TASKS_AXI_COMPATIBLE" \
-    FM_TASKS_AXI_CHECK_REASON="$TASKS_AXI_CHECK_REASON" "$SCRIPT_DIR/fm-bootstrap.sh" 2>&1)
+    FM_TASKS_AXI_CHECK_REASON="$TASKS_AXI_CHECK_REASON" bash "$SCRIPT_DIR/fm-bootstrap.sh" 2>&1)
 else
   BOOT_OUT=$(
-    "$SCRIPT_DIR/fm-herdr-session-cleanup.sh" 2>&1 || true
+    bash "$SCRIPT_DIR/fm-herdr-session-cleanup.sh" 2>&1 || true
     FM_BOOTSTRAP_NETWORK=skip FM_TASKS_AXI_COMPATIBLE="$TASKS_AXI_COMPATIBLE" \
       FM_TASKS_AXI_CHECK_REASON="$TASKS_AXI_CHECK_REASON" \
-      "$SCRIPT_DIR/fm-bootstrap.sh" 2>&1
+      bash "$SCRIPT_DIR/fm-bootstrap.sh" 2>&1
   )
 fi
 if [ -n "$BOOT_OUT" ]; then
@@ -818,24 +818,24 @@ if [ "$READ_ONLY" -eq 1 ]; then
   QLEN=0
   [ -s "$STATE/.wake-queue" ] && QLEN=$(grep -c . "$STATE/.wake-queue" 2>/dev/null || printf '0')
   printf 'skipped (read-only session) - %s record(s) remain queued because this session lacks verified fleet-lock ownership.\n' "$QLEN"
-  GUARD_OUT=$(FM_GUARD_READ_ONLY=1 "$SCRIPT_DIR/fm-guard.sh" 2>&1)
+  GUARD_OUT=$(FM_GUARD_READ_ONLY=1 bash "$SCRIPT_DIR/fm-guard.sh" 2>&1)
   [ -n "$GUARD_OUT" ] && printf '%s\n' "$GUARD_OUT"
 else
-  FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" "$SCRIPT_DIR/fm-branch-outcome.sh" seed-tail >/dev/null 2>&1 || true
+  FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" bash "$SCRIPT_DIR/fm-branch-outcome.sh" seed-tail >/dev/null 2>&1 || true
   # Pi supervision-branch recovery, locked path only: clear leases whose
   # supervising session died, and surface outcomes the branch stored durably
   # that never reached main (docs/pi-supervision-branch.md). Gated to the
   # pi/pi-signed primary so a non-Pi home runs neither step - homes on any
   # other harness stay entirely untouched (captain-decided criterion).
   if [ "$PRIMARY_HARNESS" = pi ] || [ "$PRIMARY_HARNESS" = pi-signed ]; then
-    FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" "$SCRIPT_DIR/fm-lease.sh" sweep 2>/dev/null || true
+    FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" bash "$SCRIPT_DIR/fm-lease.sh" sweep 2>/dev/null || true
     BRANCH_REPLAY_OUT=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
-      "$SCRIPT_DIR/fm-branch-outcome.sh" startup-replay 2>&1) || BRANCH_REPLAY_OUT=
+      bash "$SCRIPT_DIR/fm-branch-outcome.sh" startup-replay 2>&1) || BRANCH_REPLAY_OUT=
     if [ -n "$BRANCH_REPLAY_OUT" ]; then
       printf '%s\n' "$BRANCH_REPLAY_OUT"
     fi
   fi
-  DRAIN_OUT=$("$SCRIPT_DIR/fm-wake-drain.sh" 2>&1)
+  DRAIN_OUT=$(bash "$SCRIPT_DIR/fm-wake-drain.sh" 2>&1)
   if [ -n "$DRAIN_OUT" ]; then
     printf '%s\n' "$DRAIN_OUT"
   else
@@ -904,7 +904,7 @@ if [ "$PRIMARY_HARNESS" = omp ]; then
     fi
   fi
 fi
-"$SCRIPT_DIR/fm-supervision-instructions.sh" \
+bash "$SCRIPT_DIR/fm-supervision-instructions.sh" \
   --harness "$PRIMARY_HARNESS" \
   --read-only "$READ_ONLY" \
   --afk "$AFK_PRESENT" \
@@ -1008,12 +1008,12 @@ subsection "AFK"
 # A quiet record (bin/fm-afk-contract.sh mode) is a present captain: it holds
 # nothing for a return.
 if [ -f "$STATE/.afk-contract" ]; then
-  if [ "$("$SCRIPT_DIR/fm-afk-contract.sh" mode 2>/dev/null)" = quiet ]; then
+  if [ "$(bash "$SCRIPT_DIR/fm-afk-contract.sh" mode 2>/dev/null)" = quiet ]; then
     printf 'present - quiet mode recorded at %s (the captain is present and nothing is held for a return: requested actions proceed under ordinary attended authority; only an explicit /quiet off exits it)' \
-      "$("$SCRIPT_DIR/fm-afk-contract.sh" field entered 2>/dev/null || printf unknown)"
+      "$(bash "$SCRIPT_DIR/fm-afk-contract.sh" field entered 2>/dev/null || printf unknown)"
   else
     printf 'present - away posture recorded at %s (hold-for-return only; bin/fm-afk-contract.sh readback for the mandate)' \
-      "$("$SCRIPT_DIR/fm-afk-contract.sh" field entered 2>/dev/null || printf unknown)"
+      "$(bash "$SCRIPT_DIR/fm-afk-contract.sh" field entered 2>/dev/null || printf unknown)"
   fi
   if [ -e "$STATE/.afk" ]; then
     if [ "$AFK_MODE" = quiet ]; then
@@ -1041,7 +1041,7 @@ fi
 # subsection, and never reaches fm-public-followup.sh.
 if fm_pf_relay_active "$FM_HOME" \
   && { fm_pf_has_registrations "$STATE" || fm_pf_has_events "$STATE"; }; then
-  PUBLIC_FOLLOWUP=$("$SCRIPT_DIR/fm-public-followup.sh" pending 2>/dev/null) || PUBLIC_FOLLOWUP=
+  PUBLIC_FOLLOWUP=$(bash "$SCRIPT_DIR/fm-public-followup.sh" pending 2>/dev/null) || PUBLIC_FOLLOWUP=
   if [ -n "$PUBLIC_FOLLOWUP" ]; then
     subsection "Public commitments"
     printf '%s\n' "$PUBLIC_FOLLOWUP"
@@ -1068,7 +1068,7 @@ if [ "$READ_ONLY" -eq 1 ]; then
   printf 'They need the fleet lock, and this session must not spawn, steer, or merge, so it\n'
   printf 'has no action they would gate. The session holding the lock runs them.\n'
 else
-  "$SCRIPT_DIR/fm-startup-network.sh" harvest --pid $$ 2>&1 || true
+  bash "$SCRIPT_DIR/fm-startup-network.sh" harvest --pid $$ 2>&1 || true
   # Late arrivals: the deferred worker may have appended wake rows after the
   # step 3 drain (its scan findings land directly in the queue, and its
   # pointer row lands when harvest did not print inline). When the step 3
@@ -1080,7 +1080,7 @@ else
   QUEUE_LINES_NOW=$(grep -c . "$STATE/.wake-queue" 2>/dev/null || true)
   case "$QUEUE_LINES_NOW" in ''|*[!0-9]*) QUEUE_LINES_NOW=0 ;; esac
   if [ "$QUEUE_LINES_AT_DRAIN" -eq 0 ] && [ "$QUEUE_LINES_NOW" -gt 0 ]; then
-    REDRAIN_OUT=$("$SCRIPT_DIR/fm-wake-drain.sh" 2>&1)
+    REDRAIN_OUT=$(bash "$SCRIPT_DIR/fm-wake-drain.sh" 2>&1)
     if [ -n "$REDRAIN_OUT" ]; then
       subsection "WAKE QUEUE (rows that arrived during startup)"
       printf '%s\n' "$REDRAIN_OUT"

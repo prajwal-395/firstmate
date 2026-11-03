@@ -15,7 +15,7 @@ test_unknown_pool_is_refused() {
   local tmp rc
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-isolation-proof-pool.XXXXXX")
   set +e
-  "$PROOF" --pool unknown-family --list >"$tmp/out" 2>"$tmp/err"
+  bash "$PROOF" --pool unknown-family --list >"$tmp/out" 2>"$tmp/err"
   rc=$?
   set -e
   [ "$rc" -eq 2 ] || fail "unknown --pool must be refused with exit 2, got $rc"
@@ -96,7 +96,7 @@ echo "skip: herdr not found"
 SH
   chmod +x "$proof" "$repo/bin/fm-test-run.sh" "$repo/tests/fm-proof-"*.test.sh
   set +e
-  "$proof" --pool fixture-family --jobs 1 --json "$json" >"$tmp/out" 2>"$tmp/err"
+  bash "$proof" --pool fixture-family --jobs 1 --json "$json" >"$tmp/out" 2>"$tmp/err"
   rc=$?
   set -e
   [ "$rc" -eq 0 ] || fail "family pool proof fixture failed: $(cat "$tmp/out") $(cat "$tmp/err")"
@@ -111,7 +111,7 @@ assert artifact["summary"]["total"] == 2
 assert artifact["summary"]["failed"] == 0
 ' "$json" || fail "serial family pool artifact metadata is incorrect"
   set +e
-  PROOF_SCHED_EVIDENCE="$tmp" "$proof" --pool admitted-family --jobs 2 --json "$admitted_json" >"$tmp/admitted.out" 2>"$tmp/admitted.err"
+  PROOF_SCHED_EVIDENCE="$tmp" bash "$proof" --pool admitted-family --jobs 2 --json "$admitted_json" >"$tmp/admitted.out" 2>"$tmp/admitted.err"
   rc=$?
   set -e
   [ "$rc" -eq 0 ] || fail "admitted family proof fixture failed: $(cat "$tmp/admitted.out") $(cat "$tmp/admitted.err")"
@@ -126,7 +126,7 @@ assert artifact["summary"]["failed"] == 0
 ' "$admitted_json" || fail "admitted family pool artifact metadata is incorrect"
   mkdir "$tmp/unbounded-evidence"
   set +e
-  PROOF_SCHED_EVIDENCE="$tmp/unbounded-evidence" "$proof" --pool admitted-family --jobs 3 --json "$high_concurrency_json" >"$tmp/high-concurrency.out" 2>"$tmp/high-concurrency.err"
+  PROOF_SCHED_EVIDENCE="$tmp/unbounded-evidence" bash "$proof" --pool admitted-family --jobs 3 --json "$high_concurrency_json" >"$tmp/high-concurrency.out" 2>"$tmp/high-concurrency.err"
   rc=$?
   set -e
   [ "$rc" -eq 0 ] || fail "higher-concurrency family proof fixture failed: $(cat "$tmp/high-concurrency.out") $(cat "$tmp/high-concurrency.err")"
@@ -139,7 +139,7 @@ assert artifact["fm_test_run_jobs_enabled"] is True
 assert artifact["summary"]["failed"] == 0
 ' "$high_concurrency_json" || fail "higher-concurrency family pool artifact metadata is incorrect"
   set +e
-  "$proof" --pool skipped-family --jobs 2 --json "$skipped_json" >"$tmp/skipped.out" 2>"$tmp/skipped.err"
+  bash "$proof" --pool skipped-family --jobs 2 --json "$skipped_json" >"$tmp/skipped.out" 2>"$tmp/skipped.err"
   rc=$?
   set -e
   [ "$rc" -eq 1 ] || fail "gate-skipped family proof must fail, got $rc"
@@ -162,7 +162,7 @@ assert artifact["scripts"][0]["exit"] == 1
 
 test_list_candidates_nonempty_and_stable() {
   local listed count sorted
-  listed=$("$PROOF" --list)
+  listed=$(bash "$PROOF" --list)
   [ -n "$listed" ] || fail "--list printed nothing"
   count=$(printf '%s\n' "$listed" | wc -l | tr -d ' ')
   [ "$count" -ge 10 ] || fail "expected a bounded non-trivial candidate set, got $count"
@@ -182,7 +182,7 @@ test_list_candidates_nonempty_and_stable() {
 
 test_candidates_exclude_serial_classes() {
   local listed
-  listed=$("$PROOF" --list)
+  listed=$(bash "$PROOF" --list)
   for banned in \
     tests/fm-test-isolation-proof.test.sh \
     tests/fm-backend-tmux-smoke.test.sh \
@@ -201,7 +201,7 @@ test_candidates_exclude_serial_classes() {
 
 test_extra_hermetic_candidates_present() {
   local listed
-  listed=$("$PROOF" --list)
+  listed=$(bash "$PROOF" --list)
   for want in \
     tests/fm-backend-herdr.test.sh \
     tests/fm-send-strict.test.sh \
@@ -217,7 +217,7 @@ test_extra_hermetic_candidates_present() {
 
 test_list_exclusions_documents_reasons() {
   local out
-  out=$("$PROOF" --list-exclusions)
+  out=$(bash "$PROOF" --list-exclusions)
   [ -n "$out" ] || fail "--list-exclusions printed nothing"
   printf '%s\n' "$out" | grep -Fq 'fm-watcher-lock.test.sh' \
     || fail "exclusions must document watcher-lock serial reason"
@@ -228,15 +228,15 @@ test_list_exclusions_documents_reasons() {
 
 test_family_map_labels_this_contract() {
   local fam safe scheduled_first
-  fam=$("$RUNNER" --list --family pure-contract-unit)
+  fam=$(bash "$RUNNER" --list --family pure-contract-unit)
   printf '%s\n' "$fam" | grep -Fq 'tests/fm-test-isolation-proof.test.sh' \
     || fail "fm-test-isolation-proof.test.sh must map to pure-contract-unit"
-  safe=$("$RUNNER" --list-concurrent-safe-families)
+  safe=$(bash "$RUNNER" --list-concurrent-safe-families)
   printf '%s\n' "$safe" | grep -Fxq watcher-wake-lock \
     || fail "runner must expose the admitted watcher concurrent-safe family"
   printf '%s\n' "$safe" | grep -Fxq pure-contract-unit \
     || fail "runner must expose the admitted contract-unit concurrent-safe family"
-  scheduled_first=$("$RUNNER" --list-scheduled --family watcher-wake-lock | head -n 1)
+  scheduled_first=$(bash "$RUNNER" --list-scheduled --family watcher-wake-lock | head -n 1)
   [ "$scheduled_first" = tests/fm-watch-triage.test.sh ] \
     || fail "runner scheduled the watcher family out of longest-hint order: $scheduled_first"
   pass "isolation-proof contract test is family-mapped"
@@ -244,12 +244,12 @@ test_family_map_labels_this_contract() {
 
 test_parallel_shards_consume_the_proven_set() {
   local proven shards
-  proven=$("$PROOF" --list | LC_ALL=C sort -u)
+  proven=$(bash "$PROOF" --list | LC_ALL=C sort -u)
   shards=$(
     {
-      "$RUNNER" --list --lane portable-parallel-1
-      "$RUNNER" --list --lane portable-parallel-2
-      "$RUNNER" --list --lane portable-parallel-3
+      bash "$RUNNER" --list --lane portable-parallel-1
+      bash "$RUNNER" --list --lane portable-parallel-2
+      bash "$RUNNER" --list --lane portable-parallel-3
     } | LC_ALL=C sort -u
   )
   [ "$proven" = "$shards" ] \

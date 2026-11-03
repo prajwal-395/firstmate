@@ -53,8 +53,8 @@ prime_turnend_seen() {  # <file>
 
 record_pi_busy() {  # <state-dir> <id>
   local state=$1 id=$2 gen
-  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$state" "$id")
-  "$ROOT/bin/fm-busy-event.sh" apply "$state" "$id" busy --gen "$gen" \
+  gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$state" "$id")
+  bash "$ROOT/bin/fm-busy-event.sh" apply "$state" "$id" busy --gen "$gen" \
     --source pi-ext --event agent-start
 }
 
@@ -2956,7 +2956,7 @@ test_identical_dead_display_of_a_successor_still_reports() {
 
   # The lane's busy contract is armed at spawn, so the first death's once-record
   # is keyed on that incarnation.
-  "$ROOT/bin/fm-busy-event.sh" arm "$state" wedge >/dev/null \
+  bash "$ROOT/bin/fm-busy-event.sh" arm "$state" wedge >/dev/null \
     || fail "could not arm the lane's busy incarnation"
 
   # Death #1: the endpoint is gone and reported once, in full.
@@ -2974,7 +2974,7 @@ test_identical_dead_display_of_a_successor_still_reports() {
   # through the real writer, and the successor stays quiet under the threshold
   # for a round, so no probe reads it alive and the pane never churns - the
   # display captured here and in the death rounds is byte-identical throughout.
-  "$ROOT/bin/fm-busy-event.sh" arm "$state" wedge >/dev/null \
+  bash "$ROOT/bin/fm-busy-event.sh" arm "$state" wedge >/dev/null \
     || fail "could not re-arm the successor's busy incarnation"
   : > "$out"
   FM_TEST_STALE_ESCALATE=999 wedge_threshold_round "$state" "$fakebin" "$out" "$capture" "$window" "$failed" absorb \
@@ -4301,7 +4301,7 @@ pe_case() {  # <dir> <command>...
   dir=$(cd "$dir" && pwd -P) || return 1
   shift
   (unset FM_ROOT_OVERRIDE
-   FM_PROCEVENT_CLAIM_ROOT="$dir/claims" FM_HOME="$dir" "$ROOT/bin/fm-procevent.sh" "$@")
+   FM_PROCEVENT_CLAIM_ROOT="$dir/claims" FM_HOME="$dir" bash "$ROOT/bin/fm-procevent.sh" "$@")
 }
 
 # Capture one real process-event result into <dir>'s home, then retire the
@@ -4898,7 +4898,7 @@ test_pi_stream_silence_uses_inspection_timer() {
     printf 'window=%s\nkind=ship\nharness=pi\n' "$window" > "$state/stream.meta"
     record_pi_busy "$state" stream
     gen=$(cat "$state/stream.busy-gen")
-    "$ROOT/bin/fm-busy-event.sh" stream "$state" stream open --gen "$gen" --request 1
+    bash "$ROOT/bin/fm-busy-event.sh" stream "$state" stream open --gen "$gen" --request 1
     # Backdate the owned protocol fixture, not production source or a UI guess.
     snapshot="v1 gen=$gen request=1 rev=1 ts=$(( $(date +%s) - 600 ))"
     printf '%s\n' "$snapshot" > "$state/stream.model-stream"
@@ -4912,10 +4912,10 @@ test_pi_stream_silence_uses_inspection_timer() {
       leading) enabled=00300 ;;
       maximum) enabled=999999999 ;;
       overflow) enabled=1000000000 ;;
-      closed) "$ROOT/bin/fm-busy-event.sh" stream "$state" stream close --gen "$gen" --request 1 ;;
+      closed) bash "$ROOT/bin/fm-busy-event.sh" stream "$state" stream close --gen "$gen" --request 1 ;;
       foreign) printf 'window=%s\nkind=ship\nharness=claude\n' "$window" > "$state/stream.meta"
-               "$ROOT/bin/fm-busy-event.sh" apply "$state" stream busy --gen "$gen" --source claude-hook --event start ;;
-      fresh) "$ROOT/bin/fm-busy-event.sh" stream "$state" stream progress --gen "$gen" --request 1 ;;
+               bash "$ROOT/bin/fm-busy-event.sh" apply "$state" stream busy --gen "$gen" --source claude-hook --event start ;;
+      fresh) bash "$ROOT/bin/fm-busy-event.sh" stream "$state" stream progress --gen "$gen" --request 1 ;;
       malformed) printf 'malformed\n' > "$state/stream.model-stream" ;;
       stale) record_pi_busy "$state" stream
              printf '%s\n' "$snapshot" > "$state/stream.model-stream" ;;
@@ -4937,7 +4937,7 @@ test_pi_stream_silence_uses_inspection_timer() {
       echo $(( $(date +%s) - 500 )) > "$state/.stale-since-$key"
       printf 'Working... next tick' > "$capture_file"
       if [ "$mode" = resumed ]; then
-        "$ROOT/bin/fm-busy-event.sh" stream "$state" stream progress --gen "$gen" --request 1
+        bash "$ROOT/bin/fm-busy-event.sh" stream "$state" stream progress --gen "$gen" --request 1
       elif [ "$mode" = racing ]; then
         # The recovery-grade endpoint read runs inside the escalation path.
         # Close the request there to exercise the final evidence revalidation.
@@ -4989,10 +4989,10 @@ test_pi_model_progress_and_legacy_fallback() {
     printf 'window=%s\nkind=ship\nharness=pi\n' "$window" > "$state/stream.meta"
     record_pi_busy "$state" stream
     gen=$(cat "$state/stream.busy-gen")
-    "$ROOT/bin/fm-busy-event.sh" stream "$state" stream open --gen "$gen" --request 1
+    bash "$ROOT/bin/fm-busy-event.sh" stream "$state" stream open --gen "$gen" --request 1
     if [ "$mode" != closed ] && [ "$mode" != replaced ]; then
-      "$ROOT/bin/fm-busy-event.sh" stream "$state" stream progress --gen "$gen" --request 1
-      "$ROOT/bin/fm-busy-event.sh" stream "$state" stream close --gen "$gen" --request 1
+      bash "$ROOT/bin/fm-busy-event.sh" stream "$state" stream progress --gen "$gen" --request 1
+      bash "$ROOT/bin/fm-busy-event.sh" stream "$state" stream close --gen "$gen" --request 1
     else
       printf 'v1 gen=%s request=1 rev=1 ts=%s\n' "$gen" "$(( $(date +%s) - 600 ))" > "$state/stream.model-stream"
     fi
@@ -5020,8 +5020,8 @@ test_pi_model_progress_and_legacy_fallback() {
     case "$mode" in
       enabled) continue ;;
       disabled) enabled=0 ;;
-      closed) "$ROOT/bin/fm-busy-event.sh" stream "$state" stream close --gen "$gen" --request 1 ;;
-      replaced) "$ROOT/bin/fm-busy-event.sh" stream "$state" stream open --gen "$gen" --request 2 ;;
+      closed) bash "$ROOT/bin/fm-busy-event.sh" stream "$state" stream close --gen "$gen" --request 1 ;;
+      replaced) bash "$ROOT/bin/fm-busy-event.sh" stream "$state" stream open --gen "$gen" --request 2 ;;
     esac
     echo $(( $(date +%s) - 500 )) > "$state/.stale-since-$key"
     echo 7 > "$state/.wedge-escalations-$key"
@@ -5061,7 +5061,7 @@ test_pi_stream_publication_lock_revalidation() {
       printf 'window=%s\nkind=ship\nharness=pi\n' "$window" > "$state/stream.meta"
       record_pi_busy "$state" stream
       gen=$(cat "$state/stream.busy-gen")
-      "$ROOT/bin/fm-busy-event.sh" stream "$state" stream open --gen "$gen" --request 1
+      bash "$ROOT/bin/fm-busy-event.sh" stream "$state" stream open --gen "$gen" --request 1
       printf 'v1 gen=%s request=1 rev=1 ts=%s\n' "$gen" "$(( $(date +%s) - 600 ))" > "$state/stream.model-stream"
       printf 'working: setup complete\n' > "$state/stream.status"
       seen_sig "$state/stream.status" > "$state/.seen-stream_status"
@@ -5117,9 +5117,9 @@ SH
       date +%s > "$state/.wedge-permanent-$key"
       date +%s > "$state/.wedge-terminal-queued-$key"
       case "$action" in
-        close) "$ROOT/bin/fm-busy-event.sh" stream "$state" stream close --gen "$gen" --request 1 ;;
-        progress) "$ROOT/bin/fm-busy-event.sh" stream "$state" stream progress --gen "$gen" --request 1 ;;
-        replace) "$ROOT/bin/fm-busy-event.sh" stream "$state" stream open --gen "$gen" --request 2 ;;
+        close) bash "$ROOT/bin/fm-busy-event.sh" stream "$state" stream close --gen "$gen" --request 1 ;;
+        progress) bash "$ROOT/bin/fm-busy-event.sh" stream "$state" stream progress --gen "$gen" --request 1 ;;
+        replace) bash "$ROOT/bin/fm-busy-event.sh" stream "$state" stream open --gen "$gen" --request 2 ;;
       esac
       rm -f "$lock/pid"
       rmdir "$lock"
@@ -5143,12 +5143,12 @@ test_pi_stream_resume_restarts_capped_episode() {
   printf 'window=%s\nkind=ship\nharness=pi\n' "$window" > "$state/stream.meta"
   record_pi_busy "$state" stream
   gen=$(cat "$state/stream.busy-gen")
-  "$ROOT/bin/fm-busy-event.sh" stream "$state" stream open --gen "$gen" --request 1
+  bash "$ROOT/bin/fm-busy-event.sh" stream "$state" stream open --gen "$gen" --request 1
   printf 'working: setup complete\n' > "$state/stream.status"
   seen_sig "$state/stream.status" > "$state/.seen-stream_status"
   for round in first resumed; do
     if [ "$round" = resumed ]; then
-      "$ROOT/bin/fm-busy-event.sh" stream "$state" stream progress --gen "$gen" --request 1
+      bash "$ROOT/bin/fm-busy-event.sh" stream "$state" stream progress --gen "$gen" --request 1
     fi
     snapshot=$(cat "$state/stream.model-stream")
     printf '%s ts=%s\n' "${snapshot% ts=*}" "$(( $(date +%s) - 600 ))" > "$state/stream.model-stream"
@@ -5186,7 +5186,7 @@ test_pi_stream_counter_write_failures() {
     printf 'window=%s\nkind=ship\nharness=pi\n' "$window" > "$state/stream.meta"
     record_pi_busy "$state" stream
     gen=$(cat "$state/stream.busy-gen")
-    "$ROOT/bin/fm-busy-event.sh" stream "$state" stream open --gen "$gen" --request 1
+    bash "$ROOT/bin/fm-busy-event.sh" stream "$state" stream open --gen "$gen" --request 1
     printf 'v1 gen=%s request=1 rev=1 ts=%s\n' "$gen" "$(( $(date +%s) - 600 ))" > "$state/stream.model-stream"
     printf 'working: setup complete\n' > "$state/stream.status"
     seen_sig "$state/stream.status" > "$state/.seen-stream_status"
@@ -5252,7 +5252,7 @@ SH
     ack_stopped_cycle "$state" || fail "$mode fault acknowledgement failed"
     queue_before=$(cat "$state/.wake-queue" 2>/dev/null || true)
     if [ "$mode" = uncapped ]; then
-      "$ROOT/bin/fm-busy-event.sh" stream "$state" stream close --gen "$gen" --request 1
+      bash "$ROOT/bin/fm-busy-event.sh" stream "$state" stream close --gen "$gen" --request 1
     fi
     echo $(( $(date +%s) - 500 )) > "$state/.stale-since-$key"
     PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \

@@ -70,7 +70,7 @@ stop_lab() {  # <lab>
   fi
   pid=$(cat "$fm/state/.watch.lock/pid" 2>/dev/null || true)
   [ -z "$pid" ] || kill -TERM "$pid" 2>/dev/null || true
-  FM_HOME="$fm" FM_PROCEVENT_CLAIM_ROOT="$lab/claims" "$fm/bin/fm-procevent.sh" sweep-home >/dev/null 2>&1 || true
+  FM_HOME="$fm" FM_PROCEVENT_CLAIM_ROOT="$lab/claims" bash "$fm/bin/fm-procevent.sh" sweep-home >/dev/null 2>&1 || true
   rm -rf "${PROJECTS:?}/$(printf '%s' "$fm" | sed 's/[^A-Za-z0-9]/-/g')"
 }
 cleanup() {
@@ -149,7 +149,7 @@ export CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0
 export PATH='$lab/bin':"\$PATH"
 ENV
   # shellcheck source=/dev/null
-  (. "$lab/env"; "$fm/bin/fm-procevent-remote-reply.sh" arm labremote >/dev/null) \
+  (. "$lab/env"; bash "$fm/bin/fm-procevent-remote-reply.sh" arm labremote >/dev/null) \
     || fail "$1: could not arm the stand-in remote listener"
   printf '%s\n' "$lab"
 }

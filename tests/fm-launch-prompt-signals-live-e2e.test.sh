@@ -131,7 +131,7 @@ $tail"
 
   state="$lab/state"
   mkdir -p "$state"
-  "$EV" arm "$state" t1 >/dev/null || fail "$harness: could not arm the scratch busy-state record"
+  bash "$EV" arm "$state" t1 >/dev/null || fail "$harness: could not arm the scratch busy-state record"
   out=$(fm_busy_classify tmux w1 "$harness" t1 "$state" "$tail")
   [ "$out" = "unknown launch-prompt" ] \
     || fail "$harness: real launch parked on its prompt classified '$out', expected 'unknown launch-prompt'"
@@ -177,7 +177,7 @@ if [ -x "${PI_BIN:-}" ]; then
   for h in pi-signed omp; do
     hstate=$(mktemp -d "${TMPDIR:-/tmp}/fm-launch-prompt-$h.XXXXXX") || fail "$h: could not create the isolated state dir"
     LABS+=("$hstate")
-    "$EV" arm "$hstate" t1 >/dev/null || fail "$h: could not arm the scratch busy-state record"
+    bash "$EV" arm "$hstate" t1 >/dev/null || fail "$h: could not arm the scratch busy-state record"
     out=$(fm_busy_classify tmux w1 "$h" t1 "$hstate" "$(cat "$PI_TAIL_FILE")")
     [ "$out" = "unknown launch-prompt" ] \
       || fail "$h: the same real Pi trust-dialog capture classified '$out', expected 'unknown launch-prompt'"

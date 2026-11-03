@@ -270,7 +270,7 @@ if ! fm_session_lock_owned_by_self "$STATE"; then
   LOCK_PID=$(cat "$STATE/.lock" 2>/dev/null || true)
   fm_session_pid_valid "$LOCK_PID" || exit 0
   fm_harness_pid_alive "$LOCK_PID" && exit 0
-  "$SCRIPT_DIR/fm-lock.sh" >/dev/null 2>&1 || exit 0
+  bash "$SCRIPT_DIR/fm-lock.sh" >/dev/null 2>&1 || exit 0
   fm_session_lock_owned_by_self "$STATE" || exit 0
 fi
 
@@ -328,11 +328,11 @@ while [ "$attempt" -lt "$ARM_ATTEMPTS" ]; do
   attempt=$((attempt + 1))
   ARM_OUT=$(mktemp "$STATE/.cursor-park-output.XXXXXX") || ARM_OUT=
   if [ "$HOST_MODE" -eq 1 ]; then
-    FM_SUPERVISION_HOST_PRIMARY=cursor "$SCRIPT_DIR/fm-supervision-host.sh" park >"${ARM_OUT:-/dev/null}" 2>&1 &
+    FM_SUPERVISION_HOST_PRIMARY=cursor bash "$SCRIPT_DIR/fm-supervision-host.sh" park >"${ARM_OUT:-/dev/null}" 2>&1 &
   elif [ -n "$ARM_OUT" ]; then
-    "$SCRIPT_DIR/fm-watch-arm.sh" >"$ARM_OUT" 2>&1 &
+    bash "$SCRIPT_DIR/fm-watch-arm.sh" >"$ARM_OUT" 2>&1 &
   else
-    "$SCRIPT_DIR/fm-watch-arm.sh" >/dev/null 2>&1 &
+    bash "$SCRIPT_DIR/fm-watch-arm.sh" >/dev/null 2>&1 &
   fi
   ARM_PID=$!
   while kill -0 "$ARM_PID" 2>/dev/null; do
@@ -401,7 +401,7 @@ if [ "$ACTIONABLE" -eq 1 ]; then
   if [ "$HOST_MODE" -eq 1 ]; then
     WAKE=$(awk '/^supervision-host:/ { print; next } /^(signal:|stale:|check:|heartbeat)/ && shown++ < 8' "$ARM_OUT" 2>/dev/null)
     if [ -e "$STATE/.afk-contract" ] \
-      && [ "$(FM_STATE_OVERRIDE="$STATE" "$SCRIPT_DIR/fm-afk-contract.sh" mode 2>/dev/null)" != quiet ]; then
+      && [ "$(FM_STATE_OVERRIDE="$STATE" bash "$SCRIPT_DIR/fm-afk-contract.sh" mode 2>/dev/null)" != quiet ]; then
       WAKE="$WAKE
 This wake comes from automatic supervision under the away-posture record, not from the captain: it is not a return, so handle it under the away posture."
     fi
@@ -427,7 +427,7 @@ fi
 # harness, and --cursor tells it this is Cursor's own registration rather than
 # the Claude-settings duplicate.
 GUARD_ERR=$(mktemp "${TMPDIR:-/tmp}/fm-turnend-cursor.XXXXXX") || exit 0
-printf '%s' "$PAYLOAD" | "$SCRIPT_DIR/fm-turnend-guard.sh" --cursor 2>"$GUARD_ERR"
+printf '%s' "$PAYLOAD" | bash "$SCRIPT_DIR/fm-turnend-guard.sh" --cursor 2>"$GUARD_ERR"
 GUARD_RC=$?
 REASON=$(cat "$GUARD_ERR" 2>/dev/null || true)
 rm -f "$GUARD_ERR" 2>/dev/null || true

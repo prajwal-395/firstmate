@@ -28,7 +28,7 @@ if command -v quota-axi >/dev/null 2>&1; then
   quota_snapshot=$(mktemp "${TMPDIR:-/tmp}/fm-dispatch-descent-quota.XXXXXX") || quota_snapshot=
   if [ -n "$quota_snapshot" ]; then
     if QUOTA_AXI_MAX_AGE=$FM_QUOTA_AXI_MAX_AGE quota-axi --json > "$quota_snapshot" 2>/dev/null; then
-      "$RESET" sync-quota "$STATE" "$POLICY" "$quota_snapshot" >/dev/null 2>&1 || true
+      bash "$RESET" sync-quota "$STATE" "$POLICY" "$quota_snapshot" >/dev/null 2>&1 || true
     fi
     rm -f "$quota_snapshot"
   fi
@@ -43,7 +43,7 @@ for meta in "$STATE"/*.meta; do
   [ "$(sed -n 's/^kind=//p' "$meta" | tail -n 1)" = secondmate ] && continue
   stopped="$STATE/$id.stopped"
   [ ! -e "$stopped" ] || continue
-  state_line=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" "$STATE_READER" "$id" 2>/dev/null) || continue
+  state_line=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" bash "$STATE_READER" "$id" 2>/dev/null) || continue
   case "$state_line" in
     'state: done '*|'state: failed '*|'state: paused '*|'state: stopped '*) continue ;;
     'state: exited '*)
@@ -73,7 +73,7 @@ for meta in "$STATE"/*.meta; do
   ' "$POLICY" 2>/dev/null) || provider=
   [ -n "$provider" ] || provider=$(sed -n 's/^dispatch_route_provider=//p' "$meta" | tail -n 1)
   [ -n "$provider" ] && [ -n "$model" ] || continue
-  reset=$($RESET check "$STATE" "$provider" "$model" "$workspace" 2>/dev/null) || continue
+  reset=$(bash "$RESET" check "$STATE" "$provider" "$model" "$workspace" 2>/dev/null) || continue
   reset_ms=$(printf '%s\n' "$reset" | sed -n 's/.*reset_ms=\([0-9][0-9]*\).*/\1/p')
   [ -n "$reset_ms" ] || continue
   marker="$STATE/.dispatch-descent-$id"
@@ -87,7 +87,7 @@ for meta in "$STATE"/*.meta; do
   [ -z "$project" ] || args+=(--project "$project")
   [ -z "$declaration" ] || args+=(--declare "$declaration")
   [ "$approved" != 1 ] || args+=(--captain-approved)
-  route=$(FM_HOME="$FM_HOME" FM_CONFIG_OVERRIDE="$CONFIG" FM_STATE_OVERRIDE="$STATE" "$RESOLVE" "${args[@]}" 2>/dev/null) || route=
+  route=$(FM_HOME="$FM_HOME" FM_CONFIG_OVERRIDE="$CONFIG" FM_STATE_OVERRIDE="$STATE" bash "$RESOLVE" "${args[@]}" 2>/dev/null) || route=
   chosen=$(jq -c '.profile // empty' <<<"$route" 2>/dev/null) || chosen=
   target_model=$(jq -r '.model // ""' <<<"$chosen" 2>/dev/null) || target_model=
   target_harness=$(jq -r '.harness // ""' <<<"$chosen" 2>/dev/null) || target_harness=
@@ -110,7 +110,7 @@ for meta in "$STATE"/*.meta; do
   relaunch=("$id" relaunch --harness "$target_harness" --model "$target_model" --note "$note")
   [ -z "$target_effort" ] || relaunch+=(--effort "$target_effort")
   [ -z "$target_workspace" ] || relaunch+=(--opencode-workspace "$target_workspace")
-  if ctl_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" "$CONTROL" "${relaunch[@]}" 2>&1); then
+  if ctl_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" bash "$CONTROL" "${relaunch[@]}" 2>&1); then
     printf '%s\n' "$route_signature" > "$marker" 2>/dev/null || true
     printf 'relaunched %s %s -> %s/%s%s\n' "$id" "$model" "$target_harness" "$target_model" "${target_workspace:+ on $target_workspace}"
   else

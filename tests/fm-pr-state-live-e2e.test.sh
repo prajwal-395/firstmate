@@ -28,7 +28,7 @@ gh auth status >/dev/null 2>&1 || fail "gh is not authenticated"
 
 test_pull_request_read_jq_programs_run_under_gh_engine() {
   local out status=0
-  out=$("$SCRIPT" "$PR" 2>&1) || status=$?
+  out=$(bash "$SCRIPT" "$PR" 2>&1) || status=$?
   [ "$status" -eq 0 ] \
     || fail "fm-pr-state.sh refused a readable public pull request (exit $status): $out"
   assert_contains "$out" 'STATE: merged at 2019-10-04T16:01:04Z' \

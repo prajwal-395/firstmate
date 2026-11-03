@@ -5845,7 +5845,7 @@ SH
 
   out=$( PATH="$fb:$PATH" FM_ROOT_OVERRIDE="$neutral" FM_STATE_OVERRIDE="$state" \
     FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
-    "$ROOT/bin/fm-peek.sh" default:w1:p2 5 2>/dev/null )
+    bash "$ROOT/bin/fm-peek.sh" default:w1:p2 5 2>/dev/null )
   [ "$out" = "captured herdr pane" ] || fail "fm-peek did not capture through herdr for an explicit metadata-matched target, got '$out'"
   assert_contains "$(cat "$log")" $'\x1f''pane'$'\x1f''read'$'\x1f''w1:p2' \
     "fm-peek did not route the explicit stale target through herdr capture"
@@ -5853,7 +5853,7 @@ SH
   : > "$log"
   PATH="$fb:$PATH" FM_ROOT_OVERRIDE="$neutral" FM_HOME="$neutral" FM_STATE_OVERRIDE="$state" \
     FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
-    "$ROOT/bin/fm-send.sh" default:w1:p2 --key Escape >/dev/null 2>&1
+    bash "$ROOT/bin/fm-send.sh" default:w1:p2 --key Escape >/dev/null 2>&1
   expect_code 0 $? "fm-send --key should route an explicit metadata-matched target through herdr"
   assert_contains "$(cat "$log")" $'\x1f''pane'$'\x1f''send-keys'$'\x1f''w1:p2'$'\x1f''escape' \
     "fm-send did not route the explicit stale target through herdr send-key"

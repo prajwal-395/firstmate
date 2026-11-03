@@ -677,7 +677,7 @@ deliver_interrupt() {
   else
     cancel=$(interrupt_cancel_claim)
     if [ "$HARNESS" = devin ] && [ -n "$devin_gen" ]; then
-      "$SCRIPT_DIR/fm-busy-event.sh" apply "$STATE" "$ID" unknown \
+      bash "$SCRIPT_DIR/fm-busy-event.sh" apply "$STATE" "$ID" unknown \
         --gen "$devin_gen" --source fm-interrupt --event interrupt >/dev/null 2>&1 || true
     fi
   fi
@@ -764,7 +764,7 @@ retire_busy_incarnation() {
   if [ -f "$STATE/$ID.busy-gen" ]; then
     gen=$(fm_busy_current_gen "$STATE" "$ID" 2>/dev/null || true)
     if [ -n "$gen" ] \
-      && "$SCRIPT_DIR/fm-busy-event.sh" retire "$STATE" "$ID" --gen "$gen" >/dev/null 2>&1; then
+      && bash "$SCRIPT_DIR/fm-busy-event.sh" retire "$STATE" "$ID" --gen "$gen" >/dev/null 2>&1; then
       clear_retired_meta_busy_gen "$gen" || true
     fi
   fi
@@ -1134,13 +1134,13 @@ resolve_relaunch_profile() {
     # scout deliberately does NOT resolve config here: their harness comes
     # from firstmate's own dispatch-profile judgment at intake, and silently
     # re-resolving it would bypass that consultation.
-    if ! CONFIG_HARNESS=$("$SCRIPT_DIR/fm-harness.sh" secondmate "$ID"); then
+    if ! CONFIG_HARNESS=$(bash "$SCRIPT_DIR/fm-harness.sh" secondmate "$ID"); then
       die "the configured secondmate runtime pin for $ID cannot be read; fix config/secondmate-harness rather than relaunching onto an unresolved runtime"
     fi
-    if ! CONFIG_MODEL=$("$SCRIPT_DIR/fm-harness.sh" secondmate-model "$ID"); then
+    if ! CONFIG_MODEL=$(bash "$SCRIPT_DIR/fm-harness.sh" secondmate-model "$ID"); then
       die "the configured secondmate model pin for $ID cannot be read; fix config/secondmate-harness rather than relaunching onto an unresolved model"
     fi
-    if ! CONFIG_EFFORT=$("$SCRIPT_DIR/fm-harness.sh" secondmate-effort "$ID"); then
+    if ! CONFIG_EFFORT=$(bash "$SCRIPT_DIR/fm-harness.sh" secondmate-effort "$ID"); then
       die "the configured secondmate effort pin for $ID cannot be read; fix config/secondmate-harness rather than relaunching onto an unresolved effort"
     fi
     case "$CONFIG_EFFORT" in
@@ -1190,7 +1190,7 @@ resolve_relaunch_profile() {
     TARGET_EFFORT=default
   fi
   if [ "$TARGET_EFFORT" = ultra ]; then
-    "$SCRIPT_DIR/fm-harness.sh" validate-native-effort "$TARGET_HARNESS" "$TARGET_MODEL" "$TARGET_EFFORT" || return 1
+    bash "$SCRIPT_DIR/fm-harness.sh" validate-native-effort "$TARGET_HARNESS" "$TARGET_MODEL" "$TARGET_EFFORT" || return 1
   fi
   # The launch owner applies this home's worker account pin too, but only after
   # the old agent has been stopped, so a pin that no longer resolves or is
@@ -1406,7 +1406,7 @@ do_relaunch() {
   [ "$TARGET_EFFORT" = default ] || spawn_args+=(--effort "$TARGET_EFFORT")
   [ "$WORKSPACE_SET" = 0 ] || spawn_args+=(--opencode-workspace "$NEW_WORKSPACE")
   if FM_CONTROL_RELAUNCH_TX="$RELAUNCH_TX" \
-      "$SCRIPT_DIR/fm-spawn.sh" "${spawn_args[@]}" >/dev/null; then
+      bash "$SCRIPT_DIR/fm-spawn.sh" "${spawn_args[@]}" >/dev/null; then
     RELAUNCH_META_PUBLISHED=1
     # $T was resolved from the record before the launch. When the recorded
     # endpoint was gone, the launch owner created a fresh one and republished

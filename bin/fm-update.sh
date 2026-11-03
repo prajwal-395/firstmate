@@ -75,7 +75,7 @@ SECONDMATES_MD="$FM_HOME/data/secondmates.md"
 # shellcheck source=bin/fm-secondmate-restart-lib.sh
 . "$SCRIPT_DIR/fm-secondmate-restart-lib.sh"
 
-"$SCRIPT_DIR/fm-guard.sh" || true
+bash "$SCRIPT_DIR/fm-guard.sh" || true
 
 usage() { echo "usage: fm-update.sh [--help]" >&2; }
 
@@ -113,7 +113,7 @@ if [ "$FF_STATUS" = "updated" ]; then
   # process's own FM_ROOT is the repo that was just updated, which is not
   # always where this very script file happens to live (FM_ROOT_OVERRIDE, as
   # this test suite uses to point fm-update.sh at a fixture checkout).
-  FM_HOME="$FM_HOME" FM_ROOT_OVERRIDE="$FM_ROOT" "$SCRIPT_DIR/fm-procevent-when.sh" rebind-all || true
+  FM_HOME="$FM_HOME" FM_ROOT_OVERRIDE="$FM_ROOT" bash "$SCRIPT_DIR/fm-procevent-when.sh" rebind-all || true
 fi
 
 # --- secondmates -----------------------------------------------------------
@@ -134,7 +134,7 @@ secondmate_agent_may_be_alive() {  # <id>
   local id=$1 meta="$STATE/$1.meta" remote_host state=unreadable
   remote_host=$(fm_meta_get "$meta" remote_host)
   if [ -n "$remote_host" ]; then
-    state=$("$SCRIPT_DIR/fm-on.sh" "$id" \
+    state=$(bash "$SCRIPT_DIR/fm-on.sh" "$id" \
       fm-remote-secondmate-control.sh state "$id" < /dev/null 2>/dev/null) || state=unreadable
   elif fm_backend_validate_task_endpoint "$meta" "$id" >/dev/null 2>&1; then
     state=$(fm_backend_agent_state "$FM_BACKEND_VALIDATED_BACKEND" \
@@ -202,7 +202,7 @@ if [ -f "$SECONDMATES_MD" ]; then
     id=$SECONDMATE_REGISTRY_ID
     home=$SECONDMATE_REGISTRY_HOME
     if [ "$SECONDMATE_REGISTRY_REMOTE" -eq 1 ]; then
-      if remote_out=$("$SCRIPT_DIR/fm-on.sh" "$id" fm-remote-secondmate-control.sh update "$id" < /dev/null 2>&1); then
+      if remote_out=$(bash "$SCRIPT_DIR/fm-on.sh" "$id" fm-remote-secondmate-control.sh update "$id" < /dev/null 2>&1); then
         remote_result=$(printf '%s\n' "$remote_out" | tail -1)
         case "$remote_result" in
           synced:*)

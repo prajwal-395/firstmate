@@ -73,7 +73,7 @@ test_remote_peek_reads_remote_pane() {
     FM_SSH_BIN="$fb/fake-ssh" FM_FAKE_SSH_RC=0 \
     FM_FAKE_REMOTE_CAPTURE='● the remote mate is mid-refactor' \
     FM_FAKE_TMUX_TOUCHED="$touched" \
-    "$PEEK" rsm 20 2>"$dir/err"); rc=$?
+    bash "$PEEK" rsm 20 2>"$dir/err"); rc=$?
   expect_code 0 "$rc" "a healthy remote peek should succeed"
   assert_contains "$out" "the remote mate is mid-refactor" \
     "the remote pane tail should be printed"
@@ -94,7 +94,7 @@ test_remote_peek_unreachable_fails_loudly_without_death_claim() {
     FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
     FM_SSH_BIN="$fb/fake-ssh" FM_FAKE_SSH_RC=255 \
     FM_FAKE_TMUX_TOUCHED="$touched" \
-    "$PEEK" rsm >"$dir/out" 2>"$dir/err"; rc=$?
+    bash "$PEEK" rsm >"$dir/out" 2>"$dir/err"; rc=$?
   err=$(cat "$dir/err")
   [ "$rc" -ne 0 ] || fail "an unreachable remote peek must exit nonzero"
   assert_contains "$err" "remote pane of rsm on remote-mac" \

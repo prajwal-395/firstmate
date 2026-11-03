@@ -177,7 +177,7 @@ remote_put_shared() {
   local home=$1 payload=$2 generation=$3 bytes hash
   bytes=$(LC_ALL=C wc -c < "$payload" | tr -d ' ')
   hash=$(fm_inherit_sha256 "$payload") || fail "cannot hash remote inheritance payload"
-  PATH="$BASE_PATH" FM_HOME="$home" "$ROOT/bin/fm-remote-inherit.sh" \
+  PATH="$BASE_PATH" FM_HOME="$home" bash "$ROOT/bin/fm-remote-inherit.sh" \
     put data/captain-shared.md "$bytes" "$hash" "$generation" < "$payload" 2>&1
 }
 
@@ -478,7 +478,7 @@ EOF
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$data_override" \
     FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
     FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" sm "$sm" codex --backend tmux --secondmate >/dev/null 2>&1 || true
+    bash "$ROOT/bin/fm-spawn.sh" sm "$sm" codex --backend tmux --secondmate >/dev/null 2>&1 || true
 
   cmp -s "$data_override/captain-shared.md" "$sm/data/captain-shared.md" \
     || fail "spawn convergence point did not copy shared captain preferences from FM_DATA_OVERRIDE"
@@ -507,7 +507,7 @@ EOF
 
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$root" \
     FM_DATA_OVERRIDE="$data_override" \
-    "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
+    bash "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
 
   assert_not_contains "$out" "SECONDMATE_SYNC: secondmate sm: skipped: inheritance failed" \
     "bootstrap inheritance should succeed"
@@ -536,7 +536,7 @@ EOF
 
   out=$(PATH="$BASE_PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$root" \
     FM_DATA_OVERRIDE="$data_override" \
-    "$ROOT/bin/fm-config-push.sh" 2>/dev/null)
+    bash "$ROOT/bin/fm-config-push.sh" 2>/dev/null)
 
   assert_contains "$out" "data/captain-shared.md: pushed - quarantined local drift at" \
     "config-push should report the shared file update and quarantine"
@@ -562,12 +562,12 @@ EOF
   write_shared "$data_override/captain-shared.md" "inherited shared bytes"
   PATH="$BASE_PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$root" \
     FM_DATA_OVERRIDE="$data_override" \
-    "$ROOT/bin/fm-config-push.sh" >/dev/null 2>&1
+    bash "$ROOT/bin/fm-config-push.sh" >/dev/null 2>&1
   write_shared "$data_override/captain-shared.md" "updated shared bytes"
 
   out=$(PATH="$BASE_PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$root" \
     FM_DATA_OVERRIDE="$data_override" \
-    "$ROOT/bin/fm-config-push.sh" 2>/dev/null)
+    bash "$ROOT/bin/fm-config-push.sh" 2>/dev/null)
 
   assert_contains "$out" "data/captain-shared.md: pushed" \
     "config-push should report the shared file source-only update"
@@ -590,7 +590,7 @@ EOF
   fm_fake_exit0 "$fakebin" pgrep
 
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$root" \
-    "$ROOT/bin/fm-session-start.sh")
+    bash "$ROOT/bin/fm-session-start.sh")
 
   assert_contains "$out" "data/captain-shared.md (shared, main-authoritative, read-only in secondmate homes)" \
     "session-start digest should label the shared captain file unmistakably"

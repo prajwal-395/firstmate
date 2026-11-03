@@ -166,13 +166,13 @@ meta_traceparent() { sed -n 's/^traceparent=//p' "$1"; }
 # Provision and register the remote route from the captain-facing primary.
 FM_SECONDMATE_CHARTER='Own iOS delivery on the build Mac.' \
   FM_SECONDMATE_SCOPE='iOS implementation and Xcode validation' \
-  remote_env "$ROOT/bin/fm-remote-home-seed.sh" ios remote-mac "$REMOTE_ROOT" "$REMOTE_HOME" --no-projects >/dev/null \
+  remote_env bash "$ROOT/bin/fm-remote-home-seed.sh" ios remote-mac "$REMOTE_ROOT" "$REMOTE_HOME" --no-projects >/dev/null \
   || fail "remote seed did not provision the traced route"
 
 # --- disabled: the remote route must stay byte-identically untraced ----------
 freeze_parent_session
 : > "$HERDR_LOG"
-remote_env "$ROOT/bin/fm-spawn.sh" ios --secondmate >/dev/null 2>&1 \
+remote_env bash "$ROOT/bin/fm-spawn.sh" ios --secondmate >/dev/null 2>&1 \
   || fail "default-off remote secondmate spawn failed"
 assert_present "$PARENT/state/ios.meta" "default-off remote spawn published no parent metadata"
 ! grep -q '^traceparent=' "$PARENT/state/ios.meta" \
@@ -192,7 +192,7 @@ pass "disabled: a remote-routed second mate records and receives no carrier and 
 freeze_parent_session
 reset_remote_herdr_fixture "$HERDR_STATE"   # the previous endpoint is gone; this is an ordinary relaunch
 : > "$HERDR_LOG"
-remote_env "$ROOT/bin/fm-spawn.sh" ios --secondmate >/dev/null 2>&1 \
+remote_env bash "$ROOT/bin/fm-spawn.sh" ios --secondmate >/dev/null 2>&1 \
   || fail "enabled remote secondmate spawn failed"
 
 PARENT_TP=$(meta_traceparent "$PARENT/state/ios.meta")
@@ -224,7 +224,7 @@ pass "enabled: a remote-routed second mate receives one carrier in its pane, ide
 # --- relaunch stability on the remote path ----------------------------------
 reset_remote_herdr_fixture "$HERDR_STATE"
 : > "$HERDR_LOG"
-remote_env "$ROOT/bin/fm-spawn.sh" ios --secondmate >/dev/null 2>&1 \
+remote_env bash "$ROOT/bin/fm-spawn.sh" ios --secondmate >/dev/null 2>&1 \
   || fail "enabled remote secondmate relaunch failed"
 RELAUNCH_TP=$(meta_traceparent "$PARENT/state/ios.meta")
 RELAUNCH_INJECTED=$(remote_injected_traceparent)
@@ -242,11 +242,11 @@ AMBIENT='00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab-bbbbbbbbbbbbbbbb-01'
 FM_SECONDMATE_CHARTER='Own the second build Mac.' \
   FM_SECONDMATE_SCOPE='second remote domain' \
   TRACEPARENT="$AMBIENT" \
-  remote_env "$ROOT/bin/fm-remote-home-seed.sh" ios2 remote-mac "$REMOTE_ROOT" "$SECOND_HOME" --no-projects >/dev/null \
+  remote_env bash "$ROOT/bin/fm-remote-home-seed.sh" ios2 remote-mac "$REMOTE_ROOT" "$SECOND_HOME" --no-projects >/dev/null \
   || fail "second remote seed failed"
 reset_remote_herdr_fixture "$HERDR_STATE"
 : > "$HERDR_LOG"
-TRACEPARENT="$AMBIENT" remote_env "$ROOT/bin/fm-spawn.sh" ios2 --secondmate >/dev/null 2>&1 \
+TRACEPARENT="$AMBIENT" remote_env bash "$ROOT/bin/fm-spawn.sh" ios2 --secondmate >/dev/null 2>&1 \
   || fail "second remote secondmate spawn failed"
 SECOND_TP=$(meta_traceparent "$PARENT/state/ios2.meta")
 fm_trace_context_valid "$SECOND_TP" \
@@ -272,11 +272,11 @@ if command -v shasum >/dev/null 2>&1; then
 else
   FLAG_HASH=$(sha256sum "$TMP_ROOT/flag-payload" | awk '{print $1}')
 fi
-FM_HOME="$PROTOCOL_HOME" "$REMOTE_ROOT/bin/fm-remote-inherit.sh" \
+FM_HOME="$PROTOCOL_HOME" bash "$REMOTE_ROOT/bin/fm-remote-inherit.sh" \
   put config/trace-context "$FLAG_BYTES" "$FLAG_HASH" 1 < "$TMP_ROOT/flag-payload" >/dev/null \
   || fail "the remote inherit receiver refused a declared inheritable item"
 assert_present "$PROTOCOL_HOME/config/trace-context" "the accepted inherited enablement flag was not published"
-if FM_HOME="$PROTOCOL_HOME" "$REMOTE_ROOT/bin/fm-remote-inherit.sh" \
+if FM_HOME="$PROTOCOL_HOME" bash "$REMOTE_ROOT/bin/fm-remote-inherit.sh" \
   put config/secondmate-harness "$FLAG_BYTES" "$FLAG_HASH" 1 < "$TMP_ROOT/flag-payload" >/dev/null 2>&1; then
   fail "the remote inherit receiver accepted an item outside the declared set"
 fi
@@ -293,7 +293,7 @@ VALID='00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab-bbbbbbbbbbbbbbbb-01'
 try_flag() { # <expect-substring> <message> [extra args...]
   local expect=$1 message=$2 out
   shift 2
-  if out=$(FM_SPAWN_NO_GUARD=1 FM_HOME="$FLAG_HOME" "$ROOT/bin/fm-spawn.sh" \
+  if out=$(FM_SPAWN_NO_GUARD=1 FM_HOME="$FLAG_HOME" bash "$ROOT/bin/fm-spawn.sh" \
     flag-a-b1 "$TMP_ROOT/flag-proj" "$@" 2>&1); then
     fail "$message (the spawn succeeded instead)"
   fi

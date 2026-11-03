@@ -170,7 +170,7 @@ EOF
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
     FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
     FM_SPAWN_NO_GUARD=1 FM_TEST_ORCA_DIR="$case_dir" PATH="$fb:$PATH" \
-    "$SPAWN" "$id" "$case_dir/project" --mode no-mistakes --yolo off --backend orca 2>&1)
+    bash "$SPAWN" "$id" "$case_dir/project" --mode no-mistakes --yolo off --backend orca 2>&1)
   status=$?
 
   expect_code 0 "$status" "an Orca-backed spawn should succeed"$'\n'"$out"
@@ -220,7 +220,7 @@ EOF
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
     FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
     FM_SPAWN_NO_GUARD=1 \
-    "$SPAWN" "$id" --relaunch 2>&1)
+    bash "$SPAWN" "$id" --relaunch 2>&1)
   status=$?
 
   expect_code 1 "$status" "a relaunch against a recorded Orca task should refuse"$'\n'"$out"
@@ -294,7 +294,7 @@ EOF
       FM_TEST_SOURCE_UNAVAILABLE="$([ "$setting" = unavailable ] && echo 1 || echo 0)" \
       FM_TEST_ORCA_SEND_FAIL="$([ "$setting" = sendfail ] && echo 1 || echo 0)" \
       FM_TEST_ORCA_CONSUME=1 \
-      PATH="$fb:$PATH" "$SPAWN" "$id" "$case_dir/project" \
+      PATH="$fb:$PATH" bash "$SPAWN" "$id" "$case_dir/project" \
       --mode direct-PR --yolo off --backend orca --harness "/bin/sh '$case_dir/probe.sh' '$case_dir/stage-path'" 2>&1)
     status=$?
     if [ "$setting" = absent ] || [ "$setting" = unavailable ] || [ "$setting" = malformed ] || [ "$setting" = nonregular ] || [ "$setting" = missing ]; then
@@ -418,7 +418,7 @@ SH
     FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
     FM_SPAWN_NO_GUARD=1 FM_TEST_ORCA_DIR="$case_dir" \
     FM_TEST_ORCA_LOG="$case_dir/terminal.log" FM_TEST_ORCA_CONSUME=1 FM_TEST_ORCA_CONSUME_DELAY=3 \
-    PATH="$fb:$PATH" "$SPAWN" "$id" "$case_dir/project" --mode no-mistakes --yolo off --backend orca 2>&1)
+    PATH="$fb:$PATH" bash "$SPAWN" "$id" "$case_dir/project" --mode no-mistakes --yolo off --backend orca 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "a spawn whose backlog transition failed reported success: $out"
   assert_contains "$out" "could not be moved to In flight" "the spawn did not fail at the backlog transition"
@@ -458,7 +458,7 @@ EOF
     FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
     FM_SPAWN_NO_GUARD=1 FM_TEST_ORCA_DIR="$case_dir" FM_ORCA_LAUNCH_CONSUME_POLLS=2 \
     FM_TEST_ORCA_LOG="$case_dir/terminal.log" PATH="$fb:$PATH" \
-    "$SPAWN" "$id" "$case_dir/project" --mode no-mistakes --yolo off --backend orca 2>&1)
+    bash "$SPAWN" "$id" "$case_dir/project" --mode no-mistakes --yolo off --backend orca 2>&1)
   status=$?
   expect_code 1 "$status" "a spawn whose pane never ran the launch command must fail: $out"
   assert_contains "$out" "did not run the launch command" "the failure must name the unrun launch command"
@@ -510,7 +510,7 @@ SH
     FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
     FM_SPAWN_NO_GUARD=1 FM_TEST_ORCA_DIR="$case_dir" FM_ORCA_LAUNCH_CONSUME_POLLS=2 \
     FM_TEST_ORCA_LOG="$case_dir/terminal.log" PATH="$fb:$PATH" \
-    "$SPAWN" "$id" "$case_dir/project" --mode no-mistakes --yolo off --backend orca 2>&1)
+    bash "$SPAWN" "$id" "$case_dir/project" --mode no-mistakes --yolo off --backend orca 2>&1)
   status=$?
   expect_code 0 "$status" "a spawn whose pane won the launch-file race must succeed: $out"
   assert_contains "$out" "spawned $id" "the spawn must report success when the pane consumed the launch file"
@@ -551,7 +551,7 @@ EOF
     FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
     FM_SPAWN_NO_GUARD=1 FM_TEST_ORCA_DIR="$case_dir" FM_ORCA_LAUNCH_CONSUME_POLLS=10 \
     FM_TEST_ORCA_LOG="$case_dir/terminal.log" FM_TEST_ORCA_RM_FAIL=1 PATH="$fb:$PATH" \
-    "$SPAWN" "$id" "$case_dir/project" --mode no-mistakes --yolo off --backend orca 2>&1)
+    bash "$SPAWN" "$id" "$case_dir/project" --mode no-mistakes --yolo off --backend orca 2>&1)
   status=$?
   expect_code 1 "$status" "a spawn whose pane could not remove the launch file must fail: $out"
   assert_contains "$(cat "$case_dir/pane.out")" 'cannot remove private launch file' "the pane must refuse the worker launch"
@@ -779,7 +779,7 @@ EOF
       FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
       FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
       FM_SPAWN_NO_GUARD=1 FM_TEST_ORCA_DIR="$case_dir" PATH="$fb:$PATH" \
-      "$SPAWN" "$id" "$case_dir/project" --mode no-mistakes --yolo off --backend orca 2>&1)
+      bash "$SPAWN" "$id" "$case_dir/project" --mode no-mistakes --yolo off --backend orca 2>&1)
     status=$?
     expect_code 0 "$status" "an Orca allowlist without a source should still spawn"$'\n'"$out"
     if [ "$allowlist" = named ]; then

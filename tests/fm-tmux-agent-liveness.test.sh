@@ -201,10 +201,10 @@ META
   # each verdict below is forced all the way down to the path where the defect
   # lived instead of stopping early on absent semantic state.
   local gen
-  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$LAB/state" "$id") || return 1
-  "$ROOT/bin/fm-busy-event.sh" apply "$LAB/state" "$id" idle --gen "$gen" \
+  gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$LAB/state" "$id") || return 1
+  bash "$ROOT/bin/fm-busy-event.sh" apply "$LAB/state" "$id" idle --gen "$gen" \
     --source claude-hook --event stop >/dev/null || return 1
-  FM_STATE_OVERRIDE="$LAB/state" FM_HOME="$LAB" "$ROOT/bin/fm-crew-state.sh" "$id"
+  FM_STATE_OVERRIDE="$LAB/state" FM_HOME="$LAB" bash "$ROOT/bin/fm-crew-state.sh" "$id"
 }
 
 # --- a harness-named foreground process -------------------------------------

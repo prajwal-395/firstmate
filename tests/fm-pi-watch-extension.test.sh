@@ -1477,7 +1477,7 @@ test_pi_away_record_collapses_eligibility_and_keeps_vetoes_on_main() {
   install_pi_watch_extension_fixture "$repo"
   plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
   printf 'project=%s/projects/approved\nwindow=fm-window\n' "$home" > "$home/state/task-a.meta"
-  FM_HOME="$home" "$ROOT/bin/fm-afk-contract.sh" enter >/dev/null || fail "away entry failed"
+  FM_HOME="$home" bash "$ROOT/bin/fm-afk-contract.sh" enter >/dev/null || fail "away entry failed"
   [ -f "$home/state/.afk-contract" ] || fail "the away-posture record was not written"
   cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
@@ -5039,7 +5039,7 @@ test_opencode_primary_watch_plugin_runs_the_supervision_host() {  # [away|quiet]
     # QUIET): the plugin asks the record owner, so the same handback carries no
     # away note.
     for f in fm-afk-contract.sh fm-classify-lib.sh fm-timeout-lib.sh; do cp "$ROOT/bin/$f" "$repo/bin/$f"; done
-    FM_HOME="$home" FM_AFK_MODE=quiet "$ROOT/bin/fm-afk-contract.sh" enter --words 'keep routine wakes off my main' >/dev/null 2>&1 \
+    FM_HOME="$home" FM_AFK_MODE=quiet bash "$ROOT/bin/fm-afk-contract.sh" enter --words 'keep routine wakes off my main' >/dev/null 2>&1 \
       || fail "fixture: could not record quiet mode"
   else
     : > "$home/state/.afk-contract"

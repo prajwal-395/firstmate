@@ -59,7 +59,7 @@ compose() {  # <origin> <key>
 }
 
 task_show() {
-  FM_HOME="$FM_HOME" FM_DATA_OVERRIDE='' "$SCRIPT_DIR/fm-tasks-axi.sh" show "$1" --full 2>/dev/null
+  FM_HOME="$FM_HOME" FM_DATA_OVERRIDE='' bash "$SCRIPT_DIR/fm-tasks-axi.sh" show "$1" --full 2>/dev/null
 }
 
 show_field() {
@@ -161,7 +161,7 @@ command_resolve() {
   fi
   answer_file=$tmp
   [ "$legacy_replay" = 0 ] || answer_file=$decision_file
-  if ! "$CAPTAIN_HOLD" answer "$id" --decision-file "$answer_file"; then
+  if ! bash "$CAPTAIN_HOLD" answer "$id" --decision-file "$answer_file"; then
     rm -f -- "$tmp"
     exit 1
   fi
@@ -169,7 +169,7 @@ command_resolve() {
   for dep in $routed; do
     show=$(task_show "$dep") || fail "routed task $dep disappeared before routing"
     if list_has_key "$(normalized_blocked_by "$show")" "$id"; then
-      FM_HOME="$FM_HOME" FM_DATA_OVERRIDE='' "$SCRIPT_DIR/fm-tasks-axi.sh" unblock "$dep" --by "$id" >/dev/null \
+      FM_HOME="$FM_HOME" FM_DATA_OVERRIDE='' bash "$SCRIPT_DIR/fm-tasks-axi.sh" unblock "$dep" --by "$id" >/dev/null \
         || fail "could not route the recorded decision to $dep"
     fi
   done
@@ -182,14 +182,14 @@ command_complete() {
   validate_slug origin-id "$origin"
   shift
   if [ "$#" -eq 1 ] && [ "$1" = --none ]; then
-    exec "$CAPTAIN_HOLD" complete "$origin" --none
+    exec bash "$CAPTAIN_HOLD" complete "$origin" --none
   fi
   for key in "$@"; do
     [ "$key" != --none ] || fail "--none cannot be combined with decision keys"
     mapped="${mapped}${mapped:+ }$(compose "$origin" "$key")"
   done
   # shellcheck disable=SC2086  # mapped is a validated space-separated slug list.
-  exec "$CAPTAIN_HOLD" complete "$origin" $mapped
+  exec bash "$CAPTAIN_HOLD" complete "$origin" $mapped
 }
 
 command_close() {  # <origin> <key> <flag-args...>
@@ -205,7 +205,7 @@ command_close() {  # <origin> <key> <flag-args...>
     esac
     shift
   done
-  exec "$CAPTAIN_HOLD" answer "$id" --decision-file "$decision_file"
+  exec bash "$CAPTAIN_HOLD" answer "$id" --decision-file "$decision_file"
 }
 
 command_hold() {
@@ -213,20 +213,20 @@ command_hold() {
   [ "$#" -ge 2 ] || { usage >&2; exit 2; }
   id=$(compose "$origin" "$key")
   shift 2
-  exec "$CAPTAIN_HOLD" hold "$id" --origin "$origin" "$@"
+  exec bash "$CAPTAIN_HOLD" hold "$id" --origin "$origin" "$@"
 }
 
 case "${1:-}" in
   id) shift; [ "$#" -eq 2 ] || { usage >&2; exit 2; }; compose "$1" "$2"; printf '\n' ;;
   hold) shift; command_hold "$@" ;;
   complete) shift; command_complete "$@" ;;
-  verify) shift; exec "$CAPTAIN_HOLD" verify "$@" ;;
+  verify) shift; exec bash "$CAPTAIN_HOLD" verify "$@" ;;
   resolve) shift; command_resolve "$@" ;;
   answer|decline|repair) shift; command_close "$@" ;;
-  answers) shift; exec "$CAPTAIN_HOLD" answers "$@" ;;
-  bind) shift; exec "$CAPTAIN_HOLD" bind "$@" ;;
-  unbind) shift; exec "$CAPTAIN_HOLD" unbind "$@" ;;
-  binding) shift; exec "$CAPTAIN_HOLD" binding "$@" ;;
+  answers) shift; exec bash "$CAPTAIN_HOLD" answers "$@" ;;
+  bind) shift; exec bash "$CAPTAIN_HOLD" bind "$@" ;;
+  unbind) shift; exec bash "$CAPTAIN_HOLD" unbind "$@" ;;
+  binding) shift; exec bash "$CAPTAIN_HOLD" binding "$@" ;;
   -h|--help) usage ;;
   *) usage >&2; exit 2 ;;
 esac

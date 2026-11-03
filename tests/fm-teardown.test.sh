@@ -678,7 +678,7 @@ run_teardown() {
   FM_DATA_OVERRIDE="$case_dir/data" \
   FM_CONFIG_OVERRIDE="$case_dir/config" \
   PATH="$case_dir/fakebin:${FM_TEARDOWN_TEST_PATH:-$PATH}" \
-    "$TEARDOWN" task-x1 "$@"
+    bash "$TEARDOWN" task-x1 "$@"
 }
 
 # Seed a real backlog carrying task-x1 as In flight, so a teardown in this case
@@ -735,7 +735,7 @@ test_local_only_fork_remote_allows() {
   # The supervision branch reports the teardown it just performed AFTER the
   # task's records are gone (bin/fm-branch-prompt.sh); that report must be
   # stored, must publish its ready sequence, and must not recreate the index.
-  post_seq=$(FM_STATE_OVERRIDE="$case_dir/state" "$ROOT/bin/fm-branch-outcome.sh" append \
+  post_seq=$(FM_STATE_OVERRIDE="$case_dir/state" bash "$ROOT/bin/fm-branch-outcome.sh" append \
     --task task-x1 --verdict captain --summary 'PR merged and cleaned up') \
     || fail "fork-allow: post-teardown branch report was refused"
   [ "$post_seq" = 1 ] || fail "fork-allow: post-teardown branch report got seq $post_seq, expected 1"
@@ -1326,7 +1326,7 @@ test_pr_check_does_not_refresh_stale_pr_head() {
   FM_ROOT_OVERRIDE="$ROOT" \
   FM_STATE_OVERRIDE="$case_dir/state" \
   PATH="$case_dir/fakebin:$PATH" \
-    "$PR_CHECK" task-x1 https://github.com/example/repo/pull/7 >/dev/null
+    bash "$PR_CHECK" task-x1 https://github.com/example/repo/pull/7 >/dev/null
 
   wt_commit_file "$case_dir" later.txt local-only "local follow-up"
   new_head=$(git -C "$case_dir/wt" rev-parse HEAD)
@@ -1334,7 +1334,7 @@ test_pr_check_does_not_refresh_stale_pr_head() {
   FM_ROOT_OVERRIDE="$ROOT" \
   FM_STATE_OVERRIDE="$case_dir/state" \
   PATH="$case_dir/fakebin:$PATH" \
-    "$PR_CHECK" task-x1 https://github.com/example/repo/pull/7 >/dev/null
+    bash "$PR_CHECK" task-x1 https://github.com/example/repo/pull/7 >/dev/null
 
   count=$(grep -c '^pr_head=' "$case_dir/state/task-x1.meta" || true)
   expect_code 1 "$count" "pr-check-stale: stale rerun should not append a second pr_head"
@@ -1363,7 +1363,7 @@ test_pr_check_records_remote_head_when_local_lags() {
   FM_ROOT_OVERRIDE="$ROOT" \
   FM_STATE_OVERRIDE="$case_dir/state" \
   PATH="$case_dir/fakebin:$PATH" \
-    "$PR_CHECK" task-x1 https://github.com/example/repo/pull/7 >/dev/null
+    bash "$PR_CHECK" task-x1 https://github.com/example/repo/pull/7 >/dev/null
 
   grep -qxF "pr_head=$pr_head" "$case_dir/state/task-x1.meta" \
     || fail "pr-check-local-lags: did not record GitHub PR head"
@@ -2982,7 +2982,7 @@ test_secondmate_pr_registration_publishes_ready_line() {
   add_gh_pr_merged_for_head "$case_dir" "$pr_head"
 
   FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$case_dir/state" \
-    PATH="$case_dir/fakebin:$PATH" "$PR_CHECK" task-x1 "$url" > "$case_dir/pr-check.out" 2> "$case_dir/pr-check.err" \
+    PATH="$case_dir/fakebin:$PATH" bash "$PR_CHECK" task-x1 "$url" > "$case_dir/pr-check.out" 2> "$case_dir/pr-check.err" \
     || fail "mate-pr-ready: fm-pr-check failed: $(cat "$case_dir/pr-check.err")"
   grep -q '^armed:' "$case_dir/pr-check.out" || fail "mate-pr-ready: poll was not armed"
   assert_grep "done [key=child-pr-task-x1]: child task-x1 PR ready: $url mode=no-mistakes" <(sed -E 's/ \[at=[0-9]+\]//' "$channel") \
@@ -2990,7 +2990,7 @@ test_secondmate_pr_registration_publishes_ready_line() {
   ! grep -q '^actionable:' "$case_dir/pr-check.err" \
     || fail "mate-pr-ready: registration reported a channel problem: $(cat "$case_dir/pr-check.err")"
   FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$case_dir/state" \
-    PATH="$case_dir/fakebin:$PATH" "$PR_CHECK" task-x1 "$url" >/dev/null 2>&1 \
+    PATH="$case_dir/fakebin:$PATH" bash "$PR_CHECK" task-x1 "$url" >/dev/null 2>&1 \
     || fail "mate-pr-ready: re-registration failed"
   [ "$(grep -c 'child-pr-task-x1' "$channel")" -eq 1 ] \
     || fail "mate-pr-ready: re-registration duplicated the ready line"
@@ -3000,7 +3000,7 @@ test_secondmate_pr_registration_publishes_ready_line() {
   wt_commit_file "$case_dir" feature.txt hello "add feature"
   add_gh_pr_merged_for_head "$case_dir" "$(git -C "$case_dir/wt" rev-parse HEAD)"
   FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$case_dir/state" \
-    PATH="$case_dir/fakebin:$PATH" "$PR_CHECK" task-x1 "$url" >/dev/null 2> "$case_dir/pr-check.err" \
+    PATH="$case_dir/fakebin:$PATH" bash "$PR_CHECK" task-x1 "$url" >/dev/null 2> "$case_dir/pr-check.err" \
     || fail "main-pr-ready: fm-pr-check failed"
   ! grep -q '^actionable:' "$case_dir/pr-check.err" \
     || fail "main-pr-ready: a main home reported a channel problem"
@@ -3026,7 +3026,7 @@ test_secondmate_pr_ready_line_waits_for_green_when_opted_in() {
   add_gh_pr_merged_for_head "$case_dir" "$pr_head"
   run() {
     FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$case_dir/state" \
-      PATH="$case_dir/fakebin:$PATH" "$PR_CHECK" task-x1 "$url" > "$case_dir/pr-check.out" 2> "$case_dir/pr-check.err" \
+      PATH="$case_dir/fakebin:$PATH" bash "$PR_CHECK" task-x1 "$url" > "$case_dir/pr-check.out" 2> "$case_dir/pr-check.err" \
       || fail "mate-pr-ready-green: fm-pr-check failed: $(cat "$case_dir/pr-check.err")"
   }
 
@@ -3075,7 +3075,7 @@ test_secondmate_pr_ready_line_follows_green_report_with_trailing_text() {
   : > "$case_dir/home/config/ready-after-green"
   run() {
     FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$case_dir/state" \
-      PATH="$case_dir/fakebin:$PATH" "$PR_CHECK" task-x1 "$url" > "$case_dir/pr-check.out" 2> "$case_dir/pr-check.err" \
+      PATH="$case_dir/fakebin:$PATH" bash "$PR_CHECK" task-x1 "$url" > "$case_dir/pr-check.out" 2> "$case_dir/pr-check.err" \
       || fail "mate-pr-ready-green-text: fm-pr-check failed: $(cat "$case_dir/pr-check.err")"
   }
 
@@ -3152,11 +3152,11 @@ test_secondmate_home_teardown_delivers_final_line_or_refuses() {
   # Seed prior escalation so the escalation gate passes for task-x1.
   printf 'needs-decision [key=captain-hold-task-x1-fixture]: fixture escalation for task-x1\n' >> "$channel"
   err=$(FM_HOME="$case_dir/home" FM_STATE_OVERRIDE="$case_dir/state" \
-    "$ROOT/bin/fm-wake-drain.sh" 2>&1 >/dev/null)
+    bash "$ROOT/bin/fm-wake-drain.sh" 2>&1 >/dev/null)
   seq=$(printf '%s\n' "$err" | sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation .*/\1/p')
   generation=$(printf '%s\n' "$err" | sed -n 's/^WAKE_ACK_REQUIRED:.*--recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p')
   [ -z "$seq" ] || FM_HOME="$case_dir/home" FM_STATE_OVERRIDE="$case_dir/state" \
-    "$ROOT/bin/fm-wake-drain.sh" --ack-through "$seq" --recovery-generation "$generation" >/dev/null
+    bash "$ROOT/bin/fm-wake-drain.sh" --ack-through "$seq" --recovery-generation "$generation" >/dev/null
   set +e
   FM_HOME="$case_dir/home" run_teardown "$case_dir" > "$case_dir/stdout2" 2> "$case_dir/stderr2"
   rc=$?
@@ -3172,7 +3172,7 @@ test_teardown_missing_busy_sidecar_completes() {
   local case_dir gen rc
   case_dir=$(make_case missing-busy-sidecar)
   write_meta "$case_dir" local-only ship
-  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$case_dir/state" task-x1)
+  gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$case_dir/state" task-x1)
   printf 'busy_gen=%s\n' "$gen" >> "$case_dir/state/task-x1.meta"
   rm -f "$case_dir/state/task-x1.busy-gen"
 
@@ -3526,7 +3526,7 @@ SH
     FM_CONFIG_OVERRIDE="$case_dir/config" FM_FAKE_HERDR_LOG="$log" FM_FAKE_HERDR_CLOSED="$closed" \
     FM_FAKE_HERDR_SESSION_LIST_GARBAGE="$([ "$mode" = unresolvable-lock ] && printf 1 || printf 0)" \
     PATH="$case_dir/fakebin:$PATH" \
-    "$teardown_bin" task-x1 --force > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+    bash "$teardown_bin" task-x1 --force > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
   [ "$rc" -ne 0 ] || fail "herdr-preflight-$mode: teardown continued without its required preflight"
   assert_grep "nothing was changed" "$case_dir/stderr" \
     "herdr-preflight-$mode: the retryable pre-return refusal was not explained visibly"
@@ -5536,7 +5536,7 @@ run_copied_teardown() {  # <case-dir> [args...]
   FM_DATA_OVERRIDE="$case_dir/data" \
   FM_CONFIG_OVERRIDE="$case_dir/config" \
   PATH="$case_dir/fakebin:$PATH" \
-    "$case_dir/test-root/bin/fm-teardown.sh" task-x1 "$@"
+    bash "$case_dir/test-root/bin/fm-teardown.sh" task-x1 "$@"
 }
 
 assert_source_refusal_preserved_state() {  # <case-dir> <label> <stderr-needle>
@@ -5762,7 +5762,7 @@ test_retained_sources_still_reach_the_ordinary_refusal() {
   FM_DATA_OVERRIDE="$case_dir/data" \
   FM_CONFIG_OVERRIDE="$case_dir/config" \
   PATH="$case_dir/fakebin:$PATH" \
-    "$case_dir/test-root/bin/fm-teardown.sh" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+    bash "$case_dir/test-root/bin/fm-teardown.sh" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
   [ "$rc" -eq 2 ] || fail "retained-sources: a present source tree should still reject a request with no task id (rc=$rc)"
   assert_grep "invalid teardown request" "$case_dir/stderr" \
     "retained-sources: the ordinary refusal was replaced"
@@ -6181,7 +6181,7 @@ test_status_archive_missing_status_noop() {
   rc=0
   FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$case_dir/state" FM_DATA_OVERRIDE="$case_dir/data" \
     FM_CONFIG_OVERRIDE="$case_dir/config" PATH="$case_dir/fakebin:$PATH" \
-    fm_run_timed 20 "$TEARDOWN" task-x1 > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+    fm_run_timed 20 bash "$TEARDOWN" task-x1 > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
   expect_code 0 "$rc" "local missing-status retirement"
   cmp -s "$case_dir/cursor.before" "$case_dir/state/.status-presentation-cursor" || fail "missing-status no-op rewrote neighboring cursor"
   assert_present "$case_dir/state/.status-presentation-lock" "missing-status no-op contended with presentation lock"

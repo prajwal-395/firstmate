@@ -286,7 +286,7 @@ SH
 
 test_every_live_guard_is_wired_to_the_shared_gate() {
   local script out listing checked=0
-  listing=$("$ROOT/bin/fm-test-run.sh" --family live-harness-optin --list) \
+  listing=$(bash "$ROOT/bin/fm-test-run.sh" --family live-harness-optin --list) \
     || fail "could not list the live-harness family"
   while IFS= read -r script; do
     [ -n "$script" ] || continue

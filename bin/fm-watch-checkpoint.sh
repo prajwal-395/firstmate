@@ -159,7 +159,7 @@ positive_or() {  # <value> <default>
 if fm_supervision_host_enabled "$CONFIG" codex; then
   BOUND=$SECONDS_ARG
   if [ -f "$STATE/.afk-contract" ] \
-    && [ "$(FM_STATE_OVERRIDE="$STATE" "$SCRIPT_DIR/fm-afk-contract.sh" mode 2>/dev/null)" != quiet ]; then
+    && [ "$(FM_STATE_OVERRIDE="$STATE" bash "$SCRIPT_DIR/fm-afk-contract.sh" mode 2>/dev/null)" != quiet ]; then
     AWAY_BOUND=$(positive_or "${FM_CODEX_WATCH_CHECKPOINT_AWAY:-}" 3600)
     [ "$AWAY_BOUND" -le "$BOUND" ] 2>/dev/null || BOUND=$AWAY_BOUND
   fi
@@ -195,7 +195,7 @@ fi
 
 set +e
 # Interrupt the checkpoint's active check group so the watcher's native EXIT cleanup can release its lock; ordinary watcher shutdown still uses TERM.
-run_bounded "$SECONDS_ARG" INT 5 "$SCRIPT_DIR/fm-watch.sh" >"$OUT" 2>"$ERR"
+run_bounded "$SECONDS_ARG" INT 5 bash "$SCRIPT_DIR/fm-watch.sh" >"$OUT" 2>"$ERR"
 RC=$?
 set -e
 

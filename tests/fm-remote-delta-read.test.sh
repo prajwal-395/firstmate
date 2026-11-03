@@ -31,7 +31,7 @@ sha() { printf '%b' "$1" | shasum -a 256 | awk '{print $1}'; }
 
 run_reader() { # <offset> <prefix> <wait> [rel]
   FM_HOME="$DELTA_HOME" FM_REMOTE_DELTA_POLL_SECONDS=0.05 \
-    "$READER" "${4:-$DELTA_LOG_REL}" "$1" "$2" "$3"
+    bash "$READER" "${4:-$DELTA_LOG_REL}" "$1" "$2" "$3"
 }
 
 # A growing log returns the complete appended lines with exact boundaries.

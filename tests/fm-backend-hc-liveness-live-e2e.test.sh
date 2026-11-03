@@ -44,7 +44,7 @@ export FM_HC_BIN=${FM_HC_BIN:-$HC_BIN}
 
 TMP_ROOT=$(fm_test_tmproot fm-backend-hc-liveness)
 
-HC_TEST_SES=$("$ROOT/bin/fm-hc-lab.sh" name liveness)
+HC_TEST_SES=$(bash "$ROOT/bin/fm-hc-lab.sh" name liveness)
 
 # The teardown's own result propagates: a fleet-tripwire failure or surviving
 # session processes keep this run nonzero even on an otherwise-clean pass.
@@ -60,9 +60,9 @@ trap cleanup_lab EXIT
 fail() { printf 'not ok - %s\n' "$1" >&2; exit 1; }
 note() { printf '# %s\n' "$1"; }
 
-"$ROOT/bin/fm-hc-lab.sh" provision "$HC_TEST_SES" \
+bash "$ROOT/bin/fm-hc-lab.sh" provision "$HC_TEST_SES" \
   || fail "hc lab could not provision with ${HC_BIN:-no binary}"
-HC_TEST_SOCK=$("$ROOT/bin/fm-hc-lab.sh" socket "$HC_TEST_SES")
+HC_TEST_SOCK=$(bash "$ROOT/bin/fm-hc-lab.sh" socket "$HC_TEST_SES")
 [ -n "$HC_TEST_SOCK" ] || fail "hc lab provisioned without a socket"
 hc_test_refuse_if_unsafe "$HC_TEST_SES" \
   || fail "provisioned session '$HC_TEST_SES' does not satisfy the lab safety contract"

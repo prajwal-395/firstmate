@@ -54,7 +54,7 @@ export FM_HC_BIN=$HC_BIN
 
 TMP_ROOT=$(fm_test_tmproot fm-backend-hc-appdetect)
 
-HC_TEST_SES=$("$ROOT/bin/fm-hc-lab.sh" name appdetect)
+HC_TEST_SES=$(bash "$ROOT/bin/fm-hc-lab.sh" name appdetect)
 
 cleanup_lab() {
   local rc=$?
@@ -67,9 +67,9 @@ cleanup_lab() {
 }
 trap cleanup_lab EXIT
 
-"$ROOT/bin/fm-hc-lab.sh" provision "$HC_TEST_SES" \
+bash "$ROOT/bin/fm-hc-lab.sh" provision "$HC_TEST_SES" \
   || fail "hc lab could not provision with $HC_BIN"
-HC_TEST_SOCK=$("$ROOT/bin/fm-hc-lab.sh" socket "$HC_TEST_SES")
+HC_TEST_SOCK=$(bash "$ROOT/bin/fm-hc-lab.sh" socket "$HC_TEST_SES")
 [ -n "$HC_TEST_SOCK" ] || fail "hc lab provisioned without a socket"
 hc_test_refuse_if_unsafe "$HC_TEST_SES" \
   || fail "provisioned session '$HC_TEST_SES' does not satisfy the lab safety contract"
@@ -126,21 +126,21 @@ spawn_one() {  # <id> <launch-line> -> spawn with the caller's extra env already
   $SCRUB FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
     FM_CONFIG_OVERRIDE="$CONFIG" FM_PROJECTS_OVERRIDE="$TMP_ROOT/unused-projects" \
     FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" "$1" "$PROJ" "$2" --mode no-mistakes --yolo off
+    bash "$ROOT/bin/fm-spawn.sh" "$1" "$PROJ" "$2" --mode no-mistakes --yolo off
 }
 
 teardown_one() {  # <id>
   WT=$(grep '^worktree=' "$STATE/$1.meta" 2>/dev/null | cut -d= -f2-)
   FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
     FM_CONFIG_OVERRIDE="$CONFIG" \
-    "$ROOT/bin/fm-teardown.sh" "$1" >/dev/null 2>&1 \
+    bash "$ROOT/bin/fm-teardown.sh" "$1" >/dev/null 2>&1 \
     || fail "fm-teardown.sh failed for $1"
   WT=
 }
 
 assert_task_labels() {  # <id> <terminal-addr>
   local labels
-  labels=$("$ROOT/bin/fm-hc-lab.sh" run "$HC_TEST_SES" get "$2" --json \
+  labels=$(bash "$ROOT/bin/fm-hc-lab.sh" run "$HC_TEST_SES" get "$2" --json \
     | jq -r '.labels["herdr.space"], .labels["herdr.tab"], .labels["firstmate.task"], .labels["firstmate.home"]' 2>/dev/null) \
     || fail "hc get on the spawned task terminal failed for $1"
   [ "$(printf '%s\n' "$labels" | sed -n 1p)" = "fm-$HOMETAG" ] \
@@ -156,7 +156,7 @@ assert_task_labels() {  # <id> <terminal-addr>
 # --- Case A: app-terminal ---------------------------------------------------
 # A lab terminal carrying herdr.space, created the way the app creates every
 # terminal; the spawn env claims to run inside it.
-APP_TERM=$("$ROOT/bin/fm-hc-lab.sh" run "$HC_TEST_SES" run --bg --no-parent \
+APP_TERM=$(bash "$ROOT/bin/fm-hc-lab.sh" run "$HC_TEST_SES" run --bg --no-parent \
   --label herdr.space=fm-app --label herdr.tab=app-probe 2>/dev/null \
   | jq -r '.address // empty')
 [ -n "$APP_TERM" ] || fail "could not create the labeled app-terminal stand-in"
@@ -219,7 +219,7 @@ pass "app-window is not a signal: a live window beside a session with no running
 
 # --- Case C: explicit config/backend wins, detection skipped ----------------
 printf 'hc\n' > "$CONFIG/backend"
-APP_TERM2=$("$ROOT/bin/fm-hc-lab.sh" run "$HC_TEST_SES" run --bg --no-parent \
+APP_TERM2=$(bash "$ROOT/bin/fm-hc-lab.sh" run "$HC_TEST_SES" run --bg --no-parent \
   --label herdr.space=fm-app --label herdr.tab=app-probe-2 2>/dev/null \
   | jq -r '.address // empty')
 [ -n "$APP_TERM2" ] || fail "could not create the second labeled stand-in"

@@ -384,7 +384,7 @@ chmod +x "$INBOX_FAKEBIN/aws"
 inbox_env+=(PATH="$INBOX_FAKEBIN:$PATH")
 
 set +e
-ask_out=$(env "${inbox_env[@]}" "$ROOT/bin/fm-inbox.sh" ask "how is the fleet" 2>&1)
+ask_out=$(env "${inbox_env[@]}" bash "$ROOT/bin/fm-inbox.sh" ask "how is the fleet" 2>&1)
 ask_code=$?
 set -e
 [ "$ask_code" -ne 0 ] || fail "ask ran with nothing configured"
@@ -394,7 +394,7 @@ assert_contains "$ask_out" 'inbox-region' \
 # One file at a time, so each refusal names one thing to do.
 printf 'eu-somewhere-1\n' > "$CONFIG_HOME/config/inbox-region"
 set +e
-ask_out=$(env "${inbox_env[@]}" "$ROOT/bin/fm-inbox.sh" ask "how is the fleet" 2>&1)
+ask_out=$(env "${inbox_env[@]}" bash "$ROOT/bin/fm-inbox.sh" ask "how is the fleet" 2>&1)
 ask_code=$?
 set -e
 [ "$ask_code" -ne 0 ] || fail "ask ran without a configured model"
@@ -402,7 +402,7 @@ assert_contains "$ask_out" 'inbox-ask-model' \
   "the refusal should name the model file to write: $ask_out"
 
 set +e
-say_out=$(printf '' | env "${inbox_env[@]}" "$ROOT/bin/fm-inbox.sh" say 2>&1)
+say_out=$(printf '' | env "${inbox_env[@]}" bash "$ROOT/bin/fm-inbox.sh" say 2>&1)
 say_code=$?
 set -e
 [ "$say_code" -ne 0 ] || fail "say ran without a configured model"
@@ -411,7 +411,7 @@ assert_contains "$say_out" 'inbox-stt-model' \
 
 rm -f "$CONFIG_HOME/config/inbox-region"
 unconfigured_note=$(env "${inbox_env[@]}" \
-  "$ROOT/bin/fm-inbox.sh" note "the handover must work with no configuration") \
+  bash "$ROOT/bin/fm-inbox.sh" note "the handover must work with no configuration") \
   || fail "note should not need any configuration"
 assert_contains "$unconfigured_note" 'queued ' "note should still queue a record"
 assert_absent "$AWS_CALLED" \
@@ -423,7 +423,7 @@ pass "the model-backed subcommands refuse by name while note keeps working"
 # help again. The PRIVACY paragraph is the part that matters: it is the only place
 # a new operator is told which subcommands send audio or text off this host, and a
 # fixed line range had already dropped it.
-inbox_help=$("$ROOT/bin/fm-inbox.sh" --help) || fail "fm-inbox.sh --help failed"
+inbox_help=$(bash "$ROOT/bin/fm-inbox.sh" --help) || fail "fm-inbox.sh --help failed"
 assert_contains "$inbox_help" 'PRIVACY:' \
   "the help must say which subcommands send anything to a model"
 assert_contains "$inbox_help" 'make no network call at all' \
@@ -3582,7 +3582,7 @@ assert_contains "$moved" 'moved-one' \
   "the reader must take the backlog from the overridden data directory"
 assert_contains "$moved" '"in_flight": 1' "and count only what that backlog holds"
 inbox_moved=$(FM_HOME="$VERB_HOME" FM_STATE_OVERRIDE="$VERB_HOME/state" \
-  FM_DATA_OVERRIDE="$alt_data" "$ROOT/bin/fm-inbox.sh" status) \
+  FM_DATA_OVERRIDE="$alt_data" bash "$ROOT/bin/fm-inbox.sh" status) \
   || fail "fm-inbox status with an overridden data directory failed"
 assert_contains "$inbox_moved" 'moved-one' \
   "the human rendering of the same records must read the same backlog"

@@ -24,7 +24,7 @@ test_escalation_gate_suppresses_routine_child_lifecycle() {
   printf 'schema=fm-secondmate-parent.v1\nroute=local\nparent_home=%s\n' "$case_dir/main" > "$case_dir/mate/.fm-secondmate-parent"
   
   # Verify routine child is suppressed
-  ! "$ROOT/bin/fm-parent-channel-lib.sh" 2>/dev/null || true # dummy
+  ! bash "$ROOT/bin/fm-parent-channel-lib.sh" 2>/dev/null || true # dummy
   
   # Load the library to test the function directly
   . "$ROOT/bin/fm-parent-channel-lib.sh"

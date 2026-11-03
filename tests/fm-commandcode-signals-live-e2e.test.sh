@@ -122,7 +122,7 @@ git -C "$WT" log -1 --format=%B -- answer.txt > "$LAB/commit.txt" 2>/dev/null
   || fail "worker commit carries Command Code attribution: $(cat "$LAB/commit.txt")"
 pass "$VERSION: the worker commit carries no attribution"
 wait_composer_empty
-"$ROOT/bin/fm-send.sh" "$ID" 'Runtime steering verification: compute 31 times 37 and write only the result to steer.txt. Acknowledge this instruction by moving its .msg file into handled/ as instructed by the doorbell. Do no other work.' > "$LAB/send.log" 2>&1 || fail "steer failed: $(cat "$LAB/send.log")"
+bash "$ROOT/bin/fm-send.sh" "$ID" 'Runtime steering verification: compute 31 times 37 and write only the result to steer.txt. Acknowledge this instruction by moving its .msg file into handled/ as instructed by the doorbell. Do no other work.' > "$LAB/send.log" 2>&1 || fail "steer failed: $(cat "$LAB/send.log")"
 wait_file "$WT/steer.txt"
 wait_file "$H/state/$ID.inbox/handled/001.msg"
 [ "$(tr -d '[:space:]' < "$WT/steer.txt")" = 1147 ] || fail 'wrong steering result'
@@ -130,7 +130,7 @@ wait_idle
 pass "$VERSION: idle composer reads empty; real fm-send doorbell read and acknowledged"
 # One interrupt press on an idle agent changes nothing and opens no picker.
 sleep 1
-"$ROOT/bin/fm-control.sh" "$ID" interrupt > "$LAB/idle-interrupt.log" 2>&1 \
+bash "$ROOT/bin/fm-control.sh" "$ID" interrupt > "$LAB/idle-interrupt.log" 2>&1 \
   || fail "idle interrupt failed: $(cat "$LAB/idle-interrupt.log")"
 grep -q 'revert-picker' "$LAB/idle-interrupt.log" && fail "idle interrupt met the rewind picker: $(cat "$LAB/idle-interrupt.log")"
 sleep 1.5
@@ -150,11 +150,11 @@ for _ in 1 2 3; do
   sleep 1
 done
 [ "$picker" = 1 ] || fail 'a raw fast Escape pair no longer opens the rewind picker; re-verify the hazard signal'
-if "$ROOT/bin/fm-control.sh" "$ID" exit > "$LAB/picker-exit.log" 2>&1; then
+if bash "$ROOT/bin/fm-control.sh" "$ID" exit > "$LAB/picker-exit.log" 2>&1; then
   fail "exit proceeded with the rewind picker open: $(cat "$LAB/picker-exit.log")"
 fi
 screen_text | grep -q 'Select a checkpoint' || fail 'the refused exit closed or typed into the picker'
-"$ROOT/bin/fm-control.sh" "$ID" interrupt > "$LAB/picker-interrupt.log" 2>&1 \
+bash "$ROOT/bin/fm-control.sh" "$ID" interrupt > "$LAB/picker-interrupt.log" 2>&1 \
   || fail "interrupt could not close the rewind picker: $(cat "$LAB/picker-interrupt.log")"
 sleep 1
 ! screen_text | grep -q 'Select a checkpoint' || fail 'interrupt left the rewind picker open'
@@ -162,7 +162,7 @@ sleep 1
   || fail 'the rewind picker changed the worker files'
 pass "$VERSION: idle interrupt opens nothing; an open rewind picker blocks exit and is closed without restoring"
 wait_composer_empty
-"$ROOT/bin/fm-send.sh" "$ID" 'Runtime interrupt verification: run sleep 90 in your shell tool in the foreground, then wait for it to finish. Do not respond before it finishes.' > "$LAB/send.log" 2>&1 || fail "could not steer interrupt probe: $(cat "$LAB/send.log")"
+bash "$ROOT/bin/fm-send.sh" "$ID" 'Runtime interrupt verification: run sleep 90 in your shell tool in the foreground, then wait for it to finish. Do not respond before it finishes.' > "$LAB/send.log" 2>&1 || fail "could not steer interrupt probe: $(cat "$LAB/send.log")"
 seen_busy=0
 for _ in $(seq 1 240); do
   if [ "$(classify)" = 'busy commandcode-mod' ] && screen_text | fm_busy_lines_match commandcode; then seen_busy=1; break; fi
@@ -170,7 +170,7 @@ for _ in $(seq 1 240); do
 done
 [ "$seen_busy" = 1 ] || fail 'no semantic and rendered busy during interrupt probe'
 sleep 2
-"$ROOT/bin/fm-control.sh" "$ID" interrupt > "$LAB/interrupt.log" 2>&1 || fail "interrupt failed: $(cat "$LAB/interrupt.log")"
+bash "$ROOT/bin/fm-control.sh" "$ID" interrupt > "$LAB/interrupt.log" 2>&1 || fail "interrupt failed: $(cat "$LAB/interrupt.log")"
 for _ in $(seq 1 60); do
   screen_text | grep -q 'Interrupted · What should Command Code do instead?' && break
   sleep 0.5
@@ -180,7 +180,7 @@ wait_idle
 [ "$(fm_backend_agent_state tmux "$TARGET")" = alive ] || fail 'interrupt stopped the agent'
 pass "$VERSION: one Escape cancels, preserves the agent, and the mod records idle"
 wait_composer_empty
-"$ROOT/bin/fm-control.sh" "$ID" exit > "$LAB/exit.log" 2>&1 || fail "exit failed: $(cat "$LAB/exit.log")"
+bash "$ROOT/bin/fm-control.sh" "$ID" exit > "$LAB/exit.log" 2>&1 || fail "exit failed: $(cat "$LAB/exit.log")"
 [ "$(fm_backend_agent_state tmux "$TARGET")" = dead ] || fail 'quit did not return to shell'
 grep -q 'Resume this session with' <(screen_text) || fail 'quit printed no resume hint'
 pass "$VERSION: fm-control exit via /quit"
@@ -208,12 +208,12 @@ for _ in $(seq 1 120); do
   ! screen_text | fm_busy_lines_match commandcode && break
   sleep 0.5
 done
-"$ROOT/bin/fm-control.sh" "$ID" exit > "$LAB/exit.log" 2>&1 || fail "resumed exit failed: $(cat "$LAB/exit.log")"
+bash "$ROOT/bin/fm-control.sh" "$ID" exit > "$LAB/exit.log" 2>&1 || fail "resumed exit failed: $(cat "$LAB/exit.log")"
 pass "$VERSION: native --resume <session-id>"
-"$ROOT/bin/fm-control.sh" "$ID" relaunch --note 'Runtime relaunch probe: write the product of 13 and 7 into relaunched.txt, then stop.' > "$LAB/relaunch.log" 2>&1 \
+bash "$ROOT/bin/fm-control.sh" "$ID" relaunch --note 'Runtime relaunch probe: write the product of 13 and 7 into relaunched.txt, then stop.' > "$LAB/relaunch.log" 2>&1 \
   || fail "relaunch failed: $(cat "$LAB/relaunch.log")"
 wait_file "$WT/relaunched.txt"
 [ "$(tr -d '[:space:]' < "$WT/relaunched.txt")" = 91 ] || fail 'relaunch prompt not processed'
 wait_idle
-"$ROOT/bin/fm-control.sh" "$ID" exit > "$LAB/exit.log" 2>&1 || fail "relaunched exit failed: $(cat "$LAB/exit.log")"
+bash "$ROOT/bin/fm-control.sh" "$ID" exit > "$LAB/exit.log" 2>&1 || fail "relaunched exit failed: $(cat "$LAB/exit.log")"
 pass "$VERSION: fm-control relaunch re-arms the mod with a fresh generation"

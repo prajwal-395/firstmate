@@ -89,10 +89,10 @@ leased_slot_for() {
 }
 
 cleanup() {
-  FM_HOME="$HOME_DIR" "$ROOT/bin/fm-control.sh" "$ID" exit >/dev/null 2>&1 || true
-  FM_HOME="$HOME_DIR" "$ROOT/bin/fm-teardown.sh" "$ID" >/dev/null 2>&1 || true
-  FM_HOME="$HOME_DIR" "$ROOT/bin/fm-control.sh" "$DECLINE_ID" exit >/dev/null 2>&1 || true
-  FM_HOME="$HOME_DIR" "$ROOT/bin/fm-teardown.sh" "$DECLINE_ID" >/dev/null 2>&1 || true
+  FM_HOME="$HOME_DIR" bash "$ROOT/bin/fm-control.sh" "$ID" exit >/dev/null 2>&1 || true
+  FM_HOME="$HOME_DIR" bash "$ROOT/bin/fm-teardown.sh" "$ID" >/dev/null 2>&1 || true
+  FM_HOME="$HOME_DIR" bash "$ROOT/bin/fm-control.sh" "$DECLINE_ID" exit >/dev/null 2>&1 || true
+  FM_HOME="$HOME_DIR" bash "$ROOT/bin/fm-teardown.sh" "$DECLINE_ID" >/dev/null 2>&1 || true
   # Backstop for a teardown that refused: the lab window names carry this
   # process id, so closing them here can hit nothing but this test's own
   # leftovers.
@@ -164,7 +164,7 @@ EOF
 # worker on the machine-scoped Bypass Permissions consent screen instead of
 # its brief. So the variable is removed rather than emptied here.
 SPAWN_OUT=$(FM_HOME="$HOME_DIR" FM_SPAWN_NO_GUARD=1 env -u CLAUDE_CONFIG_DIR \
-  "$ROOT/bin/fm-spawn.sh" "$ID" "$PROJECT" --scout --harness claude --backend tmux 2>&1) \
+  bash "$ROOT/bin/fm-spawn.sh" "$ID" "$PROJECT" --scout --harness claude --backend tmux 2>&1) \
   || fail "scout spawn on the default-flag project failed: $SPAWN_OUT"
 WINDOW=$(printf '%s\n' "$SPAWN_OUT" | sed -n 's/.*window=\([^ ]*\).*/\1/p' | head -n 1)
 WT1=$(printf '%s\n' "$SPAWN_OUT" | sed -n 's/.*worktree=\([^ ]*\).*/\1/p' | head -n 1)
@@ -204,7 +204,7 @@ grep -Fq "$MARKER" "$HOME_DIR/data/$ID/report.md" \
   || fail "the delivered report does not carry $MARKER"
 # The scout completion gate: the report carries no captain call, so complete
 # the origin's inventory as explicitly none before teardown.
-FM_HOME="$HOME_DIR" "$ROOT/bin/fm-captain-hold.sh" complete "$ID" --none >/dev/null 2>&1 \
+FM_HOME="$HOME_DIR" bash "$ROOT/bin/fm-captain-hold.sh" complete "$ID" --none >/dev/null 2>&1 \
   || fail "could not complete the scout's captain-call inventory"
 
 # The worker reached its brief, so stop it, then clear the runtime dirs Claude
@@ -212,12 +212,12 @@ FM_HOME="$HOME_DIR" "$ROOT/bin/fm-captain-hold.sh" complete "$ID" --none >/dev/n
 # they are lab junk by construction - the brief forbade writing files - and
 # teardown must see the clean tree it protects rather than be forced around
 # it. No --force anywhere: a genuinely dirty tree must still refuse below.
-FM_HOME="$HOME_DIR" "$ROOT/bin/fm-control.sh" "$ID" exit >/dev/null 2>&1 || true
+FM_HOME="$HOME_DIR" bash "$ROOT/bin/fm-control.sh" "$ID" exit >/dev/null 2>&1 || true
 sleep 5
 rm -rf "$WT1/.claude" "$WT1/cache" "$WT1/sessions" "$WT1/backups" "$WT1/.claude.json" 2>/dev/null || true
 WT_STATUS=$(git -C "$WT1" status --short 2>&1) || fail "live worktree unreadable before teardown: $WT_STATUS"
 [ -z "$WT_STATUS" ] || fail "live worktree is dirty before teardown: $WT_STATUS"
-TEARDOWN_OUT=$(FM_HOME="$HOME_DIR" "$ROOT/bin/fm-teardown.sh" "$ID" 2>&1) \
+TEARDOWN_OUT=$(FM_HOME="$HOME_DIR" bash "$ROOT/bin/fm-teardown.sh" "$ID" 2>&1) \
   || fail "teardown of the live scout failed: $TEARDOWN_OUT"
 # A returned slot stays on disk as an available pool slot; leaked means still
 # leased. The checkout path persisting is treehouse's normal pool management,
@@ -241,7 +241,7 @@ Exercise the spawn behavior under test.
 EOF
 
 if DECLINE_OUT=$(FM_HOME="$HOME_DIR" FM_SPAWN_NO_GUARD=1 env -u CLAUDE_CONFIG_DIR \
-  "$ROOT/bin/fm-spawn.sh" "$DECLINE_ID" "$DECLINE_PROJECT" --scout --harness claude --backend tmux 2>&1); then
+  bash "$ROOT/bin/fm-spawn.sh" "$DECLINE_ID" "$DECLINE_PROJECT" --scout --harness claude --backend tmux 2>&1); then
   fail "scout spawn on the genuine decline succeeded, spending a refused consent: $DECLINE_OUT"
 fi
 case "$DECLINE_OUT" in

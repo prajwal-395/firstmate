@@ -42,12 +42,12 @@ pass "disposable watcher refuses inherited state outside its marked lab"
 drain_and_ack() {  # <state>
   local state=$1 err sequence generation
   err="$state/.test-drain.err"
-  FM_STATE_OVERRIDE="$state" "$DRAIN" >/dev/null 2> "$err" || return 1
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" >/dev/null 2> "$err" || return 1
   sequence=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation [A-Za-z0-9._-][A-Za-z0-9._-]*$/\1/p' "$err")
   generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through [0-9][0-9]* --recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$err")
   rm -f "$err"
   [ -n "$sequence" ] && [ -n "$generation" ] || return 1
-  FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-through "$sequence" \
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" --ack-through "$sequence" \
     --recovery-generation "$generation"
 }
 
@@ -127,9 +127,9 @@ test_singleton_start() {
   fakebin="$dir/fakebin"
   out1="$dir/watch-one.out"
   out2="$dir/watch-two.out"
-  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out1" &
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 bash "$WATCH" > "$out1" &
   pid1=$!
-  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out2" &
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 bash "$WATCH" > "$out2" &
   pid2=$!
   i=0
   while [ "$i" -lt 50 ]; do
@@ -165,7 +165,7 @@ test_stale_watch_lock_reclaimed() {
   done
   mkdir "$state/.watch.lock"
   printf '%s\n' "$dead_pid" > "$state/.watch.lock/pid"
-  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 bash "$WATCH" > "$out" &
   pid=$!
   i=0
   live=0
@@ -198,7 +198,7 @@ test_stale_watch_reclaim_rejects_unwritable_downtime_marker() {
   mkdir "$state/.watch.lock" "$state/.watcher-down"
   printf '%s\n' "$dead_pid" > "$state/.watch.lock/pid"
   PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_WATCHER_STARTUP_LOCK_BOUND=1 \
-    "$WATCH" > "$out" 2>&1 &
+    bash "$WATCH" > "$out" 2>&1 &
   pid=$!
   wait_for_exit "$pid" 100 || status=$?
   [ "$status" -ne 124 ] || fail "unpublishable downtime marker hung watcher startup"
@@ -223,7 +223,7 @@ test_live_stale_watch_lock_is_actionable() {
   printf '%s\n' "$$" > "$state/.watch.lock/pid"
   touch -t 200001010000 "$state/.last-watcher-beat"
   status=0
-  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_GUARD_GRACE=1 FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" 2> "$err" || status=$?
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_GUARD_GRACE=1 FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 bash "$WATCH" > "$out" 2> "$err" || status=$?
   [ "$status" -ne 0 ] || fail "watcher silently no-opped behind a live stale holder"
   grep -F 'heartbeat is stale' "$err" >/dev/null || fail "watcher did not explain the stale live lock"
   pass "live watcher lock with stale heartbeat is actionable"
@@ -251,12 +251,12 @@ test_live_stalled_watch_lock_is_replaced_past_hard_bound() {
   # Beacon decades old: past the grace, but a bound beyond it -> still refused.
   touch -t 200001010000 "$state/.last-watcher-beat"
   status=0
-  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_GUARD_GRACE=1 FM_WATCHER_STALL_BOUND=9999999999 FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" 2> "$err" || status=$?
+  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_GUARD_GRACE=1 FM_WATCHER_STALL_BOUND=9999999999 FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 bash "$WATCH" > "$out" 2> "$err" || status=$?
   [ "$status" -ne 0 ] || fail "watcher replaced a holder whose beacon was under the hard bound"
   grep -F 'heartbeat is stale' "$err" >/dev/null || fail "under-bound stale holder lost its refusal"
   is_live_non_zombie "$holder" || fail "under-bound stale holder was signalled"
   # Same holder and beacon, a bound it is past -> evicted and replaced.
-  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_GUARD_GRACE=1 FM_WATCHER_STALL_BOUND=3 FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" 2> "$err" &
+  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_GUARD_GRACE=1 FM_WATCHER_STALL_BOUND=3 FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 bash "$WATCH" > "$out" 2> "$err" &
   pid=$!
   i=0
   lock_pid=
@@ -323,7 +323,7 @@ run_legacy_identity_takeover() {  # <case> <successor-first>
   old_out="$dir/old-watch.out"
   new_out="$dir/new-watch.out"
   mkdir -p "$no_proc"
-  PATH="$fakebin:$PATH" FM_PROC_ROOT_OVERRIDE="$no_proc" TZ=America/Los_Angeles FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_GUARD_GRACE=1 FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$old_out" 2>&1 &
+  PATH="$fakebin:$PATH" FM_PROC_ROOT_OVERRIDE="$no_proc" TZ=America/Los_Angeles FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_GUARD_GRACE=1 FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 bash "$WATCH" > "$old_out" 2>&1 &
   old=$!
   i=0
   lock_pid=
@@ -348,7 +348,7 @@ run_legacy_identity_takeover() {  # <case> <successor-first>
     stop_outside_state_locks "$old" "$state" \
       || fail "could not pause the old holder outside its state locks: $(cat "$old_out")"
   fi
-  PATH="$fakebin:$PATH" FM_PROC_ROOT_OVERRIDE="$no_proc" TZ=America/Los_Angeles FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_GUARD_GRACE=1 FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$new_out" 2>&1 &
+  PATH="$fakebin:$PATH" FM_PROC_ROOT_OVERRIDE="$no_proc" TZ=America/Los_Angeles FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_GUARD_GRACE=1 FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 bash "$WATCH" > "$new_out" 2>&1 &
   new=$!
   i=0
   claimed=0
@@ -432,7 +432,7 @@ test_guard_warnings() {
   printf 'project=x\n' > "$state/task.meta"
   printf 'project=y\n' > "$state/task2.meta"
   append_wake "$state" heartbeat heartbeat heartbeat || fail "guard heartbeat append failed"
-  PATH="$blind:$PATH" CLAUDECODE=1 PI_CODING_AGENT='' GROK_AGENT='' FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$state" FM_GUARD_GRACE=1 "$ROOT/bin/fm-guard.sh" 2> "$err" >/dev/null || fail "guard failed"
+  PATH="$blind:$PATH" CLAUDECODE=1 PI_CODING_AGENT='' GROK_AGENT='' FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$state" FM_GUARD_GRACE=1 bash "$ROOT/bin/fm-guard.sh" 2> "$err" >/dev/null || fail "guard failed"
   first=$(grep -v '^[[:space:]]*$' "$err" | head -1)
   case "$first" in
     '●'*) ;;
@@ -458,7 +458,7 @@ test_guard_warnings() {
   mkdir -p "$dir/config"
   printf 'project=x\n' > "$state/task.meta"
   : > "$dir/config/x-mode.env"
-  PATH="$blind:$PATH" CLAUDECODE=1 PI_CODING_AGENT='' GROK_AGENT='' FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$state" FM_GUARD_GRACE=1 "$ROOT/bin/fm-guard.sh" 2> "$err" >/dev/null || fail "guard failed"
+  PATH="$blind:$PATH" CLAUDECODE=1 PI_CODING_AGENT='' GROK_AGENT='' FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$state" FM_GUARD_GRACE=1 bash "$ROOT/bin/fm-guard.sh" 2> "$err" >/dev/null || fail "guard failed"
   grep -F "source '$dir/config/x-mode.env' first" "$err" >/dev/null || fail "guard repair line did not source the X-mode cadence config"
 
   # (2) live watcher plus fresh beacon, empty queue -> silence.
@@ -477,7 +477,7 @@ test_guard_warnings() {
   touch "$state/.last-watcher-beat"
   # Non-git FM_ROOT keeps the worktree-tangle check inert so "fresh watcher ->
   # total silence" stays a pure assertion about watcher state.
-  FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$state" FM_GUARD_GRACE=300 "$ROOT/bin/fm-guard.sh" 2> "$err" >/dev/null || fail "guard failed"
+  FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$state" FM_GUARD_GRACE=300 bash "$ROOT/bin/fm-guard.sh" 2> "$err" >/dev/null || fail "guard failed"
   kill "$pid" 2>/dev/null || true
   wait "$pid" 2>/dev/null || true
   [ ! -s "$err" ] || fail "guard warned with a live watcher and fresh beacon: $(cat "$err")"
@@ -1297,7 +1297,7 @@ test_watch_restart_rejects_reused_pid() {
   printf '%s\n' "$dir" > "$state/.watch.lock/fm-home"
   printf '%s\n' "$WATCH" > "$state/.watch.lock/watcher-path"
   printf '%s\n' "stale watcher identity" > "$state/.watch.lock/pid-identity"
-  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH_ARM" --restart > "$out" &
+  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 bash "$WATCH_ARM" --restart > "$out" &
   pid=$!
   i=0
   while [ "$i" -lt 80 ] && is_live_non_zombie "$pid"; do
@@ -1341,7 +1341,7 @@ test_watch_restart_attaches_to_healthy_peer() {
   printf '%s\n' "$WATCH" > "$state/.watch.lock/watcher-path"
   printf '%s\n' "$identity" > "$state/.watch.lock/pid-identity"
   touch "$state/.last-watcher-beat"
-  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_ARM_ATTACH_POLL=0.1 FM_ARM_SUCCESSOR_CONFIRM_TIMEOUT=1 "$WATCH_ARM" --restart > "$out" &
+  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_ARM_ATTACH_POLL=0.1 FM_ARM_SUCCESSOR_CONFIRM_TIMEOUT=1 bash "$WATCH_ARM" --restart > "$out" &
   armpid=$!
   i=0
   while [ "$i" -lt 80 ]; do
@@ -1367,7 +1367,7 @@ test_watcher_self_evicts_on_lock_takeover() {
   state="$dir/state"
   fakebin="$dir/fakebin"
   out="$dir/watch.out"
-  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=0.2 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=0.2 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 bash "$WATCH" > "$out" &
   pid=$!
   i=0
   while [ "$i" -lt 80 ]; do
@@ -1400,7 +1400,7 @@ test_watcher_exits_on_state_teardown_during_startup() {
   state="$dir/state"
   fakebin="$dir/fakebin"
   out="$dir/watch.out"
-  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_GUARD_GRACE=1 FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" 2>&1 &
+  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_GUARD_GRACE=1 FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 bash "$WATCH" > "$out" 2>&1 &
   pid=$!
   # watcher-path is written only after the claim, a few lines before the main
   # loop, so pause the watcher the moment it appears.
@@ -1436,7 +1436,7 @@ test_arm_self_eviction_is_loud_without_successor() {
   # beacon" and broke this case's premise under full-suite load (issue #2844).
   # It stays at the production default rather than something roomier because the
   # same budget bounds the successor wait this case deliberately spends below.
-  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=0.2 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH_ARM" > "$armout" &
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=0.2 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 bash "$WATCH_ARM" > "$armout" &
   armpid=$!
   i=0
   while [ "$i" -lt 80 ]; do
@@ -1467,7 +1467,7 @@ test_arm_attaches_and_waits_for_live_fresh_watcher() {
   out="$dir/watch.out"
   armout="$dir/arm.out"
   # A genuinely live watcher with a fresh beacon already holds the singleton.
-  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" 2>&1 &
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 bash "$WATCH" > "$out" 2>&1 &
   wpid=$!
   i=0
   while [ "$i" -lt 60 ]; do
@@ -1479,7 +1479,7 @@ test_arm_attaches_and_waits_for_live_fresh_watcher() {
   # Arming must attach to the existing watcher, NOT start a second one, and NOT
   # exit while the seed still holds the healthy lock. Bound the successor-gap
   # wait independently of the cold-start confirmation budget.
-  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_ARM_ATTACH_POLL=0.1 FM_ARM_SUCCESSOR_CONFIRM_TIMEOUT=1 "$WATCH_ARM" > "$armout" &
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_ARM_ATTACH_POLL=0.1 FM_ARM_SUCCESSOR_CONFIRM_TIMEOUT=1 bash "$WATCH_ARM" > "$armout" &
   armpid=$!
   i=0
   while [ "$i" -lt 80 ]; do
@@ -1508,7 +1508,7 @@ test_attached_arm_signal_is_recorded_in_cycle_ledger() {
   fakebin="$dir/fakebin"
   out="$dir/watch.out"
   armout="$dir/arm.out"
-  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" 2>&1 &
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 bash "$WATCH" > "$out" 2>&1 &
   wpid=$!
   i=0
   while [ "$i" -lt 60 ]; do
@@ -1517,7 +1517,7 @@ test_attached_arm_signal_is_recorded_in_cycle_ledger() {
     i=$((i + 1))
   done
   [ "$(cat "$state/.watch.lock/pid" 2>/dev/null || true)" = "$wpid" ] || fail "seed watcher did not take the lock"
-  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_ARM_ATTACH_POLL=0.1 FM_ARM_CONFIRM_TIMEOUT=1 "$WATCH_ARM" > "$armout" &
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_ARM_ATTACH_POLL=0.1 FM_ARM_CONFIRM_TIMEOUT=1 bash "$WATCH_ARM" > "$armout" &
   armpid=$!
   i=0
   while [ "$i" -lt 80 ]; do
@@ -1566,7 +1566,7 @@ SH
   PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" \
     FM_TEST_REAL_LN="$real_ln" \
     FM_TEST_ARM_PID_FILE="$pidfile" FM_POLL=5 FM_SIGNAL_GRACE=1 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH_ARM" > "$armout" 2>&1 &
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 bash "$WATCH_ARM" > "$armout" 2>&1 &
   armpid=$!
   printf '%s\n' "$armpid" > "$pidfile"
   i=0
@@ -1614,7 +1614,7 @@ SH
     FM_TEST_REAL_LN="$real_ln" \
     FM_TEST_ARM_PID_FILE="$pidfile" FM_TEST_RELEASE="$release" \
     FM_ARM_CONFIRM_TIMEOUT=2 FM_POLL=5 FM_SIGNAL_GRACE=1 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH_ARM" > "$armout" 2>&1 &
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 bash "$WATCH_ARM" > "$armout" 2>&1 &
   armpid=$!
   printf '%s\n' "$armpid" > "$pidfile"
   sleep 5
@@ -1654,7 +1654,7 @@ test_arm_starts_and_self_heals() {
       printf '%s\n' "dead watcher identity" > "$state/.watch.lock/pid-identity"
       touch "$state/.last-watcher-beat"
     fi
-    PATH="$fakebin:$PATH" FM_HOME="$dir" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH_ARM" > "$armout" &
+    PATH="$fakebin:$PATH" FM_HOME="$dir" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 bash "$WATCH_ARM" > "$armout" &
     armpid=$!
     i=0
     while [ "$i" -lt 80 ]; do
@@ -1693,7 +1693,7 @@ test_arm_hup_cleans_child_and_temp_output() {
   state="$dir/state"
   fakebin="$dir/fakebin"
   armout="$dir/arm.out"
-  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH_ARM" > "$armout" &
+  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 bash "$WATCH_ARM" > "$armout" &
   armpid=$!
   i=0
   while [ "$i" -lt 80 ]; do
@@ -1730,7 +1730,7 @@ test_arm_propagates_immediate_wake_before_confirmation() {
 printf 'merged: https://example.test/pr/7\n'
 SH
   chmod 0700 "$check_file"
-  FM_STATE_OVERRIDE="$state" "$ROOT/bin/fm-check-register.sh" task >/dev/null \
+  FM_STATE_OVERRIDE="$state" bash "$ROOT/bin/fm-check-register.sh" task >/dev/null \
     || fail "could not register immediate-wake custom check"
   rc=0
   # This case asserts wake propagation, not the confirmation deadline, and its
@@ -1739,11 +1739,11 @@ SH
   # budget. An explicit budget takes the deadline out of the assertion and costs
   # nothing on a passing run, because the arm returns as soon as the child
   # settles (issue #2844).
-  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_GUARD_GRACE=0 FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=0 FM_HEARTBEAT=999999 FM_ARM_CONFIRM_TIMEOUT=60 "$WATCH_ARM" > "$armout" || rc=$?
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_GUARD_GRACE=0 FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=0 FM_HEARTBEAT=999999 FM_ARM_CONFIRM_TIMEOUT=60 bash "$WATCH_ARM" > "$armout" || rc=$?
   [ "$rc" -eq 0 ] || fail "arm returned non-zero for an immediate wake (status $rc): $(cat "$armout")"
   grep -F "check: $check_file: merged: https://example.test/pr/7" "$armout" >/dev/null || fail "arm did not propagate the immediate check wake"
   ! grep -qF 'watcher: FAILED' "$armout" || fail "arm printed FAILED after a valid immediate wake"
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" || fail "drain after immediate arm wake failed"
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$drain_out" || fail "drain after immediate arm wake failed"
   grep "$(printf '\tcheck\t')" "$drain_out" | grep -F "$check_file" | grep -F 'merged: https://example.test/pr/7' >/dev/null || fail "immediate check wake was not queued"
   pass "arm propagates an immediate watcher wake before confirmation"
 }
@@ -1765,7 +1765,7 @@ test_arm_waits_for_peer_beacon_after_child_stands_down() {
   # Same budget contract as the self-eviction case: the owned child's real
   # startup and stand-down happen inside the arm's confirmation window, so the
   # window stays production-sized (issue #2844).
-  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_ARM_ATTACH_POLL=0.1 "$WATCH_ARM" > "$armout" &
+  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_ARM_ATTACH_POLL=0.1 bash "$WATCH_ARM" > "$armout" &
   armpid=$!
   # Synchronize on the owned child declining the live peer lock before making
   # the peer healthy. Sleeping for the same budget the arm spends made this
@@ -1813,7 +1813,7 @@ test_arm_fails_loud_when_no_fresh_watcher_confirmable() {
   mkdir "$state/.watch.lock"
   printf '%s\n' "$live" > "$state/.watch.lock/pid"
   touch -t 200001010000 "$state/.last-watcher-beat"
-  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_ARM_CONFIRM_TIMEOUT=3 "$WATCH_ARM" > "$armout" &
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_ARM_CONFIRM_TIMEOUT=3 bash "$WATCH_ARM" > "$armout" &
   armpid=$!
   wait_for_exit "$armpid" 120
   status=$?
@@ -1840,13 +1840,13 @@ test_cycle_exit_ledger_links_successor_and_stays_bounded() {
 printf 'done: synthetic cycle\n'
 SH
   chmod 0700 "$check_file"
-  FM_STATE_OVERRIDE="$state" "$ROOT/bin/fm-check-register.sh" task >/dev/null \
+  FM_STATE_OVERRIDE="$state" bash "$ROOT/bin/fm-check-register.sh" task >/dev/null \
     || fail "could not register cycle-ledger check"
 
   # Same budget contract as the immediate-wake case above: the child's check
   # fires on its first poll and it exits by wake, not beacon, so grace stays
   # zero but the confirm deadline gets the explicit loaded-host budget.
-  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_GUARD_GRACE=0 FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=0 FM_HEARTBEAT=999999 FM_ARM_CONFIRM_TIMEOUT=60 "$WATCH_ARM" > "$armout" &
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_GUARD_GRACE=0 FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=0 FM_HEARTBEAT=999999 FM_ARM_CONFIRM_TIMEOUT=60 bash "$WATCH_ARM" > "$armout" &
   first_arm=$!
   wait "$first_arm" || fail "first ledger cycle did not surface its actionable wake"
   grep -q "arm_pid=$first_arm.*reason=actionable-check.*successor=none" "$state/.watch-cycle-exits.log" \
@@ -1855,7 +1855,7 @@ SH
 
   rm -f "$check_file" "$state/task.check-trust"
   armout="$dir/successor-arm.out"
-  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_WATCH_PREDECESSOR_ARM_PID="$first_arm" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH_ARM" > "$armout" &
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_WATCH_PREDECESSOR_ARM_PID="$first_arm" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 bash "$WATCH_ARM" > "$armout" &
   successor_arm=$!
   wait_for_started "$armout" || fail "successor ledger cycle did not start"
   successor_pid=$(cat "$state/.watch.lock/pid" 2>/dev/null || true)
@@ -1875,7 +1875,7 @@ SH
   iteration=0
   while [ "$iteration" -lt 6 ]; do
     armout="$dir/bounded-$iteration.out"
-    PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_WATCH_CYCLE_LOG_MAX_BYTES=1400 FM_WATCH_CYCLE_LOG_KEEP_LINES=2 FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH_ARM" > "$armout" &
+    PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_WATCH_CYCLE_LOG_MAX_BYTES=1400 FM_WATCH_CYCLE_LOG_KEEP_LINES=2 FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 bash "$WATCH_ARM" > "$armout" &
     successor_arm=$!
     wait_for_started "$armout" \
       || fail "bounded ledger cycle $iteration did not start"
@@ -1906,7 +1906,7 @@ test_arm_confirms_a_slow_post_claim_startup() {
   PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" \
     FM_TEST_WATCHER_PRE_IDENTITY_DELAY=15 \
     FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    "$WATCH_ARM" > "$armout" &
+    bash "$WATCH_ARM" > "$armout" &
   armpid=$!
   wait_for_started "$armout" \
     || fail "arm did not confirm a startup slower than the legacy budget: $(cat "$armout")"
@@ -1951,7 +1951,7 @@ test_arm_relays_a_startup_lock_held_by_live_pid() {
   PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" \
     FM_WATCHER_STARTUP_LOCK_BOUND=2 \
     FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    "$WATCH_ARM" > "$armout" 2>&1 || status=$?
+    bash "$WATCH_ARM" > "$armout" 2>&1 || status=$?
   : > "$dir/lock-release"
   wait "$holder" 2>/dev/null || true
   [ "$status" -ne 0 ] || fail "arm exited zero while the child's startup lock was held"
@@ -2055,7 +2055,7 @@ SH
         TEST_MUTATION_ONCE="$dir/once" TEST_MUTATION_DONE="$dir/done" \
         TEST_MUTATION_SIGNAL="$sig" TEST_MUTATION_REAL="$real_tool" \
         FM_POLL=5 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-        "$WATCH" > "$dir/watch.out" 2>&1 &
+        bash "$WATCH" > "$dir/watch.out" 2>&1 &
       pid=$!
       status=0
       wait_for_exit "$pid" 100 || status=$?
@@ -2086,7 +2086,7 @@ test_forced_term_before_the_safe_point_stays_clean() {
   PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" \
     FM_ARM_CONFIRM_TIMEOUT=2 FM_TEST_WATCHER_PRE_IDENTITY_DELAY=8 \
     FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    "$WATCH_ARM" > "$armout" 2>&1 || status=$?
+    bash "$WATCH_ARM" > "$armout" 2>&1 || status=$?
   [ "$status" -ne 0 ] || fail "deadline-forced arm exited zero"
   grep -qF 'watcher: FAILED - no live watcher with a fresh beacon' "$armout" \
     || fail "deadline-forced arm did not report its typed failure: $(cat "$armout")"
@@ -2100,7 +2100,7 @@ test_forced_term_before_the_safe_point_stays_clean() {
   PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" \
     FM_TEST_WATCHER_PRE_IDENTITY_DELAY=6 \
     FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    "$WATCH_ARM" > "$armout" &
+    bash "$WATCH_ARM" > "$armout" &
   armpid=$!
   i=0
   while [ ! -e "$state/.watch.lock" ] && [ ! -L "$state/.watch.lock" ] \
@@ -2151,7 +2151,7 @@ SH
     FM_TEST_REAL_PS="$real_ps" \
     FM_ARM_CONFIRM_TIMEOUT=2 FM_TEST_WATCHER_PRE_IDENTITY_DELAY=4 \
     FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    "$WATCH_ARM" > "$armout" 2>&1 &
+    bash "$WATCH_ARM" > "$armout" 2>&1 &
   armpid=$!
   status=0
   wait_for_exit "$armpid" "$ARM_FAIL_EXIT_POLLS" || status=$?
@@ -2170,7 +2170,7 @@ test_stopped_watcher_is_live_but_stale_then_exit_is_classified() {
   state="$dir/state"
   fakebin="$dir/fakebin"
   armout="$dir/arm.out"
-  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH_ARM" > "$armout" &
+  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 bash "$WATCH_ARM" > "$armout" &
   armpid=$!
   i=0
   while [ "$i" -lt 80 ]; do

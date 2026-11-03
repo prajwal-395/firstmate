@@ -77,7 +77,7 @@ cleanup() {
     tmux -S "$LAB_SOCKET" kill-server >/dev/null 2>&1 || true
   fi
   if [ -n "$LAB_HOME" ]; then
-    "$ROOT/bin/fm-lab-home.sh" teardown "$LAB_HOME" >/dev/null 2>&1 || true
+    bash "$ROOT/bin/fm-lab-home.sh" teardown "$LAB_HOME" >/dev/null 2>&1 || true
     rm -rf "$LAB_HOME"
   fi
   fm_test_cleanup
@@ -130,10 +130,10 @@ say "cap=FM_WEDGE_MAX_ESCALATIONS=$MAX horizon=FM_CAP_HORIZON_SECS=${HORIZON_SEC
 say "tmux $(tmux -V), watcher $(basename "$ROOT")/bin/fm-watch.sh at $(cd "$ROOT" && git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 
 # The disposable home, minted by the repository's own lab mechanism.
-"$ROOT/bin/fm-lab-home.sh" create "$LAB_HOME" >/dev/null \
+bash "$ROOT/bin/fm-lab-home.sh" create "$LAB_HOME" >/dev/null \
   || fail "bin/fm-lab-home.sh could not mint a lab home at $LAB_HOME"
 say "lab home: $LAB_HOME"
-LAB_TMUX_DIR=$("$ROOT/bin/fm-lab-home.sh" tmux-dir "$LAB_HOME") \
+LAB_TMUX_DIR=$(bash "$ROOT/bin/fm-lab-home.sh" tmux-dir "$LAB_HOME") \
   || fail "bin/fm-lab-home.sh could not mint a private tmux socket directory"
 export TMUX_TMPDIR="$LAB_TMUX_DIR"
 LAB_SOCKET="$TMUX_TMPDIR/tmux-$(id -u)/default"
@@ -235,7 +235,7 @@ watcher_cycle() {
     FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
     FM_BUSY_TURN_MAX_SECS=1 \
-    "$ROOT/bin/fm-watch.sh" > "$out" 2>&1 &
+    bash "$ROOT/bin/fm-watch.sh" > "$out" 2>&1 &
   local pid=$!
   # Bound the cycle: a wedged pane produces no wake on a silenced poll, so wait
   # for the watcher heartbeat to prove it completed a poll, then bound the rest.
@@ -279,7 +279,7 @@ watcher_cycle() {
   say "$label -> exit=$rc woke=$CYCLE_WOKE reason=${reason:-none}"
   # Acknowledge so the next cycle starts from an empty queue and its exit
   # status reflects the pane, not a leftover wake.
-  FM_HOME="$LAB_HOME" "$ROOT/bin/fm-wake-drain.sh" >/dev/null 2>&1 || true
+  FM_HOME="$LAB_HOME" bash "$ROOT/bin/fm-wake-drain.sh" >/dev/null 2>&1 || true
   cat "$out" >> "$TRANSCRIPT"
 }
 # reset_lab_state: put the wedged worker back to a fresh first sight, so the

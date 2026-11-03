@@ -577,7 +577,7 @@ test_unreadable_thread_defers_like_busy() {
   state="$CASE_DIR/state"
   mkdir -p "$state"
   # A previously idle hook record must not override native uncertainty.
-  "$ROOT/bin/fm-busy-event.sh" arm "$state" worker --state idle --source claude-hook --event stop >/dev/null
+  bash "$ROOT/bin/fm-busy-event.sh" arm "$state" worker --state idle --source claude-hook --event stop >/dev/null
   fm_write_meta "$state/worker.meta" "window=fm-worker" "backend=t3code" "t3_thread_id=thread-live" "harness=claude"
   for harness in claude codex; do
     got=$(t3_run '. "$0/bin/fm-busy-lib.sh"; fm_busy_classify t3code thread-live "$1" worker "$2"' "$harness" "$state")
@@ -902,8 +902,8 @@ test_native_restart_rearms_undelivered_stale_warning() {
       export FM_HOME="$home" FM_STATE_OVERRIDE="$state" FM_CONFIG_OVERRIDE="$CONFIG"
       export FM_TEST_HARNESS=grok
       export FM_ESCALATE_BATCH_SECS=999999 FM_STALE_ESCALATE_SECS=5 FM_MAX_DEFER_SECS=0
-      "$ROOT/bin/fm-afk-launch.sh" enter --words 'supervise pending work' >/dev/null \
-        && "$ROOT/bin/fm-afk-launch.sh" start-native || exit 1
+      bash "$ROOT/bin/fm-afk-launch.sh" enter --words 'supervise pending work' >/dev/null \
+        && bash "$ROOT/bin/fm-afk-launch.sh" start-native || exit 1
       t3_run '
         . "$0/bin/fm-supervise-daemon.sh"
         _now() { printf 1000; }
@@ -914,12 +914,12 @@ test_native_restart_rearms_undelivered_stale_warning() {
       ' "$state" || exit 1
       [ -s "$state/.subsuper-escalations" ] || exit 1
       # The native daemon has stopped without delivering its buffer.
-      "$ROOT/bin/fm-afk-launch.sh" stop || exit 1
+      bash "$ROOT/bin/fm-afk-launch.sh" stop || exit 1
       [ -s "$state/.subsuper-escalations" ] || exit 1
       [ -f "$state/.subsuper-reported-stale-worker" ] || exit 1
       # A warning already delivered for another condition must stay suppressed.
       printf 900 > "$state/.subsuper-reported-stale-delivered"
-      "$ROOT/bin/fm-afk-launch.sh" enter --words 'supervise pending work' >/dev/null || exit 1
+      bash "$ROOT/bin/fm-afk-launch.sh" enter --words 'supervise pending work' >/dev/null || exit 1
       first=$(cat "$state/.subsuper-escalations")
       # Failed startup must restore both the queue and its suppression markers.
       bash -c '
@@ -929,7 +929,7 @@ test_native_restart_rearms_undelivered_stale_warning() {
       ' "$ROOT" || exit 1
       [ "$(cat "$state/.subsuper-escalations")" = "$first" ] || exit 1
       [ -f "$state/.subsuper-reported-stale-worker" ] || exit 1
-      "$ROOT/bin/fm-afk-launch.sh" start-native || exit 1
+      bash "$ROOT/bin/fm-afk-launch.sh" start-native || exit 1
       assert_absent "$state/.subsuper-escalations" "fresh startup must discard the old queue"
       assert_absent "$state/.subsuper-reported-stale-worker" "discarding an undelivered warning must re-arm reporting"
       assert_present "$state/.subsuper-reported-stale-delivered" "startup must preserve suppression of delivered warnings"
@@ -1152,7 +1152,7 @@ SH
     FM_CONFIG_OVERRIDE="$CONFIG" FM_HOME="$CASE_DIR" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$CASE_DIR/data" \
     FM_POLL=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_BUSY_TURN_MAX_SECS="$busy_bound" \
     FM_STALE_ESCALATE_SECS=1 FM_WEDGE_DEMAND_INSPECT_COUNT=3 \
-    "$ROOT/bin/fm-watch.sh" > "$out" 2>&1 &
+    bash "$ROOT/bin/fm-watch.sh" > "$out" 2>&1 &
   WATCH_PID=$!
   for _ in $(seq 1 600); do
     kill -0 "$WATCH_PID" 2>/dev/null || break
@@ -1213,7 +1213,7 @@ make_t3_control_task() {  # <case-name> <id> <thread-id> <thread-status>
 run_t3_control() {  # <id> <verb> [args...]
   FM_HOME="$CASE_DIR/home" FM_STATE_OVERRIDE="$CTRL_STATE" FM_DATA_OVERRIDE="$CTRL_DATA" FM_CONFIG_OVERRIDE="$CONFIG" \
     FM_CONTROL_POLL=0.05 FM_CONTROL_EXIT_WAIT=3 FM_CONTROL_LAUNCH_WAIT=1 \
-    "$ROOT/bin/fm-control.sh" "$@" 2>&1
+    bash "$ROOT/bin/fm-control.sh" "$@" 2>&1
 }
 
 test_control_exit_refused_before_any_call() {
@@ -1251,7 +1251,7 @@ test_control_relaunch_refused_before_any_dispatch() {
   out=$( HOME="$SPAWN_HOME" PATH="$fb:$PATH" FM_T3_TREEHOUSE_LOG="$LOG" FM_T3_TREEHOUSE_WT="$CTRL_WT" \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$CASE_DIR/home" FM_STATE_OVERRIDE="$CTRL_STATE" FM_DATA_OVERRIDE="$CTRL_DATA" FM_CONFIG_OVERRIDE="$CONFIG" \
     FM_PROJECTS_OVERRIDE="$CASE_DIR/unused-projects" FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" "$id" --relaunch 2>&1 ); rc=$?
+    bash "$ROOT/bin/fm-spawn.sh" "$id" --relaunch 2>&1 ); rc=$?
   expect_code 1 "$rc" "fm-spawn --relaunch on a t3code task must refuse on its own"$'\n'"$out"
   assert_contains "$out" "cannot launch a replacement agent" "the launch owner's refusal must name the missing replacement"
   [ -z "$(t3_dispatch_types)" ] || fail "the launch owner's refusal must send nothing to T3, got '$(t3_dispatch_types)'"
@@ -1275,7 +1275,7 @@ test_spawn_codex_refuses_tracked_codex_config() {
   out=$( HOME="$SPAWN_HOME" PATH="$fb:$PATH" FM_T3_TREEHOUSE_LOG="$LOG" FM_T3_TREEHOUSE_WT="$wt" \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$CASE_DIR/home" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$CONFIG" \
     FM_PROJECTS_OVERRIDE="$CASE_DIR/unused-projects" FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" codex --scout --model gpt-5.6-sol --backend t3code 2>&1 ); rc=$?
+    bash "$ROOT/bin/fm-spawn.sh" "$id" "$proj" codex --scout --model gpt-5.6-sol --backend t3code 2>&1 ); rc=$?
   expect_code 1 "$rc" "a codex t3code spawn must refuse a project that tracks .codex/config.toml"$'\n'"$out"
   assert_contains "$out" ".codex/config.toml" "the refusal must name the tracked file"
   assert_contains "$out" "[shell_environment_policy]" "the refusal must name the policy table"
@@ -1308,7 +1308,7 @@ test_spawn_codex_preserves_tracked_codex_config() {
   out=$( HOME="$SPAWN_HOME" PATH="$fb:$PATH" FM_T3_TREEHOUSE_LOG="$LOG" FM_T3_TREEHOUSE_WT="$wt" \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$CASE_DIR/home" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$CONFIG" \
     FM_PROJECTS_OVERRIDE="$CASE_DIR/unused-projects" FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" codex --scout --model gpt-5.6-sol --backend t3code 2>&1 ); rc=$?
+    bash "$ROOT/bin/fm-spawn.sh" "$id" "$proj" codex --scout --model gpt-5.6-sol --backend t3code 2>&1 ); rc=$?
   expect_code 0 "$rc" "a codex t3code spawn must accept compatible tracked configuration"$'\n'"$out"
   [ "$(t3_toml_env "$wt/.codex/config.toml" FM_TASK_ID)" = "$id" ] || fail "tracked config must deliver FM_TASK_ID"
   "$T3_PYTHON" - "$original" "$wt/.codex/config.toml" <<'CHECK'
@@ -1332,11 +1332,11 @@ CHECK
   neutral=$(neutral_fm_root "$CASE_DIR/neutral")
   out=$( HOME="$SPAWN_HOME" PATH="$fb:$PATH" FM_T3_TREEHOUSE_LOG="$LOG" FM_T3_TREEHOUSE_WT="$wt" \
     FM_ROOT_OVERRIDE="$neutral" FM_HOME="$CASE_DIR/home" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$CONFIG" \
-    "$ROOT/bin/fm-teardown.sh" "$id" 2>&1 ); rc=$?
+    bash "$ROOT/bin/fm-teardown.sh" "$id" 2>&1 ); rc=$?
   expect_code 0 "$rc" "teardown must restore the tracked config"$'\n'"$out"
   cmp -s "$original" "$wt/.codex/config.toml" || fail "cleanup must restore the exact tracked bytes"
   [ -z "$(git -C "$wt" status --porcelain -- .codex/config.toml)" ] || fail "cleanup must leave the tracked config clean"
-  "$ROOT/bin/fm-t3code-codex-env.sh" cleanup "$wt" || fail "repeated cleanup must succeed"
+  bash "$ROOT/bin/fm-t3code-codex-env.sh" cleanup "$wt" || fail "repeated cleanup must succeed"
   cmp -s "$original" "$wt/.codex/config.toml" || fail "repeated cleanup changed tracked bytes"
   printf '\n# visible after cleanup\n' >> "$wt/.codex/config.toml"
   [ -n "$(git -C "$wt" status --porcelain -- .codex/config.toml)" ] || fail "cleanup must restore ordinary Git tracking"
@@ -1356,23 +1356,23 @@ test_tracked_codex_overlay_recovery() {
   git -C "$proj" add .codex/config.toml
   git -C "$proj" -c user.name=t -c user.email=t@example.invalid commit -qm config
   unicode_value=$'space "quote" \\ path-🧭\nnext line'
-  "$ROOT/bin/fm-t3code-codex-env.sh" install "$proj" FM_TASK_ID=recovery "FM_HOME=$unicode_value" || fail "install recovery overlay"
+  bash "$ROOT/bin/fm-t3code-codex-env.sh" install "$proj" FM_TASK_ID=recovery "FM_HOME=$unicode_value" || fail "install recovery overlay"
   [ "$(t3_toml_env "$proj/.codex/config.toml" FM_HOME)" = "$unicode_value" ] || fail "TOML encoding must preserve Unicode, quotes, backslashes, and newlines"
   printf '\n# worker edit\n' >> "$proj/.codex/config.toml"
   cp "$proj/.codex/config.toml" "$CASE_DIR/edited.toml"
-  out=$("$ROOT/bin/fm-t3code-codex-env.sh" cleanup "$proj" 2>&1); rc=$?
+  out=$(bash "$ROOT/bin/fm-t3code-codex-env.sh" cleanup "$proj" 2>&1); rc=$?
   expect_code 1 "$rc" "cleanup must refuse unexpected configuration edits"
   assert_contains "$out" "configuration changed" "cleanup must explain the conflict"
   cmp -s "$CASE_DIR/edited.toml" "$proj/.codex/config.toml" || fail "refused cleanup must preserve edits"
   # Simulate interruption after restoring the file but before restoring Git flags.
   cp "$original" "$proj/.codex/config.toml"
-  "$ROOT/bin/fm-t3code-codex-env.sh" cleanup "$proj" || fail "interrupted restoration must converge"
+  bash "$ROOT/bin/fm-t3code-codex-env.sh" cleanup "$proj" || fail "interrupted restoration must converge"
   [ "$(git -C "$proj" ls-files -v -- .codex/config.toml)" = "H .codex/config.toml" ] || fail "recovered cleanup must clear skip-worktree"
   cmp -s "$original" "$proj/.codex/config.toml" || fail "recovery must preserve original bytes"
   # TOML syntax, rather than textual spelling, determines policy ownership.
   for policy in '["shell_environment_policy"]' 'shell_environment_policy.set.FOO = "bar"' 'shell_environment_policy = { set = { FOO = "bar" } }'; do
     printf '%s\n' "$policy" > "$proj/.codex/config.toml"
-    out=$("$ROOT/bin/fm-t3code-codex-env.sh" check "$proj" 2>&1); rc=$?
+    out=$(bash "$ROOT/bin/fm-t3code-codex-env.sh" check "$proj" 2>&1); rc=$?
     expect_code 1 "$rc" "every TOML spelling of a project policy must refuse"
     assert_contains "$out" "[shell_environment_policy]" "policy conflict must name the table"
   done
@@ -1396,7 +1396,7 @@ test_spawn_claude_refuses_tracked_claude_local_md() {
   out=$( HOME="$SPAWN_HOME" CLAUDE_CONFIG_DIR='' PATH="$fb:$PATH" FM_T3_TREEHOUSE_LOG="$LOG" FM_T3_TREEHOUSE_WT="$wt" \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$CASE_DIR/home" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$CONFIG" \
     FM_PROJECTS_OVERRIDE="$CASE_DIR/unused-projects" FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --scout --model claude-sonnet-5 --backend t3code 2>&1 ); rc=$?
+    bash "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --scout --model claude-sonnet-5 --backend t3code 2>&1 ); rc=$?
   expect_code 1 "$rc" "a claude t3code spawn must refuse a project that tracks CLAUDE.local.md"$'\n'"$out"
   assert_contains "$out" "tracks CLAUDE.local.md" "the refusal must name the tracked file"
   [ -z "$(t3_dispatch_types)" ] || fail "the refusal must come before any T3 mutation, got '$(t3_dispatch_types)'"
@@ -1425,7 +1425,7 @@ test_spawn_claude_refuses_worktree_symlink() {
   out=$( HOME="$SPAWN_HOME" CLAUDE_CONFIG_DIR='' PATH="$fb:$PATH" FM_T3_TREEHOUSE_LOG="$LOG" FM_T3_TREEHOUSE_WT="$wt" \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$CASE_DIR/home" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$CONFIG" \
     FM_PROJECTS_OVERRIDE="$CASE_DIR/unused-projects" FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --scout --model claude-sonnet-5 --backend t3code 2>&1 ); rc=$?
+    bash "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --scout --model claude-sonnet-5 --backend t3code 2>&1 ); rc=$?
   expect_code 1 "$rc" "a symlinked worktree channel must refuse"
   assert_contains "$out" "CLAUDE.local.md already exists" "refusal must name the channel"
   [ "$(cat "$target")" = 'keep these instructions' ] || fail "symlink target was changed"
@@ -1440,14 +1440,14 @@ test_untracked_codex_config_is_preserved() {
   fm_git_init_commit "$proj"
   mkdir -p "$proj/.codex"
   printf 'model = "captain-model"\n' > "$proj/.codex/config.toml"
-  out=$("$ROOT/bin/fm-t3code-codex-env.sh" check "$proj" 2>&1); rc=$?
+  out=$(bash "$ROOT/bin/fm-t3code-codex-env.sh" check "$proj" 2>&1); rc=$?
   expect_code 1 "$rc" "pre-existing untracked Codex config must refuse"
   assert_contains "$out" "untracked configuration already exists" "refusal must explain ownership"
-  "$ROOT/bin/fm-t3code-codex-env.sh" cleanup "$proj" || fail "cleanup must leave a pre-existing config alone"
+  bash "$ROOT/bin/fm-t3code-codex-env.sh" cleanup "$proj" || fail "cleanup must leave a pre-existing config alone"
   [ "$(cat "$proj/.codex/config.toml")" = 'model = "captain-model"' ] || fail "cleanup changed the captain's config"
   printf '# Generated by Firstmate T3 Code\n[shell_environment_policy]\n' > "$proj/.codex/config.toml"
-  "$ROOT/bin/fm-t3code-codex-env.sh" check "$proj" || fail "marked config should be accepted"
-  "$ROOT/bin/fm-t3code-codex-env.sh" cleanup "$proj" || fail "marked config should be removed"
+  bash "$ROOT/bin/fm-t3code-codex-env.sh" check "$proj" || fail "marked config should be accepted"
+  bash "$ROOT/bin/fm-t3code-codex-env.sh" cleanup "$proj" || fail "marked config should be removed"
   [ ! -e "$proj/.codex/config.toml" ] || fail "cleanup left a Firstmate config behind"
   pass "untracked Codex config is preserved unless Firstmate's marker owns it"
 }
@@ -1490,7 +1490,7 @@ test_codex_cleanup_without_journal_needs_no_python() {
   printf 'model = "project-model"\n' > "$proj/.codex/config.toml"
   git -C "$proj" add .codex/config.toml
   git -C "$proj" -c user.name=t -c user.email=t@example.invalid commit -qm codex
-  out=$(PATH="$fb:$PATH" "$ROOT/bin/fm-t3code-codex-env.sh" cleanup "$proj" 2>&1); rc=$?
+  out=$(PATH="$fb:$PATH" bash "$ROOT/bin/fm-t3code-codex-env.sh" cleanup "$proj" 2>&1); rc=$?
   expect_code 0 "$rc" "cleanup of a tracked config Firstmate never overlaid must not need Python: $out"
   [ "$(cat "$proj/.codex/config.toml")" = 'model = "project-model"' ] || fail "cleanup changed the project's tracked config"
   proj="$CASE_DIR/tracked-codex-link"
@@ -1500,7 +1500,7 @@ test_codex_cleanup_without_journal_needs_no_python() {
   ln -s codex-real "$proj/.codex"
   git -C "$proj" add -A
   git -C "$proj" -c user.name=t -c user.email=t@example.invalid commit -qm link
-  out=$(PATH="$fb:$PATH" "$ROOT/bin/fm-t3code-codex-env.sh" cleanup "$proj" 2>&1); rc=$?
+  out=$(PATH="$fb:$PATH" bash "$ROOT/bin/fm-t3code-codex-env.sh" cleanup "$proj" 2>&1); rc=$?
   expect_code 0 "$rc" "cleanup must not refuse a project that tracks .codex as a symlink: $out"
   assert_present "$proj/codex-real/config.toml" "cleanup must never delete through a symlinked .codex"
   pass "fm-t3code-codex-env.sh cleanup: without an installed overlay it needs no Python and never refuses"
@@ -1524,7 +1524,7 @@ test_spawn_leases_slot_creates_thread_and_starts_launch_turn() {
   out=$( HOME="$SPAWN_HOME" CLAUDE_CONFIG_DIR='' PATH="$fb:$PATH" FM_T3_TREEHOUSE_LOG="$LOG" FM_T3_TREEHOUSE_WT="$wt" \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$CASE_DIR/home" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$CONFIG" \
     FM_PROJECTS_OVERRIDE="$CASE_DIR/unused-projects" FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --mode no-mistakes --yolo off --model claude-sonnet-5 --effort high --backend t3code 2>&1 )
+    bash "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --mode no-mistakes --yolo off --model claude-sonnet-5 --effort high --backend t3code 2>&1 )
   expect_code 0 $? "fm-spawn.sh --backend t3code should succeed against the fake T3 server"$'\n'"$out"
   assert_contains "$out" "spawned $id harness=claude kind=ship mode=no-mistakes yolo=off window=fm-$id worktree=$wt" \
     "spawn output missing the T3 window alias and worktree summary"
@@ -1596,7 +1596,7 @@ test_spawn_codex_scout_writes_toml_env_with_traceparent() {
   out=$( HOME="$SPAWN_HOME" PATH="$fb:$PATH" FM_T3_TREEHOUSE_LOG="$LOG" FM_T3_TREEHOUSE_WT="$wt" \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$CASE_DIR/home" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$CONFIG" \
     FM_PROJECTS_OVERRIDE="$CASE_DIR/unused-projects" FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" codex --scout --model gpt-5.6-sol --backend t3code 2>&1 )
+    bash "$ROOT/bin/fm-spawn.sh" "$id" "$proj" codex --scout --model gpt-5.6-sol --backend t3code 2>&1 )
   expect_code 0 $? "a codex scout on t3code should spawn against the fake T3 server"$'\n'"$out"
   toml="$wt/.codex/config.toml"
   assert_present "$toml" "a codex worker gets .codex/config.toml in its worktree"
@@ -1640,7 +1640,7 @@ test_spawn_codex_warns_unless_codex_trusts_the_project() {
     out=$( HOME="$SPAWN_HOME" CODEX_HOME="$codex_home" PATH="$fb:$PATH" FM_T3_TREEHOUSE_LOG="$LOG" FM_T3_TREEHOUSE_WT="$wt" \
       FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$CASE_DIR/home" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$CONFIG" \
       FM_PROJECTS_OVERRIDE="$CASE_DIR/unused-projects" FM_SPAWN_NO_GUARD=1 \
-      "$ROOT/bin/fm-spawn.sh" "$id" "$proj" codex --scout --model gpt-5.6-sol --backend t3code 2>&1 ); rc=$?
+      bash "$ROOT/bin/fm-spawn.sh" "$id" "$proj" codex --scout --model gpt-5.6-sol --backend t3code 2>&1 ); rc=$?
     expect_code 0 "$rc" "a codex t3code spawn with Codex trust '$trust' must still launch"$'\n'"$out"
     [ "$(t3_dispatch_types)" = "t3_thread_launch t3_thread_send" ] || fail "trust '$trust': spawn must launch then send the brief, got '$(t3_dispatch_types)'"
     if [ "$trust" = project ]; then
@@ -1689,7 +1689,7 @@ spawn_t3_secondmate() {
   HOME="$SPAWN_HOME" CLAUDE_CONFIG_DIR='' \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$CASE_DIR/home" FM_STATE_OVERRIDE="$CASE_DIR/home/state" FM_DATA_OVERRIDE="$CASE_DIR/home/data" \
     FM_CONFIG_OVERRIDE="$CONFIG" FM_PROJECTS_OVERRIDE="$CASE_DIR/home/projects" FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" "$id" "$home" "$harness" --model "$model" --backend t3code --secondmate 2>&1
+    bash "$ROOT/bin/fm-spawn.sh" "$id" "$home" "$harness" --model "$model" --backend t3code --secondmate 2>&1
 }
 
 # A t3code secondmate receives the pane launch facts plus its supervisor,
@@ -1809,7 +1809,7 @@ test_spawn_refuses_t3code_when_token_rejected() {
   out=$( HOME="$SPAWN_HOME" CLAUDE_CONFIG_DIR='' PATH="$fb:$PATH" FM_T3_TREEHOUSE_LOG="$LOG" FM_T3_TREEHOUSE_WT="$proj" \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$CASE_DIR/home" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$CONFIG" \
     FM_PROJECTS_OVERRIDE="$CASE_DIR/unused-projects" FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --mode no-mistakes --yolo off --backend t3code 2>&1 )
+    bash "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --mode no-mistakes --yolo off --backend t3code 2>&1 )
   status=$?
   [ "$status" -ne 0 ] || fail "fm-spawn.sh --backend t3code should refuse when the T3 server rejects the credential"
   assert_contains "$out" "signs in again" "the refusal must name the fresh sign-in"
@@ -1840,7 +1840,7 @@ t3_worker_spawn() {
   HOME="$SPAWN_HOME" CLAUDE_CONFIG_DIR='' PATH="$fb:$PATH" FM_T3_TREEHOUSE_LOG="$LOG" FM_T3_TREEHOUSE_WT="$WORKER_WT" \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$CASE_DIR/home" FM_STATE_OVERRIDE="$CASE_DIR/state" FM_DATA_OVERRIDE="$CASE_DIR/data" FM_CONFIG_OVERRIDE="$CONFIG" \
     FM_PROJECTS_OVERRIDE="$CASE_DIR/unused-projects" FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" "$id" "$WORKER_PROJ" "$harness" --scout --backend t3code "$@" 2>&1
+    bash "$ROOT/bin/fm-spawn.sh" "$id" "$WORKER_PROJ" "$harness" --scout --backend t3code "$@" 2>&1
 }
 
 test_spawn_refuses_launch_settings_t3_cannot_honor() {  # <config-file> <content> <expected-error> [harness]
@@ -2125,7 +2125,7 @@ test_scout_teardown_stops_and_archives_before_slot_return() {
   neutral=$(neutral_fm_root "$CASE_DIR/neutral")
   out=$( PATH="$fb:$PATH" FM_T3_TREEHOUSE_LOG="$LOG" FM_T3_TREEHOUSE_WT="$wt" \
     FM_ROOT_OVERRIDE="$neutral" FM_HOME="$CASE_DIR/home" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$CONFIG" \
-    "$ROOT/bin/fm-teardown.sh" "$id" 2>&1 )
+    bash "$ROOT/bin/fm-teardown.sh" "$id" 2>&1 )
   rc=$?
   expect_code 0 "$rc" "t3code scout teardown should succeed once the report exists"$'\n'"$out"
   assert_absent "$wt/.codex/config.toml" "teardown must remove the codex env config before the slot is reused"
@@ -2154,7 +2154,7 @@ test_secondmate_teardown_archives_thread_before_home_removal_without_project_del
     printf 'model = "gpt-5.6-sol"\n' > "$home/.codex/config.toml"
     git -C "$home" add .codex/config.toml
     git -C "$home" -c user.name=t -c user.email=t@example.invalid commit -qm config
-    "$ROOT/bin/fm-t3code-codex-env.sh" install "$home" "FM_HOME=$home" || fail "install secondmate overlay"
+    bash "$ROOT/bin/fm-t3code-codex-env.sh" install "$home" "FM_HOME=$home" || fail "install secondmate overlay"
     journal=$(git -C "$home" rev-parse --git-path fm-t3code-codex-env.json)
   fi
   mkdir -p "$data" "$state" "$home/state" "$home/data" "$home/config" "$home/projects" "$home/bin" "$home/.claude"
@@ -2173,7 +2173,7 @@ test_secondmate_teardown_archives_thread_before_home_removal_without_project_del
   PROVIDER_PID=$!
   out=$( PATH="$(fm_test_base_path_sans "$PATH" lsof)" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$CASE_DIR/home" \
     FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
-    "$ROOT/bin/fm-teardown.sh" "$id" --force 2>&1 )
+    bash "$ROOT/bin/fm-teardown.sh" "$id" --force 2>&1 )
   rc=$?
   [ "$rc" -ne 0 ] || fail "teardown must refuse a T3 secondmate when lsof is unavailable"$'\n'"$out"
   assert_contains "$out" "lsof is unavailable" "the refusal names the missing lsof"
@@ -2186,7 +2186,7 @@ test_secondmate_teardown_archives_thread_before_home_removal_without_project_del
   chmod +x "$nolsof/lsof"
   out=$( PATH="$nolsof:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$CASE_DIR/home" \
     FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
-    "$ROOT/bin/fm-teardown.sh" "$id" --force 2>&1 )
+    bash "$ROOT/bin/fm-teardown.sh" "$id" --force 2>&1 )
   rc=$?
   [ "$rc" -ne 0 ] || fail "teardown must refuse when it cannot prove the home's processes ended"$'\n'"$out"
   assert_contains "$out" "cannot determine leaked processes" "the refusal names the unproven process scan"
@@ -2195,7 +2195,7 @@ test_secondmate_teardown_archives_thread_before_home_removal_without_project_del
   kill -0 "$PROVIDER_PID" 2>/dev/null || fail "the refused teardown must not have touched the provider"
   out=$( FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$CASE_DIR/home" \
     FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
-    "$ROOT/bin/fm-teardown.sh" "$id" --force 2>&1 )
+    bash "$ROOT/bin/fm-teardown.sh" "$id" --force 2>&1 )
   rc=$?
   expect_code 0 "$rc" "t3code secondmate teardown should succeed"$'\n'"$out"
   ! kill -0 "$PROVIDER_PID" 2>/dev/null || fail "a provider process rooted in the home must be ended before the home is removed"
@@ -2230,7 +2230,7 @@ test_teardown_refuses_when_t3_is_unreachable() {
   down=$(t3_down_config)
   out=$( PATH="$fb:$PATH" FM_T3_TREEHOUSE_LOG="$LOG" FM_T3_TREEHOUSE_WT="$wt" \
     FM_ROOT_OVERRIDE="$neutral" FM_HOME="$CASE_DIR/home" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$down" \
-    "$ROOT/bin/fm-teardown.sh" "$id" 2>&1 )
+    bash "$ROOT/bin/fm-teardown.sh" "$id" 2>&1 )
   rc=$?
   [ "$rc" -ne 0 ] || fail "teardown must refuse when the T3 server cannot be reached"
   assert_contains "$out" "is unreachable" "the early runtime gate must explain the refusal"
@@ -2239,7 +2239,7 @@ test_teardown_refuses_when_t3_is_unreachable() {
   t3_world_set 'w.tools = ["t3_thread_send","t3_thread_read","t3_thread_wait","t3_thread_interrupt","t3_thread_organize","t3_project_list","t3_project_create","t3_environment_read"]'
   out=$( PATH="$fb:$PATH" FM_T3_TREEHOUSE_LOG="$LOG" FM_T3_TREEHOUSE_WT="$wt" \
     FM_ROOT_OVERRIDE="$neutral" FM_HOME="$CASE_DIR/home" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$CONFIG" \
-    "$ROOT/bin/fm-teardown.sh" "$id" 2>&1 ); rc=$?
+    bash "$ROOT/bin/fm-teardown.sh" "$id" 2>&1 ); rc=$?
   expect_code 1 "$rc" "a server the capability gate refuses must stop teardown before cleanup"
   assert_contains "$out" "lacks t3_thread_launch" "the gate refusal must name the missing tool"
   [ -z "$(t3_dispatch_types)" ] || fail "a gate-refused teardown must not mutate"
@@ -2321,12 +2321,12 @@ if (o.clientRequestId !== id || !/^msg:/.test(o.messageId || "") || !o.runId || 
   make_t3_control_task send-lost-fm-send "$id" "$thread" completed
   t3_world_set 'w.dropReplyTools = { t3_thread_send: 1 }'
   out=$(FM_HOME="$CASE_DIR/home" FM_STATE_OVERRIDE="$CTRL_STATE" FM_DATA_OVERRIDE="$CTRL_DATA" FM_CONFIG_OVERRIDE="$CONFIG" \
-    "$ROOT/bin/fm-send.sh" "$id" "/compact now" 2>&1); rc=$?
+    bash "$ROOT/bin/fm-send.sh" "$id" "/compact now" 2>&1); rc=$?
   expect_code 3 "$rc" "fm-send must report a lost T3 reply as delivered-unconfirmed (exit 3), never as not sent"$'\n'"$out"
   assert_contains "$out" "verdict=unconfirmed" "fm-send names the unconfirmed verdict"
   assert_not_contains "$out" "text not sent" "a possibly delivered message must never be reported as not sent"
   out=$(FM_HOME="$CASE_DIR/home" FM_STATE_OVERRIDE="$CTRL_STATE" FM_DATA_OVERRIDE="$CTRL_DATA" FM_CONFIG_OVERRIDE="$CONFIG" \
-    "$ROOT/bin/fm-send.sh" "$id" "/compact now" 2>&1); rc=$?
+    bash "$ROOT/bin/fm-send.sh" "$id" "/compact now" 2>&1); rc=$?
   expect_code 0 "$rc" "the identical resend through fm-send succeeds"$'\n'"$out"
   [ "$(t3_item_count "$thread" "/compact now")" = 1 ] || fail "fm-send's resend after a lost reply must land as one delivery"
   pass "t3code send: a reply lost after commit is unconfirmed through the adapter and fm-send, and the resend lands once"
@@ -2344,7 +2344,7 @@ test_lost_send_reply_to_secondmate_names_armed_correlation() {
     "harness=claude" "kind=secondmate" "backend=t3code" "t3_thread_id=$thread" "t3_project_id=proj-1"
   t3_world_set 'w.dropReplyTools = { t3_thread_send: 1 }'
   out=$(FM_HOME="$CASE_DIR/home" FM_STATE_OVERRIDE="$CTRL_STATE" FM_DATA_OVERRIDE="$CTRL_DATA" FM_CONFIG_OVERRIDE="$CONFIG" \
-    "$ROOT/bin/fm-send.sh" "$id" "/status" 2>&1); rc=$?
+    bash "$ROOT/bin/fm-send.sh" "$id" "/status" 2>&1); rc=$?
   expect_code 3 "$rc" "a lost reply to a typed secondmate request is delivered-unconfirmed (exit 3)"$'\n'"$out"
   assert_contains "$out" "verdict=unconfirmed" "fm-send names the unconfirmed verdict"
   assert_not_contains "$out" "resend only the identical text" "a marked request must not be told to resend: a rerun mints a new correlation"
@@ -2393,7 +2393,7 @@ test_answer_script_reads_and_answers_questions() {
   id=$(t3_uid t3answer1)
   make_t3_control_task answer "$id" "$thread" running
   FM_T3_T="$thread" t3_world_set 'w.threads[process.env.FM_T3_T].runtimeRequests = [{ id: "req-q1", kind: "user_input", status: "pending", questions: [{ id: "q1", header: "h", question: "Ship it?", options: [{ label: "yes", description: "y" }] }] }]'
-  run_answer() { FM_HOME="$CASE_DIR/home" FM_STATE_OVERRIDE="$CTRL_STATE" FM_CONFIG_OVERRIDE="$CONFIG" "$ROOT/bin/fm-t3-answer.sh" "$@" 2>&1; }
+  run_answer() { FM_HOME="$CASE_DIR/home" FM_STATE_OVERRIDE="$CTRL_STATE" FM_CONFIG_OVERRIDE="$CONFIG" bash "$ROOT/bin/fm-t3-answer.sh" "$@" 2>&1; }
   out=$(run_answer "$id"); rc=$?
   expect_code 0 "$rc" "listing pending questions: $out"
   assert_contains "$out" '"requestId":"req-q1"' "the question id is listed"
@@ -2495,7 +2495,7 @@ TH
   chmod +x "$fb/treehouse"
   out=$( PATH="$fb:$PATH" FM_ROOT_OVERRIDE="$root" FM_HOME="$CASE_DIR/home" \
     FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$CONFIG" \
-    "$ROOT/bin/fm-teardown.sh" "$id" --force 2>&1 )
+    bash "$ROOT/bin/fm-teardown.sh" "$id" --force 2>&1 )
   rc=$?
   kill "$provider" 2>/dev/null || true
   wait "$provider" 2>/dev/null || true
@@ -2538,7 +2538,7 @@ test_nested_t3_secondmate_home_reaped_before_removal() {
   PROVIDER_PID=$!
   out=$( FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$CASE_DIR/home" \
     FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$CONFIG" \
-    "$ROOT/bin/fm-teardown.sh" "$id" --force 2>&1 )
+    bash "$ROOT/bin/fm-teardown.sh" "$id" --force 2>&1 )
   rc=$?
   expect_code 0 "$rc" "forced teardown of a T3 secondmate with a nested T3 secondmate should succeed"$'\n'"$out"
   ! kill -0 "$PROVIDER_PID" 2>/dev/null || fail "a provider process rooted in the nested secondmate's home must be ended before that home is removed"$'\n'"$out"
@@ -2650,7 +2650,7 @@ test_teardown_keeps_tracked_claude_local_md() {
   neutral=$(neutral_fm_root "$CASE_DIR/neutral")
   out=$( PATH="$fb:$PATH" FM_T3_TREEHOUSE_LOG="$LOG" FM_T3_TREEHOUSE_WT="$wt" \
     FM_ROOT_OVERRIDE="$neutral" FM_HOME="$CASE_DIR/home" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$CONFIG" \
-    "$ROOT/bin/fm-teardown.sh" "$id" 2>&1 )
+    bash "$ROOT/bin/fm-teardown.sh" "$id" 2>&1 )
   rc=$?
   expect_code 0 "$rc" "t3code scout teardown should succeed once the report exists"$'\n'"$out"
   assert_grep "project instructions" "$wt/CLAUDE.local.md" "teardown must keep a CLAUDE.local.md the project tracks"

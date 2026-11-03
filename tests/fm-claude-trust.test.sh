@@ -37,7 +37,7 @@ EOF
 # run_trust <config> <worktree> <project> [home]: invoke with an isolated store.
 run_trust() {
   local config=$1 wt=$2 proj=$3 home=${4:-$1}
-  CLAUDE_CONFIG_DIR="$config" HOME="$home" "$TRUST" "$wt" "$proj" 2>&1
+  CLAUDE_CONFIG_DIR="$config" HOME="$home" bash "$TRUST" "$wt" "$proj" 2>&1
 }
 
 trusted_paths() {  # <store>
@@ -143,7 +143,7 @@ seed_secondmate_home() {
 # mode against an isolated store.
 run_home_trust() {
   local config=$1 home=$2 id=$3 user_home=${4:-$1}
-  CLAUDE_CONFIG_DIR="$config" HOME="$user_home" "$TRUST" --secondmate-home "$home" "$id" 2>&1
+  CLAUDE_CONFIG_DIR="$config" HOME="$user_home" bash "$TRUST" --secondmate-home "$home" "$id" 2>&1
 }
 
 # spawn_secondmate_claude <case-dir> <home> <id>: run a real --secondmate claude
@@ -433,7 +433,7 @@ test_relative_config_dir_is_refused() {
   rec=$(make_case relative-config)
   read_case "$rec"
   mkdir -p "$CASE_DIR/relhome"
-  out=$(cd "$CASE_DIR/relhome" && CLAUDE_CONFIG_DIR=.claude-work HOME="$CASE_DIR/relhome" "$TRUST" "$WT" "$PROJ" 2>&1)
+  out=$(cd "$CASE_DIR/relhome" && CLAUDE_CONFIG_DIR=.claude-work HOME="$CASE_DIR/relhome" bash "$TRUST" "$WT" "$PROJ" 2>&1)
   expect_code 1 $? "a relative CLAUDE_CONFIG_DIR must be refused: $out"
   assert_contains "$out" ".claude-work" "the refusal did not name the relative value"
   assert_contains "$out" "relative" "the refusal did not say why the value is unusable"

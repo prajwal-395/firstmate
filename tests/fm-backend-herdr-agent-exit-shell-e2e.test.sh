@@ -27,17 +27,17 @@ PI_DIR="$TMP_ROOT/pi-agent"
 mkdir -p "$FAKEBIN" "$PROJECT" "$PI_DIR"
 printf '# Isolated herdr agent-exit lab\n' > "$PROJECT/AGENTS.md"
 
-HERDR_LAB_SESSION=$("$HERDR_LAB_HELPER" name fm-herdr-agent-exit-shell)
+HERDR_LAB_SESSION=$(bash "$HERDR_LAB_HELPER" name fm-herdr-agent-exit-shell)
 export HERDR_LAB_HELPER HERDR_LAB_SESSION HERDR_ORIGINAL_PATH
 
 cleanup() {
   local status=$?
-  env PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" teardown "$HERDR_LAB_SESSION" || status=1
+  env PATH="$HERDR_ORIGINAL_PATH" bash "$HERDR_LAB_HELPER" teardown "$HERDR_LAB_SESSION" || status=1
   fm_test_cleanup
   exit "$status"
 }
 trap cleanup EXIT
-"$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION"
+bash "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION"
 
 cat > "$FAKEBIN/herdr" <<'SH'
 #!/usr/bin/env bash
@@ -58,7 +58,7 @@ exec env PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" run "$HERDR_LAB_SESSION
 SH
 chmod +x "$FAKEBIN/herdr"
 
-lab() { env PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" run "$HERDR_LAB_SESSION" "$@"; }
+lab() { env PATH="$HERDR_ORIGINAL_PATH" bash "$HERDR_LAB_HELPER" run "$HERDR_LAB_SESSION" "$@"; }
 
 classify_pane() {  # <pane_id>
   PATH="$FAKEBIN:$HERDR_ORIGINAL_PATH" bash -c '

@@ -638,7 +638,7 @@ captain=not-configured
 if [ -n "$captain_idle" ]; then
   captain=unknown
   if [ -f "$STATE/.afk-contract" ] &&
-    [ "$(FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE "$SCRIPT_DIR/fm-afk-contract.sh" mode 2>/dev/null)" = away ]; then
+    [ "$(FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE bash "$SCRIPT_DIR/fm-afk-contract.sh" mode 2>/dev/null)" = away ]; then
     captain=away
   elif [ "$os" = Darwin ]; then
     v=$(ioreg -c IOHIDSystem 2>/dev/null | awk '/HIDIdleTime/{print int($NF / 1000000000); exit}')

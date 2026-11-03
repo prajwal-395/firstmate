@@ -19,16 +19,16 @@ TMP_ROOT=$(mktemp -d "$(cd "${TMPDIR:-/tmp}" && pwd -P)/fm-herdr-stale-active-ta
 FAKEBIN="$TMP_ROOT/fakebin"
 mkdir -p "$FAKEBIN"
 
-HERDR_LAB_SESSION=$("$HERDR_LAB_HELPER" name fm-herdr-teardown-stale-active-tab-guard-r1)
+HERDR_LAB_SESSION=$(bash "$HERDR_LAB_HELPER" name fm-herdr-teardown-stale-active-tab-guard-r1)
 export HERDR_LAB_HELPER HERDR_LAB_SESSION HERDR_ORIGINAL_PATH
 cleanup() {
   local status=$?
-  env PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" teardown "$HERDR_LAB_SESSION" || status=1
+  env PATH="$HERDR_ORIGINAL_PATH" bash "$HERDR_LAB_HELPER" teardown "$HERDR_LAB_SESSION" || status=1
   rm -rf "$TMP_ROOT"
   exit "$status"
 }
 trap cleanup EXIT
-"$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION"
+bash "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION"
 
 cat > "$FAKEBIN/herdr" <<'SH'
 #!/usr/bin/env bash
@@ -49,7 +49,7 @@ exec env PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" run "$HERDR_LAB_SESSION
 SH
 chmod +x "$FAKEBIN/herdr"
 
-lab() { env PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" run "$HERDR_LAB_SESSION" "$@"; }
+lab() { env PATH="$HERDR_ORIGINAL_PATH" bash "$HERDR_LAB_HELPER" run "$HERDR_LAB_SESSION" "$@"; }
 
 CREATE=$(lab workspace create --cwd "$ROOT" --label 'stale-active-tab' --no-focus) \
   || fail 'could not create the persisted-focus workspace'

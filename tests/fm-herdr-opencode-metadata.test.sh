@@ -40,11 +40,11 @@ assert_short "mimo-v2.5-free" "mimo v2.5 free"
 assert_short "" ""
 
 # Verify the script exits cleanly when called with no pane (no herdr call).
-output=$("$SCRIPT" "" "muse-spark-1.3-contributor" 2>&1) || true
+output=$(bash "$SCRIPT" "" "muse-spark-1.3-contributor" 2>&1) || true
 [ -z "$output" ] || fail "script with empty pane should produce no output, got: $output"
 
 # Verify the script exits cleanly when called with no model.
-output=$("$SCRIPT" "fake:pane" "" 2>&1) || true
+output=$(bash "$SCRIPT" "fake:pane" "" 2>&1) || true
 [ -z "$output" ] || fail "script with empty model should produce no output, got: $output"
 
 printf 'ok - fm-herdr-opencode-metadata model shortening and edge cases\n'

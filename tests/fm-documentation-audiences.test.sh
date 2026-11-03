@@ -53,7 +53,7 @@ PY
 
 test_repository_inventory_passes() {
   local out
-  out=$("$CHECK") || fail "repository documentation audience check failed"
+  out=$(bash "$CHECK") || fail "repository documentation audience check failed"
   assert_contains "$out" "fm-doc-audience-check: ok surfaces=" \
     "audience check did not report exact surface coverage"
   assert_contains "$out" "local_links=" \
@@ -69,11 +69,11 @@ test_duplicate_and_setup_classification_fail() {
   mutate_inventory "$INVENTORY" "$bad_setup" bad-setup-audience
   mutate_inventory "$INVENTORY" "$shrink_scope" shrink-scope
   run_expect_failure "surfaces classified more than once" \
-    "$CHECK" --inventory "$duplicate"
+    bash "$CHECK" --inventory "$duplicate"
   run_expect_failure "README setup target docs/tmux-backend.md has disallowed audience" \
-    "$CHECK" --inventory "$bad_setup"
+    bash "$CHECK" --inventory "$bad_setup"
   run_expect_failure "scope.trackedPatterns must match the fixed maintained-prose scope" \
-    "$CHECK" --inventory "$shrink_scope"
+    bash "$CHECK" --inventory "$shrink_scope"
   pass "classification, setup routing, and maintained-prose scope fail safely"
 }
 
@@ -81,7 +81,7 @@ test_required_pointer_fails() {
   local missing_pointer="$TMP_ROOT/missing-pointer.json"
   mutate_inventory "$INVENTORY" "$missing_pointer" missing-owner-pointer
   run_expect_failure "required owner pointer missing" \
-    "$CHECK" --inventory "$missing_pointer"
+    bash "$CHECK" --inventory "$missing_pointer"
   pass "required documentation owner pointers cannot silently disappear"
 }
 
@@ -125,13 +125,13 @@ Observed version 1.2.3 on branch `fm/example`.
 MD
   write_fixture_inventory "$repo"
   git -C "$repo" add README.md docs
-  "$CHECK" --root "$repo" >/dev/null \
+  bash "$CHECK" --root "$repo" >/dev/null \
     || fail "structural checker rejected legitimate maintainer evidence prose"
 
   printf '%s\n' '[Setup](docs/setup.md) [Policy](docs/policy.md) [Broken](docs/missing.bin)' \
     > "$repo/README.md"
   git -C "$repo" add README.md
-  run_expect_failure "unresolved local link" "$CHECK" --root "$repo"
+  run_expect_failure "unresolved local link" bash "$CHECK" --root "$repo"
   pass "local links resolve while dates, versions, commands, and incident prose remain semantically reviewed"
 }
 

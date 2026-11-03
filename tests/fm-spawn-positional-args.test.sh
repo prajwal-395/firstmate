@@ -28,7 +28,7 @@ run_spawn() {
     FM_PROJECTS_OVERRIDE='' \
     FM_CONFIG_OVERRIDE='' \
     FM_SPAWN_NO_GUARD=1 \
-    "$SPAWN" "$@" 2>&1
+    bash "$SPAWN" "$@" 2>&1
 }
 
 expect_refusal() {  # <label> <expected-substring> <command...>: non-zero exit, message present, no raw shell crash
@@ -97,7 +97,7 @@ test_refused_spawn_leaves_no_state() {
   mkdir -p "$home/data"
   out=$(FM_ROOT_OVERRIDE='' FM_STATE_OVERRIDE='' FM_DATA_OVERRIDE='' FM_PROJECTS_OVERRIDE='' FM_CONFIG_OVERRIDE='' \
     FM_HOME="$home" FM_SPAWN_NO_GUARD=1 \
-    "$SPAWN" "$id" --mode direct-PR --yolo on --harness 'sleep 60' 2>&1)
+    bash "$SPAWN" "$id" --mode direct-PR --yolo on --harness 'sleep 60' 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "refused spawn: expected non-zero exit"
   [ ! -e "$home/state" ] || [ -z "$(ls -A "$home/state")" ] \

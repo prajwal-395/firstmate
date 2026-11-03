@@ -139,17 +139,17 @@ fi
 
 case "$SOURCE" in
   resume|reload|fork)
-    exec "$SCRIPT_DIR/fm-sessionstart-nudge.sh"
+    exec bash "$SCRIPT_DIR/fm-sessionstart-nudge.sh"
     ;;
   clear|compact)
     if session_start_completed; then
-      "$SCRIPT_DIR/fm-session-start.sh" --reemit --source "$SOURCE" || true
+      bash "$SCRIPT_DIR/fm-session-start.sh" --reemit --source "$SOURCE" || true
     else
-      "$SCRIPT_DIR/fm-session-start.sh" --source "$SOURCE" || true
+      bash "$SCRIPT_DIR/fm-session-start.sh" --source "$SOURCE" || true
     fi
     ;;
   *)
-    "$SCRIPT_DIR/fm-session-start.sh" --source "$SOURCE" || true
+    bash "$SCRIPT_DIR/fm-session-start.sh" --source "$SOURCE" || true
     ;;
 esac
 exit 0

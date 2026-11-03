@@ -54,7 +54,7 @@ command -v git >/dev/null 2>&1 || { echo "skip: git not found"; exit 0; }
 herdr_forget_inherited_pane
 
 HERDR_LAB_HELPER="$ROOT/bin/fm-herdr-lab.sh"
-HERDR_LAB_SESSION=$("$HERDR_LAB_HELPER" name fm-relaunch-wt) || {
+HERDR_LAB_SESSION=$(bash "$HERDR_LAB_HELPER" name fm-relaunch-wt) || {
   printf 'not ok - could not generate an isolated herdr lab session name\n' >&2
   exit 1
 }
@@ -68,17 +68,17 @@ cleanup_all() {
   local status=0
   [ "$CLEANED" = 0 ] || return 0
   CLEANED=1
-  "$HERDR_LAB_HELPER" teardown "$HERDR_LAB_SESSION" || status=$?
+  bash "$HERDR_LAB_HELPER" teardown "$HERDR_LAB_SESSION" || status=$?
   chmod 0755 "$TMP_ROOT"/*/unenterable 2>/dev/null || true
   rm -rf "$TMP_ROOT"
   return "$status"
 }
 trap cleanup_all EXIT
 
-"$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION" \
+bash "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION" \
   || fail "could not provision the isolated herdr lab session"
 
-lab() { "$HERDR_LAB_HELPER" run "$HERDR_LAB_SESSION" "$@"; }
+lab() { bash "$HERDR_LAB_HELPER" run "$HERDR_LAB_SESSION" "$@"; }
 
 # real_dir: the physical path, matching what a pane reports for its own cwd.
 real_dir() { (cd "$1" 2>/dev/null && pwd -P); }
@@ -151,7 +151,7 @@ run_relaunch() {  # <dir> <id> -> echoes combined output; caller checks $?
   local dir=$1 id=$2
   env -u HERDR_ENV -u HERDR_PANE_ID -u HERDR_TAB_ID -u HERDR_WORKSPACE_ID -u HERDR_SOCKET_PATH \
     HERDR_SESSION="$HERDR_LAB_SESSION" FM_HOME="$dir/home" FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" "$id" --relaunch --harness "sh -c 'sleep 600'" 2>&1
+    bash "$ROOT/bin/fm-spawn.sh" "$id" --relaunch --harness "sh -c 'sleep 600'" 2>&1
 }
 
 meta_field() {  # <dir> <id> <key>

@@ -44,7 +44,7 @@ run_watcher_once() {
   mkdir -p "$state"
   date '+%s' > "$state/.afk"
   PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=1 FM_SIGNAL_GRACE=1 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 bash "$WATCH" > "$out" &
   wait_for_exit "$!" 50
 }
 
@@ -53,7 +53,7 @@ ack_handled_wakes() {  # <state> <drain-stderr>
   sequence=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation [A-Za-z0-9._-][A-Za-z0-9._-]*$/\1/p' "$drain_err")
   generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through [0-9][0-9]* --recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$drain_err")
   [ -n "$sequence" ] && [ -n "$generation" ] || return 1
-  FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-through "$sequence" \
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" --ack-through "$sequence" \
     --recovery-generation "$generation"
 }
 
@@ -74,7 +74,7 @@ test_routine_then_terminal_after_restart() {
   grep -F "signal: $status_file" "$out" >/dev/null || fail "watcher did not report the routine signal"
 
   # Drain it and route through the daemon: a routine status self-handles.
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2> "$drain_err" \
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$drain_out" 2> "$drain_err" \
     || fail "drain after routine signal failed"
   grep "$(printf '\tsignal\t')" "$drain_out" | grep -F "$status_file" >/dev/null \
     || fail "routine signal was not queued"
@@ -91,7 +91,7 @@ test_routine_then_terminal_after_restart() {
 
   # Drain and route the terminal: exactly ONE digest is buffered.
   : > "$drain_out"
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2> "$drain_err" \
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$drain_out" 2> "$drain_err" \
     || fail "drain after terminal signal failed"
   FM_STATE_OVERRIDE="$state" handle_wake "signal: $status_file" "$state"
   ack_handled_wakes "$state" "$drain_err" || fail "terminal wake acknowledgement failed"
@@ -156,8 +156,8 @@ test_stale_pane_transient_persistent_resume() {
   echo $(( $(date +%s) - 500 )) > "$state/.subsuper-stale-$key"
   printf 'Working...\n' > "$dir/pane.txt"
   fm_write_meta "$state/stale-w2.meta" "window=$win" "worktree=$dir/wt" "kind=ship" "harness=pi"
-  resumed_gen=$("$ROOT/bin/fm-busy-event.sh" arm "$state" stale-w2)
-  "$ROOT/bin/fm-busy-event.sh" apply "$state" stale-w2 busy --gen "$resumed_gen" \
+  resumed_gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$state" stale-w2)
+  bash "$ROOT/bin/fm-busy-event.sh" apply "$state" stale-w2 busy --gen "$resumed_gen" \
     --source pi-ext --event agent-start
   : > "$state/.subsuper-escalations"
   PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$win" FM_FAKE_TMUX_CAPTURE="$dir/pane.txt" \

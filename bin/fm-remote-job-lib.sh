@@ -1630,7 +1630,7 @@ fm_remote_job_start_linux_worker() { # <remote-root> <account-home>
     FM_ROOT_OVERRIDE="$root" \
     FM_REMOTE_JOB_STATE_ROOT="$FM_REMOTE_JOB_STATE" \
     FM_REMOTE_JOB_PLATFORM_OVERRIDE="${FM_REMOTE_JOB_PLATFORM_OVERRIDE:-}" \
-    "$worker" >> "$FM_REMOTE_JOB_STATE/logs/$FM_REMOTE_JOB_LABEL.log" 2>&1 < /dev/null &
+    /bin/bash "$worker" >> "$FM_REMOTE_JOB_STATE/logs/$FM_REMOTE_JOB_LABEL.log" 2>&1 < /dev/null &
   pid=$!
   set +m
   case "$pid" in ''|*[!0-9]*) FM_REMOTE_JOB_ERROR="could not start the remote job worker"; return 1 ;; esac

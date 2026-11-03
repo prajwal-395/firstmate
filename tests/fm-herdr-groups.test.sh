@@ -85,7 +85,7 @@ groups() {  # <args...>: run the real script against the case home
     FM_CONFIG_OVERRIDE="$HOME_DIR/config" PATH="$FAKEBIN:$PATH" \
     FAKE_DIR="$FAKE_DIR" FAKE_HERDR_LOG="$FAKE_HERDR_LOG" FAKE_VIEW_LOG="$FAKE_VIEW_LOG" \
     FM_HERDR_GROUPS_AGENT_VIEW="$FAKEBIN/agent-view" \
-    "$ROOT/bin/fm-herdr-groups.sh" "$@"
+    bash "$ROOT/bin/fm-herdr-groups.sh" "$@"
 }
 
 reports() {  # <kind pane|workspace>: logged report-metadata calls, readable
@@ -379,7 +379,7 @@ test_watcher_poll_tags_tasks() {
     PATH="$FAKEBIN:$PATH" FAKE_DIR="$FAKE_DIR" FAKE_HERDR_LOG="$FAKE_HERDR_LOG" \
     FAKE_VIEW_LOG="$FAKE_VIEW_LOG" FM_HERDR_GROUPS_AGENT_VIEW="$FAKEBIN/agent-view" \
     FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 \
-    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 2 2>&1)
+    bash "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 2 2>&1)
   case "$out" in *"checkpoint:"*|*"signal:"*|*"stale:"*) ;; *) fail "watcher checkpoint did not run: $out" ;; esac
   assert_contains "$(reports pane)" "pane report-metadata w2:p2 --source firstmate --token fm_group=storefront" \
     "the watcher poll tagged the task pane"

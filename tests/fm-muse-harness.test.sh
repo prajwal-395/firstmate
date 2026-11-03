@@ -175,7 +175,7 @@ run_muse_spawn() {  # <home> <proj> <wt> <fakebin> <id> [extra args...]
     XDG_CONFIG_HOME="${FM_TEST_MUSE_CONFIG_HOME-$home/xdgconfig}" \
     XDG_DATA_HOME="${FM_TEST_MUSE_DATA_HOME-$home/xdgdata}" \
     PATH="$fakebin:$PATH" \
-    "$SPAWN" "$id" "$proj" muse "$@" 2>&1
+    bash "$SPAWN" "$id" "$proj" muse "$@" 2>&1
 }
 
 # --- detection --------------------------------------------------------------
@@ -413,7 +413,7 @@ test_spawn_refuses_secondmate() {
     FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
     FM_SPAWN_NO_GUARD=1 TMUX="fake,1,0" META_API_KEY=test-key \
     PATH="$fakebin:$PATH" \
-    "$SPAWN" "$id" muse --secondmate 2>&1)
+    bash "$SPAWN" "$id" muse --secondmate 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "muse was accepted as a secondmate harness"
   assert_contains "$out" "crewmate/scout adapter only" "muse secondmate refusal did not explain the boundary"
@@ -445,7 +445,7 @@ EOF
   printf 'binding_id=retired\nsession_log=%s\n' "$prior" > "$home/state/$id.muse-session-current"
 
   FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
-    PATH="$fakebin:$PATH" "$TEARDOWN" "$id" --force >/dev/null 2>&1 \
+    PATH="$fakebin:$PATH" bash "$TEARDOWN" "$id" --force >/dev/null 2>&1 \
     || fail "muse teardown failed"
   assert_absent "$binding" "muse session binding survived teardown"
   assert_absent "$home/state/$id.muse-session-current" "muse session cache survived teardown"
@@ -497,7 +497,7 @@ SH
 run_send_key() {  # <home> <fakebin> <id> <key> <keylog>
   FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$1" FM_STATE_OVERRIDE="$1/state" \
     FM_FAKE_KEY_LOG="$5" PATH="$2:$PATH" \
-    "$ROOT/bin/fm-send.sh" "$3" --key "$4" 2>&1
+    bash "$ROOT/bin/fm-send.sh" "$3" --key "$4" 2>&1
 }
 
 test_muse_escape_aliases_clear_the_composer() {

@@ -284,10 +284,10 @@ block_stop() {
     cur_blocks=$((cur_blocks + 1))
     mkdir -p "$STATE" 2>/dev/null || true
     printf '%s\n' "$cur_blocks" > "$STATE/.turnend-blocks"
-    reason=$("$SCRIPT_DIR/fm-supervision-instructions.sh" --harness agy --afk "$afk" --x-mode "$x_mode" --queue-pending "$queue_arg" --repair-line 2>/dev/null \
+    reason=$(bash "$SCRIPT_DIR/fm-supervision-instructions.sh" --harness agy --afk "$afk" --x-mode "$x_mode" --queue-pending "$queue_arg" --repair-line 2>/dev/null \
       || printf '%s\n' 'tasks in flight, no live watcher - repair missing watcher supervision according to the session-start operating block before ending the turn')
   else
-    reason=$("$SCRIPT_DIR/fm-supervision-instructions.sh" --afk "$afk" --x-mode "$x_mode" --queue-pending "$queue_arg" --repair-line 2>/dev/null \
+    reason=$(bash "$SCRIPT_DIR/fm-supervision-instructions.sh" --afk "$afk" --x-mode "$x_mode" --queue-pending "$queue_arg" --repair-line 2>/dev/null \
       || printf '%s\n' 'tasks in flight, no live watcher - repair missing watcher supervision according to the session-start operating block before ending the turn')
   fi
   rule='━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'

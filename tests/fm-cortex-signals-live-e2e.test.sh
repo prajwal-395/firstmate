@@ -105,18 +105,18 @@ pass "$VERSION: the worker commit carries no attribution through the spawn-owned
 # pane safe to type into even though Cortex parks its cursor outside the box.
 verdict=$(fm_backend_composer_state tmux "$TARGET")
 [ "$verdict" = empty ] || fail "idle composer was $verdict"
-"$ROOT/bin/fm-send.sh" "$ID" 'Runtime steering verification: compute 31 times 37 and write only the result to steer.txt. Acknowledge this instruction by moving its .msg file into handled/ as instructed by the doorbell. Do no other work.' > "$LAB/send.log" 2>&1 || fail "steer failed: $(cat "$LAB/send.log")"
+bash "$ROOT/bin/fm-send.sh" "$ID" 'Runtime steering verification: compute 31 times 37 and write only the result to steer.txt. Acknowledge this instruction by moving its .msg file into handled/ as instructed by the doorbell. Do no other work.' > "$LAB/send.log" 2>&1 || fail "steer failed: $(cat "$LAB/send.log")"
 wait_file "$WT/steer.txt"
 wait_file "$H/state/$ID.inbox/handled/001.msg"
 [ "$(tr -d '[:space:]' < "$WT/steer.txt")" = 1147 ] || fail 'wrong steering result'
 wait_idle
 pass "$VERSION: real fm-send doorbell read and acknowledged"
 # An Escape pressed with no running turn must do nothing.
-"$ROOT/bin/fm-control.sh" "$ID" interrupt > "$LAB/idle-interrupt.log" 2>&1 \
+bash "$ROOT/bin/fm-control.sh" "$ID" interrupt > "$LAB/idle-interrupt.log" 2>&1 \
   || fail "idle interrupt failed: $(cat "$LAB/idle-interrupt.log")"
 [ "$(fm_backend_agent_state tmux "$TARGET")" = alive ] || fail 'an idle interrupt stopped the agent'
 [ "$(fm_busy_classify tmux "$TARGET" cortex "$ID" "$H/state")" = 'idle cortex-hook' ] || fail 'an idle interrupt disturbed the idle record'
-"$ROOT/bin/fm-send.sh" "$ID" 'Runtime interrupt verification: run sleep 90 in your shell tool, then wait for it to finish. Do not respond before it finishes.' > "$LAB/send.log" 2>&1 || fail 'could not steer interrupt probe'
+bash "$ROOT/bin/fm-send.sh" "$ID" 'Runtime interrupt verification: run sleep 90 in your shell tool, then wait for it to finish. Do not respond before it finishes.' > "$LAB/send.log" 2>&1 || fail 'could not steer interrupt probe'
 seen_busy=0
 for _ in $(seq 1 240); do
   if [ "$(fm_busy_classify tmux "$TARGET" cortex "$ID" "$H/state")" = 'busy cortex-hook' ] \
@@ -124,7 +124,7 @@ for _ in $(seq 1 240); do
   sleep 0.5
 done
 [ "$seen_busy" = 1 ] || fail 'no semantic and rendered busy during interrupt probe'
-"$ROOT/bin/fm-control.sh" "$ID" interrupt > "$LAB/interrupt.log" 2>&1 || fail "interrupt failed: $(cat "$LAB/interrupt.log")"
+bash "$ROOT/bin/fm-control.sh" "$ID" interrupt > "$LAB/interrupt.log" 2>&1 || fail "interrupt failed: $(cat "$LAB/interrupt.log")"
 for _ in $(seq 1 60); do
   screen_text | grep -q 'Interrupted' && break
   sleep 0.5
@@ -133,7 +133,7 @@ screen_text | grep -q 'Interrupted' || fail 'a single Escape did not cancel the 
 wait_idle
 [ "$(fm_backend_agent_state tmux "$TARGET")" = alive ] || fail 'the interrupt stopped the agent'
 pass "$VERSION: one Escape cancels the turn, keeps the agent, and Stop settles the busy record"
-"$ROOT/bin/fm-control.sh" "$ID" exit > "$LAB/exit.log" 2>&1 || fail "exit failed: $(cat "$LAB/exit.log")"
+bash "$ROOT/bin/fm-control.sh" "$ID" exit > "$LAB/exit.log" 2>&1 || fail "exit failed: $(cat "$LAB/exit.log")"
 [ "$(fm_backend_agent_state tmux "$TARGET")" = dead ] || fail '/quit did not return to the shell'
 session=$(jq -r 'select(.hook_event_name == "SessionStart") | .session_id' "$LAB/events.jsonl" | head -1)
 [ -n "$session" ] || fail 'no session id for resume'
@@ -146,5 +146,5 @@ tmux send-keys -t "$TARGET" Enter
 wait_file "$WT/resumed.txt"
 [ "$(tr -d '[:space:]' < "$WT/resumed.txt")" = 493 ] || fail 'resume prompt not processed'
 jq -e 'select(.hook_event_name == "SessionStart" and .source == "resume")' "$LAB/events.jsonl" >/dev/null || fail 'native resume source absent'
-"$ROOT/bin/fm-control.sh" "$ID" exit > "$LAB/exit.log" 2>&1 || fail "resumed exit failed: $(cat "$LAB/exit.log")"
+bash "$ROOT/bin/fm-control.sh" "$ID" exit > "$LAB/exit.log" 2>&1 || fail "resumed exit failed: $(cat "$LAB/exit.log")"
 pass "$VERSION: /quit and native --resume session resume"

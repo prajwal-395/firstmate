@@ -462,11 +462,11 @@ feed_keyed_answers() {  # <adapter> <source-id> <result-file>
   local adapter=$1 id=$2 result=$3 script origin seq
   script=$(adapter_script "$adapter")
   [ -f "$script" ] && [ ! -L "$script" ] || return 1
-  origin=$("$SCRIPT_DIR/fm-captain-hold.sh" binding "$id" 2>/dev/null) || return 1
+  origin=$(bash "$SCRIPT_DIR/fm-captain-hold.sh" binding "$id" 2>/dev/null) || return 1
   [ -n "$origin" ] || return 1
   seq=$(fm_procevent_result_sequence "$result") || return 1
   "$script" answers "$result" 2>/dev/null \
-    | "$SCRIPT_DIR/fm-captain-hold.sh" answers "$origin" \
+    | bash "$SCRIPT_DIR/fm-captain-hold.sh" answers "$origin" \
         --source "the captured result $id sequence $seq" >/dev/null 2>&1
 }
 
@@ -474,12 +474,12 @@ feed_reconcile_requests() {  # <adapter> <source-id> <result-file>
   local adapter=$1 id=$2 result=$3 script origin seq rows
   script=$(adapter_script "$adapter")
   [ -f "$script" ] && [ ! -L "$script" ] || return 1
-  origin=$("$SCRIPT_DIR/fm-captain-hold.sh" binding "$id" 2>/dev/null) || return 1
+  origin=$(bash "$SCRIPT_DIR/fm-captain-hold.sh" binding "$id" 2>/dev/null) || return 1
   [ -n "$origin" ] || return 1
   seq=$(fm_procevent_result_sequence "$result") || return 1
   rows=$("$script" reconciles "$result" 2>/dev/null) || return 1
   printf '%s\n' "$rows" \
-    | "$SCRIPT_DIR/fm-captain-hold.sh" reconcile-requests \
+    | bash "$SCRIPT_DIR/fm-captain-hold.sh" reconcile-requests \
         --source-id "$id" --source "the captured result $id sequence $seq" >/dev/null 2>&1
 }
 
@@ -943,7 +943,7 @@ isolate_process() {  # <wait|detach> <command> [argv...]
 }
 
 isolate_runner() {  # <wait|detach> <source-id>
-  isolate_process "$1" "$SCRIPT_DIR/fm-procevent.sh" _start "$2"
+  isolate_process "$1" bash "$SCRIPT_DIR/fm-procevent.sh" _start "$2"
 }
 
 require_isolated_group() {  # <role>
@@ -1487,7 +1487,7 @@ start_owner_guard() {  # <source-id>
   local identity ready value
   identity=$(fm_pid_identity "$$" 2>/dev/null) || return 1
   ready=$(umask 077; mktemp "$REG/.owner-guard-ready.XXXXXX") || return 1
-  if ! isolate_process detach "$SCRIPT_DIR/fm-procevent.sh" _owner-watchdog \
+  if ! isolate_process detach bash "$SCRIPT_DIR/fm-procevent.sh" _owner-watchdog \
       "$1" "$$" "$identity" "$ready" "$CLAIM_STATE_DEVICE" "$CLAIM_STATE_INODE"; then
     rm -f -- "$ready"
     return 1
@@ -2267,7 +2267,7 @@ cmd_retire() {
   # A retired source produces no further answer, so drop any decision binding it
   # carried. Generic and idempotent: the binding owner is asked to forget this
   # source id, and an unbound source is unaffected.
-  "$SCRIPT_DIR/fm-captain-hold.sh" unbind "$id" >/dev/null 2>&1 || true
+  bash "$SCRIPT_DIR/fm-captain-hold.sh" unbind "$id" >/dev/null 2>&1 || true
   printf 'retired: %s\n' "$id"
 }
 
@@ -2342,10 +2342,10 @@ sweep_retire_source() {  # <source-id>
   fi
   if [ -n "$expected_owner" ]; then
     FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
-      "$SCRIPT_DIR/fm-procevent.sh" retire "$id" --if-owner "$expected_owner"
+      bash "$SCRIPT_DIR/fm-procevent.sh" retire "$id" --if-owner "$expected_owner"
   else
     FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
-      "$SCRIPT_DIR/fm-procevent.sh" retire "$id"
+      bash "$SCRIPT_DIR/fm-procevent.sh" retire "$id"
   fi
 }
 

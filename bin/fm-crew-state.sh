@@ -462,7 +462,7 @@ LOG_VERB=$(status_line_verb "$LOG_LINE")
 # down or dead mate; only the remote host's own dead/missing verdict may say
 # the endpoint is actually gone.
 if [ -n "$REMOTE_HOST" ]; then
-  if ! REMOTE_STATE=$(FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-on.sh" "$ID" \
+  if ! REMOTE_STATE=$(FM_HOME="$FM_HOME" bash "$SCRIPT_DIR/fm-on.sh" "$ID" \
     fm-remote-secondmate-control.sh state "$ID" < /dev/null 2>/dev/null); then
     REMOTE_STATE=
   fi
@@ -535,7 +535,7 @@ fm_crew_dispatch_exhaustion_detail() {
   [ -n "$workspace" ] || workspace=$(sed -n 's/^opencode_workspace=//p' "$META" | tail -n 1)
   [ -n "$workspace" ] || workspace=default
   [ -n "$provider" ] && [ -n "$model" ] || return 1
-  detail=$("$SCRIPT_DIR/fm-dispatch-reset.sh" check "$STATE" "$provider" "$model" "$workspace" 2>/dev/null) || return 1
+  detail=$(bash "$SCRIPT_DIR/fm-dispatch-reset.sh" check "$STATE" "$provider" "$model" "$workspace" 2>/dev/null) || return 1
   printf 'dispatch candidate exhausted (%s/%s on %s; %s); no forward progress until reset' \
     "$provider" "$model" "$workspace" "$detail"
 }

@@ -115,7 +115,7 @@ while session_owned && [ -e "$CONFIG/supervision-handoff-ack" ] && [ ! -e "$STAT
   OUT=$(mktemp "$STATE/.supervision-handoff-arm.XXXXXX") || exit 1
   # The arm must survive both this owner and the original hook's process group.
   set -m
-  FM_WATCH_PREDECESSOR_ARM_PID="$PREDECESSOR" nohup "$SCRIPT_DIR/fm-watch-arm.sh" > "$OUT" 2>&1 </dev/null &
+  FM_WATCH_PREDECESSOR_ARM_PID="$PREDECESSOR" nohup bash "$SCRIPT_DIR/fm-watch-arm.sh" > "$OUT" 2>&1 </dev/null &
   ARM=$!
   ARM_RECORDED=0
   set +m

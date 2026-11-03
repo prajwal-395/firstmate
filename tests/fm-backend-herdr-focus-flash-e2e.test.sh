@@ -34,7 +34,7 @@ TMP_ROOT=$(mktemp -d "$(cd "${TMPDIR:-/tmp}" && pwd -P)/fm-herdr-focus-flash-e2e
 FAKEBIN="$TMP_ROOT/fakebin"
 mkdir -p "$FAKEBIN"
 
-HERDR_LAB_SESSION=$("$HERDR_LAB_HELPER" name fm-herdr-focus-flash-regression-r1)
+HERDR_LAB_SESSION=$(bash "$HERDR_LAB_HELPER" name fm-herdr-focus-flash-regression-r1)
 export HERDR_LAB_HELPER HERDR_LAB_SESSION HERDR_ORIGINAL_PATH
 SAMPLER_PID=
 SAMPLER_STOP=
@@ -46,12 +46,12 @@ cleanup() {
   if [ -n "$SAMPLER_PID" ]; then
     wait "$SAMPLER_PID" 2>/dev/null || true
   fi
-  env PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" teardown "$HERDR_LAB_SESSION" || status=1
+  env PATH="$HERDR_ORIGINAL_PATH" bash "$HERDR_LAB_HELPER" teardown "$HERDR_LAB_SESSION" || status=1
   rm -rf "$TMP_ROOT"
   exit "$status"
 }
 trap cleanup EXIT
-"$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION"
+bash "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION"
 
 # Keep the lab helper as the only CLI transport. Production adapter calls have
 # already appended the exact session; this shim strips that pair, refuses every
@@ -75,7 +75,7 @@ exec env PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" run "$HERDR_LAB_SESSION
 SH
 chmod +x "$FAKEBIN/herdr"
 
-lab() { env PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" run "$HERDR_LAB_SESSION" "$@"; }
+lab() { env PATH="$HERDR_ORIGINAL_PATH" bash "$HERDR_LAB_HELPER" run "$HERDR_LAB_SESSION" "$@"; }
 mkws() {  # <label> -> "<workspace_id> <tab_id> <pane_id>"
   lab workspace create --cwd "$ROOT" --label "$1" --no-focus \
     | jq -er '"\(.result.workspace.workspace_id) \(.result.tab.tab_id) \(.result.root_pane.pane_id)"'

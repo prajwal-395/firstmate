@@ -94,7 +94,7 @@ wait_classify 'idle opencode-plugin'
 [ "$(fm_backend_agent_state tmux "$TARGET")" = alive ] || fail 'the attached client is not classified alive'
 pass "$VERSION: an attached worker runs its brief and reports busy, idle, and turn end from the server"
 
-"$ROOT/bin/fm-send.sh" "$ID" 'Runtime steering verification: compute 31 times 37 and write only the result to steer.txt. Acknowledge this instruction by moving its .msg file into handled/ as instructed by the doorbell. Do no other work.' \
+bash "$ROOT/bin/fm-send.sh" "$ID" 'Runtime steering verification: compute 31 times 37 and write only the result to steer.txt. Acknowledge this instruction by moving its .msg file into handled/ as instructed by the doorbell. Do no other work.' \
   > "$LAB/send.log" 2>&1 || fail "steer failed: $(cat "$LAB/send.log")"
 wait_file "$WT/steer.txt"
 wait_file "$H/state/$ID.inbox/handled/001.msg"
@@ -102,22 +102,22 @@ wait_file "$H/state/$ID.inbox/handled/001.msg"
 wait_classify 'idle opencode-plugin'
 pass "$VERSION: a real fm-send doorbell reaches the attached client and is acknowledged"
 
-"$ROOT/bin/fm-send.sh" "$ID" 'Runtime interrupt verification: run sleep 90 in your shell tool, then wait for it to finish. Do not respond before it finishes.' \
+bash "$ROOT/bin/fm-send.sh" "$ID" 'Runtime interrupt verification: run sleep 90 in your shell tool, then wait for it to finish. Do not respond before it finishes.' \
   > "$LAB/send.log" 2>&1 || fail 'could not steer the interrupt probe'
 wait_classify 'busy opencode-plugin'
 sleep 3
-"$ROOT/bin/fm-control.sh" "$ID" interrupt > "$LAB/interrupt.log" 2>&1 || fail "interrupt failed: $(cat "$LAB/interrupt.log")"
+bash "$ROOT/bin/fm-control.sh" "$ID" interrupt > "$LAB/interrupt.log" 2>&1 || fail "interrupt failed: $(cat "$LAB/interrupt.log")"
 wait_classify 'idle opencode-plugin'
 [ "$(fm_backend_agent_state tmux "$TARGET")" = alive ] || fail 'interrupt took the attached client down'
 pass "$VERSION: interrupt cancels the server-side turn through the attached client"
 
 SERVER_PID=$(server_pid)
-"$ROOT/bin/fm-control.sh" "$ID" exit > "$LAB/exit.log" 2>&1 || fail "exit failed: $(cat "$LAB/exit.log")"
+bash "$ROOT/bin/fm-control.sh" "$ID" exit > "$LAB/exit.log" 2>&1 || fail "exit failed: $(cat "$LAB/exit.log")"
 [ "$(fm_backend_agent_state tmux "$TARGET")" = dead ] || fail 'exit did not return the pane to its shell'
 kill -0 "$SERVER_PID" 2>/dev/null || fail 'exiting the client stopped the shared server'
 pass "$VERSION: exit closes the attached client and leaves the shared server running"
 
-"$ROOT/bin/fm-control.sh" "$ID" relaunch --note 'Relaunch verification: write the product of 17 and 29 into relaunched.txt, then stop.' \
+bash "$ROOT/bin/fm-control.sh" "$ID" relaunch --note 'Relaunch verification: write the product of 17 and 29 into relaunched.txt, then stop.' \
   > "$LAB/relaunch.log" 2>&1 || fail "relaunch failed: $(cat "$LAB/relaunch.log")"
 SESSION2=$(fm_meta_get "$H/state/$ID.meta" opencode_server_session)
 [ -n "$SESSION2" ] && [ "$SESSION2" != "$SESSION1" ] || fail "relaunch did not give the task a fresh session ($SESSION1 -> $SESSION2)"
@@ -133,16 +133,16 @@ code=$(printf 'user = "opencode:%s"\n' "$PASSWORD" | curl --config - -s -o /dev/
 [ "$code" = 404 ] || fail "the replaced session still exists on the server (HTTP $code)"
 pass "$VERSION: relaunch reuses the server, retires the old session, and reports busy state for the new one"
 
-"$ROOT/bin/fm-control.sh" "$ID" exit > "$LAB/exit.log" 2>&1 || fail "exit before cleanup failed: $(cat "$LAB/exit.log")"
+bash "$ROOT/bin/fm-control.sh" "$ID" exit > "$LAB/exit.log" 2>&1 || fail "exit before cleanup failed: $(cat "$LAB/exit.log")"
 printf 'Live guard report.\n' > "$H/data/$ID/report.md"
-"$ROOT/bin/fm-captain-hold.sh" complete "$ID" --none > "$LAB/inventory.log" 2>&1 \
+bash "$ROOT/bin/fm-captain-hold.sh" complete "$ID" --none > "$LAB/inventory.log" 2>&1 \
   || fail "the scout's empty captain-call inventory could not be recorded: $(cat "$LAB/inventory.log")"
 # Cleanup reaps processes whose working directory is inside the worktree; the
 # shared server runs from the state directory, so it is never one of them.
 server_cwd=$(lsof -a -d cwd -p "$SERVER_PID" -Fn 2>/dev/null | sed -n 's/^n//p')
 [ "$server_cwd" = "$(cd "$H/state" && pwd -P)" ] || fail "the shared server runs from '$server_cwd', not the state directory"
 # Worktree allocation is a fixture here, so its return is too.
-PATH="$LAB/bin:$fakebin:$PATH" "$ROOT/bin/fm-teardown.sh" "$ID" > "$LAB/teardown.log" 2>&1 \
+PATH="$LAB/bin:$fakebin:$PATH" bash "$ROOT/bin/fm-teardown.sh" "$ID" > "$LAB/teardown.log" 2>&1 \
   || fail "teardown failed: $(cat "$LAB/teardown.log")"
 for _ in $(seq 1 40); do kill -0 "$SERVER_PID" 2>/dev/null || break; sleep 0.25; done
 ! kill -0 "$SERVER_PID" 2>/dev/null || fail 'the server outlived its last worker'

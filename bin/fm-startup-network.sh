@@ -309,7 +309,7 @@ EOF
   local monitor_was_on=0
   case $- in *m*) monitor_was_on=1 ;; esac
   set -m 2>/dev/null || true
-  nohup "$SCRIPT_DIR/fm-startup-network.sh" run --locked "$locked" --lock-pid "$lock_pid" \
+  nohup bash "$SCRIPT_DIR/fm-startup-network.sh" run --locked "$locked" --lock-pid "$lock_pid" \
     --generation "$generation" \
     >/dev/null 2>&1 </dev/null &
   worker_pid=$!
@@ -658,12 +658,12 @@ EOF
       FM_BOOTSTRAP_NETWORK=only FM_BOOTSTRAP_NETWORK_LOCK_PID="$lock_pid" \
       bash -c '
         script_dir=$1
-        "$script_dir/fm-inactive-reconcile.sh" scan --startup >/dev/null 2>&1 || true
-        exec "$script_dir/fm-bootstrap.sh"
+        bash "$script_dir/fm-inactive-reconcile.sh" scan --startup >/dev/null 2>&1 || true
+        exec bash "$script_dir/fm-bootstrap.sh"
       ' _ "$SCRIPT_DIR" >"$out" 2>&1 || rc=$?
   else
     fm_run_timed "$budget" env FM_BOOTSTRAP_NETWORK=only FM_BOOTSTRAP_DETECT_ONLY=1 \
-      "$SCRIPT_DIR/fm-bootstrap.sh" >"$out" 2>&1 || rc=$?
+      bash "$SCRIPT_DIR/fm-bootstrap.sh" >"$out" 2>&1 || rc=$?
   fi
   [ "$lease_held" -eq 0 ] || fm_lock_release "$STATE/.lock.acquire"
   # The bounded run as a whole, so the per-phase records can be read against the

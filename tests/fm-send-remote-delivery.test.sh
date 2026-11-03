@@ -206,7 +206,7 @@ pending_record() {  # <home>
 }
 
 drain_out() {  # <home>
-  FM_STATE_OVERRIDE="$1/state" "$DRAIN" 2>/dev/null
+  FM_STATE_OVERRIDE="$1/state" bash "$DRAIN" 2>/dev/null
 }
 
 send_env() {  # <fakebin> <parent-home> <ssh-log> [extra env...] -- <cmd...>
@@ -233,7 +233,7 @@ PY
 
   rc=0
   send_env "$fb" "$home" "$ssh_log" FM_FAKE_SSH_ARG_MAX=32768 \
-    "$SEND" rsm "$(cat "$dir/expected")" >"$dir/out" 2>"$dir/err" || rc=$?
+    bash "$SEND" rsm "$(cat "$dir/expected")" >"$dir/out" 2>"$dir/err" || rc=$?
   expect_code 0 "$rc" "a large remote steer must be delivered through the remote stdin channel: $(cat "$dir/err")"
   rec=$(remote_inbox_records "$rhome" | head -1)
   [ -n "$rec" ] || fail "the large remote steer must land in the remote steering inbox"
@@ -259,7 +259,7 @@ test_remote_steer_lands_in_remote_inbox() {
 
   rc=0
   send_env "$fb" "$home" "$ssh_log" \
-    "$SEND" rsm "please rename the metric" >"$dir/out" 2>"$dir/err" || rc=$?
+    bash "$SEND" rsm "please rename the metric" >"$dir/out" 2>"$dir/err" || rc=$?
   err=$(cat "$dir/err")
   expect_code 0 "$rc" "a durably recorded remote steer must exit 0: $err"
   assert_grep 'fm-remote-entrypoint.sh' "$ssh_log" "the steer should cross the remote transport"
@@ -341,7 +341,7 @@ test_remote_rerun_is_idempotent() {
   ssh_before=$(cat "$ssh_log.count")
   rc=0
   send_env "$fb" "$home" "$ssh_log" FM_PENDING_REPLY_EXISTING_CORR="$corr" \
-    "$SEND" rsm "please rename the metric" >"$dir/stale-resend.out" 2>"$dir/stale-resend.err" || rc=$?
+    bash "$SEND" rsm "please rename the metric" >"$dir/stale-resend.out" 2>"$dir/stale-resend.err" || rc=$?
   [ "$rc" -ne 0 ] || fail "an explicitly requested non-reusable correlation must fail closed"
   assert_contains "$(cat "$dir/stale-resend.err")" "refusing to mint a replacement correlation" \
     "a stale explicit correlation must explain that no replacement was minted"
@@ -390,7 +390,7 @@ test_remote_retry_failure_preserves_ambiguous_expectation() {
 
   rc=0
   send_env "$fb" "$home" "$ssh_log" FM_FAKE_SSH_AFTER_AMBIGUOUS_RC=1 \
-    "$SEND" rsm "please rename the metric" >"$dir/out" 2>"$dir/err" || rc=$?
+    bash "$SEND" rsm "please rename the metric" >"$dir/out" 2>"$dir/err" || rc=$?
   err=$(cat "$dir/err")
   [ "$rc" -ne 0 ] || fail "a failed retry after unknown completion must not claim delivery"
   assert_contains "$err" "first transport attempt had unknown completion" \
@@ -414,7 +414,7 @@ test_remote_fire_and_forget_never_arms_reply_recovery() {
 
   rc=0
   send_env "$fb" "$home" "$ssh_log" FM_FAKE_SSH_AFTER_AMBIGUOUS_RC=1 \
-    "$SEND" rsm --fire-and-forget "$delivery" "reconcile your own books" \
+    bash "$SEND" rsm --fire-and-forget "$delivery" "reconcile your own books" \
     >"$dir/out" 2>"$dir/err" || rc=$?
   expect_code 3 "$rc" "an ambiguous fire-and-forget delivery must report unconfirmed"
   [ "$(find "$home/state/pending-replies" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')" = 0 ] \
@@ -426,7 +426,7 @@ test_remote_fire_and_forget_never_arms_reply_recovery() {
   [ "$action" = quiet ] || fail "the remote fire-and-forget record armed inbox escalation: $action"
 
   send_env "$fb" "$home" "$ssh_log" \
-    "$SEND" rsm --fire-and-forget "$delivery" "reconcile your own books" \
+    bash "$SEND" rsm --fire-and-forget "$delivery" "reconcile your own books" \
     >"$dir/retry.out" 2>"$dir/retry.err" \
     || fail "the fire-and-forget retry failed"
   count=$(find "$rhome/state/parent-route/rsm.inbox" -name '*.msg' | wc -l | tr -d ' ')
@@ -457,7 +457,7 @@ test_remote_send_revalidates_after_retirement_lock() {
 
   rc=0
   env FM_HOME="$rhome" FM_ROOT_OVERRIDE="$ROOT" \
-    "$ROOT/bin/fm-remote-secondmate-control.sh" send rsm "retirement-race steer" \
+    bash "$ROOT/bin/fm-remote-secondmate-control.sh" send rsm "retirement-race steer" \
     >"$dir/out" 2>"$dir/err" &
   sender_pid=$!
   sleep 0.2
@@ -493,7 +493,7 @@ test_remote_send_revalidates_parent_route_after_retirement_lock() {
 
   rc=0
   send_env "$fb" "$home" "$ssh_log" \
-    "$SEND" rsm "parent-retirement-race steer" >"$dir/out" 2>"$dir/err" &
+    bash "$SEND" rsm "parent-retirement-race steer" >"$dir/out" 2>"$dir/err" &
   sender_pid=$!
   sleep 0.2
   : > "$release"
@@ -517,7 +517,7 @@ test_remote_expected_host_revalidates_final_route() {
   rc=0
   send_env "$fb" "$home" "$ssh_log" \
     FM_SEND_EXPECTED_SPAWN_GEN="" FM_SEND_EXPECTED_REMOTE_HOST=remote-mac \
-    "$SEND" rsm --fire-and-forget 1111111111111111 "matching expected host" \
+    bash "$SEND" rsm --fire-and-forget 1111111111111111 "matching expected host" \
     >"$dir/match.out" 2>"$dir/match.err" || rc=$?
   expect_code 0 "$rc" "a matching expected remote host must allow delivery"
   count=$(remote_inbox_records "$rhome" | grep -c . || true)
@@ -526,7 +526,7 @@ test_remote_expected_host_revalidates_final_route() {
   rc=0
   send_env "$fb" "$home" "$ssh_log" \
     FM_SEND_EXPECTED_SPAWN_GEN="" FM_SEND_EXPECTED_REMOTE_HOST=retired-mac \
-    "$SEND" rsm --fire-and-forget 2222222222222222 "stale expected host" \
+    bash "$SEND" rsm --fire-and-forget 2222222222222222 "stale expected host" \
     >"$dir/mismatch.out" 2>"$dir/mismatch.err" || rc=$?
   [ "$rc" -ne 0 ] || fail "a mismatched expected remote host reported delivery"
   err=$(cat "$dir/mismatch.err")
@@ -547,7 +547,7 @@ test_remote_resolve_key_closes_at_enqueue() {
 
   rc=0
   send_env "$fb" "$home" "$ssh_log" \
-    "$SEND" rsm --resolve-key upgrade-window "the weekend, freeze Friday" >/dev/null 2>&1 || rc=$?
+    bash "$SEND" rsm --resolve-key upgrade-window "the weekend, freeze Friday" >/dev/null 2>&1 || rc=$?
   expect_code 0 "$rc" "a durably recorded remote answer must exit 0"
   sed -E 's/ \[at=[0-9]+\]//' "$home/state/rsm.status" | grep -qF 'resolved [key=upgrade-window]: answered: the weekend, freeze Friday' \
     || fail "a recorded remote answer must close the decision at enqueue: $(cat "$home/state/rsm.status")"
@@ -569,7 +569,7 @@ test_remote_slash_rides_inbox() {
 
   rc=0
   send_env "$fb" "$home" "$ssh_log" \
-    "$SEND" rsm "/audit the ledger" >/dev/null 2>"$dir/err" || rc=$?
+    bash "$SEND" rsm "/audit the ledger" >/dev/null 2>"$dir/err" || rc=$?
   expect_code 0 "$rc" "a remote harness-native steer must ride the inbox and exit 0"
   recs=$(remote_inbox_records "$rhome")
   [ -n "$recs" ] || fail "a remote '/' steer must land in the remote steering inbox, not a typed plane"
@@ -588,7 +588,7 @@ test_remote_real_failure_still_fails() {
   rc=0
   send_env "$fb" "$home" "$ssh_log" FM_FAKE_SSH_RC=1 \
     FM_FAKE_SSH_STDERR='error: remote secondmate rsm endpoint metadata is invalid; refusing access until it is explicitly migrated' \
-    "$SEND" rsm "please rename the metric" >"$dir/out" 2>"$dir/err" || rc=$?
+    bash "$SEND" rsm "please rename the metric" >"$dir/out" 2>"$dir/err" || rc=$?
   err=$(cat "$dir/err")
   [ "$rc" -ne 0 ] || fail "a genuinely failed remote send must exit nonzero"
   assert_contains "$err" "steer not sent to remote secondmate rsm" \
@@ -614,7 +614,7 @@ test_remote_exit3_no_longer_delivered() {
   # status is a failure, never a delivery claim.
   rc=0
   send_env "$fb" "$home" "$ssh_log" FM_FAKE_SSH_RC=3 \
-    "$SEND" rsm "please rename the metric" >"$dir/out" 2>"$dir/err" || rc=$?
+    bash "$SEND" rsm "please rename the metric" >"$dir/out" 2>"$dir/err" || rc=$?
   err=$(cat "$dir/err")
   [ "$rc" -ne 0 ] || fail "a nonzero remote leg must no longer be remapped to delivered"
   assert_not_contains "$err" "delivered to remote secondmate" \
@@ -635,7 +635,7 @@ test_remote_transport_loss_preserves_expectation() {
 
   rc=0
   send_env "$fb" "$home" "$ssh_log" FM_FAKE_SSH_RC=255 \
-    "$SEND" rsm "please rename the metric" >"$dir/out" 2>"$dir/err" || rc=$?
+    bash "$SEND" rsm "please rename the metric" >"$dir/out" 2>"$dir/err" || rc=$?
   err=$(cat "$dir/err")
   [ "$rc" -ne 0 ] || fail "an unknown-completion transport loss must exit nonzero"
   [ "$(cat "$ssh_log.count")" = 2 ] \
@@ -661,7 +661,7 @@ test_remote_send_budget_bounds_busy_lane() {
 
   rc=0
   send_env "$fb" "$home" "$ssh_log" FM_SEND_REMOTE_BUDGET=invalid \
-    "$SEND" rsm --key Enter >"$dir/key-invalid.out" 2>"$dir/key-invalid.err" || rc=$?
+    bash "$SEND" rsm --key Enter >"$dir/key-invalid.out" 2>"$dir/key-invalid.err" || rc=$?
   [ "$rc" -ne 0 ] || fail "an invalid remote key budget must fail"
   assert_contains "$(cat "$dir/key-invalid.err")" "must be a positive integer" \
     "an invalid remote key budget must explain its validation failure"
@@ -670,7 +670,7 @@ test_remote_send_budget_bounds_busy_lane() {
   began=$(date +%s)
   rc=0
   send_env "$fb" "$home" "$ssh_log" FM_FAKE_SSH_HANG=60 FM_SEND_REMOTE_BUDGET=2 \
-    "$SEND" rsm --key Enter >"$dir/key.out" 2>"$dir/key.err" || rc=$?
+    bash "$SEND" rsm --key Enter >"$dir/key.out" 2>"$dir/key.err" || rc=$?
   elapsed=$(( $(date +%s) - began ))
   expect_code 1 "$rc" "a bounded remote key must preserve the existing failure contract"
   [ "$elapsed" -le 15 ] || fail "the bounded remote key waited ${elapsed}s behind the busy lane"
@@ -685,7 +685,7 @@ test_remote_send_budget_bounds_busy_lane() {
   began=$(date +%s)
   rc=0
   send_env "$fb" "$home" "$ssh_log" FM_FAKE_SSH_HANG=60 FM_SEND_REMOTE_BUDGET=2 \
-    "$SEND" rsm --fire-and-forget "$delivery" "reconcile your own books" \
+    bash "$SEND" rsm --fire-and-forget "$delivery" "reconcile your own books" \
     >"$dir/out" 2>"$dir/err" || rc=$?
   elapsed=$(( $(date +%s) - began ))
   err=$(cat "$dir/err")
@@ -699,7 +699,7 @@ test_remote_send_budget_bounds_busy_lane() {
   # A retry with the same delivery id against the recovered lane dedups onto
   # the same remote record.
   send_env "$fb" "$home" "$ssh_log" \
-    "$SEND" rsm --fire-and-forget "$delivery" "reconcile your own books" \
+    bash "$SEND" rsm --fire-and-forget "$delivery" "reconcile your own books" \
     >"$dir/retry.out" 2>"$dir/retry.err" \
     || fail "the same-delivery-id retry after the budget hit failed"
   count=$(remote_inbox_records "$rhome" | grep -c . || true)
@@ -709,7 +709,7 @@ test_remote_send_budget_bounds_busy_lane() {
   # resend command, with the expectation preserved as delivery-unknown.
   rc=0
   send_env "$fb" "$home" "$ssh_log" FM_FAKE_SSH_HANG=60 FM_SEND_REMOTE_BUDGET=2 \
-    "$SEND" rsm "please rename the metric" >"$dir/reply.out" 2>"$dir/reply.err" || rc=$?
+    bash "$SEND" rsm "please rename the metric" >"$dir/reply.out" 2>"$dir/reply.err" || rc=$?
   err=$(cat "$dir/reply.err")
   [ "$rc" -ne 0 ] || fail "a budget-bounded reply-bearing send must not claim confirmed delivery"
   assert_contains "$err" "within its 2s budget" \
@@ -729,7 +729,7 @@ test_remote_send_budget_bounds_busy_lane() {
   rc=0
   send_env "$fb" "$home" "$ssh_log" FM_SEND_REMOTE_BUDGET=invalid \
     FM_PENDING_REPLY_EXISTING_CORR="$corr" \
-    "$SEND" rsm "please rename the metric" >"$dir/invalid.out" 2>"$dir/invalid.err" || rc=$?
+    bash "$SEND" rsm "please rename the metric" >"$dir/invalid.out" 2>"$dir/invalid.err" || rc=$?
   [ "$rc" -ne 0 ] || fail "an invalid remote budget must fail the resend"
   assert_contains "$(cat "$dir/invalid.err")" "must be a positive integer" \
     "an invalid remote budget must explain its validation failure"
@@ -754,7 +754,7 @@ test_local_secondmate_pending_keeps_expectation_armed() {
   rc=0
   env PATH="$fb:$PATH" FM_FAKE_TMUX_PENDING=1 \
     FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_SEND_LOG="$log" FM_SEND_SETTLE=0 \
-    "$SEND" lsm "/audit the ledger" >/dev/null 2>&1 || rc=$?
+    bash "$SEND" lsm "/audit the ledger" >/dev/null 2>&1 || rc=$?
   expect_code 3 "$rc" "an unconfirmed local secondmate submit must exit delivered-unconfirmed"
   rec=$(pending_record "$home")
   [ -n "$rec" ] \
@@ -781,7 +781,7 @@ test_local_pending_reports_delivered_unconfirmed() {
   rc=0
   env PATH="$fb:$PATH" FM_FAKE_TMUX_PENDING=1 \
     FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_SEND_LOG="$log" FM_SEND_SETTLE=0 \
-    "$SEND" sess:win "steer text" >"$dir/out" 2>"$dir/err" || rc=$?
+    bash "$SEND" sess:win "steer text" >"$dir/out" 2>"$dir/err" || rc=$?
   err=$(cat "$dir/err")
   expect_code 3 "$rc" "an unconfirmed local submit must exit with the delivered-unconfirmed status"
   assert_contains "$err" "submission is unconfirmed" \
@@ -807,7 +807,7 @@ test_local_pending_does_not_close_resolve_key() {
   rc=0
   env PATH="$fb:$PATH" FM_FAKE_TMUX_PENDING=1 \
     FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_SEND_LOG="$log" FM_SEND_SETTLE=0 \
-    "$SEND" t2 --resolve-key creds "/vault fetch deploy-token" >/dev/null 2>&1 || rc=$?
+    bash "$SEND" t2 --resolve-key creds "/vault fetch deploy-token" >/dev/null 2>&1 || rc=$?
   expect_code 3 "$rc" "an unconfirmed local answer must exit with the delivered-unconfirmed status"
   if grep -F 'resolved' "$home/state/t2.status" >/dev/null; then
     fail "an unconfirmed local answer must not close the decision: $(cat "$home/state/t2.status")"

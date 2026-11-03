@@ -57,7 +57,7 @@ cleanup() {
     wait "$PUBLISH_PID" 2>/dev/null || true
   fi
   FM_HOME="$PARENT" FM_PROCEVENT_CLAIM_ROOT="$CLAIMS" \
-    "$ROOT/bin/fm-procevent.sh" sweep-home >/dev/null 2>&1 || true
+    bash "$ROOT/bin/fm-procevent.sh" sweep-home >/dev/null 2>&1 || true
   if [ -f "$TMP_ROOT/remote-jobs/worker.pid" ]; then
     worker_pid=$(cat "$TMP_ROOT/remote-jobs/worker.pid")
     kill "$worker_pid" 2>/dev/null || true
@@ -91,7 +91,7 @@ printf 'schema=fm-remote-home-provision.v1\nid_b64=%s\ncharter_b64=%s\nparent_ho
 PATH="$PUBLISH_FAKEBIN:$PATH" FM_HOME="$PUBLISH_HOME" FM_ROOT_OVERRIDE="$ROOT" \
   FM_TEST_REAL_MV="$REAL_MV" FM_TEST_PUBLISH_ENTERED="$PUBLISH_ENTERED" \
   FM_TEST_PUBLISH_RELEASE="$PUBLISH_RELEASE" \
-  "$ROOT/bin/fm-remote-home-provision.sh" < "$PUBLISH_MANIFEST" >/dev/null 2>&1 &
+  bash "$ROOT/bin/fm-remote-home-provision.sh" < "$PUBLISH_MANIFEST" >/dev/null 2>&1 &
 PUBLISH_PID=$!
 publish_wait=0
 while [ ! -f "$PUBLISH_ENTERED" ]; do
@@ -206,7 +206,7 @@ remote_env() {
 
 FM_SECONDMATE_CHARTER='Own iOS delivery on the build Mac.' \
   FM_SECONDMATE_SCOPE='iOS implementation and Xcode validation' \
-  remote_env "$ROOT/bin/fm-remote-home-seed.sh" ios remote-mac "$REMOTE_ROOT" "$REMOTE_HOME" alpha \
+  remote_env bash "$ROOT/bin/fm-remote-home-seed.sh" ios remote-mac "$REMOTE_ROOT" "$REMOTE_HOME" alpha \
   >/dev/null || fail "real remote secondmate seeding failed"
 
 # --- the durable record itself: the fundamental part of the fix -------------
@@ -216,7 +216,7 @@ cmp -s "$REMOTE_HOME/.fm-secondmate-parent" <(
   printf 'schema=fm-secondmate-parent.v1\nroute=remote\nparent_host=remote-mac\n'
 ) || fail "real remote provisioning must write the exact durable remote parent record"
 
-remote_env "$ROOT/bin/fm-spawn.sh" ios --secondmate >/dev/null \
+remote_env bash "$ROOT/bin/fm-spawn.sh" ios --secondmate >/dev/null \
   || fail "real remote secondmate launch failed"
 
 STAGED_LAUNCH=$(sed -n "s/^pane send-text [^ ]* \\. '\([^']*\)' --session [^ ]*\$/\1/p" "$HERDR_LOG" | tail -1)
@@ -256,7 +256,7 @@ run_child_teardown() { # <extra env assignments...>
   out=$(env "$@" PATH="$TMP_ROOT/childfake:$PATH" \
     FM_HOME="$REMOTE_HOME" FM_STATE_OVERRIDE="$REMOTE_HOME/state" \
     FM_DATA_OVERRIDE="$REMOTE_HOME/data" FM_CONFIG_OVERRIDE="$REMOTE_HOME/config" \
-    "$REMOTE_ROOT/bin/fm-teardown.sh" work-child 2>&1) || rc=$?
+    bash "$REMOTE_ROOT/bin/fm-teardown.sh" work-child 2>&1) || rc=$?
   CHILD_TEARDOWN_OUT=$out
   CHILD_TEARDOWN_RC=$rc
 }
@@ -315,7 +315,7 @@ rm -f "$LOCAL_META"
 PUBLICATION_RC=0
 PUBLICATION_OUT=$(FM_TEST_PUBLICATION_TARGET="$LOCAL_META" \
   FM_TEST_PUBLICATION_FOREIGN="$FOREIGN_META" \
-  remote_env "$ROOT/bin/fm-spawn.sh" ios --secondmate 2>&1) || PUBLICATION_RC=$?
+  remote_env bash "$ROOT/bin/fm-spawn.sh" ios --secondmate 2>&1) || PUBLICATION_RC=$?
 [ "$PUBLICATION_RC" -ne 0 ] \
   || fail "remote secondmate publication accepted a target resolving outside its home"
 assert_contains "$PUBLICATION_OUT" "task record could not be published" \

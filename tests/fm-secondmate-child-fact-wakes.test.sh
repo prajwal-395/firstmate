@@ -144,14 +144,14 @@ test_suppressed_fact_is_delivered_and_presented_once() {
   status="$state/mate.status"
   write_mate "$state" mate
   printf 'working: mate running our routed work\n' > "$status"
-  FM_STATE_OVERRIDE="$state" "$DRAIN" >/dev/null 2>/dev/null \
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" >/dev/null 2>/dev/null \
     || fail "bootstrap drain failed while priming the presentation cursor"
 
   # The publisher's delivered artifact, byte for byte as fm-pr-check.sh writes
   # it to the parent channel.
   printf '%s\n' "$CHILD_PR" >> "$status"
 
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" 2> "$dir/drain.err" \
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$out" 2> "$dir/drain.err" \
     || fail "drain failed on the suppressed-fact shape"
   grep -F 'UNREAD STATUS' "$out" >/dev/null \
     || fail "the suppressed fact produced no UNREAD STATUS section: $(cat "$out")"
@@ -163,7 +163,7 @@ test_suppressed_fact_is_delivered_and_presented_once() {
   grep -F "$CHILD_PR" "$status" >/dev/null \
     || fail "the delivered fact did not survive presentation on the channel"
 
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" 2> "$dir/drain2.err" \
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$out" 2> "$dir/drain2.err" \
     || fail "second drain after presentation failed"
   if grep -F "$CHILD_PR" "$out" >/dev/null; then
     fail "the presented fact was replayed as new: $(cat "$out")"
@@ -181,7 +181,7 @@ watch_bg_quiet() {  # <state> <fakebin> <out>
   PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" \
     FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    "$WATCH" > "$out" 2> "$out.err" &
+    bash "$WATCH" > "$out" 2> "$out.err" &
 }
 
 beat_mtime() {

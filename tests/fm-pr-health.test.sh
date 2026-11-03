@@ -165,7 +165,7 @@ task() { # home id [meta lines...]
 }
 
 arm() {
-  with_home "$1" "$ROOT/bin/fm-pr-health.sh" arm >/dev/null || fail 'could not arm the PR health monitor'
+  with_home "$1" bash "$ROOT/bin/fm-pr-health.sh" arm >/dev/null || fail 'could not arm the PR health monitor'
 }
 
 pass_once() { # home -> the registered check's output
@@ -336,7 +336,7 @@ test_other_homes_red_check_is_silent() {
   if grep -E 'pulls/20$|number=20( |$)|--head mate-branch' "$home/forge/calls.log" >/dev/null; then
     fail "this home read another home's PR: $(cat "$home/forge/calls.log")"
   fi
-  out=$(with_home "$home" "$ROOT/bin/fm-contributions.sh" owned) || fail 'owned PRs could not be listed'
+  out=$(with_home "$home" bash "$ROOT/bin/fm-contributions.sh" owned) || fail 'owned PRs could not be listed'
   printf '%s\n' "$out" | jq -e 'any(.[]; .url == "https://github.com/o/r/pull/20") | not' >/dev/null \
     || fail "a PR named only in a status line became owned: $out"
   pass "a red check on another home's PR wakes nothing in this home"
@@ -412,7 +412,7 @@ test_many_recorded_contributions_do_not_starve_a_new_branch_pr() {
   with_home "$home" fm_run_timed 20 bash "$home/state/pr-health.check.sh" >/dev/null 2>&1 || rc=$?
   rm "$home/fakebin/jq"
   [ "$rc" -eq 0 ] || fail "a pass over 40 recorded contributions outlived the watcher's 20-second check bound (status $rc)"
-  with_home "$home" "$ROOT/bin/fm-contributions.sh" owned \
+  with_home "$home" bash "$ROOT/bin/fm-contributions.sh" owned \
     | jq -e 'any(.[]; .url == "https://github.com/o/r/pull/12" and (.tasks | index("zz-late")) != null)' >/dev/null \
     || fail 'the PR on a live task branch was not enrolled in a home with many recorded contributions'
   pass 'a home with many recorded contributions still enrolls a new task branch PR within the check bound'
@@ -471,7 +471,7 @@ test_retired_contribution_is_not_reclaimed_from_the_cached_branch() {
   set_pr "$home" 12 '.checks = [{name:"CI Status",conclusion:null,required:true}]'
   arm "$home"
   expect_silent "$home" 'running checks must not wake'
-  with_home "$home" "$ROOT/bin/fm-contributions.sh" retire early https://github.com/o/r/pull/12 captain 'handed to another home' >/dev/null \
+  with_home "$home" bash "$ROOT/bin/fm-contributions.sh" retire early https://github.com/o/r/pull/12 captain 'handed to another home' >/dev/null \
     || fail 'could not retire the discovered contribution'
   set_pr "$home" 12 '.checks[0].conclusion = "FAILURE" | .mergeable = false'
   before=$(grep -c 'pulls/12$' "$home/forge/calls.log")
@@ -491,15 +491,15 @@ test_retired_contribution_is_not_reclaimed_by_a_fresh_branch_lookup() {
   printf '12\n' > "$home/forge/branch-feature-12"
   pr "$home" 12 "$HEAD_A" "$BASE_1" false false
   set_pr "$home" 12 '.checks = [{name:"CI Status",conclusion:"FAILURE",required:true}]'
-  with_home "$home" "$ROOT/bin/fm-contributions.sh" enroll early https://github.com/o/r/pull/12 >/dev/null || fail 'could not enroll the PR'
-  with_home "$home" "$ROOT/bin/fm-contributions.sh" retire early https://github.com/o/r/pull/12 captain 'handed to another home' >/dev/null \
+  with_home "$home" bash "$ROOT/bin/fm-contributions.sh" enroll early https://github.com/o/r/pull/12 >/dev/null || fail 'could not enroll the PR'
+  with_home "$home" bash "$ROOT/bin/fm-contributions.sh" retire early https://github.com/o/r/pull/12 captain 'handed to another home' >/dev/null \
     || fail 'could not retire the contribution'
   arm "$home"
   expect_silent "$home" 'a retired PR found afresh on the task branch must not wake'
   if grep -E 'pulls/12$|number=12( |$)' "$home/forge/calls.log" >/dev/null; then
     fail "a retired PR was read: $(cat "$home/forge/calls.log")"
   fi
-  out=$(with_home "$home" "$ROOT/bin/fm-contributions.sh" owned) || fail 'owned PRs could not be listed'
+  out=$(with_home "$home" bash "$ROOT/bin/fm-contributions.sh" owned) || fail 'owned PRs could not be listed'
   printf '%s\n' "$out" | jq -e 'any(.[]; .url == "https://github.com/o/r/pull/12") | not' >/dev/null \
     || fail "a retired PR became owned again: $out"
   pass 'a retired contribution is not reclaimed by a fresh branch lookup'
@@ -565,9 +565,9 @@ test_absent_flag_changes_nothing() {
   task "$home" ship1 pr=https://github.com/o/r/pull/8
   pr "$home" 8 "$HEAD_A" "$BASE_1" false false
   before=$(ls -A "$home/state" "$home/data")
-  out=$(with_home "$home" "$ROOT/bin/fm-pr-health.sh" poll 2>&1) || fail "poll failed with the flag absent: $out"
+  out=$(with_home "$home" bash "$ROOT/bin/fm-pr-health.sh" poll 2>&1) || fail "poll failed with the flag absent: $out"
   [ -z "$out" ] || fail "poll printed with the flag absent: $out"
-  if with_home "$home" "$ROOT/bin/fm-pr-health.sh" arm >/dev/null 2>&1; then
+  if with_home "$home" bash "$ROOT/bin/fm-pr-health.sh" arm >/dev/null 2>&1; then
     fail 'arm succeeded with the flag absent'
   fi
   [ "$(ls -A "$home/state" "$home/data")" = "$before" ] \
@@ -585,14 +585,14 @@ test_watcher_surfaces_one_wake() {
   [ -f "$home/state/contributions.check.sh" ] || fail 'arm did not arm the contribution observer for enrolled PRs'
   rc=0
   with_home "$home" env FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=0 FM_HEARTBEAT=999999 \
-    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 15 > "$home/watcher.out" 2> "$home/watcher.err" || rc=$?
+    bash "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 15 > "$home/watcher.out" 2> "$home/watcher.err" || rc=$?
   [ "$rc" -eq 0 ] || fail "the watcher did not surface the conflict: $(cat "$home/watcher.err")"
   rows=$(awk -F '\t' -v key="$home/state/pr-health.check.sh" '$3 == "check" && $4 == key && $5 ~ /pull\/8 conflicts with its base/ { n++ } END { print n + 0 }' \
     "$home/state/.wake-queue")
   [ "$rows" = 1 ] || fail "one conflict queued $rows wakes: $(cat "$home/state/.wake-queue")"
   rc=0
   with_home "$home" env FM_WATCH_HANDLING_SUCCESSOR=1 FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=0 FM_HEARTBEAT=999999 \
-    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 3 > "$home/watcher-repeat.out" 2> "$home/watcher-repeat.err" || rc=$?
+    bash "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 3 > "$home/watcher-repeat.out" 2> "$home/watcher-repeat.err" || rc=$?
   [ "$rc" -eq 124 ] || fail "an unchanged conflict woke the watcher again: $(cat "$home/watcher-repeat.out")"
   pass 'the watcher turns one conflict into one durable wake'
 }
@@ -942,7 +942,7 @@ test_final_contributions_are_not_enrolled_again() {
     pr "$home" "$n" "$HEAD_A" "$BASE_1" false false
     set_pr "$home" "$n" '.state = "merged"'
   done
-  with_home "$home" "$ROOT/bin/fm-contributions.sh" poll || fail "could not make the PRs final"
+  with_home "$home" bash "$ROOT/bin/fm-contributions.sh" poll || fail "could not make the PRs final"
   copy="$home/bincopy"
   cp -R "$ROOT/bin" "$copy"
   mv "$copy/fm-contributions.sh" "$copy/fm-contributions.real.sh"
@@ -952,7 +952,7 @@ printf '%s\n' "$*" >> "$FORGE/contributions.log"
 exec "$(dirname "${BASH_SOURCE[0]}")/fm-contributions.real.sh" "$@"
 SH
   chmod +x "$copy/fm-contributions.sh"
-  with_home "$home" "$copy/fm-pr-health.sh" arm >/dev/null || fail 'could not arm the PR health monitor'
+  with_home "$home" bash "$copy/fm-pr-health.sh" arm >/dev/null || fail 'could not arm the PR health monitor'
   pass_once "$home" >/dev/null
   pass_once "$home" >/dev/null
   ! grep -q '^enroll' "$home/forge/contributions.log" 2>/dev/null \

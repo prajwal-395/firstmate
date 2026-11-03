@@ -109,7 +109,7 @@ pass "$VERSION: no Claude Code hook ran and the worker commit carries no attribu
 verdict=$(fm_composer_classify_screen $'styled=1\ncursor=1\nidentity=1\nrows=0' "$(capture)" \
   "$(tmux display-message -p -t "$TARGET" '#{cursor_y}')" devin)
 case "$verdict" in empty*) ;; *) fail "idle composer was $verdict" ;; esac
-"$ROOT/bin/fm-send.sh" "$ID" 'Runtime steering verification: compute 31 times 37 and write only the result to steer.txt. Acknowledge this instruction by moving its .msg file into handled/ as instructed by the doorbell. Do no other work.' > "$LAB/send.log" 2>&1 || fail "steer failed: $(cat "$LAB/send.log")"
+bash "$ROOT/bin/fm-send.sh" "$ID" 'Runtime steering verification: compute 31 times 37 and write only the result to steer.txt. Acknowledge this instruction by moving its .msg file into handled/ as instructed by the doorbell. Do no other work.' > "$LAB/send.log" 2>&1 || fail "steer failed: $(cat "$LAB/send.log")"
 wait_file "$WT/steer.txt"
 wait_file "$H/state/$ID.inbox/handled/001.msg"
 [ "$(tr -d '[:space:]' < "$WT/steer.txt")" = 1147 ] || fail 'wrong steering result'
@@ -117,7 +117,7 @@ wait_idle
 pass "$VERSION: real fm-send doorbell read and acknowledged"
 # An idle Devin opens its /revert picker (Enter reverts) on a fast Escape pair,
 # so an interrupt with no running turn must send one press and open nothing.
-"$ROOT/bin/fm-control.sh" "$ID" interrupt > "$LAB/idle-interrupt.log" 2>&1 \
+bash "$ROOT/bin/fm-control.sh" "$ID" interrupt > "$LAB/idle-interrupt.log" 2>&1 \
   || fail "idle interrupt failed: $(cat "$LAB/idle-interrupt.log")"
 grep -q 'cancel=not-running' "$LAB/idle-interrupt.log" \
   || fail "idle interrupt did not report not-running: $(cat "$LAB/idle-interrupt.log")"
@@ -134,18 +134,18 @@ for _ in 1 2 3; do
   sleep 1
 done
 [ "$picker" = 1 ] || fail 'a raw fast Escape pair no longer opens the revert picker; re-verify the interrupt arm gate'
-if "$ROOT/bin/fm-control.sh" "$ID" exit > "$LAB/picker-exit.log" 2>&1; then
+if bash "$ROOT/bin/fm-control.sh" "$ID" exit > "$LAB/picker-exit.log" 2>&1; then
   fail "exit proceeded with the revert picker open: $(cat "$LAB/picker-exit.log")"
 fi
 screen_text | grep -q 'Revert to step' || fail 'the refused exit closed or typed into the picker'
-"$ROOT/bin/fm-control.sh" "$ID" interrupt > "$LAB/picker-interrupt.log" 2>&1 \
+bash "$ROOT/bin/fm-control.sh" "$ID" interrupt > "$LAB/picker-interrupt.log" 2>&1 \
   || fail "interrupt could not close the revert picker: $(cat "$LAB/picker-interrupt.log")"
 sleep 1
 ! screen_text | grep -q 'Revert to step' || fail 'interrupt left the revert picker open'
 [ "$(tr -d '[:space:]' < "$WT/steer.txt")" = 1147 ] && [ "$(tr -d '[:space:]' < "$WT/answer.txt")" = 80235 ] \
   || fail 'the revert picker changed the worker files'
 pass "$VERSION: idle interrupt sends one press; an open revert picker blocks exit and is closed without reverting"
-"$ROOT/bin/fm-send.sh" "$ID" 'Runtime interrupt verification: run sleep 90 in your shell tool, then wait for it to finish. Do not respond before it finishes.' > "$LAB/send.log" 2>&1 || fail 'could not steer interrupt probe'
+bash "$ROOT/bin/fm-send.sh" "$ID" 'Runtime interrupt verification: run sleep 90 in your shell tool, then wait for it to finish. Do not respond before it finishes.' > "$LAB/send.log" 2>&1 || fail 'could not steer interrupt probe'
 seen_busy=0
 for _ in $(seq 1 240); do
   if [ "$(fm_busy_classify tmux "$TARGET" devin "$ID" "$H/state")" = 'busy devin-hook' ] \
@@ -153,7 +153,7 @@ for _ in $(seq 1 240); do
   sleep 0.5
 done
 [ "$seen_busy" = 1 ] || fail 'no semantic and rendered busy during interrupt probe'
-"$ROOT/bin/fm-control.sh" "$ID" interrupt > "$LAB/interrupt.log" 2>&1 || fail "interrupt failed: $(cat "$LAB/interrupt.log")"
+bash "$ROOT/bin/fm-control.sh" "$ID" interrupt > "$LAB/interrupt.log" 2>&1 || fail "interrupt failed: $(cat "$LAB/interrupt.log")"
 grep -q 'cancel=unconfirmed' "$LAB/interrupt.log" || fail "busy interrupt was not armed: $(cat "$LAB/interrupt.log")"
 [ "$(fm_busy_classify tmux "$TARGET" devin "$ID" "$H/state")" = 'unknown fm-interrupt' ] || fail 'interrupt did not conservatively invalidate state'
 for _ in $(seq 1 60); do
@@ -162,7 +162,7 @@ for _ in $(seq 1 60); do
 done
 capture | grep -q 'Canceled. What should Devin do?' || fail 'double Escape did not cancel'
 pass "$VERSION: double Escape cancels, preserves agent, and invalidates busy state"
-"$ROOT/bin/fm-control.sh" "$ID" exit > "$LAB/exit.log" 2>&1 || fail "exit failed: $(cat "$LAB/exit.log")"
+bash "$ROOT/bin/fm-control.sh" "$ID" exit > "$LAB/exit.log" 2>&1 || fail "exit failed: $(cat "$LAB/exit.log")"
 [ "$(fm_backend_agent_state tmux "$TARGET")" = dead ] || fail 'quit did not return to shell'
 session=$(jq -r 'select(.hook_event_name == "SessionStart") | .session_id' "$LAB/events.jsonl" | head -1)
 [ -n "$session" ] || fail 'no session id for resume'
@@ -176,5 +176,5 @@ wait_file "$WT/resumed.txt"
 jq -e 'select(.hook_event_name == "SessionStart" and .source == "resume")' "$LAB/events.jsonl" >/dev/null || fail 'native resume source absent'
 # Exit via the actual table-backed control plane once more. The retired busy
 # generation remains absent, so control observes unknown and interrupts first.
-"$ROOT/bin/fm-control.sh" "$ID" exit > "$LAB/exit.log" 2>&1 || fail "resumed exit failed: $(cat "$LAB/exit.log")"
+bash "$ROOT/bin/fm-control.sh" "$ID" exit > "$LAB/exit.log" 2>&1 || fail "resumed exit failed: $(cat "$LAB/exit.log")"
 pass "$VERSION: /quit and native -r session resume"

@@ -157,7 +157,7 @@ writer_in_scope() {
 }
 
 operational() {  # <text>
-  printf '%s' "$1" | "$SCRIPT_DIR/fm-operational-input.sh" classify >/dev/null 2>&1
+  printf '%s' "$1" | bash "$SCRIPT_DIR/fm-operational-input.sh" classify >/dev/null 2>&1
 }
 
 # Append one entry. The caller holds nothing; this takes the mirror lock.

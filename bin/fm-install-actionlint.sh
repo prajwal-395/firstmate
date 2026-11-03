@@ -14,7 +14,7 @@
 set -eu
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION="$("$ROOT/bin/fm-lint-workflows.sh" --required-version)"
+VERSION="$(bash "$ROOT/bin/fm-lint-workflows.sh" --required-version)"
 
 die() {
   printf 'fm-install-actionlint.sh: %s\n' "$*" >&2

@@ -473,7 +473,7 @@ home=$mate
 EOF
 eout="$ehome/watch.out"
 PATH="$FAKEBIN:$PATH" FM_STATE_OVERRIDE="$pstate" FM_POLL=1 FM_SIGNAL_GRACE=1 \
-  FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$eout" 2>&1 &
+  FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 bash "$WATCH" > "$eout" 2>&1 &
 watcher=$!
 i=0
 while [ "$i" -lt 300 ]; do
@@ -495,7 +495,7 @@ touch "$mate/state/.last-watcher-beat"
 rm -f "$pstate/.wake-queue" "$pstate/.wake-queue.seq"
 eout2="$ehome/watch2.out"
 PATH="$FAKEBIN:$PATH" FM_STATE_OVERRIDE="$pstate" FM_POLL=1 FM_SIGNAL_GRACE=1 \
-  FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$eout2" 2>&1 &
+  FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 bash "$WATCH" > "$eout2" 2>&1 &
 watcher2=$!
 sleep 5
 kill "$watcher2" 2>/dev/null || true
@@ -520,7 +520,7 @@ home=$imat
 EOF
 eout3="$ihome/watch3.out"
 PATH="$FAKEBIN:$PATH" FM_STATE_OVERRIDE="$ipstate" FM_POLL=1 FM_SIGNAL_GRACE=1 \
-  FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$eout3" 2>&1 &
+  FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 bash "$WATCH" > "$eout3" 2>&1 &
 watcher3=$!
 sleep 5
 kill "$watcher3" 2>/dev/null || true

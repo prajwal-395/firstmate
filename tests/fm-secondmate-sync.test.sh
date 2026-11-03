@@ -426,7 +426,7 @@ test_bootstrap_sweep_nudges_only_instruction_change() {
   log="$w/tmux.log"
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
     FM_SEND_SETTLE=0 FM_FAKE_TMUX_LOG="$log" \
-    "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
+    bash "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
 
   info_line=$(printf '%s\n' "$out" | grep '^BOOTSTRAP_INFO: nudged fm-sm-instr ' || true)
   [ -n "$info_line" ] || fail "no BOOTSTRAP_INFO nudge line emitted (got: $out)"
@@ -470,7 +470,7 @@ test_bootstrap_nudge_send_uses_state_override() {
 
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
     FM_STATE_OVERRIDE="$override_state" FM_SEND_SETTLE=0 FM_FAKE_TMUX_LOG="$log" \
-    "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
+    bash "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
 
   assert_contains "$out" "BOOTSTRAP_INFO: nudged fm-sm-instr with" \
     "nudge send should resolve fm-sm-instr through the effective state dir"
@@ -510,7 +510,7 @@ test_bootstrap_nudge_retry_rejects_malformed_marker_id() {
 
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
     FM_SEND_SETTLE=0 FM_FAKE_TMUX_LOG="$log" \
-    "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
+    bash "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
 
   assert_contains "$out" "NUDGE_SECONDMATES: secondmate ../escape: send failed: retry marker has unsafe id" \
     "malformed retry marker id should be rejected before target resolution"
@@ -534,7 +534,7 @@ test_bootstrap_nudge_failure_records_retry_marker() {
 
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
     FM_SEND_SETTLE=0 \
-    "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
+    bash "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
 
   assert_contains "$out" "NUDGE_SECONDMATES: secondmate sm-instr: send failed:" \
     "failed nudge send should be surfaced as actionable bootstrap output"
@@ -557,7 +557,7 @@ test_bootstrap_nudge_retry_is_idempotent() {
 
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
     FM_SEND_SETTLE=0 \
-    "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
+    bash "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
   assert_contains "$out" "NUDGE_SECONDMATES: secondmate sm-instr: send failed:" \
     "precondition: first nudge should fail"
   marker="$w/home/state/.secondmate-nudge-pending/sm-instr.pending"
@@ -565,13 +565,13 @@ test_bootstrap_nudge_retry_is_idempotent() {
 
   rm -f "$w/home/state/sm-instr.inbox"   # unblock: the steer record can be written again
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
-    FM_SEND_SETTLE=0 "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
+    FM_SEND_SETTLE=0 bash "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
   assert_contains "$out" "BOOTSTRAP_INFO: nudged fm-sm-instr with" \
     "retry should send the pending nudge once the endpoint works"
   assert_absent "$marker" "successful retry should clear the marker"
 
   out2=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
-    FM_SEND_SETTLE=0 "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
+    FM_SEND_SETTLE=0 bash "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
   [ -z "$out2" ] || fail "idempotent retry should converge to silence, got: $out2"
   pass "T8d bootstrap nudge retry is idempotent after success"
 }
@@ -587,7 +587,7 @@ test_bootstrap_nudge_retry_refuses_changed_home() {
 
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
     FM_SEND_SETTLE=0 \
-    "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
+    bash "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
   assert_contains "$out" "NUDGE_SECONDMATES: secondmate sm-instr: send failed:" \
     "precondition: first nudge should fail"
   marker="$w/home/state/.secondmate-nudge-pending/sm-instr.pending"
@@ -601,7 +601,7 @@ test_bootstrap_nudge_retry_refuses_changed_home() {
   rm -f "$w/home/state/sm-instr.meta.bak"
 
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
-    FM_SEND_SETTLE=0 "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
+    FM_SEND_SETTLE=0 bash "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
   assert_contains "$out" "NUDGE_SECONDMATES: secondmate sm-instr: send failed: retry target home changed" \
     "retry must not infer a nudge target outside the recorded failed home"
   assert_present "$marker" "ambiguous retry should keep marker for operator inspection"
@@ -698,7 +698,7 @@ SH
   out=$(PATH="$herdrfb:$toolchain:$BASE_PATH" HERDR_ENV=1 FM_BACKEND=herdr \
     FM_SEND_SETTLE=0 \
     FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
-    "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
+    bash "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
 
   # The nudge now rides the durable inbox: a stale endpoint can only swallow
   # the best-effort doorbell, never the steer itself, so the nudge is SENT
@@ -745,7 +745,7 @@ test_bootstrap_sweep_surfaces_skipped_home() {
 
   fakebin=$(make_fake_toolchain "$w")
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
-    "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
+    bash "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
 
   skip_line=$(printf '%s\n' "$out" | grep '^SECONDMATE_SYNC: secondmate sm-dirty: skipped:' || true)
   [ -n "$skip_line" ] || fail "no SECONDMATE_SYNC skip line emitted (got: $out)"
@@ -783,7 +783,7 @@ SH
     FM_STATE_OVERRIDE="$w/home/state" FM_DATA_OVERRIDE="$w/home/data" \
     FM_PROJECTS_OVERRIDE="$w/home/projects" FM_CONFIG_OVERRIDE="$w/home/config" \
     FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" sm "$w/sm" codex --secondmate >/dev/null 2>&1 || true
+    bash "$ROOT/bin/fm-spawn.sh" sm "$w/sm" codex --secondmate >/dev/null 2>&1 || true
 
   [ "$(head_of "$w/sm")" = "$c2" ] \
     || fail "spawn did not fast-forward the secondmate worktree to the primary's HEAD"
@@ -817,7 +817,7 @@ SH
     FM_STATE_OVERRIDE="$w/home/state" FM_DATA_OVERRIDE="$w/home/data" \
     FM_PROJECTS_OVERRIDE="$w/home/projects" FM_CONFIG_OVERRIDE="$w/home/config" \
     FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" sm "$w/sm" codex --secondmate >/dev/null 2>"$err" || true
+    bash "$ROOT/bin/fm-spawn.sh" sm "$w/sm" codex --secondmate >/dev/null 2>"$err" || true
 
   assert_contains "$(cat "$err")" \
     "warning: secondmate sm sync skipped before launch: dirty working tree" \
@@ -987,7 +987,7 @@ remote_sync() {
   shift 2
   REMOTE_SYNC_RC=0
   REMOTE_SYNC_OUT=$(FM_HOME="$w/$id" FM_ROOT_OVERRIDE="$w/coderoot" \
-    "$ROOT/bin/fm-remote-secondmate-control.sh" sync "$id" "$@" 2>&1) || REMOTE_SYNC_RC=$?
+    bash "$ROOT/bin/fm-remote-secondmate-control.sh" sync "$id" "$@" 2>&1) || REMOTE_SYNC_RC=$?
 }
 
 # --- R1: a remote home follows the PARENT primary, not the host's own copy ----
@@ -1247,7 +1247,7 @@ test_bootstrap_syncs_remote_home_to_primary_commit() {
     FM_SSH_BIN="$fakebin/fake-ssh" FM_REMOTE_CODE_ROOT="$w/coderoot" \
     FM_TEST_REPO_ROOT="$ROOT" \
     FM_INHERITABLE_CONFIG='' FM_FAKE_TREEHOUSE_LEASE_HELP=1 FM_SEND_SETTLE=0 \
-    "$ROOT/bin/fm-bootstrap.sh" 2>&1)
+    bash "$ROOT/bin/fm-bootstrap.sh" 2>&1)
 
   [ "$(head_of "$w/sm")" = "$c2" ] \
     || fail "session start left the remote home off the primary's commit (out: $out)"
@@ -1285,7 +1285,7 @@ test_bootstrap_reports_outdated_host_actionably() {
     FM_SSH_BIN="$fakebin/fake-ssh" FM_REMOTE_CODE_ROOT="$w/coderoot" \
     FM_TEST_REPO_ROOT="$ROOT" FM_TEST_REMOTE_LEG_REJECT_SYNC=1 \
     FM_INHERITABLE_CONFIG='' FM_FAKE_TREEHOUSE_LEASE_HELP=1 FM_SEND_SETTLE=0 \
-    "$ROOT/bin/fm-bootstrap.sh" 2>&1)
+    bash "$ROOT/bin/fm-bootstrap.sh" 2>&1)
 
   assert_contains "$out" "SECONDMATE_SYNC: secondmate sm: skipped:" \
     "an outdated host did not produce its own convergence line"
@@ -1327,7 +1327,7 @@ remote_nudge_bootstrap() {  # <w> -> bootstrap output
     FM_SSH_BIN="$fakebin/fake-ssh" FM_REMOTE_CODE_ROOT="$w/coderoot" \
     FM_TEST_REPO_ROOT="$ROOT" \
     FM_INHERITABLE_CONFIG='' FM_FAKE_TREEHOUSE_LEASE_HELP=1 FM_SEND_SETTLE=0 \
-    "$ROOT/bin/fm-bootstrap.sh" 2>&1
+    bash "$ROOT/bin/fm-bootstrap.sh" 2>&1
 }
 
 remote_marker() {  # <w> <owed:0|1|legacy>
@@ -1408,7 +1408,7 @@ test_remote_launch_does_not_retarget_host_copy() {
   # The real launch leg, exactly as the parent invokes it after its own sync.
   launch_out=$(PATH="$fakebin:$BASE_PATH" \
     FM_HOME="$w/launched" FM_ROOT_OVERRIDE="$w/coderoot" FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-remote-secondmate-control.sh" launch launched codex - - herdr 2>&1) || true
+    bash "$ROOT/bin/fm-remote-secondmate-control.sh" launch launched codex - - herdr 2>&1) || true
   [ "$(head_of "$w/launched")" = "$c1" ] \
     || fail "a remote launch moved the home onto the host's own Firstmate copy (out: $launch_out)"
 
@@ -1418,7 +1418,7 @@ test_remote_launch_does_not_retarget_host_copy() {
     FM_HOME="$w/coderoot" FM_ROOT_OVERRIDE="$w/coderoot" \
     FM_STATE_OVERRIDE="$w/control/state" FM_DATA_OVERRIDE="$w/control/data" \
     FM_CONFIG_OVERRIDE="$w/control/config" FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" control "$w/control" --secondmate --harness codex --backend herdr 2>&1) || true
+    bash "$ROOT/bin/fm-spawn.sh" control "$w/control" --secondmate --harness codex --backend herdr 2>&1) || true
   [ "$(head_of "$w/control")" = "$c2" ] \
     || fail "the ordinary secondmate spawn did not follow its own checkout, so the launch case is vacuous (out: $control_out)"
 

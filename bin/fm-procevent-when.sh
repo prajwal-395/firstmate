@@ -620,7 +620,7 @@ cmd_retire() {
       printf 'warning: the action had fired but no outcome was captured; verify its effect manually\n' >&2
     fi
   fi
-  "$SCRIPT_DIR/fm-procevent.sh" retire "$sid" || die "cannot retire the watch source: $sid"
+  bash "$SCRIPT_DIR/fm-procevent.sh" retire "$sid" || die "cannot retire the watch source: $sid"
   rm -f -- "$(spec_file "$sid")" "$(trust_file "$sid")" "$(fired_file "$sid")"
   printf 'retired: %s\n' "$sid"
 }

@@ -139,7 +139,7 @@ EOF
 run_control() {
   env FM_HOME="$HOME_DIR" HERDR_SESSION="$SESSION" FM_SPAWN_NO_GUARD=1 \
     FM_CONTROL_POLL=0.2 FM_CONTROL_EXIT_WAIT=2 \
-    "$ROOT/bin/fm-control.sh" "$@" 2>&1
+    bash "$ROOT/bin/fm-control.sh" "$@" 2>&1
 }
 
 # --- no registered agent: the endpoint exists but hosts no agent ------------
@@ -210,7 +210,7 @@ done
   || fail "the real Herdr pane did not drift out of its recorded worktree"
 
 OUT=$(env FM_HOME="$HOME_DIR" HERDR_SESSION="$SESSION" FM_SPAWN_NO_GUARD=1 \
-  "$ROOT/bin/fm-spawn.sh" hsmoke --relaunch --harness codex) \
+  bash "$ROOT/bin/fm-spawn.sh" hsmoke --relaunch --harness codex) \
   || fail "a drifted, agent-free Herdr pane should be re-homed and relaunched: $OUT"
 for _ in $(seq 1 20); do
   [ ! -e "$SCRATCH/codex-launched" ] || break
@@ -324,7 +324,7 @@ pass "real herdr: exit on a pane with a stale registration is idempotent success
 
 rm -f "$SCRATCH/codex-launched"
 OUT=$(env FM_HOME="$HOME_DIR" HERDR_SESSION="$SESSION" FM_SPAWN_NO_GUARD=1 \
-  "$ROOT/bin/fm-spawn.sh" hsmoke --relaunch --harness codex) \
+  bash "$ROOT/bin/fm-spawn.sh" hsmoke --relaunch --harness codex) \
   || fail "a stale-registration Herdr pane should be relaunched: $OUT"
 for _ in $(seq 1 20); do
   [ ! -e "$SCRATCH/codex-launched" ] || break

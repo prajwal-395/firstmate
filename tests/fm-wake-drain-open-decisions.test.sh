@@ -27,7 +27,7 @@ test_buried_decision_still_surfaces() {
   printf 'working: continuing other work\n' >> "$state/task1.status"
   printf 'resolved [key=other]: unrelated decision closed\n' >> "$state/task1.status"
 
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed on a buried decision"
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$out" || fail "drain failed on a buried decision"
 
   grep -F 'OPEN DECISIONS' "$out" >/dev/null || fail "buried decision produced no OPEN DECISIONS section"
   grep -F 'task1' "$out" | grep -F '[key=api-shape]' | grep -F 'pick REST or RPC' >/dev/null \
@@ -46,7 +46,7 @@ test_explicit_resolution_closes_it() {
   printf 'resolved [key=api-shape]: went with REST\n' >> "$state/task2.status"
   printf 'done: shipped\n' >> "$state/task2.status"
 
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed after an explicit resolution"
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$out" || fail "drain failed after an explicit resolution"
 
   if grep -F 'OPEN DECISIONS' "$out" >/dev/null; then
     fail "an explicitly resolved decision still printed as open: $(cat "$out")"
@@ -68,7 +68,7 @@ test_reserved_key_namespace_is_owned_by_its_library() {
   printf 'blocked [key=pending-reply-abcdef0123456789]: shipping is blocked on infra\n' >> "$state/task9.status"
   printf 'resolved [key=pending-reply-abcdef0123456789]: all good now\n' >> "$state/task9.status"
 
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed on reserved-key lines"
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$out" || fail "drain failed on reserved-key lines"
 
   grep -F 'pending-reply-id=abcdef0123456789' "$out" >/dev/null \
     || fail "a foreign resolution cleared a reserved decision it does not own: $(cat "$out")"
@@ -78,7 +78,7 @@ test_reserved_key_namespace_is_owned_by_its_library() {
 
   # The owner's own resolution, which speaks that namespace's vocabulary, closes it.
   printf 'resolved [key=pending-reply-abcdef0123456789]: pending-reply-resolved: task=ios pending-reply-id=abcdef0123456789 via=status\n' >> "$state/task9.status"
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed after the owner closed its decision"
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$out" || fail "drain failed after the owner closed its decision"
   if grep -F 'OPEN DECISIONS' "$out" >/dev/null; then
     fail "the owner's own resolution did not close its reserved decision: $(cat "$out")"
   fi
@@ -95,7 +95,7 @@ test_later_unrelated_terminal_line_does_not_close_it() {
   printf 'needs-decision [key=api-shape]: pick REST or RPC\n' > "$state/task3.status"
   printf 'done: unrelated later milestone\n' >> "$state/task3.status"
 
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed after an unrelated terminal line"
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$out" || fail "drain failed after an unrelated terminal line"
 
   grep -F 'task3' "$out" | grep -F '[key=api-shape]' | grep -F 'pick REST or RPC' >/dev/null \
     || fail "a later unrelated terminal line incorrectly cleared the open decision"
@@ -110,7 +110,7 @@ test_no_open_decisions_prints_nothing() {
   printf 'working: on it\n' > "$state/task4.status"
   printf 'resolved: shipped clean\n' > "$state/task5.status"
 
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed with no open decisions"
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$out" || fail "drain failed with no open decisions"
 
   if grep -F 'OPEN DECISIONS' "$out" >/dev/null; then
     fail "the empty case printed an OPEN DECISIONS section: $(cat "$out")"
@@ -133,7 +133,7 @@ test_open_decision_surfaces_even_with_an_unrelated_queued_wake() {
   append_wake "$state" signal task7.status "blocked: waiting on credentials" \
     || fail "queueing the unrelated wake failed"
 
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed with a mixed fleet"
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$out" || fail "drain failed with a mixed fleet"
 
   grep "$(printf '\tsignal\ttask7.status\t')" "$out" >/dev/null || fail "task7's own raw row is missing"
   grep -F 'task6' "$out" | grep -F '[key=migration]' >/dev/null \
@@ -151,7 +151,7 @@ test_buried_decision_surfaces_on_the_empty_queue_fast_path() {
   printf 'needs-decision [key=api-shape]: pick REST or RPC\n' > "$state/task8.status"
   printf 'working: continuing\n' >> "$state/task8.status"
 
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "empty-queue drain failed"
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$out" || fail "empty-queue drain failed"
 
   grep -F 'task8' "$out" | grep -F '[key=api-shape]' >/dev/null \
     || fail "the empty-queue fast path did not surface a still-open decision"
@@ -168,7 +168,7 @@ test_status_symlink_is_not_followed() {
   printf 'needs-decision [key=foreign]: do not expose this\n' > "$dir/outside/foreign.status"
   ln -s ../outside/foreign.status "$state/linked.status"
 
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed with a symlinked status file"
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$out" || fail "drain failed with a symlinked status file"
 
   grep -F 'local [key=local] needs-decision: keep this visible' "$out" >/dev/null \
     || fail "the valid local decision did not surface alongside a rejected status symlink"
@@ -194,7 +194,7 @@ test_over_long_decision_note_is_capped_with_a_marker() {
     printf '\n'
   } > "$state/task-long.status"
 
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed on an over-long decision note"
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$out" || fail "drain failed on an over-long decision note"
 
   line=$(grep -F 'task-long' "$out")
   case "$line" in
@@ -205,7 +205,7 @@ test_over_long_decision_note_is_capped_with_a_marker() {
   [ "$longest" -le 219 ] || fail "a capped decision item ran $longest characters past its per-item budget"
 
   printf 'needs-decision [key=short]: brief enough to keep whole\n' > "$state/task-short.status"
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed on a short decision note"
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$out" || fail "drain failed on a short decision note"
   grep -F 'task-short [key=short] needs-decision: brief enough to keep whole' "$out" >/dev/null \
     || fail "a decision note already under the cap was altered"
   if grep -F 'brief enough to keep whole [truncated]' "$out" >/dev/null; then
@@ -231,7 +231,7 @@ test_trailing_key_renders_with_stated_key_visible() {
   printf 'blocked: launched in primary checkout, not an isolated worktree [key=primary-checkout]\n' \
     > "$state/task-trailing.status"
 
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed on a trailing-key blocked line"
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$out" || fail "drain failed on a trailing-key blocked line"
 
   grep -F 'OPEN DECISIONS' "$out" >/dev/null \
     || fail "the trailing-key blocked line produced no OPEN DECISIONS section"
@@ -254,7 +254,7 @@ test_keyless_decision_shows_default_key() {
   out="$dir/drain.out"
   printf 'needs-decision: which database to use\n' > "$state/task-keyless.status"
 
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed on a keyless needs-decision"
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$out" || fail "drain failed on a keyless needs-decision"
 
   grep -F 'task-keyless [key=default] needs-decision: which database to use' "$out" >/dev/null \
     || fail "a keyless needs-decision did not render with [key=default]: $(cat "$out")"

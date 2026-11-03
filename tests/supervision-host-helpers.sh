@@ -244,15 +244,15 @@ make_home() {  # <name> <attended|away|quiet> [config line]
   [ "$2" = away ] \
     || printf '{"hook_event_name":"UserPromptSubmit","prompt_id":"p0","prompt":"watch the fleet for me"}' > "$home/mirror-seed.0"
   if [ "$2" = away ]; then
-    FM_HOME="$home" "$CONTRACT" enter --words 'watch the fleet; merge nothing' >/dev/null 2>&1 \
+    FM_HOME="$home" bash "$CONTRACT" enter --words 'watch the fleet; merge nothing' >/dev/null 2>&1 \
       || fail "fixture: could not record the away posture"
   fi
   # Quiet mode's record with no daemon flag: a quiet entry whose daemon never
   # started or stopped, left beside a present captain.
   if [ "$2" = quiet ]; then
-    FM_HOME="$home" FM_AFK_MODE=quiet "$CONTRACT" enter --words 'keep routine wakes off my main' >/dev/null 2>&1 \
+    FM_HOME="$home" FM_AFK_MODE=quiet bash "$CONTRACT" enter --words 'keep routine wakes off my main' >/dev/null 2>&1 \
       || fail "fixture: could not record quiet mode"
-    [ "$(FM_HOME="$home" "$CONTRACT" mode)" = quiet ] || fail "fixture: the record is not quiet mode's"
+    [ "$(FM_HOME="$home" bash "$CONTRACT" mode)" = quiet ] || fail "fixture: the record is not quiet mode's"
   fi
   printf '%s\n' "$home" >> "$HOMES_FILE"
   printf '%s\n' "$home"
@@ -279,7 +279,7 @@ start_host() {  # <home> [park options...]
       rm -f "$FM_HOME/host.rc"
       for seed in "$FM_HOME"/mirror-seed.*; do
         [ -f "$seed" ] || continue
-        FM_ROOT_OVERRIDE="$MIRROR_ROOT" "$MIRROR_ROOT/bin/fm-host-mirror.sh" hook claude < "$seed"
+        FM_ROOT_OVERRIDE="$MIRROR_ROOT" bash "$MIRROR_ROOT/bin/fm-host-mirror.sh" hook claude < "$seed"
       done
       "$0" park "$@" > "$FM_HOME/host.out" 2>&1
       printf "%s\n" "$?" > "$FM_HOME/host.rc"
@@ -411,7 +411,7 @@ present_unacknowledged_outcome_twice() {  # <name>
   PRESENTED_HOME="$TMP_ROOT/$1"
   mkdir -p "$PRESENTED_HOME/state" "$PRESENTED_HOME/config"
   : > "$PRESENTED_HOME/config/supervision-host"
-  FM_HOME="$PRESENTED_HOME" "$ROOT/bin/fm-branch-outcome.sh" append --task epsilon --verdict captain \
+  FM_HOME="$PRESENTED_HOME" bash "$ROOT/bin/fm-branch-outcome.sh" append --task epsilon --verdict captain \
     --summary 'epsilon PR is ready to merge' >/dev/null || fail "fixture: could not record the captain outcome"
   for _ in 1 2; do
     drained=$(FM_HOME="$PRESENTED_HOME" "$FAKE_CLAUDE" -c '"$0" 2>&1' "$ROOT/bin/fm-wake-drain.sh")
@@ -488,7 +488,7 @@ start_hook_session() {  # <home>
       printf "%s\n" "$$" >> "$FM_HOME/claude-pids"
       for seed in "$FM_HOME"/mirror-seed.*; do
         [ -f "$seed" ] || continue
-        "$FM_HOME/bin/fm-host-mirror.sh" hook claude < "$seed"
+        bash "$FM_HOME/bin/fm-host-mirror.sh" hook claude < "$seed"
       done
       while [ ! -e "$FM_HOME/session.stop" ] && [ -d "$FM_HOME" ] \
         && kill -0 "$FM_TEST_SUITE_PID" 2>/dev/null; do
@@ -499,14 +499,14 @@ start_hook_session() {  # <home>
             # whole group down once the hook has exited.
             printf "{\"session_id\":\"sess-host-hook\",\"stop_hook_active\":false}\n" > "$FM_HOME/hook.stdin"
             set -m
-            "$FM_HOME/bin/fm-claude-stop-autoarm.sh" < "$FM_HOME/hook.stdin" > "$FM_HOME/hook.out" 2> "$FM_HOME/hook.err" &
+            bash "$FM_HOME/bin/fm-claude-stop-autoarm.sh" < "$FM_HOME/hook.stdin" > "$FM_HOME/hook.out" 2> "$FM_HOME/hook.err" &
             printf "%s\n" "$!" > "$FM_HOME/hook.pgid"
             wait "$!"
             printf "%s\n" "$?" > "$FM_HOME/hook.rc"
             set +m
           else
             printf "{\"session_id\":\"sess-host-hook\",\"stop_hook_active\":false}\n" \
-              | "$FM_HOME/bin/fm-claude-stop-autoarm.sh" > "$FM_HOME/hook.out" 2> "$FM_HOME/hook.err"
+              | bash "$FM_HOME/bin/fm-claude-stop-autoarm.sh" > "$FM_HOME/hook.out" 2> "$FM_HOME/hook.err"
             printf "%s\n" "$?" > "$FM_HOME/hook.rc"
           fi
         fi
@@ -621,7 +621,7 @@ assert_returned_driver_is_caught() {  # <attended|away>
   home=$(make_primary_home "hook-returned-driver-$posture")
   ln -s "$ROOT/.agents" "$home/.agents"
   if [ "$posture" = away ]; then
-    FM_HOME="$home" "$CONTRACT" enter --words 'keep the worker moving' >/dev/null 2>&1 \
+    FM_HOME="$home" bash "$CONTRACT" enter --words 'keep the worker moving' >/dev/null 2>&1 \
       || fail "returned driver: could not record away posture"
   fi
   FM_STALE_ESCALATE_SECS=4 start_hook_session "$home"
@@ -844,10 +844,10 @@ park_outcome() {  # <name> <park-seconds>; sets PARK_OUTCOME to boundary or hand
 # Main's side of a handed-back wake: drain, then run the printed acknowledgement.
 main_drain_and_ack() {  # <home>
   local out ack
-  out=$(FM_HOME="$1" "$ROOT/bin/fm-wake-drain.sh" 2>&1)
+  out=$(FM_HOME="$1" bash "$ROOT/bin/fm-wake-drain.sh" 2>&1)
   ack=$(printf '%s\n' "$out" | sed -n 's/^WAKE_ACK_REQUIRED: after handling completes run bin\/fm-wake-drain.sh //p' | tail -1)
   # shellcheck disable=SC2086 # the printed acknowledgement arguments
-  [ -z "$ack" ] || FM_HOME="$1" "$ROOT/bin/fm-wake-drain.sh" $ack >/dev/null 2>&1 || fail "main's acknowledgement failed: $ack"
+  [ -z "$ack" ] || FM_HOME="$1" bash "$ROOT/bin/fm-wake-drain.sh" $ack >/dev/null 2>&1 || fail "main's acknowledgement failed: $ack"
 }
 
 
@@ -868,7 +868,7 @@ start_session() {  # <home>
           rm -f "$FM_HOME/park.go"
           for seed in "$FM_HOME"/mirror-seed.*; do
             [ -f "$seed" ] || continue
-            FM_ROOT_OVERRIDE="$MIRROR_ROOT" "$MIRROR_ROOT/bin/fm-host-mirror.sh" hook claude < "$seed"
+            FM_ROOT_OVERRIDE="$MIRROR_ROOT" bash "$MIRROR_ROOT/bin/fm-host-mirror.sh" hook claude < "$seed"
           done
           "$0" park > "$FM_HOME/host.out" 2>&1
           printf "%s\n" "$?" > "$FM_HOME/host.rc"

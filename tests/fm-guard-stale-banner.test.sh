@@ -50,7 +50,7 @@ run_guard_case() {
     FM_HOME="$(case_home "$dir")" \
     FM_GUARD_GRACE=999 \
     FM_SUPERVISION_MODEL=persistent \
-    "$ROOT/bin/fm-guard.sh" 2>&1
+    bash "$ROOT/bin/fm-guard.sh" 2>&1
 }
 
 run_guard_case_read_only() {
@@ -60,7 +60,7 @@ run_guard_case_read_only() {
     FM_GUARD_GRACE=999 \
     FM_SUPERVISION_MODEL=persistent \
     FM_GUARD_READ_ONLY=1 \
-    "$ROOT/bin/fm-guard.sh" 2>&1
+    bash "$ROOT/bin/fm-guard.sh" 2>&1
 }
 
 # The Claude Stop auto-arm model: the watcher runs only between turns, so a fresh
@@ -71,7 +71,7 @@ run_guard_case_autoarm() {
     FM_HOME="$(case_home "$dir")" \
     FM_GUARD_GRACE=999 \
     FM_SUPERVISION_MODEL=autoarm \
-    "$ROOT/bin/fm-guard.sh" 2>&1
+    bash "$ROOT/bin/fm-guard.sh" 2>&1
 }
 
 # Age the rewake ledger into the past so a passing long-turn case cannot rest on
@@ -100,7 +100,7 @@ run_guard_case_extension() {
     FM_HOME="$(case_home "$dir")" \
     FM_GUARD_GRACE=999 \
     FM_SUPERVISION_MODEL=extension \
-    "$ROOT/bin/fm-guard.sh" 2>&1
+    bash "$ROOT/bin/fm-guard.sh" 2>&1
 }
 
 # The same extension-model call from the supervision branch actor
@@ -112,7 +112,7 @@ run_guard_case_extension_as_branch() {
     FM_GUARD_GRACE=999 \
     FM_SUPERVISION_MODEL=extension \
     FM_SUPERVISION_ACTOR=branch \
-    "$ROOT/bin/fm-guard.sh" 2>&1
+    bash "$ROOT/bin/fm-guard.sh" 2>&1
 }
 
 # Stand up the durable evidence a live Pi session leaves behind: both primary
@@ -169,7 +169,7 @@ run_guard_case_as_branch() {
     FM_GUARD_GRACE=999 \
     FM_SUPERVISION_MODEL=persistent \
     FM_SUPERVISION_ACTOR=branch \
-    "$ROOT/bin/fm-guard.sh" 2>&1
+    bash "$ROOT/bin/fm-guard.sh" 2>&1
 }
 
 # The branch actor never owns watcher continuity, so a down watcher is never an
@@ -856,7 +856,7 @@ test_extension_stale_beacon_alarms_despite_live_session() {
     FM_HOME="$home" \
     FM_GUARD_GRACE=1 \
     FM_SUPERVISION_MODEL=extension \
-    "$ROOT/bin/fm-guard.sh" 2>&1)
+    bash "$ROOT/bin/fm-guard.sh" 2>&1)
   kill "$pid" 2>/dev/null || true
   wait "$pid" 2>/dev/null || true
   [ "$(count_text "$out" "WATCHER DOWN - SUPERVISION IS OFF")" -eq 1 ] \
@@ -986,7 +986,7 @@ test_pi_harness_routes_itself_to_the_extension_model() {
       FM_ROOT_OVERRIDE="$(case_root "$dir")" \
       FM_HOME="$home" \
       FM_GUARD_GRACE=999 \
-      "$ROOT/bin/fm-guard.sh" 2>&1)
+      bash "$ROOT/bin/fm-guard.sh" 2>&1)
     kill "$pid" 2>/dev/null || true
     wait "$pid" 2>/dev/null || true
     [ -z "$out" ] \

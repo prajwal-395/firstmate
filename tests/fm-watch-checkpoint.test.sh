@@ -34,7 +34,7 @@ test_quiet_checkpoint_exits_124_cleanly() {
   out="$home/out.txt"
   err="$home/err.txt"
   status=0
-  FM_HOME="$home" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 "$CHECKPOINT" --seconds 1 >"$out" 2>"$err" || status=$?
+  FM_HOME="$home" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 bash "$CHECKPOINT" --seconds 1 >"$out" 2>"$err" || status=$?
   expect_code 124 "$status" "quiet checkpoint exit"
   assert_contains "$(cat "$out")" "checkpoint: no actionable wake within 1s" "quiet checkpoint line missing"
   assert_absent "$home/state/.watch.lock/pid" "watch lock pid survived quiet checkpoint timeout"
@@ -87,11 +87,11 @@ expect_gnu_timeout_call() {  # <home> <command-name> <label>
   local home=$1 name=$2 label=$3 status
   status=0
   PATH="$home/fixture-bin" FM_HOME="$home" FM_SIGNAL_GRACE=1 \
-    "$home/root/bin/fm-watch-checkpoint.sh" --seconds 1 >"$home/out.txt" 2>"$home/err.txt" || status=$?
+    bash "$home/root/bin/fm-watch-checkpoint.sh" --seconds 1 >"$home/out.txt" 2>"$home/err.txt" || status=$?
   expect_code 124 "$status" "$label checkpoint exit"
   assert_contains "$(cat "$home/out.txt")" "checkpoint: no actionable wake within 1s" \
     "$label did not return a quiet checkpoint"
-  [ "$(cat "$home/timeout-calls" 2>/dev/null)" = "$name --signal=INT --kill-after=5s 1 $home/root/bin/fm-watch.sh" ] \
+  [ "$(cat "$home/timeout-calls" 2>/dev/null)" = "$name --signal=INT --kill-after=5s 1 bash $home/root/bin/fm-watch.sh" ] \
     || fail "$label did not run $name with the watcher bound: $(cat "$home/timeout-calls" 2>/dev/null)"
 }
 
@@ -122,7 +122,10 @@ test_non_gnu_timeout_falls_back_to_perl_before_escalating() {
   make_isolated_checkpoint "$home" bash dirname mktemp rm perl grep cat
   write_non_gnu_timeout_stub "$fallback_bin/timeout"
   cat > "$home/root/bin/fm-watch.sh" <<'PL'
-#!/usr/bin/env perl
+#!/usr/bin/env bash
+# The watcher stand-in is Perl; the checkpoint launches the watcher through bash.
+exec perl -x "$0" "$@"
+#!perl
 use strict;
 use warnings;
 $SIG{INT} = sub {
@@ -150,7 +153,7 @@ PL
 
   status=0
   PATH="$fallback_bin" FM_HOME="$home" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_WATCHER_CLEANUP_LOCK_BOUND=8 \
-    "$home/root/bin/fm-watch-checkpoint.sh" --seconds 1 >"$home/out.txt" 2>"$home/err.txt" || status=$?
+    bash "$home/root/bin/fm-watch-checkpoint.sh" --seconds 1 >"$home/out.txt" 2>"$home/err.txt" || status=$?
 
   expect_code 124 "$status" "Perl fallback checkpoint exit"
   assert_contains "$(cat "$home/out.txt")" "checkpoint: no actionable wake within 1s" \
@@ -176,7 +179,7 @@ test_announced_recovery_is_not_reannounced_by_next_checkpoint() {
 
   status=0
   FM_HOME="$home" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 \
-    "$CHECKPOINT" --seconds 5 >"$out" 2>"$err" || status=$?
+    bash "$CHECKPOINT" --seconds 5 >"$out" 2>"$err" || status=$?
   expect_code 0 "$status" "first recovery checkpoint exit"
   assert_contains "$(cat "$out")" "check: rearm-resurface" \
     "first checkpoint did not announce the pending recovery"
@@ -190,7 +193,7 @@ test_announced_recovery_is_not_reannounced_by_next_checkpoint() {
 
   status=0
   FM_HOME="$home" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 \
-    "$CHECKPOINT" --seconds 1 >"$out" 2>"$err" || status=$?
+    bash "$CHECKPOINT" --seconds 1 >"$out" 2>"$err" || status=$?
 
   expect_code 124 "$status" "announced recovery checkpoint exit"
   assert_contains "$(cat "$out")" "checkpoint: no actionable wake within 1s" \
@@ -214,7 +217,7 @@ test_never_announced_recovery_is_announced_once() {
 
   status=0
   FM_HOME="$home" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 \
-    "$CHECKPOINT" --seconds 5 >"$out" 2>"$err" || status=$?
+    bash "$CHECKPOINT" --seconds 5 >"$out" 2>"$err" || status=$?
 
   expect_code 0 "$status" "pending recovery checkpoint exit"
   [ "$(grep -c '^check: rearm-resurface$' "$out" || true)" -eq 1 ] \
@@ -231,7 +234,7 @@ test_queue_append_during_checkpoint_still_resurfaces() {
   err="$home/err.txt"
 
   FM_HOME="$home" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 \
-    "$CHECKPOINT" --seconds 5 >"$out" 2>"$err" &
+    bash "$CHECKPOINT" --seconds 5 >"$out" 2>"$err" &
   checkpoint_pid=$!
   wait_for_checkpoint_lock "$home" || {
     kill "$checkpoint_pid" 2>/dev/null || true
@@ -262,10 +265,10 @@ test_signal_passes_through_and_exits_zero() {
     printf 'done: synthetic wake\n' > "$home/state/demo.status"
   ) &
   status=0
-  FM_HOME="$home" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 "$CHECKPOINT" --seconds 8 >"$out" 2>"$err" || status=$?
+  FM_HOME="$home" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 bash "$CHECKPOINT" --seconds 8 >"$out" 2>"$err" || status=$?
   expect_code 0 "$status" "signal checkpoint exit"
   assert_contains "$(cat "$out")" "signal:" "signal wake was not passed through"
-  drained=$(FM_HOME="$home" "$ROOT/bin/fm-wake-drain.sh")
+  drained=$(FM_HOME="$home" bash "$ROOT/bin/fm-wake-drain.sh")
   assert_contains "$drained" $'\tsignal\tdemo.status\t' "signal wake was not queued durably"
   pass "checkpoint passes through a real watcher wake and leaves the queue for drain"
 }
@@ -280,10 +283,10 @@ test_registered_check_uses_preserved_watcher_environment() {
 printf 'env check fired with FM_CHECK_INTERVAL=%s\n' "${FM_CHECK_INTERVAL:-missing}"
 SH
   chmod 0700 "$home/state/env-check.check.sh"
-  FM_HOME="$home" "$ROOT/bin/fm-check-register.sh" env-check >/dev/null \
+  FM_HOME="$home" bash "$ROOT/bin/fm-check-register.sh" env-check >/dev/null \
     || fail "could not register checkpoint custom check"
   status=0
-  FM_HOME="$home" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=1 "$CHECKPOINT" --seconds 5 >"$out" 2>"$err" || status=$?
+  FM_HOME="$home" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=1 bash "$CHECKPOINT" --seconds 5 >"$out" 2>"$err" || status=$?
   expect_code 0 "$status" "check checkpoint exit"
   assert_contains "$(cat "$out")" "check:" "check wake was not passed through"
   assert_contains "$(cat "$out")" "FM_CHECK_INTERVAL=1" "watcher environment was not preserved"
@@ -298,7 +301,7 @@ test_existing_singleton_watcher_is_not_success() {
   mkdir "$home/state/.watch.lock"
   printf '%s\n' "$$" > "$home/state/.watch.lock/pid"
   status=0
-  FM_HOME="$home" FM_GUARD_GRACE=300 "$CHECKPOINT" --seconds 5 >"$out" 2>"$err" || status=$?
+  FM_HOME="$home" FM_GUARD_GRACE=300 bash "$CHECKPOINT" --seconds 5 >"$out" 2>"$err" || status=$?
   expect_code 1 "$status" "singleton checkpoint exit"
   assert_contains "$(cat "$out")" "watcher: already running" "singleton watcher output was not passed through"
   assert_contains "$(cat "$err")" "outside this foreground checkpoint" "singleton watcher failure was not explained"
@@ -337,7 +340,7 @@ run_host_checkpoint() {  # <home> <kind> [checkpoint args...]; sets STATUS
   printf '%s\n' "$2" > "$home/host-kind"
   shift 2
   STATUS=0
-  FM_HOME="$home" "$home/root/bin/fm-watch-checkpoint.sh" "$@" >"$home/out.txt" 2>"$home/err.txt" || STATUS=$?
+  FM_HOME="$home" bash "$home/root/bin/fm-watch-checkpoint.sh" "$@" >"$home/out.txt" 2>"$home/err.txt" || STATUS=$?
 }
 
 test_host_checkpoint_bounds_the_park_by_posture() {
@@ -361,7 +364,7 @@ test_host_checkpoint_bounds_the_park_by_posture() {
   # QUIET), so the checkpoint keeps its attended bound beside it.
   for f in fm-afk-contract.sh fm-classify-lib.sh fm-timeout-lib.sh; do cp "$ROOT/bin/$f" "$home/root/bin/$f"; done
   rm -f "$home/state/.afk-contract"
-  FM_HOME="$home" FM_AFK_MODE=quiet "$ROOT/bin/fm-afk-contract.sh" enter --words 'keep routine wakes off my main' >/dev/null 2>&1 \
+  FM_HOME="$home" FM_AFK_MODE=quiet bash "$ROOT/bin/fm-afk-contract.sh" enter --words 'keep routine wakes off my main' >/dev/null 2>&1 \
     || fail "fixture: could not record quiet mode"
   run_host_checkpoint "$home" boundary --seconds 5
   expect_code 124 "$STATUS" "a park beside a quiet record that reached its bound is a quiet checkpoint"

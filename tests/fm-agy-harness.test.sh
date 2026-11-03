@@ -94,7 +94,7 @@ esac
 exit 1
 SH
   chmod +x "$fakebin/ps"
-  out=$(PATH="$fakebin:$PATH" "$HARNESS")
+  out=$(PATH="$fakebin:$PATH" bash "$HARNESS")
   [ "$out" = agy ] \
     || fail "a natively-named agy command must be detected by ancestry, got '$out'"
   pass "fm-harness.sh: ancestry detects a natively-named agy command"
@@ -114,12 +114,12 @@ SH
   chmod +x "$fakebin/ps"
 
   out=$(FAKE_PS_COMM=magyk FAKE_PS_ARGS='magyk --serve' \
-    PATH="$fakebin:$PATH" "$HARNESS")
+    PATH="$fakebin:$PATH" bash "$HARNESS")
   [ "$out" != agy ] \
     || fail "an unrelated magyk command must not detect agy, got '$out'"
 
   out=$(FAKE_PS_COMM=bash FAKE_PS_ARGS='bash -c "echo agy --help"' \
-    PATH="$fakebin:$PATH" "$HARNESS")
+    PATH="$fakebin:$PATH" bash "$HARNESS")
   [ "$out" != agy ] \
     || fail "a later shell argument naming agy must not detect agy, got '$out'"
   pass "fm-harness.sh: ancestry rejects unrelated agy mentions"
@@ -129,7 +129,7 @@ test_agy_claims_no_inherited_launcher_marker() {
   local fakebin out
   # AGENT=1 was observed on a live agy TUI as inherited launcher state, so it
   # must never promote to an agy identity the way GEMINI_CLI does for gemini.
-  out=$(AGENT=1 "$HARNESS")
+  out=$(AGENT=1 bash "$HARNESS")
   [ "$out" != agy ] \
     || fail "an inherited AGENT=1 must never claim the agy identity, got '$out'"
   # Drive the hazard the other way: agy does not clear an inherited CLAUDECODE,
@@ -146,7 +146,7 @@ esac
 exit 1
 SH
   chmod +x "$fakebin/ps"
-  out=$(CLAUDECODE=1 PATH="$fakebin:$PATH" "$HARNESS")
+  out=$(CLAUDECODE=1 PATH="$fakebin:$PATH" bash "$HARNESS")
   [ "$out" = agy ] \
     || fail "a structural agy ancestor must outrank an inherited CLAUDECODE, got '$out'"
   pass "fm-harness.sh: no inherited launcher marker claims the agy identity"
@@ -374,7 +374,7 @@ EOF
 }
 
 run_agy_trust() {  # <home> <worktree> <project>
-  HOME="$1" "$TRUST" "$2" "$3" 2>&1
+  HOME="$1" bash "$TRUST" "$2" "$3" 2>&1
 }
 
 test_agy_trust_registers_the_logical_and_resolved_worktree_paths() {
@@ -632,7 +632,7 @@ run_agy_spawn() {
     FM_FAKE_AGY_ANSWER="${FM_FAKE_AGY_ANSWER:-works}" \
     FM_AGY_READY_POLLS=4 FM_AGY_POLL_INTERVAL=0 FM_AGY_PROBE_TIMEOUT=${FM_AGY_PROBE_TIMEOUT:-20} \
     PATH="$fakebin:$BASE_PATH" \
-    "$SPAWN" "$id" "$proj" --harness agy --mode no-mistakes --yolo off "$@" 2>&1
+    bash "$SPAWN" "$id" "$proj" --harness agy --mode no-mistakes --yolo off "$@" 2>&1
 }
 
 test_agy_launch_carries_the_brief_with_model_effort_and_autonomy() {
@@ -939,7 +939,7 @@ test_agy_secondmate_launch_leaves_trust_store_and_records_meta() {
     FM_FAKE_AGY_SETTINGS="$HOME_DIR/.gemini/antigravity-cli/settings.json" \
     FM_AGY_READY_POLLS=4 FM_AGY_POLL_INTERVAL=0 FM_AGY_MODELS_TIMEOUT=1 \
     PATH="$FAKEBIN_DIR:$BASE_PATH" \
-    "$SPAWN" "$id" "$sm_home" --secondmate agy 2>&1) || rc=$?
+    bash "$SPAWN" "$id" "$sm_home" --secondmate agy 2>&1) || rc=$?
   expect_code 0 "$rc" "agy secondmate spawn should succeed ($out)"
   store="$HOME_DIR/.gemini/antigravity-cli/settings.json"
   # The fork never writes agy's trust store (see the Option A worktree test):

@@ -83,7 +83,7 @@ run_send() {
   : > "$log"
   env PATH="$fb:$PATH" \
     FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_SEND_LOG="$log" FM_SEND_SETTLE=0 \
-    "$SEND" "$@" 2>/dev/null
+    bash "$SEND" "$@" 2>/dev/null
 }
 
 # setup_home <name> -> echoes a fresh home dir with an empty state/.

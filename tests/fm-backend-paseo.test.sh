@@ -993,7 +993,7 @@ paseo_secondmate_spawn() { # <dir> <config-dir> <FM_BACKEND-value> [fm-spawn arg
   (unset TMUX HERDR_ENV CMUX_WORKSPACE_ID __CFBundleIdentifier
     PATH="$dir/fakebin:$PATH" PASEO_AGENT_ID=fm-test-agent FM_BACKEND="$backend" \
       FM_STATE_OVERRIDE="$dir/state" FM_DATA_OVERRIDE="$dir/data" FM_CONFIG_OVERRIDE="$config" \
-      FM_PROJECTS_OVERRIDE="$dir/projects" "$ROOT/bin/fm-spawn.sh" sm-paseo-test --secondmate "$@" 2>&1)
+      FM_PROJECTS_OVERRIDE="$dir/projects" bash "$ROOT/bin/fm-spawn.sh" sm-paseo-test --secondmate "$@" 2>&1)
 }
 
 test_secondmate_spawn_refuses_explicit_paseo_only() {

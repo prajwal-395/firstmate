@@ -19,7 +19,7 @@ SH
 chmod +x "$FAKEBIN/opencode"
 chmod +x "$FAKEBIN/codex"
 printf '%s\n' '{"models":[{"id":"opencode-go/minimax-m3.1-flash-free","status":"active","replaced_by":"opencode-go/muse-spark-1.3-contributor"},{"id":"opencode-go/muse-spark-1.3-contributor","status":"active","pi":{"name":"Muse Spark"}}]}' > "$HOME_DIR/config/model-catalog.json"
-PATH="$FAKEBIN:$PATH" FM_HOME="$HOME_DIR" "$ROOT/bin/fm-model-catalog-refresh.sh" >/dev/null || fail "catalog refresh failed"
+PATH="$FAKEBIN:$PATH" FM_HOME="$HOME_DIR" bash "$ROOT/bin/fm-model-catalog-refresh.sh" >/dev/null || fail "catalog refresh failed"
 jq -e '.models[] | select(.id=="opencode-go/muse-spark-1.3-contributor" and .status=="active")' "$HOME_DIR/config/model-catalog.json" >/dev/null || fail "listed model was not made active"
 jq -e '.models[] | select(.id=="opencode-go/muse-spark-1.3-contributor" and .pi.name=="Muse Spark")' "$HOME_DIR/config/model-catalog.json" >/dev/null || fail "Pi model metadata was not preserved during refresh"
 jq -e '.models[] | select(.id=="gpt-6-luna" and .status=="active" and .source=="codex debug models")' "$HOME_DIR/config/model-catalog.json" >/dev/null || fail "Codex model was not cataloged"

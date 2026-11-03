@@ -119,7 +119,7 @@ fi
 
 set -- append --task "$TASK" --verdict "$VERDICT" --summary "$SUMMARY" --silent "$SILENT"
 [ -z "$WAKE" ] || set -- "$@" --wake "$WAKE"
-if ! SEQ=$("$SCRIPT_DIR/fm-branch-outcome.sh" "$@"); then
+if ! SEQ=$(bash "$SCRIPT_DIR/fm-branch-outcome.sh" "$@"); then
   echo "outcome store append failed (nothing recorded)" >&2
   exit 1
 fi

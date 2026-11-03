@@ -491,7 +491,7 @@ action_arm() {
     printf 'fm-usage-warner: could not write %s\n' "$CHECK_SHIM" >&2
     return 1
   fi
-  if ! FM_HOME="$home" "$REGISTER_BIN" "$CHECK_ID" >/dev/null; then
+  if ! FM_HOME="$home" bash "$REGISTER_BIN" "$CHECK_ID" >/dev/null; then
     trap - HUP INT TERM
     arm_rollback
     printf 'fm-usage-warner: could not register %s\n' "$CHECK_SHIM" >&2

@@ -800,9 +800,9 @@ child_out=$(mktemp "$STATE/.watch-arm-output.XXXXXX") || {
 # collapsing when startup begins just before the next second boundary.
 deadline=$(( $(date +%s) + CONFIRM_TIMEOUT + 1 ))
 if [ -n "${FM_WATCH_PREDECESSOR_ARM_PID:-}" ]; then
-  FM_WATCH_HANDLING_SUCCESSOR=1 "$WATCH" >"$child_out" &
+  FM_WATCH_HANDLING_SUCCESSOR=1 bash "$WATCH" >"$child_out" &
 else
-  "$WATCH" >"$child_out" &
+  bash "$WATCH" >"$child_out" &
 fi
 child=$!
 cycle_begin "$child" started "$(fm_pid_identity "$child" 2>/dev/null || true)"

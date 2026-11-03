@@ -260,7 +260,7 @@ fm_autoarm_record_version "$STATE"
 # remain the single acquisition owner, then re-verify current-session identity
 # before touching any auto-arm state.
 if [ "$RECOVER_SESSION_LOCK" -eq 1 ]; then
-  "$SCRIPT_DIR/fm-lock.sh" >/dev/null 2>&1 || exit 0
+  bash "$SCRIPT_DIR/fm-lock.sh" >/dev/null 2>&1 || exit 0
   fm_session_lock_owned_by_self "$STATE" "$HOOK_SESSION_ID" || exit 0
 fi
 
@@ -531,9 +531,9 @@ ARM_PID=
 CLOSED_ARM_PID=
 run_arm() {  # <output file, or empty for none>
   if [ -n "$1" ]; then
-    FM_GUARD_GRACE="$GRACE" "$SCRIPT_DIR/fm-watch-arm.sh" >"$1" 2>&1 &
+    FM_GUARD_GRACE="$GRACE" bash "$SCRIPT_DIR/fm-watch-arm.sh" >"$1" 2>&1 &
   else
-    FM_GUARD_GRACE="$GRACE" "$SCRIPT_DIR/fm-watch-arm.sh" >/dev/null 2>&1 &
+    FM_GUARD_GRACE="$GRACE" bash "$SCRIPT_DIR/fm-watch-arm.sh" >/dev/null 2>&1 &
   fi
   ARM_PID=$!
   wait "$ARM_PID" || true
@@ -563,7 +563,7 @@ start_handling_successor() {  # <closed-arm-pid>
   case $- in *m*) monitor_was_on=1 ;; esac
   set -m 2>/dev/null || true
   FM_WATCH_PREDECESSOR_ARM_PID=$1 FM_GUARD_GRACE="$GRACE" \
-    nohup "$SCRIPT_DIR/fm-watch-arm.sh" >"$out" 2>&1 </dev/null &
+    nohup bash "$SCRIPT_DIR/fm-watch-arm.sh" >"$out" 2>&1 </dev/null &
   pid=$!
   [ "$monitor_was_on" -eq 1 ] || set +m 2>/dev/null || true
   deadline=$(( $(date +%s) + budget + 2 ))
@@ -610,7 +610,7 @@ while [ "$attempt" -lt "$AUTOARM_ATTEMPTS" ]; do
     FM_SUPERVISION_HOST_AUTOARM_GEN=$MY_GEN FM_SUPERVISION_HOST_OWNER_PID=$$ \
       FM_SUPERVISION_HOST_PRIMARY=claude FM_GUARD_GRACE="$GRACE" \
       FM_WARM_COMPACT_TRANSCRIPT=$(printf '%s' "$PAYLOAD" | jq -r '.transcript_path // empty' 2>/dev/null) \
-      "$SCRIPT_DIR/fm-supervision-host.sh" park >"${OUT:-/dev/null}" 2>&1 || HOST_RC=$?
+      bash "$SCRIPT_DIR/fm-supervision-host.sh" park >"${OUT:-/dev/null}" 2>&1 || HOST_RC=$?
   else
     run_arm "$OUT"
   fi
@@ -715,7 +715,7 @@ if [ "$ACTIONABLE" -eq 1 ]; then
       [ -n "$OUT" ] && grep -E '^(signal:|stale:|check:|heartbeat)' "$OUT" 2>/dev/null | head -8
     fi
     if [ "$HOST_MODE" -eq 1 ] && [ -e "$STATE/.afk-contract" ] \
-      && [ "$(FM_STATE_OVERRIDE="$STATE" "$SCRIPT_DIR/fm-afk-contract.sh" mode 2>/dev/null)" != quiet ]; then
+      && [ "$(FM_STATE_OVERRIDE="$STATE" bash "$SCRIPT_DIR/fm-afk-contract.sh" mode 2>/dev/null)" != quiet ]; then
       printf 'This wake comes from automatic supervision under the away-posture record, not from the captain: it is not a return, so handle it under the away posture.\n'
     fi
     [ -z "$SUCCESSOR_FAILURE" ] || printf '%s\n' "$SUCCESSOR_FAILURE"

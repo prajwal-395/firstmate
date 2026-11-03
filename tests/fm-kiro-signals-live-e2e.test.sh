@@ -215,7 +215,7 @@ pass "the real kiro foreground group carries the anchored 'kiro-cli' name and th
 KIRO_ANCESTRY=
 while IFS= read -r fg_pid; do
   [ -n "$fg_pid" ] || continue
-  verdict=$("$ROOT/bin/fm-harness.sh" ancestry "$fg_pid" 2>/dev/null || true)
+  verdict=$(bash "$ROOT/bin/fm-harness.sh" ancestry "$fg_pid" 2>/dev/null || true)
   [ "$verdict" = "comm kiro" ] || continue
   KIRO_ANCESTRY=$verdict
   break

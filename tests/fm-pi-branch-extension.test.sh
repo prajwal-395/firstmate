@@ -920,10 +920,10 @@ EOF
   # that nothing but that acknowledgement closes it. Routine notes remain
   # plain rendered text rather than typed operational input.
   local kind body
-  kind=$(./bin/fm-operational-input.sh kind < "$home/state/delivered-processing-request") \
+  kind=$(bash ./bin/fm-operational-input.sh kind < "$home/state/delivered-processing-request") \
     || fail "the processing request reaches main's model as unattributed text"
   [ "$kind" = branch-outcome ] || fail "the processing request was delivered as kind '$kind', not branch-outcome"
-  body=$(./bin/fm-operational-input.sh body < "$home/state/delivered-processing-request") \
+  body=$(bash ./bin/fm-operational-input.sh body < "$home/state/delivered-processing-request") \
     || fail "the processing request envelope carries no readable body"
   case "$body" in
     *"delivered automatically by the supervision branch."*"It was not typed by the captain."*"[seq 3, recorded 0m ago] task-9: PR https://example.com/pr/9 checks green, ready for review"*) ;;
@@ -946,7 +946,7 @@ EOF
     *"do not re-drain, re-run, or acknowledge the wake."*"call fm_branch_processed with through=3 exactly once."*"never counts as processing."*) ;;
     *) fail "the processing request body lost the event-ownership boundary or the sequence-bound acknowledgement duty: $body" ;;
   esac
-  if ./bin/fm-operational-input.sh kind < "$home/state/delivered-routine-note" >/dev/null 2>&1; then
+  if bash ./bin/fm-operational-input.sh kind < "$home/state/delivered-routine-note" >/dev/null 2>&1; then
     fail "routine note must stay plain rendered text, not typed operational input"
   fi
   pass "a captain outcome reaches main's model as one typed, sequence-keyed processing request while routine notes stay plain"

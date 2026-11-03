@@ -259,10 +259,10 @@ check_trust() {
 
 check_mirror() {
   local out rc entries
-  out=$(cd "$LAB" && lab_run FM_HOME="$LAB" "$LAB/bin/fm-host-mirror.sh" verified claude 2>&1)
+  out=$(cd "$LAB" && lab_run FM_HOME="$LAB" bash "$LAB/bin/fm-host-mirror.sh" verified claude 2>&1)
   rc=$?
   [ "$rc" -eq 0 ] || { echo "fail mirror: fm-host-mirror.sh verified claude exited $rc ${out:+($out)}"; return 1; }
-  out=$(cd "$LAB" && lab_run FM_HOME="$LAB" "$LAB/bin/fm-host-mirror.sh" check 2>&1)
+  out=$(cd "$LAB" && lab_run FM_HOME="$LAB" bash "$LAB/bin/fm-host-mirror.sh" check 2>&1)
   rc=$?
   [ "$rc" -eq 0 ] || { echo "fail mirror: fm-host-mirror.sh check exited $rc ${out:+($(printf '%s' "$out" | head -n 1))}"; return 1; }
   entries=$(jq -rs '[.[].tag] | "captain=\(map(select(.=="captain"))|length) main=\(map(select(.=="main"))|length)"' \
@@ -333,7 +333,7 @@ check_mate() {
 check_worker() {
   local state
   window_alive worker || { echo "fail worker: the $WORKER_ID window is not running"; return 1; }
-  state=$(cd "$LAB" && lab_run FM_HOME="$LAB" FM_CREW_STATE_NO_FORGE=1 "$LAB/bin/fm-crew-state.sh" "$WORKER_ID" 2>/dev/null)
+  state=$(cd "$LAB" && lab_run FM_HOME="$LAB" FM_CREW_STATE_NO_FORGE=1 bash "$LAB/bin/fm-crew-state.sh" "$WORKER_ID" 2>/dev/null)
   case "$state" in
     "state: paused · "*"$GATE"*) ;;
     *) echo "fail worker: the worker is not currently parked on $GATE (${state:-no state})"; return 1 ;;
@@ -430,7 +430,7 @@ MD
 spawn_worker() {
   local brief="$LAB/data/$WORKER_ID/brief.md" gate="$GATE"
   make_notes_project || return 1
-  (cd "$LAB" && lab_run FM_HOME="$LAB" "$LAB/bin/fm-brief.sh" "$WORKER_ID" notes --mode local-only) >/dev/null || return 1
+  (cd "$LAB" && lab_run FM_HOME="$LAB" bash "$LAB/bin/fm-brief.sh" "$WORKER_ID" notes --mode local-only) >/dev/null || return 1
   TASK_TEXT="Lab gated worker for a live supervision lab. Add count_notes(), which returns how many notes are stored, to notes/__init__.py with a unit test, but only after the gate file $gate exists and you receive a message to resume." \
   SPEC_TEXT="Right after setup, append one paused status line naming the gate file $gate and end your turn. Do not poll or sleep in a foreground command. When a later message resumes you, check that $gate exists before implementing count_notes() in notes/__init__.py and a test in tests/test_notes.py; if it is absent, remain paused and end your turn again. Once the gate exists, run python3 -m unittest discover -s tests, commit, and report done. Nothing else is in scope." \
     python3 - "$brief" <<'PY' || return 1
@@ -440,8 +440,8 @@ text = open(path, encoding="utf-8").read()
 text = text.replace("{TASK}", os.environ["TASK_TEXT"], 1).replace("{FIRSTMATE_SPEC}", os.environ["SPEC_TEXT"], 1)
 open(path, "w", encoding="utf-8").write(text)
 PY
-  (cd "$LAB" && lab_run FM_HOME="$LAB" "$LAB/bin/fm-tasks-axi.sh" add "$WORKER_ID" "lab gated worker" --kind ship --repo notes) >/dev/null || return 1
-  (cd "$LAB" && lab_run FM_HOME="$LAB" "$LAB/bin/fm-spawn.sh" "$WORKER_ID" "$LAB/projects/notes" \
+  (cd "$LAB" && lab_run FM_HOME="$LAB" bash "$LAB/bin/fm-tasks-axi.sh" add "$WORKER_ID" "lab gated worker" --kind ship --repo notes) >/dev/null || return 1
+  (cd "$LAB" && lab_run FM_HOME="$LAB" bash "$LAB/bin/fm-spawn.sh" "$WORKER_ID" "$LAB/projects/notes" \
     --mode local-only --yolo on --harness claude --effort low)
 }
 
@@ -449,8 +449,8 @@ spawn_mate() {
   local charter='Provide an idle live-validation lab second mate. When explicitly steered for a synthetic test, report only honest local lab outcomes; do not claim external PR activity, merge, or retire yourself.'
   (cd "$LAB" && lab_run FM_HOME="$LAB" FM_SECONDMATE_CHARTER="$charter" \
     FM_SECONDMATE_SCOPE='second-mate live validation synthetic status relay' \
-    "$LAB/bin/fm-home-seed.sh" "$MATE_ID" "$ROOT/mate" --no-projects) || return 1
-  (cd "$LAB" && lab_run FM_HOME="$LAB" "$LAB/bin/fm-spawn.sh" "$MATE_ID" --secondmate)
+    bash "$LAB/bin/fm-home-seed.sh" "$MATE_ID" "$ROOT/mate" --no-projects) || return 1
+  (cd "$LAB" && lab_run FM_HOME="$LAB" bash "$LAB/bin/fm-spawn.sh" "$MATE_ID" --secondmate)
 }
 
 cmd_up() {
@@ -521,7 +521,7 @@ cmd_up() {
   } > "$ROOT/$RECORD_NAME"
   echo "lab: $ROOT (tear down with: $0 down $ROOT)"
 
-  "$LAB_HOME_HELPER" create "$LAB" >/dev/null || die "cannot create the lab home"
+  bash "$LAB_HOME_HELPER" create "$LAB" >/dev/null || die "cannot create the lab home"
   git -C "$LAB" init -q -b main || die "cannot initialize the lab home"
   git -C "$LAB" fetch -q "$source" "$ref" || die "cannot fetch $ref from $source"
   git -C "$LAB" checkout -q -f -B main FETCH_HEAD || die "cannot check out $ref"
@@ -538,7 +538,7 @@ cmd_up() {
   esac
   echo "tree: $(git -C "$LAB" rev-parse HEAD) from $source"
 
-  TMUX_DIR=$("$LAB_HOME_HELPER" tmux-dir "$LAB") || die "cannot create the private tmux directory"
+  TMUX_DIR=$(bash "$LAB_HOME_HELPER" tmux-dir "$LAB") || die "cannot create the private tmux directory"
   echo "tmux_dir=$TMUX_DIR" >> "$ROOT/$RECORD_NAME"
   lab_run tmux -f /dev/null new-session -d -s firstmate -n lab -x 220 -y 60 -c "$ROOT" || die "cannot start the lab tmux server"
   record_launch_pid "$(lab_tmux display-message -p '#{pid}')"
@@ -561,7 +561,7 @@ cmd_up() {
       sleep 2
     done
     for (( retry=0; retry<3; retry++ )); do
-      lab_run "$CLAUDE_TRUST" --lab-home "$LAB" >/dev/null || die "cannot register Claude trust for the lab home"
+      lab_run bash "$CLAUDE_TRUST" --lab-home "$LAB" >/dev/null || die "cannot register Claude trust for the lab home"
       sleep 1
       lab_trust_present && break
     done
@@ -810,7 +810,7 @@ cmd_down() {
     done
   done
   if [ -f "$LAB/.fm-lab-home" ]; then
-    "$LAB_HOME_HELPER" teardown "$LAB" || die "cannot remove the private tmux directory"
+    bash "$LAB_HOME_HELPER" teardown "$LAB" || die "cannot remove the private tmux directory"
   fi
   removed=$(forget_claude_entries) || die "cannot remove the lab's Claude trust entries"
   echo "removed: $removed Claude project entries under $ROOT"

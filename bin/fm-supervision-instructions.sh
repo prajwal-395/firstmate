@@ -100,7 +100,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ -z "$HARNESS" ]; then
-  HARNESS=$("$SCRIPT_DIR/fm-harness.sh" 2>/dev/null || printf unknown)
+  HARNESS=$(bash "$SCRIPT_DIR/fm-harness.sh" 2>/dev/null || printf unknown)
 fi
 
 case "$HARNESS" in

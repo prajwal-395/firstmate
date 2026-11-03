@@ -512,7 +512,7 @@ test_spawn_preserves_orca_metadata_when_pathless_worktree_cleanup_fails() {
   out=$( HOME="$SPAWN_HOME" CLAUDE_CONFIG_DIR='' PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
     FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
     FM_PROJECTS_OVERRIDE="$TMP_ROOT/unused-projects" FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --mode no-mistakes --yolo off --backend orca 2>&1 )
+    bash "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --mode no-mistakes --yolo off --backend orca 2>&1 )
   status=$?
   [ "$status" -ne 0 ] || fail "Orca spawn should fail when path parsing and cleanup fail"
   assert_contains "$out" "orca worktree create did not return a path" \
@@ -547,7 +547,7 @@ test_spawn_writes_orca_metadata_and_launches_harness() {
   out=$( HOME="$SPAWN_HOME" CLAUDE_CONFIG_DIR='' PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
     FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
     FM_PROJECTS_OVERRIDE="$TMP_ROOT/unused-projects" FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --mode no-mistakes --yolo off --backend orca 2>&1 )
+    bash "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --mode no-mistakes --yolo off --backend orca 2>&1 )
   expect_code 0 $? "fm-spawn.sh --backend orca should succeed with fake Orca"$'\n'"$out"
   assert_contains "$out" "spawned $id harness=claude kind=ship mode=no-mistakes yolo=off window=fm-$id worktree=$wt" \
     "spawn output missing Orca window/worktree summary"
@@ -587,7 +587,7 @@ test_spawn_refuses_orca_secondmate_before_home_mutation() {
   set +e
   out=$( FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
     FM_PROJECTS_OVERRIDE="$home/projects" FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" "$id" "$subhome" claude --backend orca --secondmate 2>&1 )
+    bash "$ROOT/bin/fm-spawn.sh" "$id" "$subhome" claude --backend orca --secondmate 2>&1 )
   status=$?
   set +e
   [ "$status" -ne 0 ] || fail "backend=orca --secondmate should be refused"
@@ -614,7 +614,7 @@ test_spawn_refuses_orca_when_runtime_not_ready() {
   out=$( HOME="$SPAWN_HOME" CLAUDE_CONFIG_DIR='' PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" FM_ORCA_STATUS_RESPONSE=sequence \
     FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
     FM_PROJECTS_OVERRIDE="$TMP_ROOT/unused-projects" FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --mode no-mistakes --yolo off --backend orca 2>&1 )
+    bash "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --mode no-mistakes --yolo off --backend orca 2>&1 )
   status=$?
   [ "$status" -ne 0 ] || fail "fm-spawn.sh --backend orca should refuse when Orca runtime is not ready"
   assert_contains "$out" "requires a ready Orca runtime" \
@@ -645,7 +645,7 @@ test_spawn_refuses_orca_nonisolated_worktree() {
   out=$( HOME="$SPAWN_HOME" CLAUDE_CONFIG_DIR='' PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
     FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
     FM_PROJECTS_OVERRIDE="$TMP_ROOT/unused-projects" FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --mode no-mistakes --yolo off --backend orca 2>&1 )
+    bash "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --mode no-mistakes --yolo off --backend orca 2>&1 )
   status=$?
   expect_code 1 "$status" "fm-spawn.sh --backend orca should refuse a primary checkout worktree"
   assert_contains "$out" "orca worktree create did not yield an isolated worktree" \
@@ -680,7 +680,7 @@ test_spawn_removes_orca_worktree_when_terminal_create_fails() {
   out=$( HOME="$SPAWN_HOME" CLAUDE_CONFIG_DIR='' PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
     FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
     FM_PROJECTS_OVERRIDE="$TMP_ROOT/unused-projects" FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --mode no-mistakes --yolo off --backend orca 2>&1 )
+    bash "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --mode no-mistakes --yolo off --backend orca 2>&1 )
   status=$?
   [ "$status" -ne 0 ] || fail "Orca spawn should fail when terminal creation fails"
   assert_absent "$state/$id.meta" "terminal-create abort should not record metadata after successful cleanup"
@@ -714,7 +714,7 @@ test_spawn_preserves_orca_metadata_when_abort_cleanup_fails() {
   out=$( HOME="$SPAWN_HOME" CLAUDE_CONFIG_DIR='' PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
     FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
     FM_PROJECTS_OVERRIDE="$TMP_ROOT/unused-projects" FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --mode no-mistakes --yolo off --backend orca 2>&1 )
+    bash "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --mode no-mistakes --yolo off --backend orca 2>&1 )
   status=$?
   [ "$status" -ne 0 ] || fail "Orca spawn should fail when terminal creation and abort cleanup fail"
   assert_contains "$(cat "$LOG")" $'orca\x1f''worktree'$'\x1f''rm'$'\x1f''--worktree'$'\x1f''id:wt-cleanup-fail::/orca/wt-cleanup-fail'$'\x1f''--force'$'\x1f''--json' \
@@ -746,7 +746,7 @@ test_spawn_releases_orca_resources_when_metadata_write_fails() {
   out=$( HOME="$SPAWN_HOME" CLAUDE_CONFIG_DIR='' PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
     FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
     FM_PROJECTS_OVERRIDE="$TMP_ROOT/unused-projects" FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --mode no-mistakes --yolo off --backend orca 2>&1 )
+    bash "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --mode no-mistakes --yolo off --backend orca 2>&1 )
   status=$?
   [ "$status" -ne 0 ] || fail "Orca spawn should fail when metadata cannot be written"
   assert_contains "$out" "task record for $id could not be published" \
@@ -773,17 +773,17 @@ test_peek_send_and_crew_state_route_through_orca_meta() {
   printf '{"ok":true,"result":{"terminal":{"tail":["ready"]}}}\n' > "$RESP/1.out"
   out=$( PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
     FM_ROOT_OVERRIDE="$neutral" FM_STATE_OVERRIDE="$state" FM_SEND_SETTLE=0 \
-    "$ROOT/bin/fm-peek.sh" "fm-$id" 10 )
+    bash "$ROOT/bin/fm-peek.sh" "fm-$id" 10 )
   [ "$out" = ready ] || fail "fm-peek should read through Orca metadata, got '$out'"
   printf '{"ok":true,"result":{"send":{"handle":"term-io","accepted":true}}}\n' > "$RESP/2.out"
   printf '{"ok":true,"result":{"send":{"handle":"term-io","accepted":true}}}\n' > "$RESP/3.out"
   printf '{"ok":true,"result":{"terminal":{"tail":["│ > │"]}}}\n' > "$RESP/4.out"
   PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
     FM_ROOT_OVERRIDE="$neutral" FM_HOME="$neutral" FM_STATE_OVERRIDE="$state" FM_SEND_SETTLE=0 \
-    "$ROOT/bin/fm-send.sh" "fm-$id" "hello orca"
+    bash "$ROOT/bin/fm-send.sh" "fm-$id" "hello orca"
   printf '{"ok":true,"result":{"terminal":{"tail":["idle prompt"]}}}\n' > "$RESP/5.out"
   out=$( PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
-    FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$state" "$ROOT/bin/fm-crew-state.sh" "$id" )
+    FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$state" bash "$ROOT/bin/fm-crew-state.sh" "$id" )
   assert_contains "$out" "state: unknown" "crew-state should fall back cleanly for an idle Orca scout"
   assert_contains "$(cat "$LOG")" $'orca\x1f''terminal'$'\x1f''read'$'\x1f''--terminal'$'\x1f''term-io' \
     "peek/crew-state did not read the recorded Orca terminal"
@@ -815,13 +815,13 @@ test_peek_and_crew_state_fail_closed_on_orca_error_json() {
   neutral=$(neutral_fm_root "$CASE_DIR/neutral")
   printf '{"ok":false,"error":{"code":"terminal_handle_stale","message":"terminal handle stale"}}\n' > "$RESP/1.out"
   out=$( PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
-    FM_ROOT_OVERRIDE="$neutral" FM_STATE_OVERRIDE="$state" "$ROOT/bin/fm-peek.sh" "fm-$id" 10 2>&1 )
+    FM_ROOT_OVERRIDE="$neutral" FM_STATE_OVERRIDE="$state" bash "$ROOT/bin/fm-peek.sh" "fm-$id" 10 2>&1 )
   status=$?
   [ "$status" -ne 0 ] || fail "fm-peek should fail when Orca reports a stale terminal"
   assert_contains "$out" "terminal handle stale" "fm-peek should surface the Orca read error message"
   printf '{"ok":false,"error":{"code":"terminal_handle_stale","message":"terminal handle stale"}}\n' > "$RESP/2.out"
   out=$( PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
-    FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$state" "$ROOT/bin/fm-crew-state.sh" "$id" )
+    FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$state" bash "$ROOT/bin/fm-crew-state.sh" "$id" )
   assert_contains "$out" "state: unknown" "crew-state should not treat an Orca read error as a live endpoint"
   assert_contains "$out" "backend target gone: term-stale" "crew-state should report the stale Orca terminal as gone"
   assert_contains "$(cat "$LOG")" $'orca\x1f''terminal'$'\x1f''read'$'\x1f''--terminal'$'\x1f''term-stale' \
@@ -865,7 +865,7 @@ test_scout_teardown_removes_orca_worktree_via_helper() {
   set +e
   out=$( PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
     FM_ROOT_OVERRIDE="$neutral" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
-    "$ROOT/bin/fm-teardown.sh" "$id" 2>&1 )
+    bash "$ROOT/bin/fm-teardown.sh" "$id" 2>&1 )
   rc=$?
   set -e
   expect_code 0 "$rc" "Orca scout teardown should succeed once report exists"$'\n'"$out"
@@ -902,7 +902,7 @@ test_scout_teardown_refuses_orca_id_path_mismatch() {
   set +e
   out=$( PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
     FM_ROOT_OVERRIDE="$neutral" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
-    "$ROOT/bin/fm-teardown.sh" "$id" 2>&1 )
+    bash "$ROOT/bin/fm-teardown.sh" "$id" 2>&1 )
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "Orca scout teardown should refuse when id path differs from worktree="
@@ -937,7 +937,7 @@ test_teardown_removes_orca_worktree_when_path_missing() {
   set +e
   out=$( PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
     FM_ROOT_OVERRIDE="$neutral" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
-    "$ROOT/bin/fm-teardown.sh" "$id" 2>&1 )
+    bash "$ROOT/bin/fm-teardown.sh" "$id" 2>&1 )
   rc=$?
   set -e
   expect_code 0 "$rc" "Orca teardown should release helpers even when the path is absent"$'\n'"$out"
@@ -972,7 +972,7 @@ test_teardown_preserves_metadata_when_orca_remove_error_json() {
   set +e
   out=$( PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
     FM_ROOT_OVERRIDE="$neutral" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
-    "$ROOT/bin/fm-teardown.sh" "$id" 2>&1 )
+    bash "$ROOT/bin/fm-teardown.sh" "$id" 2>&1 )
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "Orca teardown should fail when worktree removal returns ok:false JSON"
@@ -1000,7 +1000,7 @@ test_scout_teardown_refuses_orca_missing_report_when_path_missing() {
   set +e
   out=$( PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
     FM_ROOT_OVERRIDE="$neutral" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
-    "$ROOT/bin/fm-teardown.sh" "$id" 2>&1 )
+    bash "$ROOT/bin/fm-teardown.sh" "$id" 2>&1 )
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "Orca scout teardown should refuse without a report even when the path is absent"
@@ -1030,7 +1030,7 @@ test_ship_teardown_refuses_orca_missing_worktree_path() {
   set +e
   out=$( PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
     FM_ROOT_OVERRIDE="$neutral" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
-    "$ROOT/bin/fm-teardown.sh" "$id" 2>&1 )
+    bash "$ROOT/bin/fm-teardown.sh" "$id" 2>&1 )
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "Orca ship teardown should refuse a missing worktree path"
@@ -1062,7 +1062,7 @@ test_ship_teardown_removes_orca_worktree_when_id_path_matches() {
   set +e
   out=$( PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
     FM_ROOT_OVERRIDE="$neutral" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
-    "$ROOT/bin/fm-teardown.sh" "$id" 2>&1 )
+    bash "$ROOT/bin/fm-teardown.sh" "$id" 2>&1 )
   rc=$?
   set -e
   expect_code 0 "$rc" "Orca ship teardown should succeed when the id path matches the inspected worktree"$'\n'"$out"
@@ -1097,7 +1097,7 @@ test_ship_teardown_refuses_orca_unresolvable_worktree_id() {
   set +e
   out=$( PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
     FM_ROOT_OVERRIDE="$neutral" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
-    "$ROOT/bin/fm-teardown.sh" "$id" 2>&1 )
+    bash "$ROOT/bin/fm-teardown.sh" "$id" 2>&1 )
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "Orca ship teardown should refuse when the worktree id cannot be resolved"
@@ -1136,7 +1136,7 @@ test_ship_teardown_refuses_orca_id_path_mismatch() {
   set +e
   out=$( PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
     FM_ROOT_OVERRIDE="$neutral" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
-    "$ROOT/bin/fm-teardown.sh" "$id" 2>&1 )
+    bash "$ROOT/bin/fm-teardown.sh" "$id" 2>&1 )
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "Orca ship teardown should refuse when the id path differs from worktree="
@@ -1173,7 +1173,7 @@ test_teardown_refuses_orca_missing_worktree_id() {
   set +e
   out=$( PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
     FM_ROOT_OVERRIDE="$neutral" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
-    "$ROOT/bin/fm-teardown.sh" "$id" 2>&1 )
+    bash "$ROOT/bin/fm-teardown.sh" "$id" 2>&1 )
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "Orca teardown should refuse missing orca_worktree_id"
@@ -1205,7 +1205,7 @@ test_teardown_refuses_orca_worktree_without_terminal_handle() {
   set +e
   out=$( PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
     FM_ROOT_OVERRIDE="$neutral" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
-    "$ROOT/bin/fm-teardown.sh" "$id" 2>&1 )
+    bash "$ROOT/bin/fm-teardown.sh" "$id" 2>&1 )
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "Orca teardown accepted metadata without a terminal handle"
@@ -1245,7 +1245,7 @@ test_secondmate_force_teardown_removes_orca_child_via_orca() {
   neutral=$(neutral_fm_root "$CASE_DIR/neutral")
   set +e
   out=$( PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
-    FM_ROOT_OVERRIDE="$neutral" FM_HOME="$home" "$ROOT/bin/fm-teardown.sh" domain --force 2>&1 )
+    FM_ROOT_OVERRIDE="$neutral" FM_HOME="$home" bash "$ROOT/bin/fm-teardown.sh" domain --force 2>&1 )
   rc=$?
   set -e
   expect_code 0 "$rc" "forced secondmate teardown should remove Orca child work through Orca"$'\n'"$out"
@@ -1288,7 +1288,7 @@ test_secondmate_force_teardown_refuses_orca_child_id_path_mismatch() {
   neutral=$(neutral_fm_root "$CASE_DIR/neutral")
   set +e
   out=$( PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
-    FM_ROOT_OVERRIDE="$neutral" FM_HOME="$home" "$ROOT/bin/fm-teardown.sh" domain --force 2>&1 )
+    FM_ROOT_OVERRIDE="$neutral" FM_HOME="$home" bash "$ROOT/bin/fm-teardown.sh" domain --force 2>&1 )
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "forced secondmate teardown should refuse mismatched Orca child id/path"
@@ -1328,7 +1328,7 @@ test_secondmate_force_teardown_refuses_partial_orca_child() {
   neutral=$(neutral_fm_root "$CASE_DIR/neutral")
   set +e
   out=$( PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
-    FM_ROOT_OVERRIDE="$neutral" FM_HOME="$home" "$ROOT/bin/fm-teardown.sh" domain --force 2>&1 )
+    FM_ROOT_OVERRIDE="$neutral" FM_HOME="$home" bash "$ROOT/bin/fm-teardown.sh" domain --force 2>&1 )
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "forced secondmate teardown accepted a child with no terminal identity"

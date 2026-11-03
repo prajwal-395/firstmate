@@ -67,7 +67,7 @@ SH
 chmod +x "$FAKEBIN/gh"
 
 run_reviewers() {
-  PATH="$FAKEBIN:$PATH" "$SCRIPT" https://github.com/o/r/pull/7
+  PATH="$FAKEBIN:$PATH" bash "$SCRIPT" https://github.com/o/r/pull/7
 }
 
 test_candidates_use_api_logins_and_unique_commit_counts() {
@@ -94,16 +94,16 @@ test_only_author_evidence_says_no_candidates() {
 
 test_refusals_exit_nonzero() {
   local status=0
-  PATH="$FAKEBIN:$PATH" "$SCRIPT" >/dev/null 2>&1 || status=$?
+  PATH="$FAKEBIN:$PATH" bash "$SCRIPT" >/dev/null 2>&1 || status=$?
   [ "$status" -ne 0 ] || fail "missing argument refusal exited zero"
 
   status=0
-  PATH="$FAKEBIN:$PATH" "$SCRIPT" not-a-pr >/dev/null 2>&1 || status=$?
+  PATH="$FAKEBIN:$PATH" bash "$SCRIPT" not-a-pr >/dev/null 2>&1 || status=$?
   [ "$status" -ne 0 ] || fail "lookup refusal exited zero"
 
   local out
   status=0
-  out=$(PATH="$FAKEBIN:$PATH" "$SCRIPT" 7 2>&1) || status=$?
+  out=$(PATH="$FAKEBIN:$PATH" bash "$SCRIPT" 7 2>&1) || status=$?
   [ "$status" -ne 0 ] \
     || fail "a bare number resolves against the ambient repository and is not an address"
   assert_contains "$out" 'expected a GitHub pull-request URL' \

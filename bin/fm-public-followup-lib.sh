@@ -401,7 +401,7 @@ fm_pf_deliverable_problem() {
 # data override is still in the environment.
 fm_pf_obligation_json() {
   local home=$1 id=$2 out
-  out=$(FM_HOME="$home" FM_DATA_OVERRIDE='' "$_FM_PF_LIB_DIR/fm-tasks-axi.sh" \
+  out=$(FM_HOME="$home" FM_DATA_OVERRIDE='' bash "$_FM_PF_LIB_DIR/fm-tasks-axi.sh" \
     public-followup list --json 2>/dev/null) || return 1
   [ -n "$out" ] || return 1
   printf '%s' "$out" | jq -c --arg id "$id" \

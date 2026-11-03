@@ -270,7 +270,7 @@ test_pi_extension_stale_incarnation_rejected() {
   ext="$state/$id.pi-ext.ts"
   # A re-arm (a rewired incarnation) supersedes the gen embedded in the old
   # extension file: its late events must be rejected and never change state.
-  "$ROOT/bin/fm-busy-event.sh" arm "$state" "$id" >/dev/null
+  bash "$ROOT/bin/fm-busy-event.sh" arm "$state" "$id" >/dev/null
   out=$(drive_pi_ext "$ext" settle-idle) || fail "stale settle drive failed: $out"
   out=$(classify pi "$id" "$state")
   [ "$out" = "busy fm-spawn" ] || fail "a stale extension event must not change state, got '$out'"
@@ -509,7 +509,7 @@ test_opencode_attached_plugin_follows_a_rearmed_generation() {
   plugin="$WT_DIR/.opencode/plugins/fm-busy-state.js"
   # A shared server keeps the first incarnation's plugin module loaded across
   # a relaunch, so the module must follow the generation armed after it.
-  "$ROOT/bin/fm-busy-event.sh" arm "$state" "$id" >/dev/null
+  bash "$ROOT/bin/fm-busy-event.sh" arm "$state" "$id" >/dev/null
   out=$(drive_oc_plugin "$plugin" "$(oc_status ses_main busy)" "$(oc_status ses_main idle)") \
     || fail "re-armed drive failed: $out"
   out=$(classify opencode "$id" "$state")
@@ -531,8 +531,8 @@ test_two_concurrent_sessions_on_one_shared_server_both_report_busy_to_their_own_
   state="$HOME_DIR/state"
   plugin="$WT_DIR/.opencode/plugins/fm-busy-state.js"
   sessions="$state/opencode-server-default.sessions"
-  gen_a=$("$ROOT/bin/fm-busy-event.sh" arm "$state" "$id")
-  gen_b=$("$ROOT/bin/fm-busy-event.sh" arm "$state" "$other")
+  gen_a=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$state" "$id")
+  gen_b=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$state" "$other")
   printf '%s\t%s\n' "$id" "$gen_a" > "$sessions/session_a"
   printf '%s\t%s\n' "$other" "$gen_b" > "$sessions/session_b"
 
@@ -599,7 +599,7 @@ test_claude_hooks_stale_incarnation_harmless() {
   expect_code 0 $? "claude spawn should succeed: $out"
   state="$HOME_DIR/state"
   settings="$WT_DIR/.claude/settings.local.json"
-  "$ROOT/bin/fm-busy-event.sh" arm "$state" "$id" >/dev/null
+  bash "$ROOT/bin/fm-busy-event.sh" arm "$state" "$id" >/dev/null
   run_claude_hook "$settings" UserPromptSubmit \
     || fail "a stale-gen hook must still exit 0 so Claude's lifecycle is never broken"
   out=$(classify claude "$id" "$state")
@@ -726,7 +726,7 @@ test_gemini_hooks_stale_incarnation_harmless() {
   expect_code 0 $? "gemini spawn should succeed: $out"
   state="$HOME_DIR/state"
   settings="$state/$id.gemini-settings.json"
-  "$ROOT/bin/fm-busy-event.sh" arm "$state" "$id" >/dev/null
+  bash "$ROOT/bin/fm-busy-event.sh" arm "$state" "$id" >/dev/null
   run_gemini_hook "$settings" BeforeAgent >/dev/null \
     || fail "a stale-gen hook must still exit 0 so gemini's lifecycle is never broken"
   out=$(classify gemini "$id" "$state")
@@ -822,7 +822,7 @@ test_kiro_hooks_stale_incarnation_harmless() {
   expect_code 0 $? "kiro spawn should succeed: $out"
   state="$HOME_DIR/state"
   agent="$state/$id.kiro-home/agents/firstmate.json"
-  "$ROOT/bin/fm-busy-event.sh" arm "$state" "$id" >/dev/null
+  bash "$ROOT/bin/fm-busy-event.sh" arm "$state" "$id" >/dev/null
   run_kiro_hook "$agent" userPromptSubmit \
     || fail "a stale-gen hook must still exit 0 so kiro's lifecycle is never broken"
   out=$(classify kiro "$id" "$state")
@@ -871,12 +871,12 @@ test_agy_hook_source_trusted() {
     *' agy-hook '*) : ;;
     *) fail "agy must trust the agy-hook semantic source, got '$(fm_busy_sources_for_harness agy)'" ;;
   esac
-  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$state" "$id")
-  "$ROOT/bin/fm-busy-event.sh" apply "$state" "$id" busy --gen "$gen" --source agy-hook --event pre-invocation >/dev/null \
+  gen=$(bash "$ROOT/bin/fm-busy-event.sh" arm "$state" "$id")
+  bash "$ROOT/bin/fm-busy-event.sh" apply "$state" "$id" busy --gen "$gen" --source agy-hook --event pre-invocation >/dev/null \
     || fail "agy-hook busy apply failed"
   out=$(fm_busy_classify tmux fake:w agy "$id" "$state")
   [ "$out" = "busy agy-hook" ] || fail "PreInvocation must classify 'busy agy-hook', got '$out'"
-  "$ROOT/bin/fm-busy-event.sh" apply "$state" "$id" idle --gen "$gen" --source agy-hook --event stop >/dev/null \
+  bash "$ROOT/bin/fm-busy-event.sh" apply "$state" "$id" idle --gen "$gen" --source agy-hook --event stop >/dev/null \
     || fail "agy-hook idle apply failed"
   out=$(fm_busy_classify tmux fake:w agy "$id" "$state")
   [ "$out" = "idle agy-hook" ] || fail "Stop must classify 'idle agy-hook', got '$out'"
@@ -956,7 +956,7 @@ SH
     FM_STATE_OVERRIDE="$state" FM_BACKEND=tmux \
     FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 \
     FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds "$seconds" \
+    bash "$ROOT/bin/fm-watch-checkpoint.sh" --seconds "$seconds" \
     > "$out" 2>"$out.err" || true
 }
 

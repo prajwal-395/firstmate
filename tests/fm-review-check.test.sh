@@ -31,7 +31,7 @@ fixture() {
 
 run_check() {  # <args...>; sets OUT and RC
   OUT=$(FM_HOME="$HOME_DIR" FM_STATE_OVERRIDE="$HOME_DIR/state" FM_CONFIG_OVERRIDE="$HOME_DIR/config" \
-    "$CHECK" "$@" 2>&1)
+    bash "$CHECK" "$@" 2>&1)
   RC=$?
 }
 

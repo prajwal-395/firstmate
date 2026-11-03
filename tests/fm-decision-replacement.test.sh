@@ -149,7 +149,7 @@ test_drain_announces_replacement_on_empty_queue_path() {
   printf 'needs-decision: pick [key=api-shape] now please\n' > "$state/task1.status"
   printf 'needs-decision: pick [key=other-shape] now please\n' >> "$state/task1.status"
 
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed on a replaced decision"
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$out" || fail "drain failed on a replaced decision"
 
   grep -F 'DECISION REPLACEMENTS' "$out" >/dev/null \
     || fail "a genuine replacement produced no DECISION REPLACEMENTS section"
@@ -168,7 +168,7 @@ test_drain_stays_silent_without_replacement() {
   printf 'needs-decision [key=api-shape]: pick REST or RPC\n' > "$state/task2.status"
   printf 'needs-decision [key=api-shape]: pick REST or RPC\n' >> "$state/task2.status"
 
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed on a verbatim re-append"
+  FM_STATE_OVERRIDE="$state" bash "$DRAIN" > "$out" || fail "drain failed on a verbatim re-append"
 
   if grep -F 'DECISION REPLACEMENTS' "$out" >/dev/null; then
     fail "a verbatim re-append printed a DECISION REPLACEMENTS section: $(cat "$out")"

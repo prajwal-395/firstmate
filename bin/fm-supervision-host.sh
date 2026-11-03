@@ -360,7 +360,7 @@ branch_env() {  # <command...>: run with the branch actor identity
 }
 
 release_branch_leases() {
-  branch_env "$SCRIPT_DIR/fm-lease.sh" release-actor --actor branch >/dev/null 2>&1 || true
+  branch_env bash "$SCRIPT_DIR/fm-lease.sh" release-actor --actor branch >/dev/null 2>&1 || true
 }
 
 # Stop whatever a predecessor host left running, then take the record. The
@@ -451,8 +451,8 @@ cleanup() {
   retire_arm "$SUCCESSOR_PID" "$SUCCESSOR_OUT"
   retire_arm "$ARM_PID" "$ARM_OUT"
   if [ "$GRANT_ACTIVE" -eq 1 ]; then
-    "$SCRIPT_DIR/fm-wake-grant.sh" release "$GEN" >/dev/null 2>&1 || true
-    "$SCRIPT_DIR/fm-wake-grant.sh" deactivate "$HOST_PID" "$GEN" >/dev/null 2>&1 || true
+    bash "$SCRIPT_DIR/fm-wake-grant.sh" release "$GEN" >/dev/null 2>&1 || true
+    bash "$SCRIPT_DIR/fm-wake-grant.sh" deactivate "$HOST_PID" "$GEN" >/dev/null 2>&1 || true
   fi
   release_branch_leases
   rm -f "$TURN_FILE" "$ENGINE_PID_FILE" 2>/dev/null || true
@@ -499,9 +499,9 @@ start_arm() {  # <predecessor-arm-pid or empty> [--restart]; sets the started pi
   # (the shape start_handling_successor in bin/fm-claude-stop-autoarm.sh uses).
   [ "${ARM_OWN_GROUP:-0}" -ne 1 ] || set -m 2>/dev/null || true
   if [ -n "$predecessor" ]; then
-    FM_WATCH_PREDECESSOR_ARM_PID=$predecessor FM_GUARD_GRACE="$GRACE" "$SCRIPT_DIR/fm-watch-arm.sh" "$@" >"$out" 2>&1 </dev/null &
+    FM_WATCH_PREDECESSOR_ARM_PID=$predecessor FM_GUARD_GRACE="$GRACE" bash "$SCRIPT_DIR/fm-watch-arm.sh" "$@" >"$out" 2>&1 </dev/null &
   else
-    FM_GUARD_GRACE="$GRACE" "$SCRIPT_DIR/fm-watch-arm.sh" "$@" >"$out" 2>&1 </dev/null &
+    FM_GUARD_GRACE="$GRACE" bash "$SCRIPT_DIR/fm-watch-arm.sh" "$@" >"$out" 2>&1 </dev/null &
   fi
   pid=$!
   [ "${ARM_OWN_GROUP:-0}" -ne 1 ] || set +m 2>/dev/null || true
@@ -543,7 +543,7 @@ boundary_exit() {
   ARM_OUT=
   SUCCESSOR_PID=
   SUCCESSOR_OUT=
-  "$SCRIPT_DIR/fm-watch-arm.sh" --stop >/dev/null 2>&1 || true
+  bash "$SCRIPT_DIR/fm-watch-arm.sh" --stop >/dev/null 2>&1 || true
   emit 'supervision-host: cycle boundary - the host ended its park at its bound; drain, acknowledge, and end the turn, and the next park starts on its own'
   exit 0
 }
@@ -691,7 +691,7 @@ retire_successor() {
   retire_arm "$SUCCESSOR_PID" "$SUCCESSOR_OUT"
   SUCCESSOR_PID=
   SUCCESSOR_OUT=
-  "$SCRIPT_DIR/fm-watch-arm.sh" --stop >/dev/null 2>&1 || true
+  bash "$SCRIPT_DIR/fm-watch-arm.sh" --stop >/dev/null 2>&1 || true
 }
 
 # Hand the close to main: stop the successor cycle, print the close, why, and
@@ -732,7 +732,7 @@ acknowledged_handback() {  # [extra output lines]; returns only when disabled
   out=$(mktemp "$STATE/.supervision-handoff-start.XXXXXX") || exit 1
   set -m
   FM_SUPERVISION_HOST_READY_TIMEOUT="$READY_TIMEOUT" \
-    nohup "$SCRIPT_DIR/fm-supervision-handoff.sh" "$GEN" "$predecessor" > "$out" 2>&1 </dev/null &
+    nohup bash "$SCRIPT_DIR/fm-supervision-handoff.sh" "$GEN" "$predecessor" > "$out" 2>&1 </dev/null &
   pid=$!
   set +m
   record_process handoff "$pid"
@@ -775,7 +775,7 @@ returned_during_turn() {
     return 1
   fi
   [ -n "$TURN_RECEIPT_SEQS" ] || return 1
-  if ! RETURNED_ROWS=$("$SCRIPT_DIR/fm-branch-outcome.sh" lookup --seqs "$TURN_RECEIPT_SEQS" 2>/dev/null); then
+  if ! RETURNED_ROWS=$(bash "$SCRIPT_DIR/fm-branch-outcome.sh" lookup --seqs "$TURN_RECEIPT_SEQS" 2>/dev/null); then
     RETURNED_LOOKUP_FAILED=1
     return 1
   fi
@@ -915,7 +915,7 @@ choose_conversation() {
   ENGINE_KEY=$RECORD_KEY
   local tmp
   tmp=$(mktemp "$PROMPT_FILE.tmp.XXXXXX") || return 1
-  if ! "$SCRIPT_DIR/fm-branch-prompt.sh" > "$tmp" 2>/dev/null \
+  if ! bash "$SCRIPT_DIR/fm-branch-prompt.sh" > "$tmp" 2>/dev/null \
     || [ "$(wc -c < "$tmp" | tr -d ' ')" -lt 1024 ]; then
     rm -f "$tmp"
     return 1
@@ -1041,14 +1041,14 @@ handle_wake() {  # <reason-lines>
     return 0
   fi
   if [ "$GRANT_ACTIVE" -eq 0 ]; then
-    if ! "$SCRIPT_DIR/fm-wake-grant.sh" activate "$HOST_PID" "$GEN" >/dev/null 2>&1; then
+    if ! bash "$SCRIPT_DIR/fm-wake-grant.sh" activate "$HOST_PID" "$GEN" >/dev/null 2>&1; then
       HANDLE_WHY="the branch grant could not be activated"
       return 1
     fi
     GRANT_ACTIVE=1
   fi
   # shellcheck disable=SC2086 # rows is a space-separated list of sequence numbers.
-  "$SCRIPT_DIR/fm-wake-grant.sh" publish "$GEN" $rows >/dev/null 2>&1
+  bash "$SCRIPT_DIR/fm-wake-grant.sh" publish "$GEN" $rows >/dev/null 2>&1
   rc=$?
   case "$rc" in
     0) ;;
@@ -1056,12 +1056,12 @@ handle_wake() {  # <reason-lines>
     *) HANDLE_WHY="the branch grant could not be published"; return 1 ;;
   esac
   if ! host_still_owner; then
-    "$SCRIPT_DIR/fm-wake-grant.sh" release "$GEN" >/dev/null 2>&1 || true
+    bash "$SCRIPT_DIR/fm-wake-grant.sh" release "$GEN" >/dev/null 2>&1 || true
     HANDLE_WHY="this session no longer owns supervision"
     return 1
   fi
   if ! choose_conversation; then
-    "$SCRIPT_DIR/fm-wake-grant.sh" release "$GEN" >/dev/null 2>&1 || true
+    bash "$SCRIPT_DIR/fm-wake-grant.sh" release "$GEN" >/dev/null 2>&1 || true
     HANDLE_WHY="the branch prompt or engine conversation could not be prepared"
     return 1
   fi
@@ -1075,7 +1075,7 @@ handle_wake() {  # <reason-lines>
   if [ "$TURN_POSTURE" = away ]; then
     readback=$(mktemp "$STATE/.supervision-host-readback.XXXXXX") || readback=
     if [ -n "$readback" ]; then
-      FM_STATE_OVERRIDE="$STATE" "$SCRIPT_DIR/fm-afk-contract.sh" readback > "$readback" 2>/dev/null || : > "$readback"
+      FM_STATE_OVERRIDE="$STATE" bash "$SCRIPT_DIR/fm-afk-contract.sh" readback > "$readback" 2>/dev/null || : > "$readback"
     fi
   fi
   # The dialog mirror (bin/fm-host-mirror.sh) rides at the head of an
@@ -1085,9 +1085,9 @@ handle_wake() {  # <reason-lines>
   mirror=$MIRROR_FEED
   rm -f "$mirror"
   if [ "$TURN_POSTURE" = attended ] \
-    && ! (umask 077; exec "$SCRIPT_DIR/fm-host-mirror.sh" feed "$ENGINE_SESSION" "$ENGINE_MODE" > "$mirror" 2>/dev/null); then
+    && ! (umask 077; exec bash "$SCRIPT_DIR/fm-host-mirror.sh" feed "$ENGINE_SESSION" "$ENGINE_MODE" > "$mirror" 2>/dev/null); then
     rm -f "$TURN_FILE" "$mirror"
-    "$SCRIPT_DIR/fm-wake-grant.sh" release "$GEN" >/dev/null 2>&1 || true
+    bash "$SCRIPT_DIR/fm-wake-grant.sh" release "$GEN" >/dev/null 2>&1 || true
     HANDLE_WHY="the dialog mirror could not be read"
     return 1
   fi
@@ -1104,7 +1104,7 @@ handle_wake() {  # <reason-lines>
   if [ "$rc" -ne 0 ]; then
     [ -z "$readback" ] || rm -f "$readback"
     rm -f "$TURN_FILE" "$mirror"
-    "$SCRIPT_DIR/fm-wake-grant.sh" release "$GEN" >/dev/null 2>&1 || true
+    bash "$SCRIPT_DIR/fm-wake-grant.sh" release "$GEN" >/dev/null 2>&1 || true
     HANDLE_WHY="the wake prompt could not be rendered"
     [ "$rc" -ne 3 ] || HANDLE_WHY="the dialog mirror could not be read"
     return 1
@@ -1113,7 +1113,7 @@ handle_wake() {  # <reason-lines>
   rm -f "$mirror"
   if turn_crosses_boundary; then
     rm -f "$TURN_FILE"
-    "$SCRIPT_DIR/fm-wake-grant.sh" release "$GEN" >/dev/null 2>&1 || true
+    bash "$SCRIPT_DIR/fm-wake-grant.sh" release "$GEN" >/dev/null 2>&1 || true
     boundary_exit
   fi
   result=$(mktemp "$STATE/.supervision-host-result.XXXXXX") || result=/dev/null
@@ -1145,7 +1145,7 @@ handle_wake() {  # <reason-lines>
   # shellcheck disable=SC2086 # rows is a space-separated list of sequence numbers.
   unacked=$(fm_wake_rows_queued $rows) || unacked=$rows
   unacked=$(printf '%s\n' "$unacked" | awk 'NF { printf "%s%s", sep, $1; sep = " " }')
-  "$SCRIPT_DIR/fm-wake-grant.sh" release "$GEN" >/dev/null 2>&1 || true
+  bash "$SCRIPT_DIR/fm-wake-grant.sh" release "$GEN" >/dev/null 2>&1 || true
   rm -f "$TURN_FILE"
   receipts=$(awk -F '\t' -v turn="$turn" '$1 == turn { n++ } END { print n + 0 }' "$RECEIPTS" 2>/dev/null)
   usage=$(fm_supervision_engine_result "$FM_SUPERVISION_ENGINE" "$result" "${ENGINE_COST:-0}" 2>/dev/null || true)
@@ -1158,7 +1158,7 @@ handle_wake() {  # <reason-lines>
   if [ "$ENGINE_ERROR" -eq 0 ] && [ "${receipts:-0}" -gt 0 ] && [ -z "$unacked" ]; then
     write_engine_record $((ENGINE_TURNS + 1)) "$(printf '%s\n' "$usage" | sed -n 's/.* conversation_cost=\([^ ]*\).*/\1/p')" \
       || rm -f "$ENGINE_RECORD"
-    [ "$TURN_POSTURE" != attended ] || "$SCRIPT_DIR/fm-host-mirror.sh" commit >/dev/null 2>&1 || true
+    [ "$TURN_POSTURE" != attended ] || bash "$SCRIPT_DIR/fm-host-mirror.sh" commit >/dev/null 2>&1 || true
     [ "$errors" = /dev/null ] || rm -f "$errors"
     TURN_ERRORS=
     log_line "handled	turn=$turn	posture=$TURN_POSTURE	rc=$rc	reports=$receipts	$usage	$first"
@@ -1299,7 +1299,7 @@ while :; do
     exit_to_main "the successor watcher cycle could not be verified before handling; this wake is yours"
   fi
   if [ -n "$SUCCESSOR_GENERATION" ]; then
-    if ! "$SCRIPT_DIR/fm-watch-arm.sh" --handling-delivered "$SUCCESSOR_GENERATION" --watcher-pid "$SUCCESSOR_WATCHER" >/dev/null 2>&1; then
+    if ! bash "$SCRIPT_DIR/fm-watch-arm.sh" --handling-delivered "$SUCCESSOR_GENERATION" --watcher-pid "$SUCCESSOR_WATCHER" >/dev/null 2>&1; then
       exit_to_main "the handling handoff to the successor watcher could not be confirmed; this wake is yours"
     fi
   fi

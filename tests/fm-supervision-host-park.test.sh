@@ -461,11 +461,11 @@ test_first_cycle_status_streams_and_owner_options_reach_it() {
   [ "$(sed -n '1p' "$home/host.out" | cut -c1-17)" = 'watcher: started ' ] || fail "stream: the status line must come first"
   assert_re '^signal: .*demo.status' "$home/host.out" "stream: the close must follow the status line"
   # Main handles that close, so the next cycle has no episode to resurface.
-  FM_HOME="$home" "$ROOT/bin/fm-wake-drain.sh" >/dev/null 2> "$home/drain.err" || fail "stream: main's drain failed"
+  FM_HOME="$home" bash "$ROOT/bin/fm-wake-drain.sh" >/dev/null 2> "$home/drain.err" || fail "stream: main's drain failed"
   ack_drain_err "$home/state" "$home/drain.err" >/dev/null 2>&1 || fail "stream: main's acknowledgement failed: $(cat "$home/drain.err")"
   # Pass-through can leave a successor watcher running. Retire that cycle so
   # the orphan-arm fixture below owns the watcher we later ask --restart to replace.
-  FM_HOME="$home" "$ROOT/bin/fm-watch-arm.sh" --stop >/dev/null || fail "stream: could not stop the prior cycle"
+  FM_HOME="$home" bash "$ROOT/bin/fm-watch-arm.sh" --stop >/dev/null || fail "stream: could not stop the prior cycle"
 
   # A watcher a dead arm left behind, holding this home's watcher lock.
   FM_HOME="$home" PATH="$home/fakebin:$PATH" perl -e 'setpgrp(0, 0); exec @ARGV' "$ROOT/bin/fm-watch-arm.sh" \
@@ -552,7 +552,7 @@ test_unchanged_held_outcome_reaches_the_captain_once_until_a_new_event() {
   wait_until 250 captain_rows_at_least "$home" 2 \
     || fail "held: the new decision never reached the captain path: $(cat "$home/state/branch-outcomes.jsonl")"
   [ "$(captain_rows "$home")" -eq 2 ] || fail "held: the decision escalated $(captain_rows "$home") rows, not one"
-  [ "$(FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" list --recent 1 | sed -n 's/.*"task":"\([^"]*\)".*"verdict":"\([a-z]*\)".*/\1 \2/p')" = 'held captain' ] \
+  [ "$(FM_HOME="$home" bash "$ROOT/bin/fm-branch-outcome.sh" list --recent 1 | sed -n 's/.*"task":"\([^"]*\)".*"verdict":"\([a-z]*\)".*/\1 \2/p')" = 'held captain' ] \
     || fail "held: the decision was not recorded as a captain outcome for the held task: $(cat "$home/state/branch-outcomes.jsonl")"
   unset FM_FAKE_CREW_STATE_held FM_INACTIVE_CREW_STATE_BIN FM_INACTIVE_RECONCILE_SECS
   # Stop the host and its watcher here, so no cadence scan is still writing

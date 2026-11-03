@@ -112,7 +112,7 @@ run_send() { # <case-dir> <err-file> [env...] -- <fm-send args...>
   env PATH="$dir/fakebin:$PATH" \
     FM_ROOT_OVERRIDE="$dir/home" FM_HOME="$dir/home" FM_SEND_LOG="$dir/send.log" \
     FM_SEND_SETTLE=0 ${envs[@]+"${envs[@]}"} \
-    "$SEND" "$@" >/dev/null 2>"$err"
+    bash "$SEND" "$@" >/dev/null 2>"$err"
 }
 
 record_body() { # <record>
@@ -155,7 +155,7 @@ test_deep_home_doorbell_stays_short() {
   err="$deep/send.err"
   env PATH="$deep/fakebin:$PATH" \
     FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_SEND_LOG="$deep/send.log" \
-    FM_SEND_SETTLE=0 "$SEND" t1 "please continue" >/dev/null 2>"$err" ||
+    FM_SEND_SETTLE=0 bash "$SEND" t1 "please continue" >/dev/null 2>"$err" ||
     fail "the deep-home send failed: $(cat "$err")"
   [ -f "$home/state/t1.inbox/001.msg" ] || fail "the deep-home steer was not durably recorded"
   typed=$(cat "$deep/send.log")

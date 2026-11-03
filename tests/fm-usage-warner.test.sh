@@ -94,18 +94,18 @@ run_check() {
   local home=$1 fakebin=$2
   [ -e "$fakebin/osascript" ] || fake_osascript_recorder "$fakebin" /dev/null
   PATH="$fakebin:$PATH" FM_HOME="$home" QUOTA_AXI_ARGV_LOG="$fakebin/.argv-log" \
-    "$WARNER" check </dev/null
+    bash "$WARNER" check </dev/null
 }
 
 test_help_and_usage() {
   local out rc=0
-  out=$("$WARNER" --help 2>&1) || rc=$?
+  out=$(bash "$WARNER" --help 2>&1) || rc=$?
   expect_code 0 "$rc" "--help must exit 0"
   assert_contains "$out" "check" "--help lists the check action"
   assert_contains "$out" "arm" "--help lists the arm action"
   assert_contains "$out" "disarm" "--help lists the disarm action"
   rc=0
-  out=$("$WARNER" bogus 2>&1) || rc=$?
+  out=$(bash "$WARNER" bogus 2>&1) || rc=$?
   expect_code 2 "$rc" "unknown action must exit 2"
   assert_contains "$out" "unknown action" "unknown action is refused loudly"
   pass "fm-usage-warner: help and usage plumbing"
@@ -336,9 +336,9 @@ test_quota_axi_missing_is_reported_once() {
   home=$(make_home no-quota-axi)
   fakebin=$(fm_test_base_path_sans "$BASE_PATH" quota-axi)
   printf 'five_hour:80\n' > "$home/config/usage-warner"
-  out1=$(FM_HOME="$home" PATH="$fakebin" "$WARNER" check </dev/null 2>&1)
+  out1=$(FM_HOME="$home" PATH="$fakebin" bash "$WARNER" check </dev/null 2>&1)
   assert_contains "$out1" "quota-axi is not installed" "a missing quota-axi is reported by name"
-  out2=$(FM_HOME="$home" PATH="$fakebin" "$WARNER" check </dev/null 2>&1)
+  out2=$(FM_HOME="$home" PATH="$fakebin" bash "$WARNER" check </dev/null 2>&1)
   [ -z "$out2" ] || fail "a repeated identical failure must stay silent: $out2"
   pass "fm-usage-warner: a missing quota-axi is reported once until it changes"
 }
@@ -350,7 +350,7 @@ test_jq_missing_is_reported() {
   local qfake="$TMP_ROOT/no-jq/qbin"
   fake_quota_axi "$qfake" '{"id":"five_hour","percentUsed":10}'
   printf 'five_hour:80\n' > "$home/config/usage-warner"
-  out=$(FM_HOME="$home" PATH="$qfake:$fakebin" "$WARNER" check </dev/null 2>&1)
+  out=$(FM_HOME="$home" PATH="$qfake:$fakebin" bash "$WARNER" check </dev/null 2>&1)
   assert_contains "$out" "jq is not installed" "a missing jq is reported by name"
   pass "fm-usage-warner: a missing jq is reported by name"
 }
@@ -399,7 +399,7 @@ EOF
   chmod +x "$fakebin/quota-axi"
   printf 'five_hour:80\n' > "$home/config/usage-warner"
   start=$(date +%s)
-  out=$(FM_CHECK_TIMEOUT=6 PATH="$fakebin:$PATH" FM_HOME="$home" "$WARNER" check </dev/null 2>&1)
+  out=$(FM_CHECK_TIMEOUT=6 PATH="$fakebin:$PATH" FM_HOME="$home" bash "$WARNER" check </dev/null 2>&1)
   elapsed=$(( $(date +%s) - start ))
   [ "$elapsed" -lt 6 ] || fail "the read must end inside a lowered watcher bound, took ${elapsed}s"
   assert_contains "$out" "did not finish within the 3s budget" "the read bound is cut to fit FM_CHECK_TIMEOUT"
@@ -418,7 +418,7 @@ EOF
   chmod +x "$fakebin/quota-axi"
   printf 'five_hour:80\n' > "$home/config/usage-warner"
   start=$(date +%s)
-  out=$(FM_CHECK_TIMEOUT=2 PATH="$fakebin:$PATH" FM_HOME="$home" "$WARNER" check </dev/null 2>&1) || rc=$?
+  out=$(FM_CHECK_TIMEOUT=2 PATH="$fakebin:$PATH" FM_HOME="$home" bash "$WARNER" check </dev/null 2>&1) || rc=$?
   elapsed=$(( $(date +%s) - start ))
   expect_code 0 "$rc" "a watcher bound too small for a read must not fail the check"
   [ "$elapsed" -lt 2 ] || fail "a skipped read must return inside the watcher bound, took ${elapsed}s"
@@ -430,11 +430,11 @@ EOF
 test_unconfigured_invocation_ignores_unused_environment() {
   local home out rc=0
   home=$(make_home unused-env)
-  out=$(FM_USAGE_WARNER_TIMEOUT_SECS=0 FM_CHECK_TIMEOUT=bogus FM_HOME="$home" "$WARNER" check </dev/null 2>&1) || rc=$?
+  out=$(FM_USAGE_WARNER_TIMEOUT_SECS=0 FM_CHECK_TIMEOUT=bogus FM_HOME="$home" bash "$WARNER" check </dev/null 2>&1) || rc=$?
   expect_code 0 "$rc" "an unconfigured check must not fail on environment it does not use"
   [ -z "$out" ] || fail "an unconfigured check must stay silent whatever the environment: $out"
   rc=0
-  out=$(FM_USAGE_WARNER_TIMEOUT_SECS=0 FM_CHECK_TIMEOUT=bogus "$WARNER" --help 2>&1) || rc=$?
+  out=$(FM_USAGE_WARNER_TIMEOUT_SECS=0 FM_CHECK_TIMEOUT=bogus bash "$WARNER" --help 2>&1) || rc=$?
   expect_code 0 "$rc" "--help must not fail on environment it does not use"
   pass "fm-usage-warner: an unconfigured invocation never fails on unused environment"
 }
@@ -442,7 +442,7 @@ test_unconfigured_invocation_ignores_unused_environment() {
 test_arm_refuses_without_a_configured_threshold() {
   local home out rc=0
   home=$(make_home arm-unconfigured)
-  out=$(PATH="$DARWIN_BIN:$PATH" FM_HOME="$home" "$WARNER" arm 2>&1) || rc=$?
+  out=$(PATH="$DARWIN_BIN:$PATH" FM_HOME="$home" bash "$WARNER" arm 2>&1) || rc=$?
   expect_code 1 "$rc" "arm without a threshold must fail"
   assert_contains "$out" "no threshold configured" "arm names the reason it refused"
   assert_absent "$home/state/usage-warner.check.sh" "a refused arm must not leave a shim behind"
@@ -457,7 +457,7 @@ test_arm_refuses_on_a_non_macos_platform() {
   mkdir -p "$TMP_ROOT/arm-linux/unamebin"
   printf '#!/bin/sh\necho Linux\n' > "$TMP_ROOT/arm-linux/unamebin/uname"
   chmod +x "$TMP_ROOT/arm-linux/unamebin/uname"
-  out=$(FM_HOME="$home" PATH="$TMP_ROOT/arm-linux/unamebin:$fakebin" "$WARNER" arm 2>&1) || rc=$?
+  out=$(FM_HOME="$home" PATH="$TMP_ROOT/arm-linux/unamebin:$fakebin" bash "$WARNER" arm 2>&1) || rc=$?
   expect_code 1 "$rc" "arm on a non-macOS platform must fail"
   assert_contains "$out" "only available on macOS" "arm names why it refused on a non-macOS platform"
   pass "fm-usage-warner: arm refuses on a platform with no Notification Center path"
@@ -467,14 +467,14 @@ test_arm_writes_and_binds_the_check_and_disarm_removes_it() {
   local home out
   home=$(make_home arm-ok)
   printf 'five_hour:80\n' > "$home/config/usage-warner"
-  out=$(FM_HOME="$home" "$WARNER" arm 2>&1) || fail "arm must succeed: $out"
+  out=$(FM_HOME="$home" bash "$WARNER" arm 2>&1) || fail "arm must succeed: $out"
   assert_contains "$out" "armed: state/usage-warner.check.sh" "arm names the shim it wrote"
   assert_present "$home/state/usage-warner.check.sh" "arm writes the check shim"
   assert_present "$home/state/usage-warner.check-trust" "arm registers a trust binding"
   [ "$(stat -c %a "$home/state/usage-warner.check.sh" 2>/dev/null || stat -f %Lp "$home/state/usage-warner.check.sh")" = 700 ] \
     || fail "the shim must be mode 700"
 
-  out=$(FM_HOME="$home" "$WARNER" disarm 2>&1)
+  out=$(FM_HOME="$home" bash "$WARNER" disarm 2>&1)
   assert_contains "$out" "disarmed: state/usage-warner.check.sh" "disarm names the shim it removed"
   assert_absent "$home/state/usage-warner.check.sh" "disarm removes the shim"
   assert_absent "$home/state/usage-warner.check-trust" "disarm removes the trust binding"
@@ -490,7 +490,7 @@ test_arm_refuses_a_symlink_at_the_shim_path() {
   mkdir -p "$(dirname "$target")"
   printf '#!/usr/bin/env bash\n' > "$target"
   ln -s "$target" "$home/state/usage-warner.check.sh"
-  out=$(FM_HOME="$home" "$WARNER" arm 2>&1) || rc=$?
+  out=$(FM_HOME="$home" bash "$WARNER" arm 2>&1) || rc=$?
   expect_code 1 "$rc" "arm must refuse a symlink at the shim path"
   assert_contains "$out" "could not write" "arm reports the shim write failure"
   assert_absent "$home/state/usage-warner.check-trust" "no trust binding is left behind by a refused arm"
@@ -507,7 +507,7 @@ test_armed_shim_runs_a_real_check() {
   fake_osascript_recorder "$fakebin" "$notify_log"
   fake_quota_axi "$fakebin" '{"id":"five_hour","percentUsed":92}'
   printf 'five_hour:80\n' > "$home/config/usage-warner"
-  FM_HOME="$home" "$WARNER" arm >/dev/null 2>&1 || fail "arm must succeed"
+  FM_HOME="$home" bash "$WARNER" arm >/dev/null 2>&1 || fail "arm must succeed"
   out=$(PATH="$fakebin:$PATH" "$home/state/usage-warner.check.sh" </dev/null)
   assert_contains "$out" "five_hour at 92%" "the armed shim, run the way the watcher runs it, performs a real check"
   pass "fm-usage-warner: the armed shim is exactly what the watcher would dispatch"

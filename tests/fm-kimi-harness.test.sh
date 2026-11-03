@@ -329,7 +329,7 @@ run_spawn() {
     FM_FAKE_BRIEF_REAL="$(cd "$home/data/$id" && pwd -P)/launch-brief.md" \
     FM_KIMI_READY_POLLS="${FM_KIMI_READY_POLLS:-2}" FM_KIMI_DELIVERY_POLLS=2 FM_KIMI_POLL_INTERVAL=0 \
     PATH="$fakebin:$BASE_PATH" \
-    "$SPAWN" "$id" "$proj" --harness kimi --mode no-mistakes --yolo off "$@" 2>&1
+    bash "$SPAWN" "$id" "$proj" --harness kimi --mode no-mistakes --yolo off "$@" 2>&1
 }
 
 read_spawn_record() {
@@ -519,14 +519,14 @@ model = "some/model"
 EOF
   cp "$config" "$original"
 
-  HOME="$home" "$KIMI_HOOK" install || fail "Kimi hook install refused a realistic config"
+  HOME="$home" bash "$KIMI_HOOK" install || fail "Kimi hook install refused a realistic config"
   cp "$config" "$once"
-  HOME="$home" "$KIMI_HOOK" install || fail "second Kimi hook install failed"
+  HOME="$home" bash "$KIMI_HOOK" install || fail "second Kimi hook install failed"
   cmp -s "$once" "$config" || fail "second Kimi hook install changed config bytes"
   count=$(grep -c '^# BEGIN FIRSTMATE KIMI TURN-END HOOK' "$config")
   [ "$count" -eq 1 ] || fail "idempotent install left $count Firstmate regions"
 
-  HOME="$home" "$KIMI_HOOK" remove || fail "Kimi hook removal failed"
+  HOME="$home" bash "$KIMI_HOOK" remove || fail "Kimi hook removal failed"
   cp "$config" "$stripped"
   cmp -s "$original" "$stripped" \
     || fail "config with the Firstmate region excised was not byte-identical to the original"
@@ -546,15 +546,15 @@ test_kimi_hook_remove_preserves_owned_newline_boundary() {
   printf 'default_model = "test"' > "$config"
   cp "$config" "$original"
 
-  HOME="$home" "$KIMI_HOOK" install || fail "Kimi hook install refused config without a final newline"
-  HOME="$home" "$KIMI_HOOK" remove || fail "Kimi hook removal failed without appended config"
+  HOME="$home" bash "$KIMI_HOOK" install || fail "Kimi hook install refused config without a final newline"
+  HOME="$home" bash "$KIMI_HOOK" remove || fail "Kimi hook removal failed without appended config"
   cmp -s "$original" "$config" \
     || fail "pristine removal did not restore the absent final newline byte-identically"
 
-  HOME="$home" "$KIMI_HOOK" install || fail "second Kimi hook install refused config without a final newline"
+  HOME="$home" bash "$KIMI_HOOK" install || fail "second Kimi hook install refused config without a final newline"
   printf '[captain]\nenabled = true\n' > "$appended"
   cat "$appended" >> "$config"
-  HOME="$home" "$KIMI_HOOK" remove || fail "Kimi hook removal joined config appended after its region"
+  HOME="$home" bash "$KIMI_HOOK" remove || fail "Kimi hook removal joined config appended after its region"
   {
     cat "$original"
     printf '\n'
@@ -580,7 +580,7 @@ test_kimi_hook_fails_closed_on_missing_malformed_or_partial_config() {
   mkdir -p "$missing/.kimi-code" "$malformed/.kimi-code" "$partial/.kimi-code"
 
   rc=0
-  out=$(HOME="$missing" "$KIMI_HOOK" install 2>&1) || rc=$?
+  out=$(HOME="$missing" bash "$KIMI_HOOK" install 2>&1) || rc=$?
   [ "$rc" -ne 0 ] || fail "missing Kimi config was accepted"
   assert_contains "$out" "Kimi config is missing" "missing config refusal lacked its concrete reason"
   assert_absent "$missing/.kimi-code/fm-turn-end.sh" "missing config refusal wrote the hook script"
@@ -588,7 +588,7 @@ test_kimi_hook_fails_closed_on_missing_malformed_or_partial_config() {
   printf '[broken\n' > "$malformed/.kimi-code/config.toml"
   cp "$malformed/.kimi-code/config.toml" "$malformed/before"
   rc=0
-  out=$(HOME="$malformed" "$KIMI_HOOK" install 2>&1) || rc=$?
+  out=$(HOME="$malformed" bash "$KIMI_HOOK" install 2>&1) || rc=$?
   [ "$rc" -ne 0 ] || fail "malformed Kimi config was accepted"
   assert_contains "$out" "malformed TOML" "malformed config refusal lacked its concrete reason"
   cmp -s "$malformed/before" "$malformed/.kimi-code/config.toml" \
@@ -598,7 +598,7 @@ test_kimi_hook_fails_closed_on_missing_malformed_or_partial_config() {
   printf '# BEGIN FIRSTMATE KIMI TURN-END HOOK\n' > "$partial/.kimi-code/config.toml"
   cp "$partial/.kimi-code/config.toml" "$partial/before"
   rc=0
-  out=$(HOME="$partial" "$KIMI_HOOK" install 2>&1) || rc=$?
+  out=$(HOME="$partial" bash "$KIMI_HOOK" install 2>&1) || rc=$?
   [ "$rc" -ne 0 ] || fail "partial Firstmate marker was accepted"
   assert_contains "$out" "partial, duplicated, or altered" "partial marker refusal lacked its concrete reason"
   cmp -s "$partial/before" "$partial/.kimi-code/config.toml" \
@@ -619,7 +619,7 @@ test_kimi_hook_install_refuses_without_jq() {
   ln -s "$(command -v python3)" "$fakebin/python3"
 
   rc=0
-  out=$(HOME="$home" PATH="$fakebin" "$KIMI_HOOK" install 2>&1) || rc=$?
+  out=$(HOME="$home" PATH="$fakebin" bash "$KIMI_HOOK" install 2>&1) || rc=$?
   [ "$rc" -ne 0 ] || fail "Kimi hook install succeeded without jq"
   assert_contains "$out" "jq is required" "missing-jq refusal did not name jq"
   cmp -s "$before" "$config" || fail "missing-jq refusal changed config bytes"
@@ -705,7 +705,7 @@ test_kimi_teardown_removes_pointer_and_registry_token() {
     FM_STATE_OVERRIDE="$HOME_DIR/state" FM_DATA_OVERRIDE="$HOME_DIR/data" \
     FM_PROJECTS_OVERRIDE="$HOME_DIR/projects" FM_CONFIG_OVERRIDE="$HOME_DIR/config" \
     FM_SPAWN_NO_GUARD=1 PATH="$FAKEBIN_DIR:$BASE_PATH" \
-    "$TEARDOWN" "$id" --force >/dev/null 2>&1 || fail "Kimi teardown failed"
+    bash "$TEARDOWN" "$id" --force >/dev/null 2>&1 || fail "Kimi teardown failed"
   assert_absent "$WT_DIR/.fm-kimi-turnend" "Kimi token pointer survived teardown"
   assert_absent "$HOME_DIR/.kimi-code/fm-turn-end.d/$token" "Kimi registry token survived teardown"
   assert_absent "$HOME_DIR/state/$id.kimi-turnend-token" "Kimi token state survived teardown"
@@ -1046,13 +1046,13 @@ SH
 
   out=$(env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
     -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI \
-    PATH="$fakebin:$BASE_PATH" FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh")
+    PATH="$fakebin:$BASE_PATH" FM_CONFIG_OVERRIDE="$cfg" bash "$ROOT/bin/fm-harness.sh")
   [ "$out" = kimi ] || fail "kimi ancestry detection returned '$out'"
   # Kimi publishes no identity marker, so an inherited CLAUDECODE used to rename
   # it outright. A structural kimi ancestor now outranks that marker;
   # tests/fm-harness-precedence.test.sh owns the general boundary.
   out=$(env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI \
-    CLAUDECODE=1 PATH="$fakebin:$BASE_PATH" FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh")
+    CLAUDECODE=1 PATH="$fakebin:$BASE_PATH" FM_CONFIG_OVERRIDE="$cfg" bash "$ROOT/bin/fm-harness.sh")
   [ "$out" = kimi ] || fail "an inherited CLAUDECODE renamed markerless kimi, got '$out'"
   pass "fm-harness: markerless kimi keeps its ancestry identity under an inherited marker"
 }
@@ -1072,13 +1072,13 @@ exit 1
 SH
   chmod +x "$fakebin/ps"
 
-  FM_HOME="$home" PATH="$fakebin:$BASE_PATH" "$ROOT/bin/fm-lock.sh" \
+  FM_HOME="$home" PATH="$fakebin:$BASE_PATH" bash "$ROOT/bin/fm-lock.sh" \
     || fail "fm-lock did not acquire from Kimi ancestry"
   case "$(cat "$home/state/.lock")" in
     ''|*[!0-9]*) fail "fm-lock did not record the Kimi harness ancestor" ;;
   esac
   printf '%s\n' "$$" > "$home/state/.lock"
-  out=$(FM_HOME="$home" PATH="$fakebin:$BASE_PATH" "$ROOT/bin/fm-lock.sh" status)
+  out=$(FM_HOME="$home" PATH="$fakebin:$BASE_PATH" bash "$ROOT/bin/fm-lock.sh" status)
   assert_contains "$out" "lock: held by live harness pid" \
     "fm-lock did not recognize Kimi as a live holder"
   pass "fm-lock recognizes Kimi ancestry and live lock holders"

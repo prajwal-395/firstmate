@@ -109,7 +109,7 @@ under_fake_ps() {  # <fakebin> <VAR=VAL ...> -- [harness args]
   [ "${1:-}" = -- ] && shift
   env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
     -u CURSOR_AGENT -u CURSOR_INVOKED_AS "${assignments[@]}" \
-    PATH="$fakebin:$BASE_PATH" "$HARNESS" "$@"
+    PATH="$fakebin:$BASE_PATH" bash "$HARNESS" "$@"
 }
 
 with_blind_ancestry() {  # <fakebin> [VAR=VAL ...]
@@ -117,7 +117,7 @@ with_blind_ancestry() {  # <fakebin> [VAR=VAL ...]
   shift
   env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
     -u CURSOR_AGENT -u CURSOR_INVOKED_AS "$@" \
-    PATH="$fakebin:$BASE_PATH" "$HARNESS"
+    PATH="$fakebin:$BASE_PATH" bash "$HARNESS"
 }
 
 named_bin() {  # <dir> <name>
@@ -415,11 +415,11 @@ SH
 
   # Non-vacuity: the top-of-session vantage really is limited to args strength
   # here, which is the whole reason the descent probe has something to add.
-  got=$("$HARNESS" ancestry "$shim_pid")
+  got=$(bash "$HARNESS" ancestry "$shim_pid")
   [ "$got" = "args codex" ] \
     || fail "the shim's own vantage should see only 'args codex', got '$got'; the descent case proves nothing if the top of the session already reaches comm strength"
 
-  got=$("$HARNESS" ancestry-descent "$shim_pid")
+  got=$(bash "$HARNESS" ancestry-descent "$shim_pid")
   case "$got" in
     *"comm codex"*) ;;
     *) fail "the descent probe did not reach the native child at comm strength, got '$got'" ;;
@@ -515,11 +515,11 @@ SH
 
   # Non-vacuity: the sibling really does answer a foreign harness when asked, so a
   # probe that reported every descendant would have reported claude here.
-  got=$("$HARNESS" ancestry "$mcp_pid")
+  got=$(bash "$HARNESS" ancestry "$mcp_pid")
   [ "$got" = "args claude" ] \
     || { release_sibling_fixture; fail "the sibling MCP process reported '$got', expected 'args claude'; this case proves nothing unless that branch really names a foreign harness"; }
 
-  got=$("$HARNESS" ancestry-descent "$shim_pid")
+  got=$(bash "$HARNESS" ancestry-descent "$shim_pid")
   case "$got" in
     *"comm codex"*) ;;
     *) release_sibling_fixture; fail "the descent probe did not reach the native child at comm strength, got '$got'" ;;
@@ -603,11 +603,11 @@ SH
     || { release_deep_mcp_fixture; fail "the deep MCP fixture never reached its server process"; }
   mcp_pid=$(cat "$dir/mcp.pid")
 
-  got=$("$HARNESS" ancestry "$mcp_pid")
+  got=$(bash "$HARNESS" ancestry "$mcp_pid")
   [ "$got" = "args claude" ] \
     || { release_deep_mcp_fixture; fail "the MCP server reported '$got', expected 'args claude'; this case proves nothing unless the deepest vantage really answers a foreign harness"; }
 
-  got=$("$HARNESS" ancestry-descent "$shim_pid")
+  got=$(bash "$HARNESS" ancestry-descent "$shim_pid")
   case "$got" in
     *"args claude"*) ;;
     *) release_deep_mcp_fixture; fail "the descent path did not include the MCP server's foreign args verdict, got '$got'; a cross-check restricted to comm strength is untested unless that vantage is on the path" ;;
@@ -695,14 +695,14 @@ SH
     { [ -e "$ready" ] && [ -n "$mcp_pid" ] && [ -n "$native_pid" ]; } \
       || { release_equal_depth_fixture; fail "the $order equal-depth fixture never reached both leaves"; }
 
-    got=$("$HARNESS" ancestry "$mcp_pid")
+    got=$(bash "$HARNESS" ancestry "$mcp_pid")
     [ "$got" = "args claude" ] \
       || { release_equal_depth_fixture; fail "the $order MCP leaf reported '$got', expected 'args claude'"; }
-    got=$("$HARNESS" ancestry "$native_pid")
+    got=$(bash "$HARNESS" ancestry "$native_pid")
     [ "$got" = "comm codex" ] \
       || { release_equal_depth_fixture; fail "the $order native leaf reported '$got', expected 'comm codex'"; }
 
-    got=$("$HARNESS" ancestry-descent "$shim_pid" "$mcp_pid" "$native_pid")
+    got=$(bash "$HARNESS" ancestry-descent "$shim_pid" "$mcp_pid" "$native_pid")
     case "$got" in
       "comm codex"*) ;;
       *) release_equal_depth_fixture; fail "the $order equal-depth tie did not choose the comm-strength native leaf, got '$got'" ;;
@@ -810,7 +810,7 @@ test_supervision_protocol_follows_corrected_verdict() {
 
   got=$(env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
     -u CURSOR_AGENT -u CURSOR_INVOKED_AS CLAUDECODE=1 FM_HOME="$home" \
-    PATH="$fakebin:$BASE_PATH" "$RENDER")
+    PATH="$fakebin:$BASE_PATH" bash "$RENDER")
   assert_contains "$got" "primary harness: claude" \
     "with ancestry blinded, the retained marker must still render claude (the case is otherwise vacuous)"
 
