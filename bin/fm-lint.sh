@@ -40,6 +40,9 @@
 # backend-purity check. The backend-purity check rejects direct Beads CLI
 # invocations in the core bin/ and bin/backends/ scripts so every configured
 # backlog backend follows the same tasks-axi lifecycle path.
+# Every mode also runs bin/fm-lint-script-exec.sh, which rejects a firstmate
+# script running another firstmate script by path instead of through bash;
+# explicit paths limit it to the given bin/, bin/backends/, and tests/ files.
 #
 # Canonical lint defaults to two bounded workers over two stable logical shards.
 # Each worker runs ShellCheck one file at a time to bound peak RSS to the worst
@@ -440,7 +443,30 @@ fm_lint_usage() {
 # ShellCheck-only override so callers can target one shell root.
 fm_lint_run_workflows() {
   [ "$EXPLICIT_PATHS" -eq 0 ] || return 0
-  "$SELF_DIR/fm-lint-workflows.sh"
+  bash "$SELF_DIR/fm-lint-workflows.sh"
+}
+
+# Firstmate scripts call sibling scripts through an explicit interpreter;
+# bin/fm-lint-script-exec.sh owns that rule, its allowlist, and its file set.
+fm_lint_run_script_exec() {
+  local path canonical owner="$SELF_DIR/fm-lint-script-exec.sh"
+  local -a exec_roots
+  exec_roots=()
+  if [ "$EXPLICIT_PATHS" -eq 1 ]; then
+    for path in "${ROOTS[@]}"; do
+      [ -f "$path" ] || continue
+      canonical=$(cd "$(dirname "$path")" 2>/dev/null && printf '%s/%s' "$(pwd -P)" "$(basename "$path")") || continue
+      case "$canonical" in
+        "$ROOT"/bin/*.sh|"$ROOT"/bin/backends/*.sh|"$ROOT"/tests/*.sh) exec_roots+=("$canonical") ;;
+      esac
+    done
+    [ "${#exec_roots[@]}" -gt 0 ] || return 0
+  fi
+  if [ ! -f "$owner" ]; then
+    printf 'fm-lint.sh: %s is missing; cannot check sibling-script execs.\n' "$owner" >&2
+    return 2
+  fi
+  bash "$owner" ${exec_roots[@]+"${exec_roots[@]}"}
 }
 
 # Backend adapters belong behind tasks-axi. Keep direct Beads CLI invocations
@@ -939,6 +965,7 @@ if [ "$CHANGED_MODE" -eq 1 ] && [ "$ROOT_COUNT" -eq 0 ]; then
   printf 'fm-lint.sh: no changed lint targets\n'
   overall_rc=0
   fm_lint_run_backend_purity || overall_rc=$?
+  fm_lint_run_script_exec || overall_rc=$?
   fm_lint_run_workflows || overall_rc=$?
   exit "$overall_rc"
 fi
@@ -1275,6 +1302,7 @@ fi
 
 purity_rc=0
 fm_lint_run_backend_purity || purity_rc=$?
+fm_lint_run_script_exec || purity_rc=$?
 if [ "$overall_rc" -eq 0 ] && [ "$purity_rc" -ne 0 ]; then
   overall_rc=$purity_rc
 fi

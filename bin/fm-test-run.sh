@@ -434,6 +434,7 @@ fm-kimi-trust-prompt-live-e2e.test.sh live-harness-optin
 fm-kiro-harness.test.sh pure-contract-unit
 fm-kiro-signals-live-e2e.test.sh live-harness-optin
 fm-lane-wrappers.test.sh standalone
+fm-lint-script-exec.test.sh pure-contract-unit
 fm-lint-workflows.test.sh pure-contract-unit
 fm-lint.test.sh pure-contract-unit
 fm-live-gate.test.sh standalone
@@ -983,6 +984,7 @@ tests/fm-kiro-harness.test.sh 16782
 tests/fm-kiro-signals-live-e2e.test.sh 317
 tests/fm-lane-wrappers.test.sh 119
 tests/fm-launch-prompt-signals-live-e2e.test.sh 50
+tests/fm-lint-script-exec.test.sh 560
 tests/fm-lint-workflows.test.sh 851
 tests/fm-live-gate.test.sh 2642
 tests/fm-live-lab-up-mate.test.sh 17363
@@ -1536,7 +1538,7 @@ run_coverage_guard() {
   fi
 
   if [ -x "$ROOT/bin/fm-test-isolation-proof.sh" ]; then
-    "$ROOT/bin/fm-test-isolation-proof.sh" --list | LC_ALL=C sort -u >"$tmp/proof_list"
+    bash "$ROOT/bin/fm-test-isolation-proof.sh" --list | LC_ALL=C sort -u >"$tmp/proof_list"
     if ! cmp -s "$tmp/proven" "$tmp/proof_list"; then
       log "coverage guard: embedded proven-isolated set diverges from bin/fm-test-isolation-proof.sh --list"
       LC_ALL=C comm -3 "$tmp/proven" "$tmp/proof_list" >&2 || true
@@ -2124,7 +2126,7 @@ families_for_changed_path() {
       # lane's contract coverage re-runs.
       printf '%s\n' real-herdr-gated
       ;;
-    bin/fm-lint.sh|bin/fm-lint-workflows.sh|bin/fm-install-shellcheck.sh|\
+    bin/fm-lint.sh|bin/fm-lint-workflows.sh|bin/fm-lint-script-exec.sh|bin/fm-install-shellcheck.sh|\
     bin/fm-install-actionlint.sh|\
     bin/fm-brief.sh|bin/fm-ensure-agents-md.sh|bin/fm-crew-state.sh|\
     bin/fm-captain-hold.sh|bin/fm-hold-reason-lib.sh|bin/fm-decision-hold.sh|bin/fm-supervision*|bin/fm-transition-lib.sh|\
