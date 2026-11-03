@@ -1614,6 +1614,39 @@ assert_grep 'backend=rex' "$remote_route_meta" "recovery rewrote the remote endp
   || fail "the relaunched rex endpoint did not read alive"
 pass "liveness recovery relaunches a remote rex secondmate on rex"
 
+# Recovery keeps the recorded profile: this home's config/secondmate-harness is
+# its default for a NEW mate, and the far host may not even have that runtime.
+# A dead remote mate must come back on the harness, model, and effort its own
+# record names, never on whatever the primary's file currently says.
+cp "$PARENT/config/secondmate-harness" "$TMP_ROOT/secondmate-harness.before-profile"
+printf 'claude claude-opus-5-5 medium\n' > "$PARENT/config/secondmate-harness"
+profile_harness_before=$(sed -n 's/^harness=//p' "$PARENT/state/ios.meta" | tail -1)
+profile_model_before=$(sed -n 's/^model=//p' "$PARENT/state/ios.meta" | tail -1)
+profile_effort_before=$(sed -n 's/^effort=//p' "$PARENT/state/ios.meta" | tail -1)
+[ -n "$profile_harness_before" ] && [ "$profile_harness_before" != claude ] \
+  || fail "test setup drifted: the recorded harness must differ from the primary's secondmate default"
+profile_target_before=$(sed -n 's/^remote_target=//p' "$PARENT/state/ios.meta" | tail -1)
+rm -f "$REX_FAKE/agent-blocks"
+[ "$(remote_env "$ROOT/bin/fm-on.sh" ios fm-remote-secondmate-control.sh state ios)" = dead ] \
+  || fail "the exited agent was not projected dead before the profile recovery"
+BOOT_PROFILE=$(FM_BOOTSTRAP_VERBOSE_FACTS=1 remote_env "$ROOT/bin/fm-bootstrap.sh")
+mv -f "$TMP_ROOT/secondmate-harness.before-profile" "$PARENT/config/secondmate-harness"
+assert_contains "$BOOT_PROFILE" 'secondmate ios relaunched after remote endpoint dead' \
+  "the dead secondmate was not relaunched for the profile check: $BOOT_PROFILE"
+[ "$(sed -n 's/^remote_target=//p' "$PARENT/state/ios.meta" | tail -1)" != "$profile_target_before" ] \
+  || fail "recovery did not record a fresh endpoint for the profile check"
+assert_grep "harness=$profile_harness_before" "$PARENT/state/ios.meta" \
+  "recovery moved the secondmate off its recorded harness"
+assert_no_grep 'harness=claude' "$PARENT/state/ios.meta" \
+  "recovery adopted the primary's config/secondmate-harness over the record"
+assert_grep "harness=$profile_harness_before" "$remote_route_meta" \
+  "the remote endpoint was relaunched on a different harness than the record"
+[ "$(sed -n 's/^model=//p' "$PARENT/state/ios.meta" | tail -1)" = "$profile_model_before" ] \
+  || fail "recovery changed the recorded model"
+[ "$(sed -n 's/^effort=//p' "$PARENT/state/ios.meta" | tail -1)" = "$profile_effort_before" ] \
+  || fail "recovery changed the recorded effort"
+pass "liveness recovery relaunches a remote secondmate on its recorded profile, not the primary's default"
+
 # A stopped remote rex server stays stopped under every control-plane probe:
 # Rex starts a missing server as exit-empty, which remote readiness refuses and
 # cannot repair while it answers. Once a persistent server is started, the

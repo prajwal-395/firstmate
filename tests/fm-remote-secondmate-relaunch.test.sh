@@ -83,11 +83,13 @@ case "$FM_FAKE_RELAUNCH_MODE" in
     effort=medium
     ;;
 esac
-printf 'relaunched %s harness=%s from=pi model=%s effort=%s backend=herdr endpoint=fm-remote:w1:p1 worktree=/srv/fm-home\n' \
-  "$id" "$harness" "$model" "$effort"
+target=fm-remote:w1:p1
+[ "$FM_FAKE_RELAUNCH_MODE" != moved ] || target=fm-remote:w2:p1
+printf 'relaunched %s harness=%s from=pi model=%s effort=%s backend=herdr endpoint=%s worktree=/srv/fm-home\n' \
+  "$id" "$harness" "$model" "$effort" "$target"
 printf 'schema=fm-remote-secondmate-control.v1\n'
 printf 'backend=herdr\n'
-printf 'target=fm-remote:w1:p1\n'
+printf 'target=%s\n' "$target"
 printf 'herdr_session=fm-remote\n'
 printf 'harness=%s\n' "$harness"
 printf 'model=%s\n' "$model"
@@ -136,6 +138,21 @@ assert_grep 'model=claude-opus-5-5' "$HOME_DIR/state/ios.meta" \
 assert_no_grep 'harness=default' "$HOME_DIR/state/ios.meta" \
   "the parent record must not keep the unresolved request"
 pass "a remote relaunch records the identity the host confirmed"
+
+# --- a relaunch that moved the endpoint republishes its new target ---------
+# The host-local relaunch can open the replacement agent in a new workspace;
+# the parent must follow the confirmed target= rather than keep naming the
+# closed one, or every later read and steer goes to a dead endpoint.
+reset_meta
+FM_FAKE_RELAUNCH_MODE=moved
+OUT=$(run_relaunch ios opencode default default); RC=$?
+unset FM_FAKE_RELAUNCH_MODE
+expect_code 0 "$RC" "a relaunch onto a new endpoint should succeed"$'\n'"$OUT"
+assert_grep 'remote_target=fm-remote:w2:p1' "$HOME_DIR/state/ios.meta" \
+  "the parent record did not follow the confirmed endpoint target"
+assert_no_grep 'remote_target=fm-remote:w1:p1' "$HOME_DIR/state/ios.meta" \
+  "the parent record still names the closed endpoint"
+pass "a remote relaunch republishes the endpoint target the host confirmed"
 
 # --- a refused relaunch leaves the parent's record untouched -----------------
 reset_meta
